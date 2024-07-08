@@ -13,103 +13,101 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
+import random
+import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import pytest
 
 from otaclient.app.update_stats import (
+    OperationRecord,
     OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
+    ProcessOperation,
 )
 
 logger = logging.getLogger(__name__)
 
+PREPARE_LOCAL_COPY_TASKS = 20
+DOWNLOAD_REMOTE_COPY_TASKS = 20
+APPLY_DELTA_TASKS = 20
+
 
 class TestOTAUpdateStatsCollector:
-    WORKLOAD_COUNT = 3000
-    TOTAL_SIZE = WORKLOAD_COUNT * 2
-    TOTAL_FILE_NUM = WORKLOAD_COUNT
 
     @pytest.fixture(autouse=True)
-    def update_stats_collector(self):
-        _collector = OTAUpdateStatsCollector()
-        try:
-            self._collector = _collector
-            _collector.start()
-            _collector.store.total_files_num = self.TOTAL_FILE_NUM  # check init
-            _collector.store.total_files_size_uncompressed = (
-                self.TOTAL_SIZE
-            )  # check init
-            yield
-        finally:
-            _collector.stop()
+    def setup_test(self):
+        self._collector = OTAUpdateStatsCollector()
 
-    def workload(self, idx: int):
-        """
-        idx mod 3 == 0 is DOWNLOAD,
-        idx mod 3 == 1 is COPY,
-        idx mod 3 == 2 is APPLY_UPDATE,
-
-        For each op, elapsed_ns is 1, size is 2, download_bytes is 1
-        """
-        _remainder = idx % 3
-        _report = RegInfProcessedStats(elapsed_ns=1, size=2)
-        if _remainder == 0:
-            _report.op = RegProcessOperation.DOWNLOAD_REMOTE_COPY
-            _report.downloaded_bytes = 1
-            self._collector.report_download_ota_files(_report)
-        elif _remainder == 1:
-            _report.op = RegProcessOperation.PREPARE_LOCAL_COPY
-            self._collector.report_prepare_local_copy(_report)
-        else:
-            # NOTE: simulate special treatment for APPLY_DELTA operation.
-            #       check update_stats.py:L116-119 for more details.
-            _report.op = RegProcessOperation.APPLY_DELTA
-            self._collector.report_apply_delta([_report, _report])
-
-    def test_ota_update_stats_collecting(self):
-        self._collector.store.total_files_num = self.TOTAL_FILE_NUM
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            for idx in range(self.WORKLOAD_COUNT):
-                pool.submit(
-                    self.workload,
-                    idx,
-                )
-        # wait until all reported stats are processed
-        self._collector.wait_staging()
-
-        # check result
-        _snapshot = self._collector.get_snapshot()
-        logger.info(f"{_snapshot=}")
-        # assert static info
-        assert _snapshot.total_files_num == self.TOTAL_FILE_NUM
-        assert _snapshot.total_files_size_uncompressed == self.TOTAL_SIZE
-        # total processed files num/size
-        assert _snapshot.processed_files_num == self.TOTAL_FILE_NUM
-        assert _snapshot.processed_files_size == self.TOTAL_SIZE
-        # download operation
-        assert _snapshot.downloaded_files_num == self.TOTAL_FILE_NUM // 3
-        assert _snapshot.downloaded_files_size == self.TOTAL_SIZE // 3
-        # NOTE: downloading_elapsed_time and downloaded_bytes is collected
-        #       by accessing the downloader's properties, so comment out the following
-        #       2 asserts.
-        # assert (
-        #     _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
-        #     == self.WORKLOAD_COUNT // 3
-        # )
-        # actual download_bytes is half of the file_size_processed_download to
-        # simulate compression enabled scheme
-        # assert _snapshot.downloaded_bytes == _snapshot.downloaded_files_size // 2
-
-        # prepare local copy operation
-        assert (
-            _snapshot.delta_generating_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
+    def _common_worker(self, *, op: ProcessOperation):
+        time.sleep(random.random())
+        self._collector.report_stat(
+            OperationRecord(
+                op=op,
+                processed_file_num=1,
+                processed_file_size=1,
+            )
         )
-        # applying update operation
-        assert (
-            _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
-            == self.WORKLOAD_COUNT // 3
+
+    def test_collecting(self):
+        _prepare_local_copy_worker = partial(
+            self._common_worker, op=ProcessOperation.PREPARE_LOCAL_COPY
         )
+        _download_remote_copy_worker = partial(
+            self._common_worker, op=ProcessOperation.DOWNLOAD_REMOTE_COPY
+        )
+        _apply_update_worker = partial(
+            self._common_worker, op=ProcessOperation.APPLY_DELTA
+        )
+
+        collector = self._collector
+        collector.start_collector()
+        logger.info("collector started")
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            collector.delta_calculation_started()
+            for _ in range(PREPARE_LOCAL_COPY_TASKS):
+                pool.submit(_prepare_local_copy_worker)
+        collector.delta_calculation_finished()
+        logger.info("delta calculation finished")
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            collector.download_started()
+            for _ in range(DOWNLOAD_REMOTE_COPY_TASKS):
+                pool.submit(_download_remote_copy_worker)
+        collector.download_finished()
+        logger.info("download finished")
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            collector.apply_update_started()
+            for _ in range(APPLY_DELTA_TASKS):
+                pool.submit(_apply_update_worker)
+        collector.apply_update_finished()
+        logger.info("apply update finished")
+
+        self._collector.shutdown_collector()
+
+        # ------ check the result ------ #
+        assert collector.total_elapsed_time
+        assert collector.delta_calculation_elapsed_time
+        assert collector.download_elapsed_time
+        assert collector.apply_update_elapsed_time
+        assert (
+            collector.total_elapsed_time
+            >= collector.delta_calculation_elapsed_time
+            + collector.download_elapsed_time
+            + collector.apply_update_elapsed_time
+        )
+        assert (
+            collector.processed_files_num
+            == PREPARE_LOCAL_COPY_TASKS + DOWNLOAD_REMOTE_COPY_TASKS + APPLY_DELTA_TASKS
+        )
+        assert (
+            collector.processed_files_size
+            == PREPARE_LOCAL_COPY_TASKS + DOWNLOAD_REMOTE_COPY_TASKS + APPLY_DELTA_TASKS
+        )
+        assert collector.downloaded_files_num == DOWNLOAD_REMOTE_COPY_TASKS
+        assert collector.downloaded_files_size == DOWNLOAD_REMOTE_COPY_TASKS

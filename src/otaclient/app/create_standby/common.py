@@ -35,11 +35,7 @@ from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from otaclient_common.common import create_tmp_fname
 
 from ..configs import config as cfg
-from ..update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
+from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +282,6 @@ class DeltaGenerator:
             except KeyError:
                 pass
 
-        start_time = time.thread_time_ns()
         tmp_f = self._local_copy_dir / create_tmp_fname()
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
@@ -311,11 +306,11 @@ class DeltaGenerator:
             tmp_f.unlink(missing_ok=True)
 
         # report to the ota update stats collector
-        self._stats_collector.report_prepare_local_copy(
-            RegInfProcessedStats(
-                op=RegProcessOperation.PREPARE_LOCAL_COPY,
-                size=fpath.stat().st_size,
-                elapsed_ns=time.thread_time_ns() - start_time,
+        self._stats_collector.report_stat(
+            OperationRecord(
+                op=ProcessOperation.PREPARE_LOCAL_COPY,
+                processed_file_size=fpath.stat().st_size,
+                processed_file_num=1,
             ),
         )
 

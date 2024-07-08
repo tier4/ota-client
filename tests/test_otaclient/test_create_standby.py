@@ -88,9 +88,12 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
         _updater = _OTAUpdater(
+            version=cfg.UPDATE_VERSION,
+            raw_url_base=cfg.OTA_IMAGE_URL,
+            cookies_json=r'{"test": "my-cookie"}',
+            upper_otaproxy=None,
             boot_controller=self._boot_control,
             create_standby_cls=RebuildMode,
-            proxy=None,
             control_flags=otaclient_control_flags,
         )
         _updater._process_persistents = persist_handler = mocker.MagicMock()
@@ -99,11 +102,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         _updater_shutdown = _updater.shutdown
         _updater.shutdown = mocker.MagicMock()
 
-        _updater.execute(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
-            cookies_json=r'{"test": "my-cookie"}',
-        )
+        _updater.execute()
         time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
@@ -112,14 +111,12 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         _updater.shutdown.assert_called_once()
         otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
         # --- ensure the update stats are collected
-        _snapshot = _updater._update_stats_collector.get_snapshot()
-        assert _snapshot.processed_files_num
-        assert _snapshot.processed_files_size
-        assert _snapshot.downloaded_files_num
-        assert _snapshot.downloaded_files_size
-        # assert _snapshot.downloaded_bytes
-        # assert _snapshot.downloading_elapsed_time.export_pb().ToNanoseconds()
-        assert _snapshot.update_applying_elapsed_time.export_pb().ToNanoseconds()
+        collector = _updater._update_stats_collector
+        assert collector.processed_files_num
+        assert collector.processed_files_size
+        assert collector.downloaded_files_num
+        assert collector.downloaded_files_size
+        assert collector.apply_update_elapsed_time
 
         # --- check slot creating result, ensure slot_a and slot_b is the same --- #
         # NOTE: merge contents from slot_b_boot_dir to slot_b
