@@ -39,6 +39,7 @@ Version1 OTA metafiles list:
 
 from __future__ import annotations
 
+import atexit
 import base64
 import json
 import logging
@@ -90,6 +91,16 @@ from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 logger = logging.getLogger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+
+_shutdown = False
+
+
+def _python_exit():
+    global _shutdown
+    _shutdown = True
+
+
+atexit.register(_python_exit)
 
 
 class MetadataJWTPayloadInvalid(Exception):
@@ -605,13 +616,13 @@ class OTAMetadata:
         downloader: Downloader,
         run_dir: Path,
         certs_dir: Path,
-        download_max_idle_time: int,
+        retry_interval: int = 1,
     ) -> None:
         self.url_base = url_base
         self._downloader = downloader
         self.run_dir = run_dir
         self.certs_dir = certs_dir
-        self.download_max_idle_time = download_max_idle_time
+        self.retry_interval = retry_interval
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=run_dir)
         self._tmp_dir_path = Path(self._tmp_dir.name)
 
@@ -641,16 +652,25 @@ class OTAMetadata:
         # download and parse metadata.jwt
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
-            self._downloader.download_retry_inf(
-                urljoin_ensure_base(self.url_base, self.METADATA_JWT),
-                _downloaded_meta_f,
-                # NOTE: do not use cache when fetching metadata.jwt
-                headers={
-                    CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
-                        no_cache=True
+
+            while not _shutdown:
+                try:
+                    self._downloader.download(
+                        urljoin_ensure_base(self.url_base, self.METADATA_JWT),
+                        _downloaded_meta_f,
+                        # NOTE: do not use cache when fetching metadata.jwt
+                        headers={
+                            CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
+                                no_cache=True
+                            )
+                        },
                     )
-                },
-            )
+                    break
+                except Exception as e:
+                    logger.warning(
+                        f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
+                    )
+                    time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
                 _downloaded_meta_f.read_text(), certs_dir=self.certs_dir
@@ -663,16 +683,23 @@ class OTAMetadata:
             cert_info = _ota_metadata.certificate
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
-            self._downloader.download_retry_inf(
-                urljoin_ensure_base(self.url_base, cert_fname),
-                cert_file,
-                digest=cert_hash,
-                headers={
-                    CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
-                        no_cache=True
+
+            while not _shutdown:
+                try:
+                    self._downloader.download(
+                        urljoin_ensure_base(self.url_base, cert_fname),
+                        cert_file,
+                        digest=cert_hash,
+                        headers={
+                            CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
+                                no_cache=True
+                            )
+                        },
                     )
-                },
-            )
+                    break
+                except Exception as e:
+                    logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
+                    time.sleep(self.retry_interval)
             _parser.verify_metadata(cert_file.read_bytes())
 
         # return verified ota metadata
@@ -712,29 +739,19 @@ class OTAMetadata:
                     self.total_files_num = _count
 
         # ------ start downloading ota_metadata files ------ #
-        start_time = int(time.time())
-
-        def _watchdog_abort_on_no_progress():
-            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
-            if int(time.time()) - _last_active_time > self.download_max_idle_time:
-                logger.error(
-                    f"downloader becomes stuck for {self.download_max_idle_time=} seconds, abort"
-                )
-                raise ValueError
-
         with ThreadPoolExecutorWithRetry(
+            max_workers=1,
             max_concurrent=self.MAX_COCURRENT,
-            watchdog_func=_watchdog_abort_on_no_progress,
         ) as _mapper:
             try:
-                for _ in _mapper.ensure_tasks(
+                for _fut in _mapper.ensure_tasks(
                     _process_text_base_otameta_file,
                     self._ota_metadata.get_img_metafiles(),
                 ):
-                    pass
-            except ValueError as e:
-                logger.error(f"failed to start threadpool: {e!r}")
-                raise
+                    if exc := _fut.exception():
+                        logger.warning(
+                            f"detect failure during downloading OTA image metafiles, retrying: {exc!r}"
+                        )
             except TasksEnsureFailed as e:
                 logger.error(f"faild to finish download all ota metadata files: {e!r}")
                 raise

@@ -17,24 +17,34 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import gc
 import json
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
+from hashlib import sha256
+from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from typing import Iterator, Optional, Type
+from typing import Any, Iterator, Optional, Type
 from urllib.parse import urlparse
+
+import requests.exceptions as requests_exc
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient_api.v2 import types as api_types
-from otaclient_common import downloader
 from otaclient_common.common import ensure_otaproxy_start
+from otaclient_common.downloader import (
+    EMPTY_FILE_SHA256,
+    Downloader,
+    DownloaderPool,
+    DownloadPoolWatchdogFuncContext,
+)
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
@@ -44,11 +54,7 @@ from .configs import config as cfg
 from .configs import ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
-from .update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
+from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 
@@ -102,45 +108,76 @@ class OTAClientControlFlags:
         self._can_reboot.clear()
 
 
+def _download_exception_handler(_fut: Future[Any]) -> bool:
+    """Parse the exception raised by a downloading task.
+
+    This handler will raise OTA Error on exceptions that cannot(should not) be
+        handled by us. For handled exceptions, just let upper caller do the
+        retry for us.
+
+    Raises:
+        UpdateRequestCookieInvalid on HTTP error 401 or 403,
+        OTAImageInvalid on HTTP error 404,
+        StandbySlotInsufficientSpace on disk space not enough.
+
+    Returns:
+        True on succeeded downloading, False on handled exceptions.
+    """
+    if not (exc := _fut.exception()):
+        return True
+
+    try:
+        # exceptions that cannot be handled by us
+        if isinstance(exc, requests_exc.HTTPError):
+            http_errcode = exc.errno
+
+            if http_errcode in [
+                HTTPStatus.FORBIDDEN,
+                HTTPStatus.UNAUTHORIZED,
+            ]:
+                raise ota_errors.UpdateRequestCookieInvalid(
+                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
+                    module=__name__,
+                )
+            if http_errcode == HTTPStatus.NOT_FOUND:
+                raise ota_errors.OTAImageInvalid(
+                    f"download failed with 404 on some file(s): {exc!r}",
+                    module=__name__,
+                )
+
+        if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
+            raise ota_errors.StandbySlotInsufficientSpace(
+                f"download failed due to space insufficient: {exc!r}",
+                module=__name__,
+            )
+
+        # handled exceptions, let the upper caller do the retry
+        return False
+    finally:
+        exc = None  # drop ref to exc instance
+
+
 class _OTAUpdater:
     """The implementation of OTA update logic."""
 
     def __init__(
         self,
         *,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
+        upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        proxy: Optional[str] = None,
         control_flags: OTAClientControlFlags,
+        status_query_interval: int = 1,
     ) -> None:
-        self._control_flags = control_flags
-        self._boot_controller = boot_controller
-        self._create_standby_cls = create_standby_cls
+        self._shutdown = False
+        self._update_status = api_types.UpdateStatus()
+        self._last_status_query_timestamp = 0
+        self.status_query_interval = status_query_interval
 
-        # init update status
-        self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self.update_start_time = 0
-        self.updating_version: str = ""
-        self.failure_reason = ""
-        # init variables needed for update
-        self._otameta: ota_metadata_parser.OTAMetadata = None  # type: ignore
-        self._url_base: str = None  # type: ignore
-
-        # dynamic update status
-        self.total_files_size_uncompressed = 0
-        self.total_files_num = 0
-        self.total_download_files_num = 0
-        self.total_download_fiies_size = 0
-        self.total_remove_files_num = 0
-
-        # init downloader
-        self._downloader = downloader.Downloader()
-        self.proxy = proxy
-
-        # init ota update statics collector
-        self._update_stats_collector = OTAUpdateStatsCollector()
-
-        # paths
+        # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
             cfg.OTA_TMP_STORE
         ).relative_to("/")
@@ -148,83 +185,144 @@ class _OTAUpdater:
             cfg.OTA_TMP_META_STORE
         ).relative_to("/")
 
-    # helper methods
+        # ------ parse cookies ------ #
+        logger.debug("process cookies_json...")
+        try:
+            cookies = json.loads(cookies_json)
+            assert isinstance(
+                cookies, dict
+            ), f"invalid cookies, expecting json object: {cookies_json}"
+        except (JSONDecodeError, AssertionError) as e:
+            _err_msg = f"cookie is invalid: {cookies_json=}"
+            logger.error(_err_msg)
+            raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
+
+        # ------ parse upper proxy ------ #
+        logger.debug("configure proxy setting...")
+        proxies = {}
+        if upper_otaproxy:
+            logger.info(
+                f"use {upper_otaproxy} for local OTA update, "
+                f"wait for otaproxy@{upper_otaproxy} online..."
+            )
+            ensure_otaproxy_start(
+                upper_otaproxy,
+                probing_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+            )
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies["http"] = upper_otaproxy
+
+        # ------ init updater implementation ------ #
+        self._control_flags = control_flags
+        self._boot_controller = boot_controller
+        self._create_standby_cls = create_standby_cls
+
+        # ------ init update status ------ #
+        self.update_phase = api_types.UpdatePhase.INITIALIZING
+        self.updating_version: str = version
+        self.failure_reason = ""
+
+        # ------ init variables needed for update ------ #
+        _url_base = urlparse(raw_url_base)
+        _path = f"{_url_base.path.rstrip('/')}/"
+        self.url_base = _url_base._replace(path=_path).geturl()
+
+        # ------ information from OTA image meta and delta generation ------ #
+        self.total_files_size_uncompressed = 0
+        self.total_files_num = 0
+        self.total_download_files_num = 0
+        self.total_download_fiies_size = 0
+        self.total_remove_files_num = 0
+
+        # ------ setup downloader ------ #
+        self._downloader_pool = DownloaderPool(
+            instance_num=cfg.MAX_DOWNLOAD_THREAD,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+            cookies=cookies,
+            proxies=proxies,
+        )
+        self._downloader_mapper: dict[int, Downloader] = {}
+
+        # ------ start stats collector ------ #
+        self._update_stats_collector = OTAUpdateStatsCollector()
+        self._update_stats_collector.start_collector()
+
+    def _download_file(
+        self, entry: ota_metadata_types.RegularInf
+    ) -> tuple[int, int, int]:
+        """Download a single OTA image file.
+
+        This is the single task being executed in the downloader pool.
+
+        Returns:
+            Retry counts, downloaded files size and traffic on wire.
+        """
+        _fhash_str = entry.get_hash()
+        # special treatment to empty file
+        if _fhash_str == EMPTY_FILE_SHA256:
+            return 0, 0, 0
+
+        entry_url, compression_alg = self._otameta.get_download_url(entry)
+        downloader = self._downloader_mapper[threading.get_native_id()]
+        return downloader.download(
+            entry_url,
+            self._ota_tmp_on_standby / _fhash_str,
+            digest=_fhash_str,
+            size=entry.size,
+            compression_alg=compression_alg,
+        )
 
     def _download_files(self, download_list: Iterator[ota_metadata_types.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
-
-        def _download_file(
-            entry: ota_metadata_types.RegularInf,
-        ) -> RegInfProcessedStats:
-            """Download single OTA image file."""
-            cur_stat = RegInfProcessedStats(op=RegProcessOperation.DOWNLOAD_REMOTE_COPY)
-
-            _fhash_str = entry.get_hash()
-            # special treatment to empty file
-            if _fhash_str == downloader.EMPTY_FILE_SHA256:
-                return cur_stat
-
-            _local_copy = self._ota_tmp_on_standby / _fhash_str
-            entry_url, compression_alg = self._otameta.get_download_url(entry)
-            cur_stat.download_errors, _, _ = self._downloader.download(
-                entry_url,
-                _local_copy,
-                digest=_fhash_str,
-                size=entry.size,
-                compression_alg=compression_alg,
-            )
-            cur_stat.size = _local_copy.stat().st_size
-            return cur_stat
-
         logger.debug("download neede OTA image files...")
+
         # special treatment to empty file, create it first
-        _empty_file = self._ota_tmp_on_standby / downloader.EMPTY_FILE_SHA256
+        _empty_file = self._ota_tmp_on_standby / EMPTY_FILE_SHA256
         _empty_file.touch()
 
         # ------ start the downloading ------ #
-        start_time = int(time.time())
-
-        def _watchdog_abort_on_no_progress():
-            _last_active_time = max(start_time, self._downloader.last_active_timestamp)
-
-            # if the download group becomes inactive longer than <limit>,
-            # force shutdown and breakout.
-            # NOTE: considering the edge condition that all downloading threads
-            #       are downloading large file, resulting time cost longer than
-            #       timeout limit, and one task is interrupted and yielded,
-            #       we should not breakout on this situation as other threads are
-            #       still downloading.
-            if (
-                int(time.time()) - _last_active_time
-                > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-            ):
-                _err_msg = f"downloader becomes stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-                logger.error(_err_msg)
-                raise ValueError
+        def _thread_initializer():
+            self._downloader_mapper[threading.get_native_id()] = (
+                self._downloader_pool.get_instance()
+            )
 
         with ThreadPoolExecutorWithRetry(
-            max_workers=cfg.MAX_DOWNLOAD_THREAD,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            watchdog_func=_watchdog_abort_on_no_progress,
+            max_workers=cfg.MAX_DOWNLOAD_THREAD,
+            thread_name_prefix="download_ota_files",
+            initializer=_thread_initializer,
+            watchdog_func=partial(
+                self._downloader_pool.downloading_watchdog,
+                ctx=DownloadPoolWatchdogFuncContext(
+                    downloaded_bytes=0,
+                    previous_active_timestamp=int(time.time()),
+                ),
+                max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+            ),
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(_download_file, download_list):
-                if _fut.exception():
-                    # NOTE: for failed task, it must has retried <DOWNLOAD_RETRY>
-                    #       time, so we manually create one download report
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                            download_errors=cfg.DOWNLOAD_RETRY,
+            for _fut in _mapper.ensure_tasks(self._download_file, download_list):
+                if _download_exception_handler(_fut):  # donwload succeeded
+                    err_count, file_size, _ = _fut.result()
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=err_count,
+                            processed_file_size=file_size,
+                            processed_file_num=1,
+                        )
+                    )
+                else:  # download failed, but exceptions can be handled
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=1,
                         ),
                     )
-                else:
-                    self._update_stats_collector.report_download_ota_files(
-                        _fut.result()
-                    )
 
-        # all tasks are finished, waif for stats collector to finish processing
-        # all the reported stats
-        self._update_stats_collector.wait_staging()
+        # release the downloader instances
+        self._downloader_pool.release_all_instances()
 
     def _update_standby_slot(self):
         """Apply OTA update to standby slot."""
@@ -243,6 +341,8 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
+        self._update_stats_collector.delta_calculation_started()
+
         self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._otameta,
@@ -264,31 +364,34 @@ class _OTAUpdater:
                 _err_msg, module=__name__
             ) from e
 
+        self._update_stats_collector.delta_calculation_finished()
+
         # --- download needed files --- #
         logger.info(
             "start to download needed files..."
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
         self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
+        self._update_stats_collector.download_started()
+
         try:
             self._download_files(_delta_bundle.get_download_list())
-        except downloader.DownloadFailedSpaceNotEnough:
-            _err_msg = "not enough space is left on standby slot"
-            logger.error(_err_msg)
-            raise ota_errors.StandbySlotInsufficientSpace(
-                _err_msg, module=__name__
-            ) from None
+        except ota_errors.OTAError:
+            raise  # no need to wrap OTA Error again
         except Exception as e:
             _err_msg = f"failed to finish downloading files: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
 
         # shutdown downloader on download finished
-        self._downloader.shutdown()
+        self._update_stats_collector.download_finished()
+        self._downloader_pool.shutdown()
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
         self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
+        self._update_stats_collector.apply_update_started()
+
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
@@ -297,6 +400,7 @@ class _OTAUpdater:
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
 
         logger.info("finished updating standby slot")
+        self._update_stats_collector.apply_update_finished()
 
     def _process_persistents(self):
         logger.info("start persist files handling...")
@@ -336,12 +440,7 @@ class _OTAUpdater:
             ):  # NOTE: not equivalent to perinf.path.exists()
                 _handler.preserve_persist_entry(_per_fpath)
 
-    def _execute_update(
-        self,
-        version: str,
-        raw_url_base: str,
-        cookies_json: str,
-    ):
+    def _execute_update(self):
         """OTA update workflow implementation.
 
         e.g.
@@ -351,72 +450,26 @@ class _OTAUpdater:
             "CloudFront-Key-Pair-Id": "K2...",
         }
         """
-        logger.info(f"execute local update: {version=},{raw_url_base=}")
-        logger.debug(f"{cookies_json=}")
-
-        self.updating_version = version
-        self.update_start_time = time.time_ns()
-        self.failure_reason = ""  # clean failure reason
-
-        self._update_stats_collector.start()
+        logger.info(f"execute local update: {self.updating_version=},{self.url_base=}")
 
         # ------ init, processing metadata ------ #
         self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
-        # parse url_base
-        # unconditionally regulate the url_base
-        _url_base = urlparse(raw_url_base)
-        _path = f"{_url_base.path.rstrip('/')}/"
-        self._url_base = _url_base._replace(path=_path).geturl()
-
-        # parse cookies
-        logger.debug("process cookies_json...")
-        try:
-            _cookies = json.loads(cookies_json)
-            assert isinstance(
-                _cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
-            self._downloader.configure_cookies(_cookies)
-        except (JSONDecodeError, AssertionError) as e:
-            _err_msg = f"cookie is invalid: {cookies_json=}"
-            logger.error(_err_msg)
-            raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
-
-        # configure proxy
-        logger.debug("configure proxy setting...")
-        if self.proxy:
-            logger.info(
-                f"use {self.proxy=} for local OTA update, "
-                f"wait for otaproxy@{self.proxy} online..."
-            )
-            ensure_otaproxy_start(self.proxy)
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            self._downloader.configure_proxies({"http": self.proxy})
 
         # process metadata.jwt and ota metafiles
         logger.debug("process metadata.jwt...")
+        downloader = self._downloader_pool.get_instance()
         try:
+            # TODO(20240619): ota_metadata should not be responsible for downloading anything
             self._otameta = ota_metadata_parser.OTAMetadata(
-                url_base=self._url_base,
-                downloader=self._downloader,
+                url_base=self.url_base,
+                downloader=downloader,
                 run_dir=Path(cfg.RUN_DIR),
                 certs_dir=Path(cfg.CERTS_DIR),
-                download_max_idle_time=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
             )
             self.total_files_num = self._otameta.total_files_num
             self.total_files_size_uncompressed = (
                 self._otameta.total_files_size_uncompressed
             )
-        except downloader.HashVerificaitonError as e:
-            _err_msg = f"downloader: keep failing to verify ota metafiles' hash: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTVerficationFailed(
-                _err_msg, module=__name__
-            ) from e
-        except downloader.DestinationNotAvailableError as e:
-            _err_msg = f"downloader: failed to save ota metafiles: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.OTAErrorUnrecoverable(_err_msg, module=__name__) from e
         except ota_metadata_parser.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
@@ -431,6 +484,8 @@ class _OTAUpdater:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
+        finally:
+            self._downloader_pool.release_instance()
 
         # ------ execute local update ------ #
         logger.info("enter local OTA update...")
@@ -459,53 +514,64 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
+        self._shutdown = True
         self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self._downloader.shutdown()
-        self._update_stats_collector.stop()
+        self._downloader_pool.shutdown()
+        self._update_stats_collector.shutdown_collector()
 
     def get_update_status(self) -> api_types.UpdateStatus:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
-        update_progress = self._update_stats_collector.get_snapshot()
-        # update static information
-        # NOTE: timestamp is in seconds
-        update_progress.update_start_timestamp = self.update_start_time // 1_000_000_000
-        update_progress.update_firmware_version = self.updating_version
-        # update dynamic information
-        update_progress.total_files_size_uncompressed = (
-            self.total_files_size_uncompressed
-        )
-        update_progress.total_files_num = self.total_files_num
-        update_progress.total_download_files_num = self.total_download_files_num
-        update_progress.total_download_files_size = self.total_download_fiies_size
-        update_progress.total_remove_files_num = self.total_remove_files_num
-        # downloading stats
-        update_progress.downloaded_bytes = self._downloader.downloaded_bytes
-        update_progress.downloading_elapsed_time = api_types.Duration(
-            seconds=self._downloader.downloader_active_seconds
-        )
+        cur_time = int(time.time())
+        if (
+            self._shutdown
+            or cur_time - self._last_status_query_timestamp < self.status_query_interval
+        ):
+            return self._update_status
 
-        # update other information
-        update_progress.phase = self.update_phase
-        update_progress.total_elapsed_time = api_types.Duration.from_nanoseconds(
-            time.time_ns() - self.update_start_time
+        collector = self._update_stats_collector
+        update_stats = api_types.UpdateStatus(
+            # from OTA image metadata
+            update_firmware_version=self.updating_version,
+            total_files_size_uncompressed=self.total_files_size_uncompressed,
+            total_files_num=self.total_files_num,
+            total_download_files_num=self.total_download_files_num,
+            total_download_files_size=self.total_download_fiies_size,
+            # from self
+            phase=self.update_phase,
+            total_remove_files_num=self.total_remove_files_num,
+            # from downloader pool
+            downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+            # from collector
+            update_start_timestamp=collector.update_started_timestamp,
+            total_elapsed_time=api_types.Duration(seconds=collector.total_elapsed_time),
+            processed_files_num=collector.processed_files_num,
+            processed_files_size=collector.processed_files_size,
+            delta_generating_elapsed_time=api_types.Duration(
+                seconds=collector.delta_calculation_elapsed_time
+            ),
+            downloaded_files_num=collector.downloaded_files_num,
+            downloaded_files_size=collector.downloaded_files_size,
+            downloading_elapsed_time=api_types.Duration(
+                seconds=collector.download_elapsed_time
+            ),
+            downloading_errors=collector.downloading_errors,
+            update_applying_elapsed_time=api_types.Duration(
+                seconds=collector.apply_update_elapsed_time
+            ),
         )
-        return update_progress
+        self._update_status, self._last_status_query_timestamp = update_stats, cur_time
+        return update_stats
 
-    def execute(
-        self,
-        version: str,
-        raw_url_base: str,
-        cookies_json: str,
-    ):
+    def execute(self) -> None:
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
         """
         try:
-            self._execute_update(version, raw_url_base, cookies_json)
+            self._execute_update()
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
@@ -569,8 +635,8 @@ class OTAClient(OTAClientProtocol):
             self.control_flags = control_flags
 
             # executors for update/rollback
-            self._update_executor: _OTAUpdater = None  # type: ignore
-            self._rollback_executor: _OTARollbacker = None  # type: ignore
+            self._update_executor: _OTAUpdater | None = None
+            self._rollback_executor: _OTARollbacker | None = None
 
             # err record
             self.last_failure_type = api_types.FailureType.NO_FAILURE
@@ -593,33 +659,34 @@ class OTAClient(OTAClientProtocol):
                 exc.get_error_report(f"OTA failed with {ota_status.name}: {exc!r}")
             )
         finally:
-            exc = None  # type: ignore , prevent ref cycle
+            del exc  # prevent ref cycle
 
     # API
 
-    def update(self, version: str, url_base: str, cookies_json: str):
+    def update(self, version: str, url_base: str, cookies_json: str) -> None:
         if self._lock.acquire(blocking=False):
             try:
-                logger.info("[update] entering...")
+                logger.info("[update] entering local update...")
                 self._update_executor = _OTAUpdater(
+                    version=version,
+                    raw_url_base=url_base,
+                    cookies_json=cookies_json,
                     boot_controller=self.boot_controller,
                     create_standby_cls=self.create_standby_cls,
                     control_flags=self.control_flags,
-                    proxy=self.proxy,
+                    upper_otaproxy=self.proxy,
                 )
 
-                # reset failure information on handling new update request
                 self.last_failure_type = api_types.FailureType.NO_FAILURE
                 self.last_failure_reason = ""
                 self.last_failure_traceback = ""
 
-                # enter update
                 self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
-                self._update_executor.execute(version, url_base, cookies_json)
+                self._update_executor.execute()
             except ota_errors.OTAError as e:
                 self._on_failure(e, api_types.StatusOta.FAILURE)
             finally:
-                self._update_executor = None  # type: ignore
+                self._update_executor = None
                 gc.collect()  # trigger a forced gc
                 self._lock.release()
         else:

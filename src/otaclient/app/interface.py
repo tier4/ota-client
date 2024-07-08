@@ -37,8 +37,6 @@ class OTAClientProtocol(Protocol):
         version: str,
         url_base: str,
         cookies_json: str,
-        *,
-        fsm,  # OTAUpdateFSM
     ) -> None: ...
 
     @abstractmethod
