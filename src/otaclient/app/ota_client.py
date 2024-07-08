@@ -39,7 +39,12 @@ from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.downloader import EMPTY_FILE_SHA256, Downloader, DownloaderPool
+from otaclient_common.downloader import (
+    EMPTY_FILE_SHA256,
+    Downloader,
+    DownloaderPool,
+    DownloadPoolWatchdogFuncContext,
+)
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
@@ -49,11 +54,7 @@ from .configs import config as cfg
 from .configs import ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
-from .update_stats import (
-    OTAUpdateStatsCollector,
-    RegInfProcessedStats,
-    RegProcessOperation,
-)
+from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,13 @@ class _OTAUpdater:
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
+        status_query_interval: int = 1,
     ) -> None:
+        self._shutdown = False
+        self._update_status = api_types.UpdateStatus()
+        self._last_status_query_timestamp = 0
+        self.status_query_interval = status_query_interval
+
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
             cfg.OTA_TMP_STORE
@@ -213,30 +220,22 @@ class _OTAUpdater:
 
         # ------ init update status ------ #
         self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self.update_start_timestamp_ns = time.time_ns()
-
         self.updating_version: str = version
         self.failure_reason = ""
-
-        self.delta_calculation_started_timestamp_ns = 0
-        self.delta_calculation_finished_timestamp_ns = 0
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
         _path = f"{_url_base.path.rstrip('/')}/"
         self.url_base = _url_base._replace(path=_path).geturl()
 
-        # ------ dynamic update status ------ #
+        # ------ information from OTA image meta and delta generation ------ #
         self.total_files_size_uncompressed = 0
         self.total_files_num = 0
         self.total_download_files_num = 0
         self.total_download_fiies_size = 0
         self.total_remove_files_num = 0
 
-        # ------ setup OTA files downloader ------ #
-        self.download_started_timestamp_ns = 0
-        self.download_finished_timestamp_ns = 0
-
+        # ------ setup downloader ------ #
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.MAX_DOWNLOAD_THREAD,
             hash_func=sha256,
@@ -245,35 +244,10 @@ class _OTAUpdater:
             proxies=proxies,
         )
         self._downloader_mapper: dict[int, Downloader] = {}
-        self._download_watchdog_previous_active_timestamp = 0
-        self._download_watchdog_previous_downloaded_bytes = 0
 
-        # start ota update statics collector
+        # ------ start stats collector ------ #
         self._update_stats_collector = OTAUpdateStatsCollector()
-        self._update_stats_collector.start()
-
-    def _downloader_pool_watchdog(self):
-        if self.download_started_timestamp_ns == 0:
-            return  # download not yet started
-
-        current_tiemstamp = int(time.time())
-        if self._download_watchdog_previous_active_timestamp == 0:
-            self._download_watchdog_previous_active_timestamp = current_tiemstamp
-            return
-
-        downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-        if downloaded_bytes > self._download_watchdog_previous_downloaded_bytes:
-            self._download_watchdog_previous_downloaded_bytes = downloaded_bytes
-            self._download_watchdog_previous_active_timestamp = current_tiemstamp
-            return
-
-        if (
-            current_tiemstamp - self._download_watchdog_previous_active_timestamp
-            > cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
-        ):
-            _err_msg = f"downloader stuck for {cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT=} seconds, abort"
-            logger.error(_err_msg)
-            raise ValueError(_err_msg)
+        self._update_stats_collector.start_collector()
 
     def _download_file(
         self, entry: ota_metadata_types.RegularInf
@@ -302,8 +276,8 @@ class _OTAUpdater:
 
     def _download_files(self, download_list: Iterator[ota_metadata_types.RegularInf]):
         """Download all needed OTA image files indicated by calculated bundle."""
-
         logger.debug("download neede OTA image files...")
+
         # special treatment to empty file, create it first
         _empty_file = self._ota_tmp_on_standby / EMPTY_FILE_SHA256
         _empty_file.touch()
@@ -319,29 +293,33 @@ class _OTAUpdater:
             max_workers=cfg.MAX_DOWNLOAD_THREAD,
             thread_name_prefix="download_ota_files",
             initializer=_thread_initializer,
-            watchdog_func=self._downloader_pool_watchdog,
+            watchdog_func=partial(
+                self._downloader_pool.downloading_watchdog,
+                ctx=DownloadPoolWatchdogFuncContext(
+                    downloaded_bytes=0,
+                    previous_active_timestamp=int(time.time()),
+                ),
+                max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+            ),
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, download_list):
                 if _download_exception_handler(_fut):  # donwload succeeded
                     err_count, file_size, _ = _fut.result()
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            download_errors=err_count,
-                            size=file_size,
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=err_count,
+                            processed_file_size=file_size,
+                            processed_file_num=1,
                         )
                     )
                 else:  # download failed, but exceptions can be handled
-                    self._update_stats_collector.report_download_ota_files(
-                        RegInfProcessedStats(
-                            op=RegProcessOperation.DOWNLOAD_ERROR_REPORT,
-                            download_errors=1,
+                    self._update_stats_collector.report_stat(
+                        OperationRecord(
+                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
+                            errors=1,
                         ),
                     )
-
-        # all tasks are finished, waif for stats collector to finish processing
-        # all the reported stats
-        self._update_stats_collector.wait_staging()
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
@@ -363,7 +341,7 @@ class _OTAUpdater:
 
         # --- init standby_slot creator, calculate delta --- #
         logger.info("start to calculate and prepare delta...")
-        self.delta_calculation_started_timestamp_ns = time.time_ns()
+        self._update_stats_collector.delta_calculation_started()
 
         self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         self._standby_slot_creator = self._create_standby_cls(
@@ -386,7 +364,7 @@ class _OTAUpdater:
                 _err_msg, module=__name__
             ) from e
 
-        self.delta_calculation_finished_timestamp_ns = time.time_ns()
+        self._update_stats_collector.delta_calculation_finished()
 
         # --- download needed files --- #
         logger.info(
@@ -394,7 +372,8 @@ class _OTAUpdater:
             f"total_download_files_size={_delta_bundle.total_download_files_size:,}bytes"
         )
         self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
-        self.download_started_timestamp_ns = time.time_ns()
+        self._update_stats_collector.download_started()
+
         try:
             self._download_files(_delta_bundle.get_download_list())
         except ota_errors.OTAError:
@@ -405,12 +384,14 @@ class _OTAUpdater:
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
 
         # shutdown downloader on download finished
-        self.download_finished_timestamp_ns = time.time_ns()
+        self._update_stats_collector.download_finished()
         self._downloader_pool.shutdown()
 
         # ------ in_update ------ #
         logger.info("start to apply changes to standby slot...")
         self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
+        self._update_stats_collector.apply_update_started()
+
         try:
             self._standby_slot_creator.create_standby_slot()
         except Exception as e:
@@ -419,6 +400,7 @@ class _OTAUpdater:
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
 
         logger.info("finished updating standby slot")
+        self._update_stats_collector.apply_update_finished()
 
     def _process_persistents(self):
         logger.info("start persist files handling...")
@@ -532,83 +514,56 @@ class _OTAUpdater:
     # API
 
     def shutdown(self):
+        self._shutdown = True
         self.update_phase = api_types.UpdatePhase.INITIALIZING
         self._downloader_pool.shutdown()
-        self._update_stats_collector.stop()
+        self._update_stats_collector.shutdown_collector()
 
     def get_update_status(self) -> api_types.UpdateStatus:
         """
         Returns:
             A tuple contains the version and the update_progress.
         """
-        current_timestamp_ns = time.time_ns()
+        cur_time = int(time.time())
+        if (
+            self._shutdown
+            or cur_time - self._last_status_query_timestamp < self.status_query_interval
+        ):
+            return self._update_status
 
-        update_progress = self._update_stats_collector.get_snapshot()
-        # update static information
-        # NOTE: timestamp is in seconds
-        update_progress.update_start_timestamp = (
-            self.update_start_timestamp_ns // 1_000_000_000
+        collector = self._update_stats_collector
+        update_stats = api_types.UpdateStatus(
+            # from OTA image metadata
+            update_firmware_version=self.updating_version,
+            total_files_size_uncompressed=self.total_files_size_uncompressed,
+            total_files_num=self.total_files_num,
+            total_download_files_num=self.total_download_files_num,
+            total_download_files_size=self.total_download_fiies_size,
+            # from self
+            phase=self.update_phase,
+            total_remove_files_num=self.total_remove_files_num,
+            # from downloader pool
+            downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+            # from collector
+            update_start_timestamp=collector.update_started_timestamp,
+            total_elapsed_time=api_types.Duration(seconds=collector.total_elapsed_time),
+            processed_files_num=collector.processed_files_num,
+            processed_files_size=collector.processed_files_size,
+            delta_generating_elapsed_time=api_types.Duration(
+                seconds=collector.delta_calculation_elapsed_time
+            ),
+            downloaded_files_num=collector.downloaded_files_num,
+            downloaded_files_size=collector.downloaded_files_size,
+            downloading_elapsed_time=api_types.Duration(
+                seconds=collector.download_elapsed_time
+            ),
+            downloading_errors=collector.downloading_errors,
+            update_applying_elapsed_time=api_types.Duration(
+                seconds=collector.apply_update_elapsed_time
+            ),
         )
-        update_progress.update_firmware_version = self.updating_version
-
-        # update dynamic information
-        update_progress.total_files_size_uncompressed = (
-            self.total_files_size_uncompressed
-        )
-        update_progress.total_files_num = self.total_files_num
-        update_progress.total_download_files_num = self.total_download_files_num
-        update_progress.total_download_files_size = self.total_download_fiies_size
-        update_progress.total_remove_files_num = self.total_remove_files_num
-
-        # delta generation stats
-        if self.delta_calculation_started_timestamp_ns == 0:
-            update_progress.delta_generating_elapsed_time = (
-                api_types.Duration.from_nanoseconds(0)
-            )
-        elif self.delta_calculation_finished_timestamp_ns != 0:
-            update_progress.delta_generating_elapsed_time = (
-                api_types.Duration.from_nanoseconds(
-                    self.delta_calculation_finished_timestamp_ns
-                    - self.delta_calculation_started_timestamp_ns
-                )
-            )
-        else:
-            update_progress.delta_generating_elapsed_time = (
-                api_types.Duration.from_nanoseconds(
-                    current_timestamp_ns - self.delta_calculation_started_timestamp_ns
-                    if self.delta_calculation_started_timestamp_ns
-                    else 0
-                )
-            )
-
-        # downloading stats
-        update_progress.downloaded_bytes = self._downloader_pool.total_downloaded_bytes
-        if self.download_started_timestamp_ns == 0:
-            update_progress.downloading_elapsed_time = (
-                api_types.Duration.from_nanoseconds(0)
-            )
-        elif self.download_finished_timestamp_ns != 0:
-            update_progress.downloading_elapsed_time = (
-                api_types.Duration.from_nanoseconds(
-                    self.download_finished_timestamp_ns
-                    - self.download_started_timestamp_ns
-                )
-            )
-        else:
-            update_progress.downloading_elapsed_time = (
-                api_types.Duration.from_nanoseconds(
-                    current_timestamp_ns - self.download_started_timestamp_ns
-                )
-            )
-
-        # update other information
-        update_progress.phase = self.update_phase
-        update_progress.total_elapsed_time = api_types.Duration.from_nanoseconds(
-            current_timestamp_ns - self.update_start_timestamp_ns
-            if self.update_start_timestamp_ns
-            else 0
-        )
-        return update_progress
+        self._update_status, self._last_status_query_timestamp = update_stats, cur_time
+        return update_stats
 
     def execute(self) -> None:
         """Main entry for executing local OTA update.
