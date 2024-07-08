@@ -37,6 +37,7 @@ from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
+    DownloadPoolWatchdogFuncContext,
     HashVerificationError,
     check_cache_policy_in_resp,
 )
@@ -322,6 +323,14 @@ class TestDownloaderPool:
             max_workers=self._thread_num,
             thread_name_prefix="download_ota_files",
             initializer=self._thread_initializer,
+            watchdog_func=partial(
+                self._downloader_pool.downloading_watchdog,
+                ctx=DownloadPoolWatchdogFuncContext(
+                    downloaded_bytes=0,
+                    previous_active_timestamp=int(time.time()),
+                ),
+                max_idle_timeout=6,
+            ),
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(self._download_file, file_info_list):
                 _fut.result()  # expose any possible exception
@@ -411,3 +420,43 @@ def test_check_cache_policy_in_resp(
             resp_headers=_resp_headers,
         )
         assert (compression_alg, digest) == _expected
+
+
+STUCK_AFTER = 6
+MAX_IDLE_TIME = 16
+TEST_DURATION = 30
+
+
+class TestDownloadingPoolWatchdog:
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self):
+        self._test_started_timestamp = 0
+        self._total_downloaded_bytes = 0
+
+    @property
+    def total_downloaded_bytes(self):
+        cur_time = int(time.time())
+        if cur_time - self._test_started_timestamp < STUCK_AFTER:
+            self._total_downloaded_bytes += 1
+        else:
+            logger.info("dummy total_downloaded_bytes property: simulate stuck...")
+        return self._total_downloaded_bytes
+
+    def test_watchdog(self):
+        cur_time = int(time.time())
+        watchdog_func = partial(
+            DownloaderPool.downloading_watchdog.__get__(self),
+            ctx=DownloadPoolWatchdogFuncContext(
+                downloaded_bytes=0,
+                previous_active_timestamp=cur_time,
+            ),
+            max_idle_timeout=MAX_IDLE_TIME,
+        )
+
+        self._test_started_timestamp = cur_time
+        with pytest.raises(ValueError):
+            for t in range(TEST_DURATION):
+                logger.info(f"watchdog check #{t}")
+                watchdog_func()
+                time.sleep(1)

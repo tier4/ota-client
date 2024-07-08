@@ -274,6 +274,7 @@ class _OTAUpdater:
     ):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
+
         self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
         self._update_stats_collector.download_started()
 
