@@ -42,7 +42,6 @@ from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
-    Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
 )
@@ -256,15 +255,11 @@ class _OTAUpdater:
         standby_slot_creator: StandbySlotCreatorProtocol,
     ) -> DeltaBundle:
         logger.info("start to calculate and prepare delta...")
-        self._update_stats_collector.delta_calculation_started()
-
         delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
         # update dynamic information
         self.total_download_files_num = len(delta_bundle.download_list)
         self.total_download_fiies_size = delta_bundle.total_download_files_size
         self.total_remove_files_num = len(delta_bundle.rm_delta)
-
-        self._update_stats_collector.delta_calculation_finished()
         return delta_bundle
 
     def _download_files(
@@ -274,7 +269,6 @@ class _OTAUpdater:
     ):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
-        self._update_stats_collector.download_started()
 
         # special treatment to empty file, create it first
         _empty_file = self._ota_tmp_on_standby / EMPTY_FILE_SHA256
@@ -344,15 +338,7 @@ class _OTAUpdater:
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
-        self._update_stats_collector.download_finished()
         self._downloader_pool.shutdown()
-
-    def _apply_update(self, standby_slot_creator: StandbySlotCreatorProtocol):
-        logger.info("start to apply changes to standby slot...")
-        self._update_stats_collector.apply_update_started()
-        standby_slot_creator.create_standby_slot()
-        logger.info("finished updating standby slot")
-        self._update_stats_collector.apply_update_finished()
 
     def _process_persistents(self, ota_metadata: ota_metadata_parser.OTAMetadata):
         logger.info("start persist files handling...")
@@ -447,6 +433,7 @@ class _OTAUpdater:
         )
 
         self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
+        self._update_stats_collector.delta_calculation_started()
         try:
             delta_bundle = self._calculate_delta(standby_slot_creator)
         except Exception as e:
@@ -455,16 +442,22 @@ class _OTAUpdater:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+        self._update_stats_collector.delta_calculation_finished()
 
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
+        self._update_stats_collector.download_started()
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
         finally:
             del delta_bundle
+        self._update_stats_collector.download_finished()
 
         self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
-        self._apply_update(standby_slot_creator)
+        self._update_stats_collector.apply_update_started()
+        logger.info("start to apply changes to standby slot...")
+        standby_slot_creator.create_standby_slot()
+        self._update_stats_collector.apply_update_finished()
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
