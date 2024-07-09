@@ -44,6 +44,20 @@ class OperationRecord(BaseModel):
     errors: int = 0
 
 
+def _calculate_elapsed_time(
+    _started_timestamp: int, /, _current_time: int | None = None
+) -> int:
+    """Calculate the elapsed time from <_started_timestamp> to current.
+
+    The precision of elapsed time is in second.
+    NOTE(20240709): If the calculation result is zero due to interval less than
+        1s, we round up the result to 1s.
+    """
+    if _current_time is None:
+        _current_time = int(time.time())
+    return max(1, _current_time - _started_timestamp)
+
+
 class OTAUpdateStatsCollector:
 
     def __init__(self, *, collect_interval: int = 1) -> None:
@@ -86,12 +100,12 @@ class OTAUpdateStatsCollector:
     @property
     def delta_calculation_elapsed_time(self) -> int:
         if self._delta_calculation_started_timestamp == 0:
-            return 0
+            return 0  # not yet started
         if self._delta_calculation_finished_timestamp == 0:
-            return int(time.time()) - self._delta_calculation_started_timestamp
-        return (
-            self._delta_calculation_finished_timestamp
-            - self._delta_calculation_started_timestamp
+            return _calculate_elapsed_time(self._delta_calculation_started_timestamp)
+        return _calculate_elapsed_time(
+            self._delta_calculation_started_timestamp,
+            self._delta_calculation_finished_timestamp,
         )
 
     @property
@@ -99,17 +113,21 @@ class OTAUpdateStatsCollector:
         if self._download_started_timestamp == 0:
             return 0
         if self._download_finished_timestamp == 0:
-            return int(time.time()) - self._download_started_timestamp
-        return self._download_finished_timestamp - self._download_started_timestamp
+            return _calculate_elapsed_time(self._download_started_timestamp)
+        return _calculate_elapsed_time(
+            self._download_started_timestamp,
+            self._download_finished_timestamp,
+        )
 
     @property
     def apply_update_elapsed_time(self) -> int:
         if self._apply_update_started_timestamp == 0:
             return 0
         if self._apply_update_finished_timestamp == 0:
-            return int(time.time()) - self._apply_update_started_timestamp
-        return (
-            self._apply_update_finished_timestamp - self._apply_update_started_timestamp
+            return _calculate_elapsed_time(self._apply_update_started_timestamp)
+        return _calculate_elapsed_time(
+            self._apply_update_started_timestamp,
+            self._apply_update_finished_timestamp,
         )
 
     def _stats_collector(self):
