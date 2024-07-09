@@ -246,7 +246,6 @@ class _OTAUpdater:
             cookies=cookies,
             proxies=proxies,
         )
-        self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ start stats collector ------ #
         self._update_stats_collector = OTAUpdateStatsCollector()
@@ -283,9 +282,8 @@ class _OTAUpdater:
 
         # ------ start the downloading ------ #
         def _thread_initializer():
-            self._downloader_mapper[threading.get_native_id()] = (
-                self._downloader_pool.get_instance()
-            )
+            # register the downloader to the thread
+            self._downloader_pool.get_instance()
 
         def _download_file(
             entry: ota_metadata_types.RegularInf,
@@ -303,8 +301,7 @@ class _OTAUpdater:
                 return 0, 0, 0
 
             entry_url, compression_alg = ota_metadata.get_download_url(entry)
-            downloader = self._downloader_mapper[threading.get_native_id()]
-            return downloader.download(
+            return self._downloader_pool.get_instance().download(
                 entry_url,
                 self._ota_tmp_on_standby / _fhash_str,
                 digest=_fhash_str,
