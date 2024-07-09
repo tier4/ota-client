@@ -377,7 +377,11 @@ class _OTAUpdater:
                 )
                 continue
 
-            _handler.preserve_persist_entry(_per_fpath)
+            try:
+                _handler.preserve_persist_entry(_per_fpath)
+            except Exception as e:
+                _err_msg = f"failed to preserve {_per_fpath}: {e!r}, skip"
+                logger.warning(_err_msg)
 
     def _execute_update(self):
         """Implementation of OTA updating."""
