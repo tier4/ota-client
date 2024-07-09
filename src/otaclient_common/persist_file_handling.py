@@ -206,19 +206,16 @@ class PersistFilesHandler:
             self._prepare_file(src_path, dst_path)
             return
 
-        # ------ src is not regular file/symlink/dir ------ #
-        # we only process normal file/symlink/dir
-        if src_path.exists() and not src_path.is_dir():
-            _err_msg = f"{src_path=} must be either a file/symlink/dir, skip"
-            logger.warning(_err_msg)
-            return
-
-        # ------ src doesn't exist ------ #
-        if not src_path.exists():
-            _err_msg = f"{src_path=} not found"
-            logger.warning(_err_msg)
-            return
-
         # ------ src is dir ------ #
-        logger.info(f"recursively preserve directory: {src_path}")
-        self._recursively_prepare_dir(src_path, origin_entry=origin_entry)
+        if src_path.is_dir():
+            logger.info(f"recursively preserve directory: {src_path}")
+            self._recursively_prepare_dir(src_path, origin_entry=origin_entry)
+            return
+
+        # ------ src is not regular file/symlink/dir or missing ------ #
+        if src_path.exists():
+            _err_msg = f"src must be either a file/symlink/dir, skip {src_path=}"
+            logger.warning(_err_msg)
+        else:
+            _err_msg = f"{src_path=} doesn't exist"
+            logger.warning(_err_msg)
