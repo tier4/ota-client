@@ -59,6 +59,8 @@ from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOpera
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_STATUS_QUERY_INTERVAL = 1
+
 
 class LiveOTAStatus:
     def __init__(self, ota_status: api_types.StatusOta) -> None:
@@ -171,7 +173,7 @@ class _OTAUpdater:
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
-        status_query_interval: int = 1,
+        status_query_interval: int = DEFAULT_STATUS_QUERY_INTERVAL,
     ) -> None:
         self._shutdown = False
         self._update_status = api_types.UpdateStatus()
@@ -257,7 +259,6 @@ class _OTAUpdater:
         logger.info("start to calculate and prepare delta...")
         self._update_stats_collector.delta_calculation_started()
 
-        self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
         # update dynamic information
         self.total_download_files_num = len(delta_bundle.download_list)
@@ -274,8 +275,6 @@ class _OTAUpdater:
     ):
         """Download all needed OTA image files indicated by calculated bundle."""
         logger.debug("download neede OTA image files...")
-
-        self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
         self._update_stats_collector.download_started()
 
         # special treatment to empty file, create it first
@@ -353,17 +352,13 @@ class _OTAUpdater:
 
     def _apply_update(self, standby_slot_creator: StandbySlotCreatorProtocol):
         logger.info("start to apply changes to standby slot...")
-        self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
         self._update_stats_collector.apply_update_started()
-
         standby_slot_creator.create_standby_slot()
-
         logger.info("finished updating standby slot")
         self._update_stats_collector.apply_update_finished()
 
     def _process_persistents(self, ota_metadata: ota_metadata_parser.OTAMetadata):
         logger.info("start persist files handling...")
-        self.update_phase = api_types.UpdatePhase.PROCESSING_POSTUPDATE
         standby_slot_mp = Path(cfg.MOUNT_POINT)
 
         _handler = PersistFilesHandler(
@@ -402,10 +397,10 @@ class _OTAUpdater:
 
     def _execute_update(self):
         logger.info(f"execute local update: {self.updating_version=},{self.url_base=}")
-        # ------ init, processing metadata ------ #
-        self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
 
+        # ------ init, processing metadata ------ #
         logger.debug("process metadata.jwt...")
+        self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
         try:
             # TODO(20240619): ota_metadata should not be responsible for downloading anything
             otameta = ota_metadata_parser.OTAMetadata(
@@ -453,6 +448,7 @@ class _OTAUpdater:
             stats_collector=self._update_stats_collector,
         )
 
+        self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
         try:
             delta_bundle = self._calculate_delta(standby_slot_creator)
         except Exception as e:
@@ -463,17 +459,18 @@ class _OTAUpdater:
             ) from e
 
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        self._download_files(otameta, delta_bundle.get_download_list())
-
+        self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
         try:
-            standby_slot_creator.create_standby_slot()
-        except Exception as e:
-            _err_msg = f"failed to apply update to standby slot: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
+            self._download_files(otameta, delta_bundle.get_download_list())
+        finally:
+            del delta_bundle
+
+        self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
+        self._apply_update(standby_slot_creator)
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
+        self.update_phase = api_types.UpdatePhase.PROCESSING_POSTUPDATE
         # NOTE(20240219): move persist file handling here
         self._process_persistents(otameta)
 
