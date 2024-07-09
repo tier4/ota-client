@@ -182,6 +182,15 @@ class PersistFilesHandler:
     # API
 
     def preserve_persist_entry(self, _persist_entry: str | Path):
+        """Preserve <_persist_entry> from active slot to standby slot.
+
+        Args:
+            _persist_entry (str | Path): The canonical path of the entry to be preserved.
+
+        Raises:
+            ValueError: Raised when src <_persist_entry> is not a regular file, symlink or directory,
+                or failed to prepare destination.
+        """
         # persist_entry in persists.txt must be rooted at /
         origin_entry = Path(_persist_entry).relative_to("/")
         src_path = self._src_root / origin_entry
@@ -213,9 +222,9 @@ class PersistFilesHandler:
             return
 
         # ------ src is not regular file/symlink/dir or missing ------ #
+        _err_msg = f"{src_path=} doesn't exist"
         if src_path.exists():
             _err_msg = f"src must be either a file/symlink/dir, skip {src_path=}"
-            logger.warning(_err_msg)
-        else:
-            _err_msg = f"{src_path=} doesn't exist"
-            logger.warning(_err_msg)
+
+        logger.warning(_err_msg)
+        raise ValueError(_err_msg)
