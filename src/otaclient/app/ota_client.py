@@ -42,6 +42,7 @@ from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
+    Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
 )
@@ -245,6 +246,7 @@ class _OTAUpdater:
             cookies=cookies,
             proxies=proxies,
         )
+        self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ start stats collector ------ #
         self._update_stats_collector = OTAUpdateStatsCollector()
@@ -276,8 +278,9 @@ class _OTAUpdater:
 
         # ------ start the downloading ------ #
         def _thread_initializer():
-            # register the downloader to the thread
-            self._downloader_pool.get_instance()
+            self._downloader_mapper[threading.get_native_id()] = (
+                self._downloader_pool.get_instance()
+            )
 
         def _download_file(
             entry: ota_metadata_types.RegularInf,
@@ -295,7 +298,8 @@ class _OTAUpdater:
                 return 0, 0, 0
 
             entry_url, compression_alg = ota_metadata.get_download_url(entry)
-            return self._downloader_pool.get_instance().download(
+            downloader = self._downloader_mapper[threading.get_native_id()]
+            return downloader.download(
                 entry_url,
                 self._ota_tmp_on_standby / _fhash_str,
                 digest=_fhash_str,
