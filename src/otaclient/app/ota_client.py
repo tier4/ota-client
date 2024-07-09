@@ -396,6 +396,7 @@ class _OTAUpdater:
                 _handler.preserve_persist_entry(_per_fpath)
 
     def _execute_update(self):
+        """Implementation of OTA updating."""
         logger.info(f"execute local update: {self.updating_version=},{self.url_base=}")
 
         # ------ init, processing metadata ------ #
