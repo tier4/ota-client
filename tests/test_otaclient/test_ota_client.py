@@ -221,10 +221,6 @@ class Test_OTAClient:
         self.control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
-        # NOTE: threading.Lock is an alias, so we specs it with its instance
-        self.ota_lock = typing.cast(
-            threading.Lock, mocker.MagicMock(spec=threading.Lock())
-        )
         self.ota_updater = typing.cast(_OTAUpdater, mocker.MagicMock(spec=_OTAUpdater))
 
         self.boot_controller = typing.cast(
@@ -247,8 +243,6 @@ class Test_OTAClient:
         mocker.patch(
             f"{cfg.OTACLIENT_MODULE_PATH}._OTAUpdater", return_value=self.ota_updater
         )
-        # inject lock into otaclient
-        self.ota_client._lock = self.ota_lock
         # inject otaclient version
         self.ota_client.OTACLIENT_VERSION = self.OTACLIENT_VERSION
 
@@ -261,9 +255,7 @@ class Test_OTAClient:
         )
 
         # --- assert on update finished(before reboot) --- #
-        self.ota_lock.acquire.assert_called_once_with(blocking=False)
         self.ota_updater.execute.assert_called_once()
-        self.ota_lock.release.assert_called_once()
         assert (
             self.ota_client.live_ota_status.get_ota_status()
             == api_types.StatusOta.UPDATING
@@ -282,19 +274,13 @@ class Test_OTAClient:
         )
 
         # --- assertion on interrupted OTA update --- #
-        self.ota_lock.acquire.assert_called_once_with(blocking=False)
         self.ota_updater.execute.assert_called_once()
-        self.ota_lock.release.assert_called_once()
 
         assert (
             self.ota_client.live_ota_status.get_ota_status()
             == api_types.StatusOta.FAILURE
         )
         assert self.ota_client.last_failure_type == api_types.FailureType.RECOVERABLE
-
-    def test_rollback(self):
-        # TODO
-        pass
 
     def test_status_not_in_update(self):
         # --- query status --- #
