@@ -23,7 +23,9 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.app.boot_control import BootControllerProtocol
-from otaclient.app.configs import config as otaclient_cfg
+from otaclient.app.configs import config as otaclient_cfg, BaseConfig
+from otaclient.app.create_standby.rebuild_mode import RebuildMode
+from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
 
@@ -63,7 +65,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
-        from otaclient.app.configs import BaseConfig
 
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
@@ -80,9 +81,6 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         mocker.patch(f"{cfg.CREATE_STANDBY_MODULE_PATH}.rebuild_mode.cfg", _cfg)
 
     def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
-        from otaclient.app.create_standby.rebuild_mode import RebuildMode
-        from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
-
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
@@ -116,6 +114,9 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         assert collector.processed_files_size
         assert collector.downloaded_files_num
         assert collector.downloaded_files_size
+        assert collector.download_elapsed_time
+        assert collector.delta_calculation_elapsed_time
+        assert collector.total_elapsed_time
         assert collector.apply_update_elapsed_time
 
         # --- check slot creating result, ensure slot_a and slot_b is the same --- #
