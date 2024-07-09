@@ -513,7 +513,8 @@ class DownloaderPool:
             ValueError if no available idle instance for caller thread.
         """
         native_thread_id = threading.get_native_id()
-        if idx := self._thread_idx_mapping.get(native_thread_id):
+        idx = self._thread_idx_mapping.get(native_thread_id)
+        if idx is not None:
             return self._instances[idx]
 
         with self._instance_map_lock:
