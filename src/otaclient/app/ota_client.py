@@ -157,7 +157,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         # handled exceptions, let the upper caller do the retry
         return False
     finally:
-        exc = None  # drop ref to exc instance
+        del exc, _fut  # drop ref to exc instance
 
 
 class _OTAUpdater:
