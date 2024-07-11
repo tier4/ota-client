@@ -135,6 +135,10 @@ class PersistFilesHandler:
         self._chown_with_mapping(_src_stat, _dst_path)
 
     def _prepare_parent(self, _path_relative_to_root: Path) -> None:
+        """
+        NOTE that we intensionally keep the already there parents' permission
+            setting on destination.
+        """
         for _parent in reversed(_path_relative_to_root.parents):
             _src_parent, _dst_parent = (
                 self._src_root / _parent,
@@ -142,15 +146,19 @@ class PersistFilesHandler:
             )
             if _dst_parent.is_dir():  # keep the origin parent on dst as it
                 continue
+
             if _dst_parent.is_symlink() or _dst_parent.is_file():
                 _dst_parent.unlink(missing_ok=True)
                 self._prepare_dir(_src_parent, _dst_parent)
                 continue
-            if _dst_parent.exists():
-                raise ValueError(
-                    f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
-                )
-            self._prepare_dir(_src_parent, _dst_parent)
+
+            if not _dst_parent.exists():
+                self._prepare_dir(_src_parent, _dst_parent)
+                continue
+
+            raise ValueError(
+                f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
+            )
 
     def _recursively_prepare_dir(self, src_path: Path, *, path_relative_to_root: Path):
         """Dive into src_dir and preserve everything under the src dir."""
