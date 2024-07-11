@@ -175,10 +175,12 @@ class PersistFilesHandler:
             for _fname in fnames:
                 _src_fpath, _dst_fpath = src_cur_dpath / _fname, dst_cur_dpath / _fname
                 self._rm_target(_dst_fpath)
+
+                # NOTE that fnames also contain symlink to normal file
                 if _src_fpath.is_symlink():
                     self._prepare_symlink(_src_fpath, _dst_fpath)
-                    continue
-                self._prepare_file(_src_fpath, _dst_fpath)
+                else:
+                    self._prepare_file(_src_fpath, _dst_fpath)
 
             # symlinks to dirs also included in dnames, we must handle it
             for _dname in dnames:
@@ -186,6 +188,9 @@ class PersistFilesHandler:
                 if _src_dpath.is_symlink():
                     self._rm_target(_dst_dpath)
                     self._prepare_symlink(_src_dpath, _dst_dpath)
+                # NOTE that we don't need to create dir here, as os.walk will take us
+                #   to this folder later, we will create the folder in the dest when
+                #   we enter the src folder.
 
     # API
 
