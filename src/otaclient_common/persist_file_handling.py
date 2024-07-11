@@ -145,12 +145,14 @@ class PersistFilesHandler:
                 self._src_root / _parent,
                 self._dst_root / _parent,
             )
-            if _dst_parent.is_dir():  # keep the origin parent on dst as it
-                continue
-
             if _dst_parent.is_symlink() or _dst_parent.is_file():
                 _dst_parent.unlink(missing_ok=True)
                 self._prepare_dir(_src_parent, _dst_parent)
+                continue
+
+            # keep the origin parent on dst as it
+            # NOTE that is_dir will follow symlink.
+            if _dst_parent.is_dir():
                 continue
 
             if not _dst_parent.exists():
@@ -161,9 +163,8 @@ class PersistFilesHandler:
                 f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
             )
 
-    def _recursively_prepare_dir(self, src_path: Path, *, path_relative_to_root: Path):
+    def _recursively_prepare_dir(self, src_path: Path):
         """Dive into src_dir and preserve everything under the src dir."""
-        self._prepare_parent(path_relative_to_root)
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
@@ -232,9 +233,8 @@ class PersistFilesHandler:
         # ------ src is dir ------ #
         if src_path.is_dir():
             logger.info(f"recursively preserve directory: {src_path}")
-            self._recursively_prepare_dir(
-                src_path, path_relative_to_root=path_relative_to_root
-            )
+            self._prepare_parent(path_relative_to_root)
+            self._recursively_prepare_dir(src_path)
             return
 
         # ------ src is not regular file/symlink/dir or missing ------ #
