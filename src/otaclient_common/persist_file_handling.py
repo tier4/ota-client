@@ -134,8 +134,8 @@ class PersistFilesHandler:
         os.chmod(_dst_path, _src_stat.st_mode)
         self._chown_with_mapping(_src_stat, _dst_path)
 
-    def _prepare_parent(self, _origin_entry: Path) -> None:
-        for _parent in reversed(_origin_entry.parents):
+    def _prepare_parent(self, _path_relative_to_root: Path) -> None:
+        for _parent in reversed(_path_relative_to_root.parents):
             _src_parent, _dst_parent = (
                 self._src_root / _parent,
                 self._dst_root / _parent,
@@ -152,9 +152,9 @@ class PersistFilesHandler:
                 )
             self._prepare_dir(_src_parent, _dst_parent)
 
-    def _recursively_prepare_dir(self, src_path: Path, *, origin_entry: Path):
+    def _recursively_prepare_dir(self, src_path: Path, *, path_relative_to_root: Path):
         """Dive into src_dir and preserve everything under the src dir."""
-        self._prepare_parent(origin_entry)
+        self._prepare_parent(path_relative_to_root)
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
@@ -192,9 +192,9 @@ class PersistFilesHandler:
                 or failed to prepare destination.
         """
         # persist_entry in persists.txt must be rooted at /
-        origin_entry = Path(_persist_entry).relative_to("/")
-        src_path = self._src_root / origin_entry
-        dst_path = self._dst_root / origin_entry
+        path_relative_to_root = Path(_persist_entry).relative_to("/")
+        src_path = self._src_root / path_relative_to_root
+        dst_path = self._dst_root / path_relative_to_root
 
         # ------ src is symlink ------ #
         # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
@@ -203,7 +203,7 @@ class PersistFilesHandler:
                 f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
             )
             self._rm_target(dst_path)
-            self._prepare_parent(origin_entry)
+            self._prepare_parent(path_relative_to_root)
             self._prepare_symlink(src_path, dst_path)
             return
 
@@ -211,14 +211,16 @@ class PersistFilesHandler:
         if src_path.is_file():
             logger.info(f"preserving normal file: {_persist_entry}")
             self._rm_target(dst_path)
-            self._prepare_parent(origin_entry)
+            self._prepare_parent(path_relative_to_root)
             self._prepare_file(src_path, dst_path)
             return
 
         # ------ src is dir ------ #
         if src_path.is_dir():
             logger.info(f"recursively preserve directory: {src_path}")
-            self._recursively_prepare_dir(src_path, origin_entry=origin_entry)
+            self._recursively_prepare_dir(
+                src_path, path_relative_to_root=path_relative_to_root
+            )
             return
 
         # ------ src is not regular file/symlink/dir or missing ------ #
