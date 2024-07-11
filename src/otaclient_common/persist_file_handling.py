@@ -27,6 +27,7 @@ from otaclient_common.linux import (
     map_gid_by_grpnam,
     map_uid_by_pwnam,
 )
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,13 @@ class PersistFilesHandler:
 
     def __init__(
         self,
-        src_passwd_file: str | Path,
-        src_group_file: str | Path,
-        dst_passwd_file: str | Path,
-        dst_group_file: str | Path,
+        src_passwd_file: StrOrPath,
+        src_group_file: StrOrPath,
+        dst_passwd_file: StrOrPath,
+        dst_group_file: StrOrPath,
         *,
-        src_root: str | Path,
-        dst_root: str | Path,
+        src_root: StrOrPath,
+        dst_root: StrOrPath,
     ):
         self._uid_mapper = lru_cache()(
             partial(
@@ -87,7 +88,7 @@ class PersistFilesHandler:
         return _mapped_gid
 
     def _chown_with_mapping(
-        self, _src_stat: os.stat_result, _dst_path: str | Path
+        self, _src_stat: os.stat_result, _dst_path: StrOrPath
     ) -> None:
         _src_uid, _src_gid = _src_stat.st_uid, _src_stat.st_gid
         try:
@@ -108,12 +109,13 @@ class PersistFilesHandler:
         """Remove target with proper methods."""
         if _target.is_symlink() or _target.is_file():
             return _target.unlink(missing_ok=True)
-        elif _target.is_dir():
+        if _target.is_dir():
             return shutil.rmtree(_target, ignore_errors=True)
-        elif _target.exists():
-            raise ValueError(
-                f"{_target} is not normal file/symlink/dir, failed to remove"
-            )
+        # NOTE that exists will follow symlink, so we need to check symlink first
+        if not _target.exists():
+            return
+
+        raise ValueError(f"{_target} is not normal file/symlink/dir, failed to remove")
 
     def _prepare_symlink(self, _src_path: Path, _dst_path: Path) -> None:
         _dst_path.symlink_to(os.readlink(_src_path))
@@ -134,66 +136,36 @@ class PersistFilesHandler:
         os.chmod(_dst_path, _src_stat.st_mode)
         self._chown_with_mapping(_src_stat, _dst_path)
 
-    def _prepare_parent(self, _origin_entry: Path) -> None:
-        for _parent in reversed(_origin_entry.parents):
+    def _prepare_parent(self, _path_relative_to_root: Path) -> None:
+        """
+        NOTE that we intensionally keep the already there parents' permission
+            setting on destination.
+        """
+        for _parent in reversed(_path_relative_to_root.parents):
             _src_parent, _dst_parent = (
                 self._src_root / _parent,
                 self._dst_root / _parent,
             )
-            if _dst_parent.is_dir():  # keep the origin parent on dst as it
-                continue
             if _dst_parent.is_symlink() or _dst_parent.is_file():
                 _dst_parent.unlink(missing_ok=True)
                 self._prepare_dir(_src_parent, _dst_parent)
                 continue
-            if _dst_parent.exists():
-                raise ValueError(
-                    f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
-                )
-            self._prepare_dir(_src_parent, _dst_parent)
 
-    # API
+            # keep the origin parent on dst as it
+            # NOTE that is_dir will follow symlink.
+            if _dst_parent.is_dir():
+                continue
 
-    def preserve_persist_entry(
-        self, _persist_entry: str | Path, *, src_missing_ok: bool = True
-    ):
-        logger.info(f"preserving {_persist_entry}")
-        # persist_entry in persists.txt must be rooted at /
-        origin_entry = Path(_persist_entry).relative_to("/")
-        src_path = self._src_root / origin_entry
-        dst_path = self._dst_root / origin_entry
+            if not _dst_parent.exists():
+                self._prepare_dir(_src_parent, _dst_parent)
+                continue
 
-        # ------ src is symlink ------ #
-        # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
-        if src_path.is_symlink():
-            self._rm_target(dst_path)
-            self._prepare_parent(origin_entry)
-            self._prepare_symlink(src_path, dst_path)
-            return
+            raise ValueError(
+                f"{_dst_parent=} is not a normal file/symlink/dir, cannot cleanup"
+            )
 
-        # ------ src is file ------ #
-        if src_path.is_file():
-            self._rm_target(dst_path)
-            self._prepare_parent(origin_entry)
-            self._prepare_file(src_path, dst_path)
-            return
-
-        # ------ src is not regular file/symlink/dir ------ #
-        # we only process normal file/symlink/dir
-        if src_path.exists() and not src_path.is_dir():
-            raise ValueError(f"{src_path=} must be either a file/symlink/dir")
-
-        # ------ src doesn't exist ------ #
-        if not src_path.exists():
-            _err_msg = f"{src_path=} not found"
-            logger.warning(_err_msg)
-            if not src_missing_ok:
-                raise ValueError(_err_msg)
-            return
-
-        # ------ src is dir ------ #
-        # dive into src_dir and preserve everything under the src dir
-        self._prepare_parent(origin_entry)
+    def _recursively_prepare_dir(self, src_path: Path):
+        """Dive into src_dir and preserve everything under the src dir."""
         for src_curdir, dnames, fnames in os.walk(src_path, followlinks=False):
             src_cur_dpath = Path(src_curdir)
             dst_cur_dpath = self._dst_root / src_cur_dpath.relative_to(self._src_root)
@@ -206,10 +178,12 @@ class PersistFilesHandler:
             for _fname in fnames:
                 _src_fpath, _dst_fpath = src_cur_dpath / _fname, dst_cur_dpath / _fname
                 self._rm_target(_dst_fpath)
+
+                # NOTE that fnames also contain symlink to normal file
                 if _src_fpath.is_symlink():
                     self._prepare_symlink(_src_fpath, _dst_fpath)
-                    continue
-                self._prepare_file(_src_fpath, _dst_fpath)
+                else:
+                    self._prepare_file(_src_fpath, _dst_fpath)
 
             # symlinks to dirs also included in dnames, we must handle it
             for _dname in dnames:
@@ -217,3 +191,57 @@ class PersistFilesHandler:
                 if _src_dpath.is_symlink():
                     self._rm_target(_dst_dpath)
                     self._prepare_symlink(_src_dpath, _dst_dpath)
+                # NOTE that we don't need to create dir here, as os.walk will take us
+                #   to this folder later, we will create the folder in the dest when
+                #   we enter the src folder.
+
+    # API
+
+    def preserve_persist_entry(self, _persist_entry: StrOrPath):
+        """Preserve <_persist_entry> from active slot to standby slot.
+
+        Args:
+            _persist_entry (StrOrPath): The canonical path of the entry to be preserved.
+
+        Raises:
+            ValueError: Raised when src <_persist_entry> is not a regular file, symlink or directory,
+                or failed to prepare destination.
+        """
+        # persist_entry in persists.txt must be rooted at /
+        path_relative_to_root = Path(_persist_entry).relative_to("/")
+        src_path = self._src_root / path_relative_to_root
+        dst_path = self._dst_root / path_relative_to_root
+
+        # ------ src is symlink ------ #
+        # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
+        if src_path.is_symlink():
+            logger.info(
+                f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
+            )
+            self._rm_target(dst_path)
+            self._prepare_parent(path_relative_to_root)
+            self._prepare_symlink(src_path, dst_path)
+            return
+
+        # ------ src is file ------ #
+        if src_path.is_file():
+            logger.info(f"preserving normal file: {_persist_entry}")
+            self._rm_target(dst_path)
+            self._prepare_parent(path_relative_to_root)
+            self._prepare_file(src_path, dst_path)
+            return
+
+        # ------ src is dir ------ #
+        if src_path.is_dir():
+            logger.info(f"recursively preserve directory: {_persist_entry}")
+            self._prepare_parent(path_relative_to_root)
+            self._recursively_prepare_dir(src_path)
+            return
+
+        # ------ src is not regular file/symlink/dir or missing ------ #
+        _err_msg = f"{src_path=} doesn't exist"
+        if src_path.exists():
+            _err_msg = f"src must be either a file/symlink/dir, skip {_persist_entry=}"
+
+        logger.warning(_err_msg)
+        raise ValueError(_err_msg)
