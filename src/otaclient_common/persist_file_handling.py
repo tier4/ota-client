@@ -27,6 +27,7 @@ from otaclient_common.linux import (
     map_gid_by_grpnam,
     map_uid_by_pwnam,
 )
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,13 @@ class PersistFilesHandler:
 
     def __init__(
         self,
-        src_passwd_file: str | Path,
-        src_group_file: str | Path,
-        dst_passwd_file: str | Path,
-        dst_group_file: str | Path,
+        src_passwd_file: StrOrPath,
+        src_group_file: StrOrPath,
+        dst_passwd_file: StrOrPath,
+        dst_group_file: StrOrPath,
         *,
-        src_root: str | Path,
-        dst_root: str | Path,
+        src_root: StrOrPath,
+        dst_root: StrOrPath,
     ):
         self._uid_mapper = lru_cache()(
             partial(
@@ -87,7 +88,7 @@ class PersistFilesHandler:
         return _mapped_gid
 
     def _chown_with_mapping(
-        self, _src_stat: os.stat_result, _dst_path: str | Path
+        self, _src_stat: os.stat_result, _dst_path: StrOrPath
     ) -> None:
         _src_uid, _src_gid = _src_stat.st_uid, _src_stat.st_gid
         try:
@@ -196,11 +197,11 @@ class PersistFilesHandler:
 
     # API
 
-    def preserve_persist_entry(self, _persist_entry: str | Path):
+    def preserve_persist_entry(self, _persist_entry: StrOrPath):
         """Preserve <_persist_entry> from active slot to standby slot.
 
         Args:
-            _persist_entry (str | Path): The canonical path of the entry to be preserved.
+            _persist_entry (StrOrPath): The canonical path of the entry to be preserved.
 
         Raises:
             ValueError: Raised when src <_persist_entry> is not a regular file, symlink or directory,
@@ -232,7 +233,7 @@ class PersistFilesHandler:
 
         # ------ src is dir ------ #
         if src_path.is_dir():
-            logger.info(f"recursively preserve directory: {src_path}")
+            logger.info(f"recursively preserve directory: {_persist_entry}")
             self._prepare_parent(path_relative_to_root)
             self._recursively_prepare_dir(src_path)
             return
@@ -240,7 +241,7 @@ class PersistFilesHandler:
         # ------ src is not regular file/symlink/dir or missing ------ #
         _err_msg = f"{src_path=} doesn't exist"
         if src_path.exists():
-            _err_msg = f"src must be either a file/symlink/dir, skip {src_path=}"
+            _err_msg = f"src must be either a file/symlink/dir, skip {_persist_entry=}"
 
         logger.warning(_err_msg)
         raise ValueError(_err_msg)
