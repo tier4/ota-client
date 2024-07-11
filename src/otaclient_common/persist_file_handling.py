@@ -106,14 +106,14 @@ class PersistFilesHandler:
     @staticmethod
     def _rm_target(_target: Path) -> None:
         """Remove target with proper methods."""
+        if not _target.exists():
+            return
         if _target.is_symlink() or _target.is_file():
             return _target.unlink(missing_ok=True)
-        elif _target.is_dir():
+        if _target.is_dir():
             return shutil.rmtree(_target, ignore_errors=True)
-        elif _target.exists():
-            raise ValueError(
-                f"{_target} is not normal file/symlink/dir, failed to remove"
-            )
+
+        raise ValueError(f"{_target} is not normal file/symlink/dir, failed to remove")
 
     def _prepare_symlink(self, _src_path: Path, _dst_path: Path) -> None:
         _dst_path.symlink_to(os.readlink(_src_path))
