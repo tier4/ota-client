@@ -33,6 +33,7 @@ from otaclient.app.boot_control._common import (
 )
 from otaclient.app.boot_control._jetson_common import (
     FirmwareBSPVersionControl,
+    JetsonBootCommon,
     NVBootctrlCommon,
     NVBootctrlTarget,
     SlotID,
@@ -41,13 +42,25 @@ from otaclient.app.boot_control._jetson_common import (
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
-from otaclient.app.boot_control.configs import cboot_cfg as boot_cfg
 from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.app.configs import config as cfg
+from otaclient.configs import BootloaderType, static_paths
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
+
+
+class JetsonCBootControlConfig(JetsonBootCommon):
+    """Jetson device booted with cboot.
+
+    Suuports BSP version < R34.
+    """
+
+    BOOTLOADER = BootloaderType.JETSON_CBOOT
+    FIRMWARE_LIST = ["bl_only_payload", "xusb_only_payload"]
+
+
+boot_cfg = JetsonCBootControlConfig()
 
 
 class JetsonCBootContrlError(Exception):
@@ -343,9 +356,9 @@ class JetsonCBootControl(BootControllerProtocol):
             # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
-                standby_slot_mount_point=cfg.MOUNT_POINT,
+                standby_slot_mount_point=static_paths.STANDY_SLOT_MOUNT,
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
-                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                active_slot_mount_point=static_paths.ACTIVE_SLOT_MOUNT,
             )
             current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
             standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(

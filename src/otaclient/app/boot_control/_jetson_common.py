@@ -35,6 +35,22 @@ from otaclient_common.common import copytree_identical, write_str_to_file_sync
 logger = logging.getLogger(__name__)
 
 
+class JetsonBootCommon:
+    TEGRA_CHIP_ID_PATH = "/sys/module/tegra_fuse/parameters/tegra_chip_id"
+    OTA_STATUS_DIR = "/boot/ota-status"
+    FIRMWARE_BSP_VERSION_FNAME = "firmware_bsp_version"
+    EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
+    FIRMWARE_DPATH = "/opt/ota_package"
+    """Refer to standby slot rootfs."""
+
+    NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
+    SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
+
+    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
+    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
+    INTERNAL_EMMC_DEVNAME = "mmcblk0"
+
+
 class SlotID(str):
     """slot_id for A/B slots.
 
