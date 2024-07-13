@@ -109,14 +109,21 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
 
     # ------ DEBUG mode ------ #
     DEBUG_MODE: bool = False
-    """
-    NOTE: currently not in use.
+    """Enable debug mode globally.
+    
+    Currently this flag will enable:
+    1. detailed failure trackback in status API response.
     """
 
 
 class LoggingConfig(BaseFixedConfig):
-    DEFAULT_LOG_LEVEL: LoggingLevel = logging.INFO
-    LOG_LEVEL_TABLE: Dict[str, LoggingLevel] = {}
+    LOG_LEVEL_TABLE: Dict[str, LoggingLevel] = {
+        "otaclient": logging.INFO,
+        "otaclient_common": logging.INFO,
+        "otaclient_api": logging.INFO,
+        "ota_proxy": logging.INFO,
+        "ota_metadata": logging.INFO,
+    }
     LOG_FORMAT: str = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )

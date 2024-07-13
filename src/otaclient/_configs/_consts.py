@@ -96,6 +96,7 @@ class Consts:
     OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
     OTA_TMP_STORE = "/.ota-tmp"
     """OTA temporary storage at standby slot during OTA."""
+    OTA_TMP_IMAGE_META_STORE = "/.ota-meta"
 
     OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT = "/run/otaclient/mnt/external_cache_src"
     OTAPROXY_EXTERNAL_CACHE_STORAGE_DATA_DIR = (
