@@ -29,8 +29,9 @@ from typing import Any, NamedTuple, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
-from otaclient.app.boot_control._common import CMDHelperFuncs
 from otaclient_common.common import copytree_identical, write_str_to_file_sync
+
+from ._common import CMDHelperFuncs
 
 logger = logging.getLogger(__name__)
 
