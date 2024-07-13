@@ -38,9 +38,18 @@ NetworkPort = Annotated[
     Field(ge=1, le=65535),
 ]
 
+
+def _logging_level_validator(value: int | str | Any):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return logging.getLevelName(value)
+    raise ValueError(f"logging level expects str or int, get {type(value)}")
+
+
 LoggingLevel = Annotated[
     int,
-    BeforeValidator(lambda x: logging.getLevelName(x)),
+    BeforeValidator(_logging_level_validator),
 ]
 LoggingLevelLiteral = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 

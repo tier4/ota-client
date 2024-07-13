@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Literal
+from typing import Dict, Literal, Union
 
 from otaclient_common.typing import LoggingLevel, NetworkPort
 
@@ -33,7 +33,7 @@ class CommonOTAClientConfig(BaseFixedConfig):
     DOWNLOAD_THREAD: int = 6
     DOWNLOAD_IDLE_TIMEOUT: int = 5 * 60  # seconds
     """
-    If the download keeps stuck longer than <DOWNLOAD_IDLE_TIMEOUT> seconds,  
+    If the download keeps stuck longer than <DOWNLOAD_IDLE_TIMEOUT> seconds,
         the OTA downloading will fail and breakout the whole OTA.
     """
     DOWNLOAD_CONCURRENCY: int = 128  # tasks in backlog
@@ -94,9 +94,9 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
     """Where to store the copy of OTA image metadata in standby slot."""
 
     # ------ Container mode ------ #
-    HOST_ROOTFS: Literal["/"] | str = "/"
+    HOST_ROOTFS: Union[Literal["/"], str] = "/"
     """The host rootfs mount point.
-    
+
     When set to value other than '/', otaclient will activate the container running mode,
         the host rootfs is expected to be mounted at <HOST_ROOTFS>.
     """
