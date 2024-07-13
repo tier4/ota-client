@@ -33,12 +33,12 @@ from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
 from otaclient import log_setting
 from otaclient._configs import ECUContact
+from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.configs import app_cfg, consts, ecu_info, proxy_info
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
-from .boot_control._common import CMDHelperFuncs
 from .ota_client import OTAClientControlFlags, OTAServicer
 
 logger = logging.getLogger(__name__)
