@@ -13,13 +13,7 @@
 # limitations under the License.
 
 
-from .configs import BootloaderType
 from .protocol import BootControllerProtocol
-from .selecter import detect_bootloader, get_boot_controller
+from .selecter import get_boot_controller
 
-__all__ = (
-    "get_boot_controller",
-    "detect_bootloader",
-    "BootloaderType",
-    "BootControllerProtocol",
-)
+__all__ = ("get_boot_controller", "BootControllerProtocol")

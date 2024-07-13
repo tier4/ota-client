@@ -43,7 +43,7 @@ from otaclient.app.boot_control._jetson_common import (
     update_standby_slot_extlinux_cfg,
 )
 from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.configs import BootloaderType, static_paths
+from otaclient.configs import BootloaderType, app_cfg, static_paths
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import subprocess_run_wrapper
 
@@ -209,7 +209,7 @@ class _CBootControl:
         logger.info(f"{bsp_version=}")
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
-        if not bsp_version < (34, 0, 0):
+        if bsp_version >= (34, 0, 0):
             _err_msg = (
                 f"jetson-cboot only supports BSP version < R34, but get {bsp_version=}. "
                 "Please use jetson-uefi bootloader type for device with BSP >= R34."
@@ -360,7 +360,10 @@ class JetsonCBootControl(BootControllerProtocol):
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
                 active_slot_mount_point=static_paths.ACTIVE_SLOT_MOUNT,
             )
-            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
+
+            current_ota_status_dir = Path(app_cfg.HOST_ROOTFS) / Path(
+                boot_cfg.OTA_STATUS_DIR
+            ).relative_to("/")
             standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
                 boot_cfg.OTA_STATUS_DIR
             ).relative_to("/")
