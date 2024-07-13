@@ -25,6 +25,8 @@ from typing import Optional
 
 from typing_extensions import Literal
 
+from .typing import StrOrPath
+
 _MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
 # fmt: off
 _multiplier: dict[_MultiUnits, int] = {
@@ -36,7 +38,7 @@ _multiplier: dict[_MultiUnits, int] = {
 
 
 def get_file_size(
-    swapfile_fpath: str | Path, units: _MultiUnits = "Bytes"
+    swapfile_fpath: StrOrPath, units: _MultiUnits = "Bytes"
 ) -> Optional[int]:
     """Helper for get file size with <units>."""
     swapfile_fpath = Path(swapfile_fpath)
@@ -44,7 +46,7 @@ def get_file_size(
         return ceil(swapfile_fpath.stat().st_size / _multiplier[units])
 
 
-def replace_root(path: str | Path, old_root: str | Path, new_root: str | Path) -> str:
+def replace_root(path: StrOrPath, *, old_root: StrOrPath, new_root: StrOrPath) -> str:
     """Replace a <path> relative to <old_root> to <new_root>.
 
     For example, if path="/abc", old_root="/", new_root="/new_root",
