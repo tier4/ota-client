@@ -61,6 +61,7 @@ class CommonOTAClientConfig(BaseFixedConfig):
     NOTE: unreachable_timeout should be larger than
           downloading_group timeout
     """
+    WAITING_SUBECU_ACK_REQ_TIMEOUT = 12  # seconds
     ECU_STATUS_PULLING_INTERVAL: int = 1  # second
 
 

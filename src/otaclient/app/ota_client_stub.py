@@ -32,14 +32,13 @@ from ota_proxy import OTAProxyContextProto
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import subprocess_otaproxy_launcher
 from otaclient import log_setting
-from otaclient.configs.ecu_info import ECUContact
+from otaclient._configs import ECUContact
+from otaclient.configs import app_cfg, consts, ecu_info, proxy_info
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
 from .boot_control._common import CMDHelperFuncs
-from .configs import config as cfg
-from .configs import ecu_info, proxy_info, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
 
 logger = logging.getLogger(__name__)
@@ -52,9 +51,9 @@ class _OTAProxyContext(OTAProxyContextProto):
         self,
         *,
         external_cache_enabled: bool = True,
-        external_cache_dev_fslable: str = cfg.EXTERNAL_CACHE_DEV_FSLABEL,
-        external_cache_dev_mp: str = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT,
-        external_cache_path: str = cfg.EXTERNAL_CACHE_SRC_PATH,
+        external_cache_dev_fslable: str = app_cfg.EXTERNAL_CACHE_DEV_FSLABEL,
+        external_cache_dev_mp: str = consts.OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT,
+        external_cache_path: str = consts.OTAPROXY_EXTERNAL_CACHE_STORAGE_DATA_DIR,
     ) -> None:
         self.upper_proxy = proxy_info.upper_ota_proxy
         self.external_cache_enabled = external_cache_enabled
@@ -65,7 +64,7 @@ class _OTAProxyContext(OTAProxyContextProto):
         self._external_cache_dev_mp = external_cache_dev_mp
         self._external_cache_data_dir = external_cache_path
 
-        self.logger = logging.getLogger("ota_proxy")
+        self.otaproxy_logger = logging.getLogger("ota_proxy")
 
     @property
     def extra_kwargs(self) -> Dict[str, Any]:
@@ -87,13 +86,10 @@ class _OTAProxyContext(OTAProxyContextProto):
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
         #       and then set the ota_proxy logger to DEFAULT_LOG_LEVEL
         log_setting.configure_logging()
-        otaproxy_logger = logging.getLogger("ota_proxy")
-        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
-        self.logger = otaproxy_logger
 
         # wait for upper otaproxy if any
         if self.upper_proxy:
-            otaproxy_logger.info(f"wait for {self.upper_proxy=} online...")
+            self.otaproxy_logger.info(f"wait for {self.upper_proxy=} online...")
             ensure_otaproxy_start(str(self.upper_proxy))
 
     def _mount_external_cache_storage(self):
@@ -112,7 +108,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             )
         _cache_dev = _cache_dev[0]
 
-        self.logger.info(f"external cache dev detected at {_cache_dev}")
+        self.otaproxy_logger.info(f"external cache dev detected at {_cache_dev}")
         self._external_cache_dev = _cache_dev
 
         # try to unmount the mount_point and cache_dev unconditionally
@@ -150,7 +146,7 @@ class _OTAProxyContext(OTAProxyContextProto):
             return self
         except Exception as e:
             # if subprocess init failed, directly let the process exit
-            self.logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
+            self.otaproxy_logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
             sys.exit(1)
 
     def __exit__(
@@ -161,7 +157,9 @@ class _OTAProxyContext(OTAProxyContextProto):
     ) -> Optional[bool]:
         if __exc_type:
             _exc = __exc_value if __exc_value else __exc_type()
-            self.logger.warning(f"exception during otaproxy shutdown: {_exc!r}")
+            self.otaproxy_logger.warning(
+                f"exception during otaproxy shutdown: {_exc!r}"
+            )
         # otaproxy post-shutdown cleanup:
         #   1. umount external cache storage
         self._umount_external_cache_storage()
@@ -278,6 +276,13 @@ class _OrderedSet(Dict[T, None]):
         super().pop(value, None)
 
 
+DELAY_OVERALL_STATUS_REPORT_UPDATE = 60
+UNREACHABLE_ECU_TIMEOUT = app_cfg.ECU_UNREACHABLE_TIMEOUT
+PROPERTY_REFRESH_INTERVAL = app_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
+IDLE_POLLING_INTERVAL = 10
+ACTIVE_POLLING_INTERVAL = 2
+
+
 class ECUStatusStorage:
     """Storage for holding ECU status reports from all ECUs in the cluster.
 
@@ -303,14 +308,6 @@ class ECUStatusStorage:
         it will be treated as UNREACHABLE and listed in <lost_ecus_id>, further being excluded when generating
         any_requires_network, all_success, in_update_ecus_id, failed_ecus_id, success_ecus_id and in_update_childecus_id.
     """
-
-    DELAY_OVERALL_STATUS_REPORT_UPDATE = (
-        cfg.KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED
-    )
-    UNREACHABLE_ECU_TIMEOUT = cfg.ECU_UNREACHABLE_TIMEOUT
-    PROPERTY_REFRESH_INTERVAL = cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
-    IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
-    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     # NOTE(20230522):
     #   ECU will be treated as disconnected if we cannot get in touch with it
@@ -382,8 +379,7 @@ class ECUStatusStorage:
             return True  # we have not yet connected to this ECU
         return (
             cur_timestamp
-            > self._all_ecus_last_contact_timestamp[ecu_id]
-            + self.UNREACHABLE_ECU_TIMEOUT
+            > self._all_ecus_last_contact_timestamp[ecu_id] + UNREACHABLE_ECU_TIMEOUT
         )
 
     async def _generate_overall_status_report(self):
@@ -406,7 +402,7 @@ class ECUStatusStorage:
             logger.warning(f"new lost ecu(s) detected: {_new_lost_ecus_id}")
         if lost_ecus:
             logger.warning(
-                f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
+                f"lost ecu(s)(disconnected longer than{UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
             )
 
         # check ECUs in tracked active ECUs set that are updating
@@ -499,15 +495,15 @@ class ECUStatusStorage:
                 if last_storage_update != self.storage_last_updated_timestamp and (
                     current_timestamp
                     > self.last_update_request_received_timestamp
-                    + self.DELAY_OVERALL_STATUS_REPORT_UPDATE
+                    + DELAY_OVERALL_STATUS_REPORT_UPDATE
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._generate_overall_status_report()
             # if properties are not initialized, use active_interval for update
             if self.properties_last_update_timestamp == 0:
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
             else:
-                await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
+                await asyncio.sleep(PROPERTY_REFRESH_INTERVAL)
 
     # API
 
@@ -584,9 +580,9 @@ class ECUStatusStorage:
             if one only wants to get the polling interval value.
         """
         return (
-            self.ACTIVE_POLLING_INTERVAL
+            ACTIVE_POLLING_INTERVAL
             if self.active_ota_update_present.is_set()
-            else self.IDLE_POLLING_INTERVAL
+            else IDLE_POLLING_INTERVAL
         )
 
     def get_polling_waiter(self):
@@ -602,13 +598,13 @@ class ECUStatusStorage:
 
         async def _waiter():
             if self.active_ota_update_present.is_set():
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
                 return
 
             try:
                 await asyncio.wait_for(
                     self.active_ota_update_present.wait(),
-                    timeout=self.IDLE_POLLING_INTERVAL,
+                    timeout=IDLE_POLLING_INTERVAL,
                 )
             except asyncio.TimeoutError:
                 return
@@ -682,7 +678,7 @@ class _ECUTracker:
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
-                    timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+                    timeout=app_cfg.ECU_STATUS_PULLING_INTERVAL,
                     request=api_types.StatusRequest(),
                 )
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
@@ -700,13 +696,14 @@ class _ECUTracker:
             await self._polling_waiter()
 
 
+OTAPROXY_SHUTDOWN_DELAY = 60  # seconds
+
+
 class OTAClientServiceStub:
     """Handlers for otaclient service API.
 
     This class also handles otaproxy lifecyle and dependence managing.
     """
-
-    OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
     def __init__(self):
         self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
@@ -716,7 +713,7 @@ class OTAClientServiceStub:
 
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
-        self.listen_port = server_cfg.SERVER_PORT
+        self.listen_port = app_cfg.API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
@@ -771,7 +768,7 @@ class OTAClientServiceStub:
                 if (
                     not any_requires_network
                     and cur_timestamp
-                    > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
+                    > otaproxy_last_launched_timestamp + OTAPROXY_SHUTDOWN_DELAY
                 ):
                     await self._otaproxy_launcher.stop()
                     otaproxy_last_launched_timestamp = 0
@@ -828,7 +825,7 @@ class OTAClientServiceStub:
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=app_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -843,7 +840,7 @@ class OTAClientServiceStub:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to update request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {app_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
@@ -892,7 +889,7 @@ class OTAClientServiceStub:
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=app_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -906,7 +903,7 @@ class OTAClientServiceStub:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to rollback request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {app_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
