@@ -38,7 +38,9 @@ from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
 from otaclient.app.create_standby.common import DeltaBundle
+from otaclient.configs import app_cfg, consts, ecu_info
 from otaclient_api.v2 import types as api_types
+from otaclient_common import replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -51,8 +53,6 @@ from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 from . import errors as ota_errors
 from .boot_control import BootControllerProtocol, get_boot_controller
-from .configs import config as cfg
-from .configs import ecu_info
 from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
 from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
@@ -181,12 +181,20 @@ class _OTAUpdater:
         self.status_query_interval = status_query_interval
 
         # ------ define OTA temp paths ------ #
-        self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
-        self._ota_tmp_image_meta_dir_on_standby = Path(cfg.MOUNT_POINT) / Path(
-            cfg.OTA_TMP_META_STORE
-        ).relative_to("/")
+        self._ota_tmp_on_standby = Path(
+            replace_root(
+                consts.OTA_TMP_STORE,
+                old_root="/",
+                new_root=consts.ACTIVE_SLOT_MOUNT,
+            )
+        )
+        self._ota_tmp_image_meta_dir_on_standby = Path(
+            replace_root(
+                consts.OTA_TMP_IMAGE_META_STORE,
+                old_root="/",
+                new_root=consts.ACTIVE_SLOT_MOUNT,
+            )
+        )
 
         # ------ parse cookies ------ #
         logger.debug("process cookies_json...")
@@ -210,7 +218,7 @@ class _OTAUpdater:
             )
             ensure_otaproxy_start(
                 upper_otaproxy,
-                probing_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+                probing_timeout=app_cfg.DOWNLOAD_IDLE_TIMEOUT,
             )
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
@@ -240,9 +248,9 @@ class _OTAUpdater:
 
         # ------ setup downloader ------ #
         self._downloader_pool = DownloaderPool(
-            instance_num=cfg.MAX_DOWNLOAD_THREAD,
+            instance_num=app_cfg.DOWNLOAD_THREAD,
             hash_func=sha256,
-            chunk_size=cfg.CHUNK_SIZE,
+            chunk_size=app_cfg.CHUNK_SIZE,
             cookies=cookies,
             proxies=proxies,
         )
@@ -308,8 +316,8 @@ class _OTAUpdater:
             )
 
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.MAX_DOWNLOAD_THREAD,
+            max_concurrent=app_cfg.DOWNLOAD_CONCURRENCY,
+            max_workers=app_cfg.DOWNLOAD_THREAD,
             thread_name_prefix="download_ota_files",
             initializer=_thread_initializer,
             watchdog_func=partial(
@@ -318,7 +326,7 @@ class _OTAUpdater:
                     downloaded_bytes=0,
                     previous_active_timestamp=int(time.time()),
                 ),
-                max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
+                max_idle_timeout=app_cfg.DOWNLOAD_IDLE_TIMEOUT,
             ),
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(_download_file, download_list):
@@ -346,15 +354,15 @@ class _OTAUpdater:
 
     def _process_persistents(self, ota_metadata: ota_metadata_parser.OTAMetadata):
         logger.info("start persist files handling...")
-        standby_slot_mp = Path(cfg.MOUNT_POINT)
+        standby_slot_mp = Path(consts.STANDY_SLOT_MOUNT)
 
         _handler = PersistFilesHandler(
-            src_passwd_file=Path(cfg.PASSWD_FILE),
-            src_group_file=Path(cfg.GROUP_FILE),
+            src_passwd_file=Path(consts.PASSWD_FPATH),
+            src_group_file=Path(consts.GROUP_FPATH),
             dst_passwd_file=Path(standby_slot_mp / "etc/passwd"),
             dst_group_file=Path(standby_slot_mp / "etc/group"),
-            src_root=cfg.ACTIVE_ROOT_MOUNT_POINT,
-            dst_root=cfg.MOUNT_POINT,
+            src_root=Path(consts.ACTIVE_SLOT_MOUNT),
+            dst_root=Path(consts.STANDY_SLOT_MOUNT),
         )
 
         for _perinf in ota_metadata.iter_metafile(
@@ -395,8 +403,8 @@ class _OTAUpdater:
             otameta = ota_metadata_parser.OTAMetadata(
                 url_base=self.url_base,
                 downloader=self._downloader_pool.get_instance(),
-                run_dir=Path(cfg.RUN_DIR),
-                certs_dir=Path(cfg.CERTS_DIR),
+                run_dir=Path(consts.OTACLIENT_RUN_DIR),
+                certs_dir=Path(consts.OTACLIENT_CERTS_DPATH),
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
@@ -432,8 +440,8 @@ class _OTAUpdater:
         standby_slot_creator = self._create_standby_cls(
             ota_metadata=otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
-            standby_slot_mount_point=cfg.MOUNT_POINT,
-            active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            active_slot_mount_point=consts.ACTIVE_SLOT_MOUNT,
+            standby_slot_mount_point=consts.STANDY_SLOT_MOUNT,
             stats_collector=self._update_stats_collector,
         )
 
@@ -616,7 +624,7 @@ class OTAClient(OTAClientProtocol):
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
-            if cfg.DEBUG_MODE:
+            if app_cfg.DEBUG_MODE:
                 self.last_failure_traceback = exc.get_failure_traceback()
 
             logger.error(
@@ -724,7 +732,7 @@ class OTAServicer:
 
         # select boot_controller and standby_slot implementations
         _bootctrl_cls = get_boot_controller(ecu_info.bootloader)
-        _standby_slot_creator = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
+        _standby_slot_creator = get_standby_slot_creator(app_cfg.CREATE_STANDBY_METHOD)
 
         # boot controller starts up
         try:
@@ -741,7 +749,7 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE:
+            if app_cfg.DEBUG_MODE:
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )
@@ -768,7 +776,7 @@ class OTAServicer:
                 failure_reason=e.get_failure_reason(),
             )
 
-            if cfg.DEBUG_MODE:
+            if app_cfg.DEBUG_MODE:
                 self._otaclient_startup_failed_status.failure_traceback = (
                     e.get_failure_traceback()
                 )
