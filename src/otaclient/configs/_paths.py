@@ -16,10 +16,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
-
-from ._common import ExtractAttrsMixin
+from ._common import DynamicRootMixin, ExtractAttrsMixin
 from ._consts import consts
 
 
@@ -43,26 +40,7 @@ class _StaticPathConsts(ExtractAttrsMixin):
     )
 
 
-class _DynamicRootMixin:
-
-    _HOST_ROOTFS: Literal["/"] | str = "/"
-
-    def __init__(self, host_rootfs: Literal["/"] | str = "/") -> None:
-        self._HOST_ROOTFS = host_rootfs
-
-    if not TYPE_CHECKING:
-
-        def __getattribute__(self, name: str) -> str | Any:
-            attr_value = super().__getattribute__(name)
-            if name.startswith("_") or self._HOST_ROOTFS == "/":
-                return attr_value
-
-            # dynamically update the root according to HOST_ROOTFS value.
-            attr_value = Path(attr_value).relative_to("/")
-            return str(self._HOST_ROOTFS / attr_value)
-
-
-class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
+class _DynamicPathConsts(DynamicRootMixin, ExtractAttrsMixin):
     """Paths that will be dynamically re-rooted to <HOST_ROOTFS>."""
 
     # ------ common system paths ------ #
