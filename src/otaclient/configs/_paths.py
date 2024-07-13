@@ -37,6 +37,11 @@ class _StaticPathConsts(ExtractAttrsMixin):
     OTA_TMP_STORE = "/.ota-tmp"
     """OTA temporary storage at standby slot during OTA."""
 
+    OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT = "/run/otaclient/mnt/external_cache_src"
+    OTAPROXY_EXTERNAL_CACHE_STORAGE_DATA_DIR = (
+        f"{OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT}/data"
+    )
+
 
 class _DynamicRootMixin:
 

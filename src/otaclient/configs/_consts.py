@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 class Consts:
     # ------ otaclient configuration files ------ #
+    OTA_DIR = "/boot/ota"
     ECU_INFO_FNAME = "ecu_info.yaml"
     PROXY_INFO_FNAME = "proxy_info.yaml"
 
