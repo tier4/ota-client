@@ -56,7 +56,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
         self._ota_tmp = replace_root(
-            consts.OTA_TMP_STORE, old_root="/", new_root=self.standby_slot_mp
+            consts.OTA_TMP_STORE, new_root=self.standby_slot_mp
         )
 
         self._ota_tmp.mkdir(exist_ok=True)
@@ -169,7 +169,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
         _dst = replace_root(
-            app_cfg.OTA_IMAGE_METADATA_DIR, old_root="/", new_root=self.standby_slot_mp
+            app_cfg.OTA_IMAGE_METADATA_DIR, new_root=self.standby_slot_mp
         )
         _dst.mkdir(parents=True, exist_ok=True)
 
