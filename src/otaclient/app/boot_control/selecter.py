@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Select the boot control implementation according to setting from ecu_info.yaml."""
 
 
 from __future__ import annotations
@@ -21,9 +22,10 @@ from pathlib import Path
 
 from typing_extensions import deprecated
 
-from otaclient.app.boot_control.configs import BootloaderType
-from otaclient.app.boot_control.protocol import BootControllerProtocol
+from otaclient.configs import BootloaderType
 from otaclient_common.common import read_str_from_file
+
+from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +49,14 @@ def detect_bootloader() -> BootloaderType:
 
     # distinguish between rpi and jetson xavier device
     if machine == "aarch64" or arch == "aarch64":
-        from .configs import cboot_cfg, rpi_boot_cfg
+        from ._jetson_cboot import boot_cfg as jetson_cboot_cfg
 
         # evidence: jetson xvaier device has a special file which reveals the
         #           tegra chip id
-        if Path(cboot_cfg.TEGRA_CHIP_ID_PATH).is_file():
+        if Path(jetson_cboot_cfg.TEGRA_CHIP_ID_PATH).is_file():
             return BootloaderType.CBOOT
+
+        from ._rpi_boot import boot_cfg as rpi_boot_cfg
 
         # evidence: rpi device has a special file which reveals the rpi model
         rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
@@ -72,8 +76,7 @@ def detect_bootloader() -> BootloaderType:
 def get_boot_controller(
     bootloader_type: BootloaderType,
 ) -> type[BootControllerProtocol]:
-    # if ecu_info doesn't specify the bootloader type,
-    # we try to detect by ourselves.
+    # if ecu_info doesn't specify the bootloader type, we try to detect by ourselves.
     if bootloader_type is BootloaderType.AUTO_DETECT:
         bootloader_type = detect_bootloader()
     logger.info(f"use boot_controller for {bootloader_type=}")
