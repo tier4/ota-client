@@ -19,8 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from . import _consts
 from ._common import ExtractAttrsMixin
+from ._consts import consts
 
 
 class _StaticPathConsts(ExtractAttrsMixin):
@@ -69,8 +69,8 @@ class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
 
     # ------ otaclient configuration dir ------ #
     OTACLIENT_CONFIGS_DPATH = f"{BOOT_MP}/ota"
-    ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{_consts.ECU_INFO_FNAME}"
-    PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{_consts.PROXY_INFO_FNAME}"
+    ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{consts.ECU_INFO_FNAME}"
+    PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{consts.PROXY_INFO_FNAME}"
 
     # ------ system files used/checked/updated by otaclient ------ #
     PASSWD_FPATH = f"{ETC_DPATH}/passwd"

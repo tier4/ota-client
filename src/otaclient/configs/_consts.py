@@ -23,17 +23,22 @@ from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-# ------ otaclient configuration files ------ #
-ECU_INFO_FNAME = "ecu_info.yaml"
-PROXY_INFO_FNAME = "proxy_info.yaml"
 
-# ------ ota status file ------ #
-OTA_STATUS_FNAME = "status"
-FIRMWARE_VERSION_FNAME = "version"
-SLOT_IN_USE_FNAME = "slot_in_use"
+class Consts:
+    # ------ otaclient configuration files ------ #
+    ECU_INFO_FNAME = "ecu_info.yaml"
+    PROXY_INFO_FNAME = "proxy_info.yaml"
 
-# ------ compression support ------ #
-SUPPORTED_COMPRESS_ALG = ("zst", "zstd")
+    # ------ ota status file ------ #
+    OTA_STATUS_FNAME = "status"
+    FIRMWARE_VERSION_FNAME = "version"
+    SLOT_IN_USE_FNAME = "slot_in_use"
+
+    # ------ compression support ------ #
+    SUPPORTED_COMPRESS_ALG = ("zst", "zstd")
+
+
+consts = Consts()
 
 
 class CreateStandbyMechanism(str, Enum):
