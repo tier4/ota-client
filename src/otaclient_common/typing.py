@@ -15,9 +15,10 @@
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, TypeVar, Union
+from typing import Any, Callable, Literal, TypeVar, Union
 
 from pydantic import BeforeValidator, Field
 from typing_extensions import Annotated, Concatenate, ParamSpec
@@ -36,6 +37,12 @@ NetworkPort = Annotated[
     BeforeValidator(lambda x: int(x)),
     Field(ge=1, le=65535),
 ]
+
+LoggingLevel = Annotated[
+    int,
+    BeforeValidator(lambda x: logging.getLevelName(x)),
+]
+LoggingLevelLiteral = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
 
 def gen_strenum_validator(
