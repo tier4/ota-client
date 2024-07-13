@@ -78,7 +78,7 @@ def _parse_configs():
 # ------ instantiate config objects ------ #
 #
 app_cfg = _parse_configs()
-static_paths = _StaticPathConsts()
-dynamic_paths = _DynamicPathConsts(host_rootfs=app_cfg.HOST_ROOTFS)
+static_paths = _StaticPathConsts()._extract_to_ns()
+dynamic_paths = _DynamicPathConsts(host_rootfs=app_cfg.HOST_ROOTFS)._extract_to_ns()
 ecu_info = parse_ecu_info(dynamic_paths.ECU_INFO_FPATH)
 proxy_info = parse_proxy_info(dynamic_paths.PROXY_INFO_FPATH)

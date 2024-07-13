@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ._common import ExtractAttrsMixin
 from ._consts import consts
@@ -45,14 +45,16 @@ class _DynamicRootMixin:
     def __init__(self, host_rootfs: Literal["/"] | str = "/") -> None:
         self._HOST_ROOTFS = host_rootfs
 
-    def __getattribute__(self, name: str) -> str | Any:
-        attr_value = super().__getattribute__(name)
-        if name.startswith("_") or self._HOST_ROOTFS == "/":
-            return attr_value
+    if not TYPE_CHECKING:
 
-        # dynamically update the root according to HOST_ROOTFS value.
-        attr_value = Path(attr_value).relative_to("/")
-        return str(self._HOST_ROOTFS / attr_value)
+        def __getattribute__(self, name: str) -> str | Any:
+            attr_value = super().__getattribute__(name)
+            if name.startswith("_") or self._HOST_ROOTFS == "/":
+                return attr_value
+
+            # dynamically update the root according to HOST_ROOTFS value.
+            attr_value = Path(attr_value).relative_to("/")
+            return str(self._HOST_ROOTFS / attr_value)
 
 
 class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
@@ -60,7 +62,7 @@ class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
 
     # ------ common system paths ------ #
     ETC_DPATH = "/etc"
-    BOOT_MP = "/boot"
+    BOOT_DIR = "/boot"
 
     # ------ otaclient installation ------ #
     OTACLIENT_INSTALLATION_DPATH = _StaticPathConsts.OTACLIENT_INSTALLATION_DPATH
@@ -68,7 +70,7 @@ class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
     OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
 
     # ------ otaclient configuration dir ------ #
-    OTACLIENT_CONFIGS_DPATH = f"{BOOT_MP}/ota"
+    OTACLIENT_CONFIGS_DPATH = f"{BOOT_DIR}/ota"
     ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{consts.ECU_INFO_FNAME}"
     PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{consts.PROXY_INFO_FNAME}"
 

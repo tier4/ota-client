@@ -15,7 +15,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from pydantic import BaseModel, ConfigDict
+from typing_extensions import Self
 
 
 class BaseFixedConfig(BaseModel):
@@ -27,8 +30,7 @@ class BaseFixedConfig(BaseModel):
 class ExtractAttrsMixin:
     """Extract string types attrs from an object."""
 
-    def _extract_path_attrs(self) -> dict[str, str]:
+    def _extract_to_ns(self) -> Self:
         attrns = filter(lambda x: not x.startswith("_"), dir(self))
-        return {
-            k: getattr(self, k) for k in attrns if isinstance(getattr(self, k), str)
-        }
+        res = {k: getattr(self, k) for k in attrns if isinstance(getattr(self, k), str)}
+        return SimpleNamespace(**res)  # type: ignore
