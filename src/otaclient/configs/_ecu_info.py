@@ -17,8 +17,6 @@
 from __future__ import annotations
 
 import logging
-import warnings
-from enum import Enum
 from pathlib import Path
 from typing import List
 
@@ -26,39 +24,12 @@ import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
 from typing_extensions import Annotated
 
-from otaclient.configs._common import BaseFixedConfig
 from otaclient_common.typing import NetworkPort, StrOrPath, gen_strenum_validator
 
+from ._common import BaseFixedConfig
+from ._consts import BootloaderType
+
 logger = logging.getLogger(__name__)
-
-
-class BootloaderType(str, Enum):
-    """Bootloaders that supported by otaclient.
-
-    auto_detect: (DEPRECATED) at runtime detecting what bootloader is in use in this ECU.
-    grub: generic x86_64 platform with grub.
-    cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x.
-        (theoretically other Nvidia jetson xavier devices using cboot are also supported)
-    rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28(with tryboot support).
-    """
-
-    AUTO_DETECT = "auto_detect"
-    GRUB = "grub"
-    CBOOT = "cboot"  # deprecated, use jetson-cboot instead
-    JETSON_CBOOT = "jetson-cboot"
-    RPI_BOOT = "rpi_boot"
-
-    @staticmethod
-    def deprecation_validator(value: BootloaderType) -> BootloaderType:
-        if value == BootloaderType.AUTO_DETECT:
-            _warning_msg = (
-                "bootloader field in ecu_info.yaml is not set or set to auto_detect(DEPRECATED), "
-                "runtime bootloader type detection is UNRELIABLE and bootloader field SHOULD be "
-                "set in ecu_info.yaml"
-            )
-            warnings.warn(_warning_msg, DeprecationWarning, stacklevel=2)
-            logger.warning(_warning_msg)
-        return value
 
 
 class ECUContact(BaseFixedConfig):
@@ -132,8 +103,3 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
         logger.warning(f"{ecu_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
         return DEFAULT_ECU_INFO
-
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.ECU_INFO_FPATH
-ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")
