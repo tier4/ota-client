@@ -27,9 +27,7 @@ from ._consts import CreateStandbyMechanism
 class CommonOTAClientConfig(BaseFixedConfig):
     """Common configuration for normal users."""
 
-    #
     # ------ Download related ------ #
-    #
     DOWNLOAD_THREAD: int = 6
     DOWNLOAD_IDLE_TIMEOUT: int = 5 * 60  # seconds
     """
@@ -38,31 +36,12 @@ class CommonOTAClientConfig(BaseFixedConfig):
     """
     DOWNLOAD_CONCURRENCY: int = 128  # tasks in backlog
 
-    #
     # ------ OTA update progress collecting interval ------ #
-    #
     UPDATE_STATS_COLLECT_INTERVAL: int = 1  # second
 
-    #
     # ------ Local delta calculation & apply update related ------ #
-    #
     FILE_PROCESS_THREAD: int = 6
     FILE_PROCESS_CONCURRENCY: int = 512  # files simultaneously
-
-    #
-    # ------ Multiple ECU update related ------ #
-    #
-    OVERALL_ECUS_STATUS_UPDATE_INTERVAL: int = 6
-    ECU_UNREACHABLE_TIMEOUT: int = 20 * 60  # seconds
-    """
-    If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
-    treated as UNREACHABLE, and will not be counted when generating overall
-    ECUs status report.
-    NOTE: unreachable_timeout should be larger than
-          downloading_group timeout
-    """
-    WAITING_SUBECU_ACK_REQ_TIMEOUT = 12  # seconds
-    ECU_STATUS_PULLING_INTERVAL: int = 1  # second
 
 
 class AdvancedOTAClientConfiguration(BaseFixedConfig):
@@ -116,6 +95,24 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
     Currently this flag will enable:
     1. detailed failure trackback in status API response.
     """
+
+    # ------ Multiple ECU update related ------ #
+    # The values are set to tolerate high latency between sub ECUs.
+    OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL: int = 60  # seconds
+    OVERALL_ECUS_STATUS_UPDATE_INTERVAL: int = 6
+    ECU_UNREACHABLE_TIMEOUT: int = 20 * 60  # seconds
+    """
+    If ECU has been disconnected longer than <TIMEOUT> seconds, it will be
+    treated as UNREACHABLE, and will not be counted when generating overall
+    ECUs status report.
+    NOTE: unreachable_timeout should be larger than
+          downloading_group timeout
+    """
+    WAITING_SUBECU_ACK_REQ_TIMEOUT: int = 12  # seconds
+    ECU_STATUS_PULLING_INTERVAL: int = 1  # second
+    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 60  # seconds
+    ACTIVE_STATUS_POLL_INTERVAL = 1  # second
+    IDLE_STATUS_POLL_INTERVAL = 10  # seconds
 
 
 class LoggingConfig(BaseFixedConfig):

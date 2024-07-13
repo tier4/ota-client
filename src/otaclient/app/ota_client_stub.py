@@ -276,13 +276,6 @@ class _OrderedSet(Dict[T, None]):
         super().pop(value, None)
 
 
-DELAY_OVERALL_STATUS_REPORT_UPDATE = 60
-UNREACHABLE_ECU_TIMEOUT = app_cfg.ECU_UNREACHABLE_TIMEOUT
-PROPERTY_REFRESH_INTERVAL = app_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
-IDLE_POLLING_INTERVAL = 10
-ACTIVE_POLLING_INTERVAL = 2
-
-
 class ECUStatusStorage:
     """Storage for holding ECU status reports from all ECUs in the cluster.
 
@@ -379,7 +372,8 @@ class ECUStatusStorage:
             return True  # we have not yet connected to this ECU
         return (
             cur_timestamp
-            > self._all_ecus_last_contact_timestamp[ecu_id] + UNREACHABLE_ECU_TIMEOUT
+            > self._all_ecus_last_contact_timestamp[ecu_id]
+            + app_cfg.ECU_UNREACHABLE_TIMEOUT
         )
 
     async def _generate_overall_status_report(self):
@@ -402,7 +396,7 @@ class ECUStatusStorage:
             logger.warning(f"new lost ecu(s) detected: {_new_lost_ecus_id}")
         if lost_ecus:
             logger.warning(
-                f"lost ecu(s)(disconnected longer than{UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
+                f"lost ecu(s)(disconnected longer than{app_cfg.ECU_UNREACHABLE_TIMEOUT}s): {lost_ecus=}"
             )
 
         # check ECUs in tracked active ECUs set that are updating
@@ -495,15 +489,15 @@ class ECUStatusStorage:
                 if last_storage_update != self.storage_last_updated_timestamp and (
                     current_timestamp
                     > self.last_update_request_received_timestamp
-                    + DELAY_OVERALL_STATUS_REPORT_UPDATE
+                    + app_cfg.KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._generate_overall_status_report()
             # if properties are not initialized, use active_interval for update
             if self.properties_last_update_timestamp == 0:
-                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(app_cfg.ACTIVE_STATUS_POLL_INTERVAL)
             else:
-                await asyncio.sleep(PROPERTY_REFRESH_INTERVAL)
+                await asyncio.sleep(app_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL)
 
     # API
 
@@ -580,9 +574,9 @@ class ECUStatusStorage:
             if one only wants to get the polling interval value.
         """
         return (
-            ACTIVE_POLLING_INTERVAL
+            app_cfg.ACTIVE_STATUS_POLL_INTERVAL
             if self.active_ota_update_present.is_set()
-            else IDLE_POLLING_INTERVAL
+            else app_cfg.IDLE_STATUS_POLL_INTERVAL
         )
 
     def get_polling_waiter(self):
@@ -598,13 +592,13 @@ class ECUStatusStorage:
 
         async def _waiter():
             if self.active_ota_update_present.is_set():
-                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(app_cfg.ACTIVE_STATUS_POLL_INTERVAL)
                 return
 
             try:
                 await asyncio.wait_for(
                     self.active_ota_update_present.wait(),
-                    timeout=IDLE_POLLING_INTERVAL,
+                    timeout=app_cfg.IDLE_STATUS_POLL_INTERVAL,
                 )
             except asyncio.TimeoutError:
                 return
@@ -696,9 +690,6 @@ class _ECUTracker:
             await self._polling_waiter()
 
 
-OTAPROXY_SHUTDOWN_DELAY = 60  # seconds
-
-
 class OTAClientServiceStub:
     """Handlers for otaclient service API.
 
@@ -768,7 +759,8 @@ class OTAClientServiceStub:
                 if (
                     not any_requires_network
                     and cur_timestamp
-                    > otaproxy_last_launched_timestamp + OTAPROXY_SHUTDOWN_DELAY
+                    > otaproxy_last_launched_timestamp
+                    + app_cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
                 ):
                     await self._otaproxy_launcher.stop()
                     otaproxy_last_launched_timestamp = 0
