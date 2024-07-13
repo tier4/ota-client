@@ -16,7 +16,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from otaclient_common.typing import StrOrPath
 
 from ._app_config import (
     AdvancedOTAClientConfiguration,
@@ -82,3 +86,15 @@ static_paths = _StaticPathConsts()._extract_to_ns()
 dynamic_paths = _DynamicPathConsts(host_rootfs=app_cfg.HOST_ROOTFS)._extract_to_ns()
 ecu_info = parse_ecu_info(dynamic_paths.ECU_INFO_FPATH)
 proxy_info = parse_proxy_info(dynamic_paths.PROXY_INFO_FPATH)
+
+
+# other helper methods
+def replace_root(
+    _canonical_path: StrOrPath, *, new_root: StrOrPath = app_cfg.HOST_ROOTFS
+) -> Path:
+    """Helper method to re-root the <_canonical_path> to <new_root>.
+
+    NOTE that <_canonical_path> means the path is rooted from /.
+    By default <new_root> is the app_cfg.HOST_ROOTFS.
+    """
+    return Path(new_root) / Path(_canonical_path).relative_to("/")
