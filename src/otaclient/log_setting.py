@@ -25,8 +25,8 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info, proxy_info
+from otaclient.configs import app_cfg
+from otaclient.configs import ecu_info, proxy_info
 
 
 class _LogTeeHandler(logging.Handler):
@@ -75,7 +75,7 @@ def configure_logging() -> None:
     #       when launching subprocess.
     # NOTE: for the root logger, set to CRITICAL to filter away logs from other
     #       external modules unless reached CRITICAL level.
-    logging.basicConfig(level=logging.CRITICAL, format=cfg.LOG_FORMAT, force=True)
+    logging.basicConfig(level=logging.CRITICAL, format=app_cfg.LOG_FORMAT, force=True)
 
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
@@ -83,14 +83,14 @@ def configure_logging() -> None:
         logging_upload_endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
 
         log_upload_handler = _LogTeeHandler()
-        fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
+        fmt = logging.Formatter(fmt=app_cfg.LOG_FORMAT)
         log_upload_handler.setFormatter(fmt)
 
         # star the logging thread
         log_upload_endpoint = urljoin(logging_upload_endpoint, ecu_info.ecu_id)
         log_upload_handler.start_upload_thread(log_upload_endpoint)
 
-    for logger_name, loglevel in cfg.LOG_LEVEL_TABLE.items():
+    for logger_name, loglevel in app_cfg.LOG_LEVEL_TABLE.items():
         _logger = logging.getLogger(logger_name)
         _logger.setLevel(loglevel)
         if log_upload_handler:
