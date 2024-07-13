@@ -24,21 +24,6 @@ from typing import Any, Literal
 logger = logging.getLogger(__name__)
 
 
-class Consts:
-    # ------ otaclient configuration files ------ #
-    OTA_DIR = "/boot/ota"
-    ECU_INFO_FNAME = "ecu_info.yaml"
-    PROXY_INFO_FNAME = "proxy_info.yaml"
-
-    # ------ ota status file ------ #
-    OTA_STATUS_FNAME = "status"
-    FIRMWARE_VERSION_FNAME = "version"
-    SLOT_IN_USE_FNAME = "slot_in_use"
-
-    # ------ compression support ------ #
-    SUPPORTED_COMPRESS_ALG = ("zst", "zstd")
-
-
 class CreateStandbyMechanism(str, Enum):
     """Create standby slot implementation."""
 
@@ -92,8 +77,14 @@ class BootloaderType(str, Enum):
         return value
 
 
-class PathConsts:
-    """Paths that are static and rooted at /."""
+class Consts:
+    # ------ ota status file ------ #
+    OTA_STATUS_FNAME = "status"
+    FIRMWARE_VERSION_FNAME = "version"
+    SLOT_IN_USE_FNAME = "slot_in_use"
+
+    # ------ compression support ------ #
+    SUPPORTED_COMPRESS_ALG = ("zst", "zstd")
 
     # ------ otaclient runtime used dirs ------ #
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
@@ -120,10 +111,13 @@ class PathConsts:
     OTACLIENT_CERTS_DPATH = f"{OTACLIENT_INSTALLATION_DPATH}/certs"
     OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
 
-    # ------ otaclient configuration dir ------ #
+    # ------ otaclient configuration related ------ #
     OTACLIENT_CONFIGS_DPATH = f"{BOOT_DIR}/ota"
-    ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{Consts.ECU_INFO_FNAME}"
-    PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{Consts.PROXY_INFO_FNAME}"
+    ECU_INFO_FNAME = "ecu_info.yaml"
+    PROXY_INFO_FNAME = "proxy_info.yaml"
+
+    ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{ECU_INFO_FNAME}"
+    PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{PROXY_INFO_FNAME}"
 
     # ------ system files used/checked/updated by otaclient ------ #
     PASSWD_FPATH = f"{ETC_DPATH}/passwd"
