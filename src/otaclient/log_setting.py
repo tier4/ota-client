@@ -25,8 +25,7 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient.configs import app_cfg
-from otaclient.configs import ecu_info, proxy_info
+from otaclient.configs import app_cfg, ecu_info, proxy_info
 
 
 class _LogTeeHandler(logging.Handler):

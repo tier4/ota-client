@@ -91,7 +91,7 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
     # ------ DEBUG mode ------ #
     DEBUG_MODE: bool = False
     """Enable debug mode globally.
-    
+
     Currently this flag will enable:
     1. detailed failure trackback in status API response.
     """
