@@ -20,14 +20,18 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from otaclient._configs import (
+    BootloaderType,
+    CreateStandbyMechanism,
+    parse_ecu_info,
+    parse_proxy_info,
+)
 from otaclient._configs._app_config import (
     AdvancedOTAClientConfiguration,
     CommonOTAClientConfig,
     LoggingConfig,
 )
-from otaclient._configs._consts import BootloaderType, Consts, CreateStandbyMechanism
-from otaclient._configs._ecu_info import parse_ecu_info
-from otaclient._configs._proxy_info import parse_proxy_info
+from otaclient._configs._consts import Consts
 from otaclient_common.typing import StrOrPath
 
 __all__ = [

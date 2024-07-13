@@ -15,8 +15,8 @@
 
 
 from ._consts import BootloaderType, CreateStandbyMechanism
-from ._ecu_info import ECUContact, ECUInfo
-from ._proxy_info import ProxyInfo
+from ._ecu_info import ECUContact, ECUInfo, parse_ecu_info
+from ._proxy_info import ProxyInfo, parse_proxy_info
 
 __all__ = [
     "ECUContact",
@@ -24,4 +24,6 @@ __all__ = [
     "ProxyInfo",
     "CreateStandbyMechanism",
     "BootloaderType",
+    "parse_ecu_info",
+    "parse_proxy_info",
 ]
