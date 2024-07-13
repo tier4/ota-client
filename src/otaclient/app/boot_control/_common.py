@@ -24,7 +24,7 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
-from otaclient.app.configs import config as cfg
+from otaclient.configs import app_cfg, consts, dynamic_paths
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     read_str_from_file,
@@ -111,7 +111,7 @@ class CMDHelperFuncs:
         Returns:
             str: the devpath of current rootfs device.
         """
-        cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOTFS_PATH]
+        cmd = ["findmnt", "-nfco", "SOURCE", app_cfg.HOST_ROOTFS]
         return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
@@ -573,7 +573,7 @@ class OTAStatusFilesControl:
         logger.info(f"slot_in_use loaded from file: {_loaded_slot_in_use}")
 
         # check potential failed switching boot
-        if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
+        if _loaded_slot_in_use != self.active_slot:
             logger.warning(
                 f"boot into old slot {self.active_slot}, "
                 f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
@@ -584,17 +584,17 @@ class OTAStatusFilesControl:
 
     def _store_current_slot_in_use(self, _slot: str):
         write_str_to_file_sync(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+            self.current_ota_status_dir / consts.SLOT_IN_USE_FNAME, _slot
         )
 
     def _store_standby_slot_in_use(self, _slot: str):
         write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
+            self.standby_ota_status_dir / consts.SLOT_IN_USE_FNAME, _slot
         )
 
     def _load_current_slot_in_use(self) -> Optional[str]:
         if res := read_str_from_file(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
+            self.current_ota_status_dir / consts.SLOT_IN_USE_FNAME, default=""
         ):
             return res
 
@@ -602,17 +602,17 @@ class OTAStatusFilesControl:
 
     def _store_current_status(self, _status: api_types.StatusOta):
         write_str_to_file_sync(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            self.current_ota_status_dir / consts.OTA_STATUS_FNAME, _status.name
         )
 
     def _store_standby_status(self, _status: api_types.StatusOta):
         write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            self.standby_ota_status_dir / consts.OTA_STATUS_FNAME, _status.name
         )
 
     def _load_current_status(self) -> Optional[api_types.StatusOta]:
         if _status_str := read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+            self.current_ota_status_dir / consts.OTA_STATUS_FNAME
         ).upper():
             with contextlib.suppress(KeyError):
                 # invalid status string
@@ -622,7 +622,7 @@ class OTAStatusFilesControl:
 
     def _store_standby_version(self, _version: str):
         write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            self.standby_ota_status_dir / consts.FIRMWARE_VERSION_FNAME,
             _version,
         )
 
@@ -679,9 +679,9 @@ class OTAStatusFilesControl:
 
     def load_active_slot_version(self) -> str:
         return read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            self.current_ota_status_dir / consts.FIRMWARE_VERSION_FNAME,
             missing_ok=True,
-            default=cfg.DEFAULT_VERSION_STR,
+            default=app_cfg.DEFAULT_VERSION_STR,
         )
 
     def on_failure(self):
@@ -717,22 +717,26 @@ class SlotMountHelper:
         # dev
         self.standby_slot_dev = str(standby_slot_dev)
         self.active_slot_dev = str(active_slot_dev)
-        # mount points
+
+        # prepare mount points
         self.standby_slot_mount_point = Path(standby_slot_mount_point)
         self.active_slot_mount_point = Path(active_slot_mount_point)
         self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
         self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
+
         # standby slot /boot dir
         # NOTE(20230907): this will always be <standby_slot_mp>/boot,
         #                 in the future this attribute will not be used by
         #                 standby slot creater.
         self.standby_boot_dir = self.standby_slot_mount_point / Path(
-            cfg.BOOT_DIR
+            dynamic_paths.BOOT_DIR
         ).relative_to("/")
 
     def mount_standby(self) -> None:
         """Mount standby slot dev to <standby_slot_mount_point>."""
         logger.debug("mount standby slot rootfs dev...")
+        self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
+
         if CMDHelperFuncs.is_target_mounted(
             self.standby_slot_dev, raise_exception=False
         ):
@@ -747,6 +751,7 @@ class SlotMountHelper:
     def mount_active(self) -> None:
         """Mount active rootfs ready-only."""
         logger.debug("mount active slot rootfs dev...")
+        self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
         CMDHelperFuncs.mount_ro(
             target=self.active_slot_dev,
             mount_point=self.active_slot_mount_point,
@@ -760,8 +765,8 @@ class SlotMountHelper:
         """
         logger.debug("copy /boot/ota from active to standby.")
         try:
-            _src = self.active_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
+            _src = self.active_slot_mount_point / Path(consts.OTA_DIR).relative_to("/")
+            _dst = self.standby_slot_mount_point / Path(consts.OTA_DIR).relative_to("/")
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
         except Exception as e:
             raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
