@@ -46,7 +46,7 @@ def get_file_size(
         return ceil(swapfile_fpath.stat().st_size / _multiplier[units])
 
 
-def replace_root(path: StrOrPath, *, old_root: StrOrPath, new_root: StrOrPath) -> str:
+def replace_root(path: StrOrPath, *, old_root: StrOrPath, new_root: StrOrPath) -> Path:
     """Replace a <path> relative to <old_root> to <new_root>.
 
     For example, if path="/abc", old_root="/", new_root="/new_root",
@@ -61,7 +61,7 @@ def replace_root(path: StrOrPath, *, old_root: StrOrPath, new_root: StrOrPath) -
         raise ValueError(f"{old_root=} and/or {new_root=} is not valid root")
     if os.path.commonpath([path, old_root]) != old_root:
         raise ValueError(f"{old_root=} is not the root of {path=}")
-    return os.path.join(new_root, os.path.relpath(path, old_root))
+    return Path(os.path.join(new_root, os.path.relpath(path, old_root)))
 
 
 def import_from_file(path: Path) -> tuple[str, ModuleType]:

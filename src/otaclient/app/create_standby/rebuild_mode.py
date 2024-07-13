@@ -21,12 +21,13 @@ from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
+from otaclient.configs import app_cfg, consts
+from otaclient_common import replace_root
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
 
-from ..configs import config as cfg
 from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 from .common import DeltaBundle, DeltaGenerator, HardlinkRegister
 from .interface import StandbySlotCreatorProtocol
@@ -54,7 +55,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
         # recycle folder, files copied from referenced slot will be stored here,
         # also the meta files will be stored under this folder
-        self._ota_tmp = self.standby_slot_mp / Path(cfg.OTA_TMP_STORE).relative_to("/")
+        self._ota_tmp = replace_root(
+            consts.OTA_TMP_STORE, old_root="/", new_root=self.standby_slot_mp
+        )
+
         self._ota_tmp.mkdir(exist_ok=True)
 
     def _cal_and_prepare_delta(self):
@@ -91,8 +95,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 raise
 
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            max_concurrent=app_cfg.FILE_PROCESS_CONCURRENCY,
+            max_total_retry=app_cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
             try:
                 for _ in _mapper.ensure_tasks(
@@ -164,7 +168,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = self.standby_slot_mp / Path(cfg.META_FOLDER).relative_to("/")
+        _dst = replace_root(
+            app_cfg.OTA_IMAGE_METADATA_DIR, old_root="/", new_root=self.standby_slot_mp
+        )
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")

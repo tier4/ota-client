@@ -105,8 +105,9 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
     # ------ grpc OTA API server config ------ #
     API_SERVER_PORT: NetworkPort = 50051
 
-    # ------ create standby method ------ #
+    # ------ create standby related ------ #
     CREATE_STANDBY_METHOD: CreateStandbyMechanism = CreateStandbyMechanism.REBUILD
+    CREATE_STANDBY_RETRY_MAX: int = 1024
 
     # ------ DEBUG mode ------ #
     DEBUG_MODE: bool = False

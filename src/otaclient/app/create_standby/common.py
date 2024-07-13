@@ -32,9 +32,9 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
+from otaclient.configs import app_cfg
 from otaclient_common.common import create_tmp_fname
 
-from ..configs import config as cfg
 from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
@@ -320,10 +320,10 @@ class DeltaGenerator:
 
         # ------ create the threadpool executor ------ #
         thread_local = threading.local()
-        max_pending_tasks = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
+        max_pending_tasks = threading.Semaphore(app_cfg.FILE_PROCESS_CONCURRENCY)
 
         def _initializer():
-            thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+            thread_local.buffer = buffer = bytearray(app_cfg.CHUNK_SIZE)
             thread_local.view = memoryview(buffer)
 
         def _task_done_callback(fut: Future[Any]):
@@ -334,7 +334,7 @@ class DeltaGenerator:
                 )
 
         pool = ThreadPoolExecutor(
-            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            max_workers=app_cfg.FILE_PROCESS_THREAD,
             thread_name_prefix="scan_slot",
             initializer=_initializer,
         )
