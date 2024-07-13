@@ -43,7 +43,7 @@ from otaclient.app.boot_control._jetson_common import (
     update_standby_slot_extlinux_cfg,
 )
 from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.configs import BootloaderType, app_cfg, static_paths
+from otaclient.configs import BootloaderType, app_cfg, consts
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import subprocess_run_wrapper
 
@@ -356,9 +356,9 @@ class JetsonCBootControl(BootControllerProtocol):
             # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
-                standby_slot_mount_point=static_paths.STANDY_SLOT_MOUNT,
+                standby_slot_mount_point=consts.STANDY_SLOT_MOUNT,
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
-                active_slot_mount_point=static_paths.ACTIVE_SLOT_MOUNT,
+                active_slot_mount_point=consts.ACTIVE_SLOT_MOUNT,
             )
 
             current_ota_status_dir = Path(app_cfg.HOST_ROOTFS) / Path(

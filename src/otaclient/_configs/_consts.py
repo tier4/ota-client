@@ -113,7 +113,7 @@ class Consts:
     OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
 
     # ------ otaclient configuration related ------ #
-    OTACLIENT_CONFIGS_DPATH = f"{BOOT_DIR}/ota"
+    OTACLIENT_CONFIGS_DPATH = "/boot/ota"
     ECU_INFO_FNAME = "ecu_info.yaml"
     PROXY_INFO_FNAME = "proxy_info.yaml"
 
@@ -121,6 +121,6 @@ class Consts:
     PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{PROXY_INFO_FNAME}"
 
     # ------ system files used/checked/updated by otaclient ------ #
-    PASSWD_FPATH = f"{ETC_DPATH}/passwd"
-    GROUP_FPATH = f"{ETC_DPATH}/passwd"
-    FSTAB_FPATH = f"{ETC_DPATH}/fstab"
+    PASSWD_FPATH = "/etc/passwd"
+    GROUP_FPATH = "/etc/passwd"
+    FSTAB_FPATH = "/etc/fstab"

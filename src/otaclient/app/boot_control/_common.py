@@ -24,8 +24,9 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
-from otaclient.configs import app_cfg, consts, dynamic_paths
+from otaclient.configs import app_cfg, consts
 from otaclient_api.v2 import types as api_types
+from otaclient_common import replace_root
 from otaclient_common.common import (
     read_str_from_file,
     subprocess_call,
@@ -728,9 +729,9 @@ class SlotMountHelper:
         # NOTE(20230907): this will always be <standby_slot_mp>/boot,
         #                 in the future this attribute will not be used by
         #                 standby slot creater.
-        self.standby_boot_dir = self.standby_slot_mount_point / Path(
-            dynamic_paths.BOOT_DIR
-        ).relative_to("/")
+        self.standby_boot_dir = replace_root(
+            consts.BOOT_DIR, new_root=self.standby_slot_mount_point
+        )
 
     def mount_standby(self) -> None:
         """Mount standby slot dev to <standby_slot_mount_point>."""
@@ -762,11 +763,18 @@ class SlotMountHelper:
 
         /boot/ota folder contains the ota setting for this device,
         so we should preserve it for each slot, accross each update.
+
+        TODO(20240711): should we preserve the /boot/ota folder by default?
         """
         logger.debug("copy /boot/ota from active to standby.")
+        _src = self.active_slot_mount_point / Path(
+            consts.OTACLIENT_CONFIGS_DPATH
+        ).relative_to("/")
+        _dst = self.standby_slot_mount_point / Path(
+            consts.OTACLIENT_CONFIGS_DPATH
+        ).relative_to("/")
+
         try:
-            _src = self.active_slot_mount_point / Path(consts.OTA_DIR).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(consts.OTA_DIR).relative_to("/")
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
         except Exception as e:
             raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")

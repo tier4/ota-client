@@ -50,13 +50,7 @@ from otaclient.app.boot_control._common import (
     cat_proc_cmdline,
 )
 from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.configs import (
-    BootloaderType,
-    app_cfg,
-    consts,
-    dynamic_paths,
-    static_paths,
-)
+from otaclient.configs import BootloaderType, app_cfg, consts
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     re_symlink_atomic,
@@ -423,7 +417,7 @@ class _GrubControl:
             f"{self.active_slot=}@{self.active_root_dev}, {self.standby_slot=}@{self.standby_root_dev}"
         )
 
-        self.boot_dir = Path(dynamic_paths.BOOT_DIR)
+        self.boot_dir = Path(consts.BOOT_DIR)
         self.grub_file = Path(app_cfg.HOST_ROOTFS) / Path(
             boot_cfg.GRUB_CFG_PATH
         ).relative_to("/")
@@ -551,7 +545,7 @@ class _GrubControl:
         # lookup the grub file and find the booted entry
         # NOTE(20230905): use standard way to find initrd img
         initrd_img = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
-        if not (Path(dynamic_paths.BOOT_DIR) / initrd_img).is_file():
+        if not (Path(consts.BOOT_DIR) / initrd_img).is_file():
             raise ValueError(f"failed to find booted initrd image({initrd_img})")
         return kernel_ma.group("kernel"), initrd_img
 
@@ -772,9 +766,9 @@ class GrubController(BootControllerProtocol):
             self._boot_control = _GrubControl()
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._boot_control.standby_root_dev,
-                standby_slot_mount_point=static_paths.STANDY_SLOT_MOUNT,
+                standby_slot_mount_point=consts.STANDY_SLOT_MOUNT,
                 active_slot_dev=self._boot_control.active_root_dev,
-                active_slot_mount_point=static_paths.ACTIVE_SLOT_MOUNT,
+                active_slot_mount_point=consts.ACTIVE_SLOT_MOUNT,
             )
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._boot_control.active_slot,

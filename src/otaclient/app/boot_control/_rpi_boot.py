@@ -34,7 +34,7 @@ from otaclient.app.boot_control._common import (
     write_str_to_file_sync,
 )
 from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.configs import BootloaderType, app_cfg, static_paths
+from otaclient.configs import BootloaderType, app_cfg, consts
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import replace_atomic
 from otaclient_common.linux import subprocess_run_wrapper
@@ -449,9 +449,9 @@ class RPIBootController(BootControllerProtocol):
             # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
-                standby_slot_mount_point=static_paths.STANDY_SLOT_MOUNT,
+                standby_slot_mount_point=consts.STANDY_SLOT_MOUNT,
                 active_slot_dev=self._rpiboot_control.active_slot_dev,
-                active_slot_mount_point=static_paths.ACTIVE_SLOT_MOUNT,
+                active_slot_mount_point=consts.ACTIVE_SLOT_MOUNT,
             )
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
@@ -460,7 +460,7 @@ class RPIBootController(BootControllerProtocol):
                 current_ota_status_dir=Path(app_cfg.HOST_ROOTFS)
                 / Path(boot_cfg.OTA_STATUS_DIR).relative_to("/"),
                 # NOTE: might not yet be populated before OTA update applied!
-                standby_ota_status_dir=Path(static_paths.STANDY_SLOT_MOUNT)
+                standby_ota_status_dir=Path(consts.STANDY_SLOT_MOUNT)
                 / Path(boot_cfg.OTA_STATUS_DIR).relative_to("/"),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
