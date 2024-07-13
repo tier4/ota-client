@@ -20,9 +20,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import _consts
+from ._common import ExtractAttrsMixin
 
 
-class _StaticPathConsts:
+class _StaticPathConsts(ExtractAttrsMixin):
     """Paths that are static and rooted at /."""
 
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
@@ -37,10 +38,25 @@ class _StaticPathConsts:
     """OTA temporary storage at standby slot during OTA."""
 
 
-class _DynamicPathConsts:
-    """Paths that will be dynamically re-rooted to <HOST_ROOTFS>."""
+class _DynamicRootMixin:
 
     _HOST_ROOTFS: Literal["/"] | str = "/"
+
+    def __init__(self, host_rootfs: Literal["/"] | str = "/") -> None:
+        self._HOST_ROOTFS = host_rootfs
+
+    def __getattribute__(self, name: str) -> str | Any:
+        attr_value = super().__getattribute__(name)
+        if name.startswith("_") or self._HOST_ROOTFS == "/":
+            return attr_value
+
+        # dynamically update the root according to HOST_ROOTFS value.
+        attr_value = Path(attr_value).relative_to("/")
+        return str(self._HOST_ROOTFS / attr_value)
+
+
+class _DynamicPathConsts(_DynamicRootMixin, ExtractAttrsMixin):
+    """Paths that will be dynamically re-rooted to <HOST_ROOTFS>."""
 
     # ------ common system paths ------ #
     ETC_DPATH = "/etc"
@@ -60,20 +76,3 @@ class _DynamicPathConsts:
     PASSWD_FPATH = f"{ETC_DPATH}/passwd"
     GROUP_FPATH = f"{ETC_DPATH}/passwd"
     FSTAB_FPATH = f"{ETC_DPATH}/fstab"
-
-    def __init__(self, host_rootfs: Literal["/"] | str = "/") -> None:
-        self._HOST_ROOTFS = host_rootfs
-
-    def __getattribute__(self, name: str) -> str | Any:
-        attr_value = super().__getattribute__(name)
-        if name.startswith("_") or self._HOST_ROOTFS == "/":
-            return attr_value
-
-        # dynamically update the root according to HOST_ROOTFS value.
-        attr_value = Path(attr_value).relative_to("/")
-        return str(self._HOST_ROOTFS / attr_value)
-
-
-def _extract_path_attrs(obj: Any) -> dict[str, str]:
-    attrns = filter(lambda x: not x.startswith("_"), dir(obj))
-    return {k: getattr(obj, k) for k in attrns if isinstance(getattr(obj, k), str)}

@@ -16,23 +16,19 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-# prefix for environmental vars name for configs.
-ENV_PREFIX = "OTA_"
-
-
-class BaseConfigurableConfig(BaseSettings):
-    """Common base for configs that are configurable via ENV."""
-
-    model_config = SettingsConfigDict(
-        env_prefix=ENV_PREFIX,
-        frozen=True,
-        validate_default=True,
-    )
 
 
 class BaseFixedConfig(BaseModel):
     """Common base for configs that should be fixed and not changable."""
 
     model_config = ConfigDict(frozen=True, validate_default=True)
+
+
+class ExtractAttrsMixin:
+    """Extract string types attrs from an object."""
+
+    def _extract_path_attrs(self) -> dict[str, str]:
+        attrns = filter(lambda x: not x.startswith("_"), dir(self))
+        return {
+            k: getattr(self, k) for k in attrns if isinstance(getattr(self, k), str)
+        }
