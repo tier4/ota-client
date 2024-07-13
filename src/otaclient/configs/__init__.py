@@ -27,7 +27,7 @@ from ._app_config import (
     CommonOTAClientConfig,
     LoggingConfig,
 )
-from ._consts import BootloaderType, Consts, CreateStandbyMechanism, PathConsts
+from ._consts import BootloaderType, Consts, CreateStandbyMechanism
 from ._ecu_info import parse_ecu_info
 from ._proxy_info import parse_proxy_info
 
@@ -37,9 +37,9 @@ __all__ = [
     "OTAClientConfig",
     "app_cfg",
     "consts",
-    "path_consts",
     "ecu_info",
     "proxy_info",
+    "replace_root_if_container",
 ]
 
 
@@ -81,7 +81,6 @@ def _parse_configs():
 #
 app_cfg = _parse_configs()
 consts = Consts()
-path_consts = PathConsts()
 
 
 def replace_root_if_container(
@@ -99,5 +98,5 @@ def replace_root_if_container(
     return Path(new_root) / Path(_canonical_path).relative_to("/")
 
 
-ecu_info = parse_ecu_info(replace_root_if_container(path_consts.ECU_INFO_FPATH))
-proxy_info = parse_proxy_info(replace_root_if_container(path_consts.PROXY_INFO_FPATH))
+ecu_info = parse_ecu_info(replace_root_if_container(consts.ECU_INFO_FPATH))
+proxy_info = parse_proxy_info(replace_root_if_container(consts.PROXY_INFO_FPATH))
