@@ -39,9 +39,6 @@ class Consts:
     SUPPORTED_COMPRESS_ALG = ("zst", "zstd")
 
 
-consts = Consts()
-
-
 class CreateStandbyMechanism(str, Enum):
     """Create standby slot implementation."""
 
@@ -93,3 +90,42 @@ class BootloaderType(str, Enum):
             warnings.warn(_warning_msg, DeprecationWarning, stacklevel=2)
             logger.warning(_warning_msg)
         return value
+
+
+class PathConsts:
+    """Paths that are static and rooted at /."""
+
+    # ------ otaclient runtime used dirs ------ #
+    OTACLIENT_PID_FILE = "/run/otaclient.pid"
+    OTACLIENT_RUN_DIR = "/run/otaclient"
+    OTACLIENT_MOUNT_SPACE = "/run/otaclient/mnt"
+    ACTIVE_SLOT_MOUNT = "/run/otaclient/mnt/active_slot"
+    STANDY_SLOT_MOUNT = "/run/otaclient/mnt/standby_slot"
+
+    OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
+    OTA_TMP_STORE = "/.ota-tmp"
+    """OTA temporary storage at standby slot during OTA."""
+
+    OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT = "/run/otaclient/mnt/external_cache_src"
+    OTAPROXY_EXTERNAL_CACHE_STORAGE_DATA_DIR = (
+        f"{OTAPROXY_EXTERNAL_CACHE_STORAGE_MOUNT}/data"
+    )
+
+    # ------ common system paths ------ #
+    ETC_DPATH = "/etc"
+    BOOT_DIR = "/boot"
+
+    # ------ otaclient installation ------ #
+    OTACLIENT_INSTALLATION_DPATH = "/opt/ota/client"
+    OTACLIENT_CERTS_DPATH = f"{OTACLIENT_INSTALLATION_DPATH}/certs"
+    OTA_IMAGE_META_FOLDER = "/opt/ota/image-meta"
+
+    # ------ otaclient configuration dir ------ #
+    OTACLIENT_CONFIGS_DPATH = f"{BOOT_DIR}/ota"
+    ECU_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{Consts.ECU_INFO_FNAME}"
+    PROXY_INFO_FPATH = f"{OTACLIENT_CONFIGS_DPATH}/{Consts.PROXY_INFO_FNAME}"
+
+    # ------ system files used/checked/updated by otaclient ------ #
+    PASSWD_FPATH = f"{ETC_DPATH}/passwd"
+    GROUP_FPATH = f"{ETC_DPATH}/passwd"
+    FSTAB_FPATH = f"{ETC_DPATH}/fstab"

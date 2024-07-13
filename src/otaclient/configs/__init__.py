@@ -27,19 +27,17 @@ from ._app_config import (
     CommonOTAClientConfig,
     LoggingConfig,
 )
-from ._consts import BootloaderType, CreateStandbyMechanism, consts
+from ._consts import BootloaderType, Consts, CreateStandbyMechanism, PathConsts
 from ._ecu_info import parse_ecu_info
-from ._paths import _DynamicPathConsts, _StaticPathConsts
 from ._proxy_info import parse_proxy_info
 
 __all__ = [
-    "consts",
     "CreateStandbyMechanism",
     "BootloaderType",
     "OTAClientConfig",
     "app_cfg",
-    "static_paths",
-    "dynamic_paths",
+    "consts",
+    "path_consts",
     "ecu_info",
     "proxy_info",
 ]
@@ -82,19 +80,24 @@ def _parse_configs():
 # ------ instantiate config objects ------ #
 #
 app_cfg = _parse_configs()
-static_paths = _StaticPathConsts()._extract_to_ns()
-dynamic_paths = _DynamicPathConsts(host_rootfs=app_cfg.HOST_ROOTFS)._extract_to_ns()
-ecu_info = parse_ecu_info(dynamic_paths.ECU_INFO_FPATH)
-proxy_info = parse_proxy_info(dynamic_paths.PROXY_INFO_FPATH)
+consts = Consts()
+path_consts = PathConsts()
 
 
-# other helper methods
-def replace_root(
+def replace_root_if_container(
     _canonical_path: StrOrPath, *, new_root: StrOrPath = app_cfg.HOST_ROOTFS
 ) -> Path:
     """Helper method to re-root the <_canonical_path> to <new_root>.
 
     NOTE that <_canonical_path> means the path is rooted from /.
     By default <new_root> is the app_cfg.HOST_ROOTFS.
+
+    For general purpose replace_root, please use otaclient_common.replace_root.
     """
+    if new_root == "/":
+        return Path(_canonical_path)
     return Path(new_root) / Path(_canonical_path).relative_to("/")
+
+
+ecu_info = parse_ecu_info(replace_root_if_container(path_consts.ECU_INFO_FPATH))
+proxy_info = parse_proxy_info(replace_root_if_container(path_consts.PROXY_INFO_FPATH))
