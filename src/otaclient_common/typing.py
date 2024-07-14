@@ -65,10 +65,16 @@ def gen_strenum_validator(
     """
 
     def _inner(value: EnumT | str | Any) -> EnumT:
-        assert isinstance(
-            value, (enum_type, str)
-        ), f"{value=} should be {enum_type} or str type"
-        return enum_type(value)
+        if isinstance(value, enum_type):
+            return value
+
+        if isinstance(value, str):
+            try:  # get enum by value
+                return enum_type(value)
+            except ValueError:
+                # get enum by name
+                return enum_type[value]
+        raise ValueError(f"{value=} should be {enum_type} or str type")
 
     return _inner
 
