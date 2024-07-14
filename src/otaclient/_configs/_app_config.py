@@ -126,3 +126,8 @@ class LoggingConfig(BaseFixedConfig):
     LOG_FORMAT: str = (
         "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
     )
+
+
+class OTAClientConfig(
+    CommonOTAClientConfig, AdvancedOTAClientConfiguration, LoggingConfig
+): ...

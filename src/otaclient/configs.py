@@ -30,6 +30,7 @@ from otaclient._configs._app_config import (
     AdvancedOTAClientConfiguration,
     CommonOTAClientConfig,
     LoggingConfig,
+    OTAClientConfig,
 )
 from otaclient._configs._consts import Consts
 from otaclient_common.typing import StrOrPath
@@ -44,12 +45,6 @@ __all__ = [
     "proxy_info",
     "replace_root_if_container",
 ]
-
-
-class OTAClientConfig(
-    CommonOTAClientConfig, AdvancedOTAClientConfiguration, LoggingConfig
-): ...
-
 
 COMMON_OPT_PREFIX = "OTA_"
 ADVANCED_OPT_PREFIX = "OTA_ADVANCE_"
