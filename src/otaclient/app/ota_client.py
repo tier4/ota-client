@@ -183,12 +183,12 @@ class _OTAUpdater:
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = replace_root(
             consts.OTA_TMP_STORE,
-            new_root=consts.ACTIVE_SLOT_MOUNT,
+            new_root=consts.STANDY_SLOT_MOUNT,
         )
 
         self._ota_tmp_image_meta_dir_on_standby = replace_root(
             consts.OTA_TMP_IMAGE_META_STORE,
-            new_root=consts.ACTIVE_SLOT_MOUNT,
+            new_root=consts.STANDY_SLOT_MOUNT,
         )
 
         # ------ parse cookies ------ #
