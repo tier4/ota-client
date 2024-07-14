@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from enum import Enum, auto
+from enum import Enum
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 class CreateStandbyMechanism(str, Enum):
     """Create standby slot implementation."""
 
-    DEFAULT = auto()
-    LEGACY = auto()  # deprecated and removed
-    REBUILD = auto()  # default
-    IN_PLACE = auto()  # not yet implemented
+    DEFAULT = "default"
+    LEGACY = "legacy"  # deprecated and removed
+    REBUILD = "rebuild"  # default
+    IN_PLACE = "in_place"  # not yet implemented
 
     @classmethod
     def warning_validator(cls, value: Any) -> Literal[CreateStandbyMechanism.REBUILD]:
@@ -57,11 +57,11 @@ class BootloaderType(str, Enum):
     rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28(with tryboot support).
     """
 
-    AUTO_DETECT = auto()
-    GRUB = auto()
-    CBOOT = auto()  # deprecated, use jetson-cboot instead
-    JETSON_CBOOT = auto()
-    RPI_BOOT = auto()
+    AUTO_DETECT = "auto_detect"
+    GRUB = "grub"
+    CBOOT = "cboot"  # deprecated, use jetson-cboot instead
+    JETSON_CBOOT = "jetson-cboot"
+    RPI_BOOT = "rpi_boot"
 
     @classmethod
     def deprecation_validator(cls, value: Any):

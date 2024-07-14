@@ -110,9 +110,9 @@ class AdvancedOTAClientConfiguration(BaseFixedConfig):
     """
     WAITING_SUBECU_ACK_REQ_TIMEOUT: int = 12  # seconds
     ECU_STATUS_PULLING_INTERVAL: int = 1  # second
-    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED = 60  # seconds
-    ACTIVE_STATUS_POLL_INTERVAL = 1  # second
-    IDLE_STATUS_POLL_INTERVAL = 10  # seconds
+    KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED: int = 60  # seconds
+    ACTIVE_STATUS_POLL_INTERVAL: int = 1  # second
+    IDLE_STATUS_POLL_INTERVAL: int = 10  # seconds
 
 
 class LoggingConfig(BaseFixedConfig):
