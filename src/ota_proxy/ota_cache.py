@@ -502,8 +502,11 @@ class LRUCacheHelper:
             return False
         return True
 
-    async def lookup_entry(self, file_sha256: str) -> list[CacheMeta]:
-        return await self._async_db.orm_select_entries(file_sha256=file_sha256)
+    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
+        res = await self._async_db.orm_select_entries(file_sha256=file_sha256)
+        if not res:
+            return
+        return res[0]
 
     async def remove_entry(self, file_sha256: str) -> bool:
         return (
@@ -620,8 +623,8 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
-        base_dir: Optional[Union[str, Path]] = None,
-        db_file: Optional[Union[str, Path]] = None,
+        base_dir: Optional[StrOrPath] = None,
+        db_file: Optional[StrOrPath] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache: Optional[str] = None,
@@ -631,14 +634,26 @@ class OTACache:
             f"init ota_cache({cache_enabled=}, {init_cache=}, {upper_proxy=}, {enable_https=})"
         )
         self._closed = True
+        self._shutdown_lock = asyncio.Lock()
 
+        self.table_name = table_name = cfg.TABLE_NAME
         self._chunk_size = cfg.CHUNK_SIZE
-        self._base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
-        self._db_file = Path(db_file) if db_file else Path(cfg.DB_FILE)
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https
-        self._executor = ThreadPoolExecutor(thread_name_prefix="ota_cache_executor")
+
+        self._base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
+        self._db_file = db_f = Path(db_file) if db_file else Path(cfg.DB_FILE)
+
+        self._base_dir.mkdir(parents=True, exist_ok=True)
+        if not check_db(self._db_file, table_name):
+            logger.info(f"init db file at {db_f}")
+            db_f.unlink(missing_ok=True)
+            self._init_cache = True  # force init cache on db file cleanup
+
+        self._executor = ThreadPoolExecutor(
+            thread_name_prefix="ota_cache_fileio_executor"
+        )
 
         if external_cache and cache_enabled:
             logger.info(f"external cache source is enabled at: {external_cache}")
@@ -647,14 +662,6 @@ class OTACache:
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
-
-    def _check_cache_db(self) -> bool:
-        """Check ota_cache can be reused or not."""
-        return (
-            self._base_dir.is_dir()
-            and self._db_file.is_file()
-            and OTACacheDB.check_db_file(self._db_file)
-        )
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -682,15 +689,13 @@ class OTACache:
         if self._cache_enabled:
             # purge cache dir if requested(init_cache=True) or ota_cache invalid,
             #   and then recreate the cache folder and cache db file.
-            db_f_valid = self._check_cache_db()
-            if self._init_cache or not db_f_valid:
-                logger.warning(
-                    f"purge and init ota_cache: {self._init_cache=}, {db_f_valid}"
-                )
+            if self._init_cache:
+                logger.warning("purge and init ota_cache")
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init db file with table created
-                OTACacheDB.init_db_file(self._db_file)
+                self._db_file.unlink(missing_ok=True)
+
             # reuse the previously left ota_cache
             else:  # cleanup unfinished tmp files
                 for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
@@ -716,11 +721,12 @@ class OTACache:
             performed by the OTACache.
         """
         logger.debug("shutdown ota-cache...")
-        if self._cache_enabled and not self._closed:
-            self._closed = True
-            await self._session.close()
-            self._lru_helper.close()
-            self._executor.shutdown(wait=True)
+        async with self._shutdown_lock:
+            if self._cache_enabled and not self._closed:
+                self._closed = True
+                await self._session.close()
+                self._lru_helper.close()
+                self._executor.shutdown(wait=True)
 
         logger.info("shutdown ota-cache completed")
 
@@ -1024,9 +1030,9 @@ class OTACache:
         # pre-calculated cache_identifier and corresponding compression_alg
         cache_identifier = cache_policy.file_sha256
         compression_alg = cache_policy.file_compression_alg
-        if (
-            not cache_identifier
-        ):  # fallback to use URL based hash, and clear compression_alg
+
+        # fallback to use URL based hash, and clear compression_alg
+        if not cache_identifier:
             cache_identifier = url_based_hash(raw_url)
             compression_alg = ""
 
