@@ -531,12 +531,16 @@ class LRUCacheHelper:
         # first check the upper bucket, remove 1 item from any of the
         # upper bucket is enough.
         for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
-            if res := await self._db.rotate_cache(_bucket_idx, 1):
-                return res
+            if res := await self._async_db.rotate_cache(_bucket_idx, 1):
+                return list(entry.file_sha256 for entry in res)
+
         # if cannot find one entry at any upper bucket, check current bucket
-        return await self._db.rotate_cache(
+        res = await self._async_db.rotate_cache(
             _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
         )
+        if res is None:
+            return
+        return list(entry.file_sha256 for entry in res)
 
 
 async def cache_streaming(
