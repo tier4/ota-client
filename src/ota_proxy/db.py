@@ -16,10 +16,11 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Optional
 
 from pydantic import SkipValidation
-from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
+from simple_sqlite3_orm import ConstrainRepr, ORMBase, TableSpec, TypeAffinityRepr
 from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
 from typing_extensions import Annotated
 
@@ -30,7 +31,7 @@ from .config import config as cfg
 logger = logging.getLogger(__name__)
 
 
-class CacheMetaTable(TableSpec):
+class CacheMeta(TableSpec):
     """revision 4
 
     url: unquoted URL from the request of this cache entry.
@@ -62,19 +63,19 @@ class CacheMetaTable(TableSpec):
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
         SkipValidation,
-    ]
+    ] = 0
     last_access: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
         SkipValidation,
-    ]
+    ] = 0
     cache_size: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
         SkipValidation,
-    ]
+    ] = 0
     file_compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
@@ -108,4 +109,56 @@ class CacheMetaTable(TableSpec):
         return res
 
 
-class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMetaTable]): ...
+class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
+
+    async def rotate_cache(
+        self, bucket_idx: int, num: int
+    ) -> Optional[list[CacheMeta]]:
+        bucket_fn, last_access_fn = "bucket_idx", "last_access"
+
+        def _inner():
+            with self._con as con:
+                cur = con.execute(
+                    (
+                        f"SELECT COUNT(*) FROM {self.orm_table_name} WHERE {bucket_fn}=:bucket_idx "
+                        f"ORDER BY {last_access_fn} LIMIT :limit"
+                    ),
+                    {"bucket_idx": bucket_idx, "limit": num},
+                )
+                if not (_raw_res := cur.fetchone()):
+                    return
+
+                # we don't have enough entries to delete
+                if len(_raw_res) < num:
+                    return
+
+                if sqlite3.sqlite_version_info >= (3, 35, 0):
+                    _rows = ORMBase.orm_delete_entries(
+                        self,
+                        _order_by=(last_access_fn,),
+                        _limit=num,
+                        _returning_cols="*",
+                        bucket_idx=bucket_idx,
+                    )
+                    return list(_rows)
+                else:
+                    # first select entries met the requirements
+                    _rows = ORMBase.orm_select_entries(
+                        self,
+                        _order_by=(last_access_fn,),
+                        _limit=num,
+                        bucket_idx=bucket_idx,
+                    )
+                    _rows = list(_rows)
+
+                    # delete the target entries
+                    ORMBase.orm_delete_entries(
+                        self,
+                        _order_by=(last_access_fn,),
+                        _limit=num,
+                        bucket_idx=bucket_idx,
+                    )
+
+                    return _rows
+
+        return await self._run_in_pool(_inner)
