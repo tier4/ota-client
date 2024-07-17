@@ -56,8 +56,8 @@ class CacheMeta(TableSpec):
     """
 
     file_sha256: Annotated[
-        bytes,
-        TypeAffinityRepr(bytes),
+        str,
+        TypeAffinityRepr(str),
         ConstrainRepr("PRIMARY KEY"),
         SkipValidation,
     ]
@@ -111,7 +111,7 @@ class CacheMeta(TableSpec):
         if self.file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
             res[HEADER_OTA_FILE_CACHE_CONTROL] = (
                 OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=self.file_sha256.hex(),
+                    file_sha256=self.file_sha256,
                     file_compression_alg=self.file_compression_alg or "",
                 )
             )
@@ -127,6 +127,7 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
 
         def _inner():
             with self._con as con:
+                # check if we have enough entries to rotate
                 cur = con.execute(
                     (
                         f"SELECT COUNT(*) FROM {self.orm_table_name} WHERE {bucket_fn}=:bucket_idx "
@@ -134,13 +135,11 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     ),
                     {"bucket_idx": bucket_idx, "limit": num},
                 )
-                if not (_raw_res := cur.fetchone()):
-                    return
-
                 # we don't have enough entries to delete
-                if len(_raw_res) < num:
+                if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
                     return
 
+                # for runtime sqlite lib with version >= 3.35, we have returning statement
                 if sqlite3.sqlite_version_info >= (3, 35, 0):
                     _rows = ORMBase.orm_delete_entries(
                         self,

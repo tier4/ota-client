@@ -53,7 +53,7 @@ class Config:
     STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
     TMP_FILE_PREFIX = "tmp"
-    URL_BASED_HASH_PREFIX = b"URL_"
+    URL_BASED_HASH_PREFIX = "URL_"
 
     # the file extension for compressed files in external cache storage
     EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
