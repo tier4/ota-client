@@ -20,9 +20,17 @@ import sqlite3
 from typing import Optional
 
 from pydantic import SkipValidation
-from simple_sqlite3_orm import ConstrainRepr, ORMBase, TableSpec, TypeAffinityRepr
+from simple_sqlite3_orm import (
+    ConstrainRepr,
+    ORMBase,
+    TableSpec,
+    TypeAffinityRepr,
+    utils,
+)
 from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
 from typing_extensions import Annotated
+
+from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
@@ -162,3 +170,15 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     return _rows
 
         return await self._run_in_pool(_inner)
+
+
+def check_db(db_f: StrOrPath, table_name: str) -> bool:
+    """Check whether specific db is normal or not."""
+    with sqlite3.connect(db_f) as con:
+        if not utils.check_db_integrity(con):
+            logger.warning(f"{db_f} fails integrity check")
+            return False
+        if not utils.lookup_table(con, table_name):
+            logger.warning(f"{table_name} not found in {db_f}")
+            return False
+    return True
