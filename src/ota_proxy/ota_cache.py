@@ -21,6 +21,7 @@ import contextlib
 import logging
 import os
 import shutil
+import sqlite3
 import threading
 import time
 import weakref
@@ -46,11 +47,14 @@ from urllib.parse import SplitResult, quote, urlsplit
 import aiofiles
 import aiohttp
 from multidict import CIMultiDictProxy
+from simple_sqlite3_orm import utils
+
+from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
 from .config import config as cfg
-from .db import AIO_OTACacheDBProxy, CacheMeta, OTACacheDB
+from .db import AsyncCacheMetaORM, CacheMeta, check_db
 from .errors import (
     BaseOTACacheError,
     CacheMultiStreamingFailed,
@@ -86,21 +90,22 @@ def create_cachemeta_for_request(
         compression_alg: pre-collected information from caller
         resp_headers_from_upper
     """
-    cache_meta = CacheMeta(
-        url=raw_url,
-        content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING, ""),
-    )
-
     _upper_cache_policy = OTAFileCacheControl.parse_header(
         resp_headers_from_upper.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
     )
     if _upper_cache_policy.file_sha256:
-        cache_meta.file_sha256 = _upper_cache_policy.file_sha256
-        cache_meta.file_compression_alg = _upper_cache_policy.file_compression_alg
+        file_sha256 = _upper_cache_policy.file_sha256
+        file_compression_alg = _upper_cache_policy.file_compression_alg or None
     else:
-        cache_meta.file_sha256 = cache_identifier
-        cache_meta.file_compression_alg = compression_alg
-    return cache_meta
+        file_sha256 = cache_identifier
+        file_compression_alg = compression_alg
+
+    return CacheMeta(
+        file_sha256=file_sha256,
+        file_compression_alg=file_compression_alg,
+        url=raw_url,
+        content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
+    )
 
 
 # cache tracker
