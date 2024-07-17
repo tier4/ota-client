@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from pathlib import Path
 from typing import Optional
 
 from pydantic import SkipValidation
@@ -174,6 +175,10 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
     """Check whether specific db is normal or not."""
+    if not Path(db_f).is_file():
+        logger.warning(f"{db_f} not found")
+        return False
+
     with sqlite3.connect(db_f) as con:
         if not utils.check_db_integrity(con):
             logger.warning(f"{db_f} fails integrity check")
