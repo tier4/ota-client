@@ -465,12 +465,26 @@ class LRUCacheHelper:
     BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
 
     def __init__(self, db_f: Union[str, Path]):
-        self._db = AIO_OTACacheDBProxy(db_f)
+        def _con_factory():
+            con = sqlite3.connect(db_f, check_same_thread=False, timeout=30)
+
+            with con:
+                utils.enable_wal_mode(con, relax_sync_mode=True)
+                utils.enable_mmap(con)
+                utils.enable_tmp_store_at_memory(con)
+            return con
+
+        self._async_db = AsyncCacheMetaORM(
+            table_name=cfg.TABLE_NAME,
+            con_factory=_con_factory,
+            number_of_cons=cfg.DB_THREADS,
+        )
+
         self._closed = False
 
     def close(self):
-        if not self._closed:
-            self._db.close()
+        """TODO"""
+        # TODO: close async db
 
     async def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
@@ -478,18 +492,20 @@ class LRUCacheHelper:
         entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
-        if (await self._db.insert_entry(entry)) != 1:
+        if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
             logger.error(f"db: failed to add {entry=}")
             return False
         return True
 
-    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
-        return await self._db.lookup_entry(CacheMeta.file_sha256, file_sha256)
+    async def lookup_entry(self, file_sha256: str) -> list[CacheMeta]:
+        return await self._async_db.orm_select_entries(file_sha256=file_sha256)
 
     async def remove_entry(self, file_sha256: str) -> bool:
-        return (await self._db.remove_entries(CacheMeta.file_sha256, file_sha256)) > 0
+        return (
+            await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
+        )  # type:ignore
 
-    async def rotate_cache(self, size: int) -> Optional[List[str]]:
+    async def rotate_cache(self, size: int) -> Optional[list[str]]:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
