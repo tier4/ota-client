@@ -38,7 +38,7 @@ dependencies = [
   "urllib3<2.3,>=2.2.2",
   "uvicorn[standard]<0.31,>=0.30",
   "zstandard<0.23,>=0.22",
-  "simple-sqlite3-orm @ https://github.com/pga2rn/simple-sqlite3-orm/releases/download/v0.1.0/simple_sqlite3_orm-0.1.0-py3-none-any.whl",
+  "simple-sqlite3-orm @ https://github.com/pga2rn/simple-sqlite3-orm/releases/download/v0.2.0/simple_sqlite3_orm-0.2.0-py3-none-any.whl",
 ]
 optional-dependencies.dev = [
   "black",
