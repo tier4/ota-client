@@ -39,6 +39,7 @@ class Config:
     }
     DB_FILE = f"{BASE_DIR}/cache_db"
     DB_THREADS = 3
+    DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
     # DB configuration/setup
     # ota-cache table

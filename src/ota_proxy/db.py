@@ -21,13 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import SkipValidation
-from simple_sqlite3_orm import (
-    ConstrainRepr,
-    ORMBase,
-    TableSpec,
-    TypeAffinityRepr,
-    utils,
-)
+from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr, utils
 from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
 from typing_extensions import Annotated
 
@@ -88,13 +82,11 @@ class CacheMeta(TableSpec):
     file_compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        ConstrainRepr(("DEFAULT", "NULL")),
         SkipValidation,
     ] = None
     content_encoding: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        ConstrainRepr(("DEFAULT", "NULL")),
         SkipValidation,
     ] = None
 
@@ -120,56 +112,87 @@ class CacheMeta(TableSpec):
 
 class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
 
-    async def rotate_cache(
-        self, bucket_idx: int, num: int
-    ) -> Optional[list[CacheMeta]]:
-        bucket_fn, last_access_fn = "bucket_idx", "last_access"
+    # RETURNING statement is available only after sqlite3 v3.35.0
+    if sqlite3.sqlite_version_info < (3, 35, 0):
 
-        def _inner():
-            with self._con as con:
-                # check if we have enough entries to rotate
-                cur = con.execute(
-                    (
-                        f"SELECT COUNT(*) FROM {self.orm_table_name} WHERE {bucket_fn}=:bucket_idx "
-                        f"ORDER BY {last_access_fn} LIMIT :limit"
-                    ),
-                    {"bucket_idx": bucket_idx, "limit": num},
-                )
-                # we don't have enough entries to delete
-                if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                    return
+        async def rotate_cache(
+            self, bucket_idx: int, num: int
+        ) -> Optional[list[CacheMeta]]:
+            bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-                # for runtime sqlite lib with version >= 3.35, we have returning statement
-                if sqlite3.sqlite_version_info >= (3, 35, 0):
-                    _rows = ORMBase.orm_delete_entries(
-                        self,
-                        _order_by=(last_access_fn,),
-                        _limit=num,
-                        _returning_cols="*",
-                        bucket_idx=bucket_idx,
+            def _inner():
+                with self._con as con:
+                    # check if we have enough entries to rotate
+                    select_stmt = self.orm_table_spec.table_select_stmt(
+                        select_from=self.orm_table_name,
+                        select_cols="*",
+                        function="count",
+                        where_cols=(bucket_fn,),
+                        order_by=(last_access_fn,),
+                        limit=num,
                     )
-                    return list(_rows)
-                else:
+                    cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
+                    # we don't have enough entries to delete
+                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                        return
+
                     # first select entries met the requirements
-                    _rows = ORMBase.orm_select_entries(
-                        self,
-                        _order_by=(last_access_fn,),
-                        _limit=num,
-                        bucket_idx=bucket_idx,
+                    select_to_delete_stmt = self.orm_table_spec.table_select_stmt(
+                        select_from=self.orm_table_name,
+                        where_cols=(bucket_fn,),
+                        order_by=(last_access_fn,),
+                        limit=num,
                     )
-                    _rows = list(_rows)
+                    cur = con.execute(select_to_delete_stmt, {bucket_fn: bucket_idx})
+                    rows_to_remove = list(cur)
 
                     # delete the target entries
-                    ORMBase.orm_delete_entries(
-                        self,
-                        _order_by=(last_access_fn,),
-                        _limit=num,
-                        bucket_idx=bucket_idx,
+                    delete_stmt = self.orm_table_spec.table_delete_stmt(
+                        delete_from=self.orm_table_name,
+                        where_cols=(bucket_fn,),
+                        order_by=(last_access_fn,),
+                        limit=num,
                     )
+                    con.execute(delete_stmt, {bucket_fn: bucket_idx})
 
-                    return _rows
+                    return rows_to_remove
 
-        return await self._run_in_pool(_inner)
+            return await self._run_in_pool(_inner)
+
+    else:
+
+        async def rotate_cache(
+            self, bucket_idx: int, num: int
+        ) -> Optional[list[CacheMeta]]:
+            bucket_fn, last_access_fn = "bucket_idx", "last_access"
+
+            def _inner():
+                with self._con as con:
+                    # check if we have enough entries to rotate
+                    select_stmt = self.orm_table_spec.table_select_stmt(
+                        select_from=self.orm_table_name,
+                        select_cols="*",
+                        function="count",
+                        where_cols=(bucket_fn,),
+                        order_by=(last_access_fn,),
+                        limit=num,
+                    )
+                    cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
+                    # we don't have enough entries to delete
+                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                        return
+
+                    rotate_stmt = self.orm_table_spec.table_delete_stmt(
+                        delete_from=self.orm_table_name,
+                        where_cols=(bucket_fn,),
+                        order_by=(last_access_fn,),
+                        limit=num,
+                        returning_cols="*",
+                    )
+                    cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
+                    return list(cur)
+
+            return await self._run_in_pool(_inner)
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
