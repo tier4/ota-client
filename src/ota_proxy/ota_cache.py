@@ -51,7 +51,7 @@ from otaclient_common.typing import StrOrPath
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
 from .config import config as cfg
-from .db import CacheMeta, check_db
+from .db import CacheMeta, check_db, init_db
 from .errors import (
     BaseOTACacheError,
     CacheMultiStreamingFailed,
@@ -603,6 +603,8 @@ class OTACache:
                 self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init db file with table created
                 self._db_file.unlink(missing_ok=True)
+
+                init_db(self._db_file, cfg.TABLE_NAME)
 
             # reuse the previously left ota_cache
             else:  # cleanup unfinished tmp files

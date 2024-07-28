@@ -221,3 +221,13 @@ def check_db(db_f: StrOrPath, table_name: str) -> bool:
     finally:
         con.close()
     return True
+
+
+def init_db(db_f: StrOrPath, table_name: str) -> None:
+    """Init the database."""
+    con = sqlite3.connect(db_f)
+    orm = CacheMetaORM(con, table_name)
+    try:
+        orm.orm_create_table(without_rowid=True)
+    finally:
+        con.close()
