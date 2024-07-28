@@ -137,7 +137,7 @@ class CacheTracker(Generic[_WEAKREF]):
         to fialize the caching."""
         # if the file with the same sha256has is already presented, skip the hardlink
         # NOTE: no need to clean the tmp file, it will be done by the cache tracker.
-        assert self.meta
+        assert self.meta is not None
         await self._cache_commit_cb(self.meta)
         if not self.save_path.is_file():
             self.fpath.link_to(self.save_path)
