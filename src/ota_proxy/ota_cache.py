@@ -848,7 +848,7 @@ class OTACache:
         for _ in range(_retry_count):
             if cache_file.is_file():
                 break
-            await asyncio.sleep(0)  # give away the event loop
+            await asyncio.sleep(0.01)  # give away the event loop
 
         if not cache_file.is_file():
             logger.warning(
