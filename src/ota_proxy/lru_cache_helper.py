@@ -114,7 +114,7 @@ class LRUCacheHelper:
         # upper bucket is enough.
         for _bucket_idx in range(_cur_bucket_idx + 1, len(self.bsize_list)):
             if res := await self._async_db.rotate_cache(_bucket_idx, 1):
-                return list(entry.file_sha256 for entry in res)
+                return [entry.file_sha256 for entry in res]
 
         # second: if cannot find one entry at any upper bucket, check current bucket
         res = await self._async_db.rotate_cache(
@@ -122,4 +122,4 @@ class LRUCacheHelper:
         )
         if res is None:
             return
-        return list(entry.file_sha256 for entry in res)
+        return [entry.file_sha256 for entry in res]
