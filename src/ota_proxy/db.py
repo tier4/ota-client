@@ -201,11 +201,14 @@ def check_db(db_f: StrOrPath, table_name: str) -> bool:
         logger.warning(f"{db_f} not found")
         return False
 
-    with sqlite3.connect(db_f) as con:
+    con = sqlite3.connect(f"file:{db_f}?mode=ro", uri=True)
+    try:
         if not utils.check_db_integrity(con):
             logger.warning(f"{db_f} fails integrity check")
             return False
         if not utils.lookup_table(con, table_name):
             logger.warning(f"{table_name} not found in {db_f}")
             return False
+    finally:
+        con.close()
     return True
