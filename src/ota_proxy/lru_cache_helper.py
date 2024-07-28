@@ -57,10 +57,9 @@ class LRUCacheHelper:
                 db_f, check_same_thread=False, timeout=thread_wait_timeout
             )
 
-            with con:
-                utils.enable_wal_mode(con, relax_sync_mode=True)
-                utils.enable_mmap(con)
-                utils.enable_tmp_store_at_memory(con)
+            utils.enable_wal_mode(con, relax_sync_mode=True)
+            utils.enable_mmap(con)
+            utils.enable_tmp_store_at_memory(con)
             return con
 
         self._async_db = AsyncCacheMetaORM(
