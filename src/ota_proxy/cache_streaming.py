@@ -110,7 +110,7 @@ class CacheTracker(Generic[_WEAKREF]):
         below_hard_limit_event: threading.Event,
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.meta: CacheMeta = None  # type: ignore[assignment]
+        self.meta: CacheMeta | None = None
         self.cache_identifier = cache_identifier
         self.save_path = Path(base_dir) / cache_identifier
         self._writer_ready = asyncio.Event()
@@ -137,6 +137,7 @@ class CacheTracker(Generic[_WEAKREF]):
         to fialize the caching."""
         # if the file with the same sha256has is already presented, skip the hardlink
         # NOTE: no need to clean the tmp file, it will be done by the cache tracker.
+        assert self.meta
         await self._cache_commit_cb(self.meta)
         if not self.save_path.is_file():
             self.fpath.link_to(self.save_path)
