@@ -16,12 +16,10 @@
 from __future__ import annotations
 
 import asyncio
-import bisect
 import contextlib
 import logging
 import os
 import shutil
-import sqlite3
 import threading
 import time
 import weakref
@@ -47,14 +45,13 @@ from urllib.parse import SplitResult, quote, urlsplit
 import aiofiles
 import aiohttp
 from multidict import CIMultiDictProxy
-from simple_sqlite3_orm import utils
 
 from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control import OTAFileCacheControl
 from .config import config as cfg
-from .db import AsyncCacheMetaORM, CacheMeta, check_db
+from .db import CacheMeta, check_db
 from .errors import (
     BaseOTACacheError,
     CacheMultiStreamingFailed,
@@ -62,6 +59,7 @@ from .errors import (
     CacheStreamingInterrupt,
     StorageReachHardLimit,
 )
+from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash, wait_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -456,96 +454,6 @@ class CachingRegister:
         return _tracker, True
 
 
-class LRUCacheHelper:
-    """A helper class that provides API for accessing/managing cache entries in ota cachedb.
-
-    Serveral buckets are created according to predefined file size threshould.
-    Each bucket will maintain the cache entries of that bucket's size definition,
-    LRU is applied on per-bucket scale.
-
-    NOTE: currently entry in first bucket and last bucket will skip LRU rotate.
-    """
-
-    BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
-    BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
-
-    def __init__(self, db_f: Union[str, Path]):
-        def _con_factory():
-            con = sqlite3.connect(db_f, check_same_thread=False, timeout=30)
-
-            with con:
-                utils.enable_wal_mode(con, relax_sync_mode=True)
-                utils.enable_mmap(con)
-                utils.enable_tmp_store_at_memory(con)
-            return con
-
-        self._async_db = AsyncCacheMetaORM(
-            table_name=cfg.TABLE_NAME,
-            con_factory=_con_factory,
-            number_of_cons=cfg.DB_THREADS,
-        )
-
-        self._closed = False
-
-    def close(self):
-        """TODO"""
-        # TODO: close async db
-
-    async def commit_entry(self, entry: CacheMeta) -> bool:
-        """Commit cache entry meta to the database."""
-        # populate bucket and last_access column
-        entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.cache_size) - 1
-        entry.last_access = int(time.time())
-
-        if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
-            logger.error(f"db: failed to add {entry=}")
-            return False
-        return True
-
-    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
-        res = await self._async_db.orm_select_entries(file_sha256=file_sha256)
-        if not res:
-            return
-        return res[0]
-
-    async def remove_entry(self, file_sha256: str) -> bool:
-        return (
-            await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
-        )  # type:ignore
-
-    async def rotate_cache(self, size: int) -> Optional[list[str]]:
-        """Wrapper method for calling the database LRU cache rotating method.
-
-        Args:
-            size int: the size of file that we want to reserve space for
-
-        Returns:
-            A list of hashes that needed to be cleaned, or empty list if rotation
-                is not required, or None if cache rotation cannot be executed.
-        """
-        # NOTE: currently item size smaller than 1st bucket and larger than latest bucket
-        #       will be saved without cache rotating.
-        if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
-            return []
-
-        _cur_bucket_idx = bisect.bisect_right(self.BSIZE_LIST, size) - 1
-        _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
-
-        # first check the upper bucket, remove 1 item from any of the
-        # upper bucket is enough.
-        for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
-            if res := await self._async_db.rotate_cache(_bucket_idx, 1):
-                return list(entry.file_sha256 for entry in res)
-
-        # if cannot find one entry at any upper bucket, check current bucket
-        res = await self._async_db.rotate_cache(
-            _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
-        )
-        if res is None:
-            return
-        return list(entry.file_sha256 for entry in res)
-
-
 async def cache_streaming(
     fd: AsyncIterator[bytes],
     meta: CacheMeta,
@@ -647,7 +555,7 @@ class OTACache:
 
         self._base_dir.mkdir(parents=True, exist_ok=True)
         if not check_db(self._db_file, table_name):
-            logger.info(f"init db file at {db_f}")
+            logger.info(f"db file is broken, force init db file at {db_f}")
             db_f.unlink(missing_ok=True)
             self._init_cache = True  # force init cache on db file cleanup
 
@@ -705,7 +613,12 @@ class OTACache:
             self._executor.submit(self._background_check_free_space)
 
             # init cache helper(and connect to ota_cache db)
-            self._lru_helper = LRUCacheHelper(self._db_file)
+            self._lru_helper = LRUCacheHelper(
+                self._db_file,
+                table_name=cfg.TABLE_NAME,
+                thread_nums=cfg.DB_THREADS,
+                thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
+            )
             self._on_going_caching = CachingRegister(self._base_dir)
 
             if self._upper_proxy:

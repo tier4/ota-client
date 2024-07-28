@@ -25,7 +25,6 @@ from typing import Optional, Union
 
 from simple_sqlite3_orm import utils
 
-from .config import config as cfg
 from .db import AsyncCacheMetaORM, CacheMeta
 
 logger = logging.getLogger(__name__)
@@ -41,13 +40,21 @@ class LRUCacheHelper:
     NOTE: currently entry in first bucket and last bucket will skip LRU rotate.
     """
 
-    BSIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT.keys())
-    BSIZE_DICT = cfg.BUCKET_FILE_SIZE_DICT
+    def __init__(
+        self,
+        db_f: Union[str, Path],
+        *,
+        bsize_dict: dict[int, int],
+        table_name: str,
+        thread_nums: int,
+        thread_wait_timeout: int,
+    ):
+        self.bsize_list = list(bsize_dict)
+        self.bsize_dict = bsize_dict.copy()
 
-    def __init__(self, db_f: Union[str, Path]):
         def _con_factory():
             con = sqlite3.connect(
-                db_f, check_same_thread=False, timeout=cfg.DB_THREAD_WAIT_TIMEOUT
+                db_f, check_same_thread=False, timeout=thread_wait_timeout
             )
 
             with con:
@@ -57,20 +64,21 @@ class LRUCacheHelper:
             return con
 
         self._async_db = AsyncCacheMetaORM(
-            table_name=cfg.TABLE_NAME,
+            table_name=table_name,
             con_factory=_con_factory,
-            number_of_cons=cfg.DB_THREADS,
+            number_of_cons=thread_nums,
         )
 
         self._closed = False
 
     def close(self):
         self._async_db.orm_pool_shutdown(wait=True, close_connections=True)
+        self._closed = True
 
     async def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
-        entry.bucket_idx = bisect.bisect_right(self.BSIZE_LIST, entry.cache_size) - 1
+        entry.bucket_idx = bisect.bisect_right(self.bsize_list, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
         if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
@@ -96,21 +104,21 @@ class LRUCacheHelper:
         """
         # NOTE: currently item size smaller than 1st bucket and larger than latest bucket
         #       will be saved without cache rotating.
-        if size >= self.BSIZE_LIST[-1] or size < self.BSIZE_LIST[1]:
+        if size >= self.bsize_list[-1] or size < self.bsize_list[1]:
             return []
 
-        _cur_bucket_idx = bisect.bisect_right(self.BSIZE_LIST, size) - 1
-        _cur_bucket_size = self.BSIZE_LIST[_cur_bucket_idx]
+        _cur_bucket_idx = bisect.bisect_right(self.bsize_list, size) - 1
+        _cur_bucket_size = self.bsize_list[_cur_bucket_idx]
 
         # first: check the upper bucket, remove 1 item from any of the
         # upper bucket is enough.
-        for _bucket_idx in range(_cur_bucket_idx + 1, len(self.BSIZE_LIST)):
+        for _bucket_idx in range(_cur_bucket_idx + 1, len(self.bsize_list)):
             if res := await self._async_db.rotate_cache(_bucket_idx, 1):
                 return list(entry.file_sha256 for entry in res)
 
         # second: if cannot find one entry at any upper bucket, check current bucket
         res = await self._async_db.rotate_cache(
-            _cur_bucket_idx, self.BSIZE_DICT[_cur_bucket_size]
+            _cur_bucket_idx, self.bsize_dict[_cur_bucket_size]
         )
         if res is None:
             return
