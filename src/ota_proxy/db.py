@@ -124,30 +124,29 @@ class CacheMetaORM(ORMBase[CacheMeta]): ...
 
 class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
 
-    # RETURNING statement is available only after sqlite3 v3.35.0
-    if sqlite3.sqlite_version_info < (3, 35, 0):
+    async def rotate_cache(
+        self, bucket_idx: int, num: int
+    ) -> Optional[list[CacheMeta]]:
+        bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-        async def rotate_cache(
-            self, bucket_idx: int, num: int
-        ) -> Optional[list[CacheMeta]]:
-            bucket_fn, last_access_fn = "bucket_idx", "last_access"
+        def _inner():
+            with self._con as con:
+                # check if we have enough entries to rotate
+                select_stmt = self.orm_table_spec.table_select_stmt(
+                    select_from=self.orm_table_name,
+                    select_cols="*",
+                    function="count",
+                    where_cols=(bucket_fn,),
+                    order_by=(last_access_fn,),
+                    limit=num,
+                )
+                cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
+                # we don't have enough entries to delete
+                if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                    return
 
-            def _inner():
-                with self._con as con:
-                    # check if we have enough entries to rotate
-                    select_stmt = self.orm_table_spec.table_select_stmt(
-                        select_from=self.orm_table_name,
-                        select_cols="*",
-                        function="count",
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                    )
-                    cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
-                    # we don't have enough entries to delete
-                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                        return
-
+                # RETURNING statement is available only after sqlite3 v3.35.0
+                if sqlite3.sqlite_version_info < (3, 35, 0):
                     # first select entries met the requirements
                     select_to_delete_stmt = self.orm_table_spec.table_select_stmt(
                         select_from=self.orm_table_name,
@@ -168,32 +167,7 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     con.execute(delete_stmt, {bucket_fn: bucket_idx})
 
                     return rows_to_remove
-
-            return await self._run_in_pool(_inner)
-
-    else:
-
-        async def rotate_cache(
-            self, bucket_idx: int, num: int
-        ) -> Optional[list[CacheMeta]]:
-            bucket_fn, last_access_fn = "bucket_idx", "last_access"
-
-            def _inner():
-                with self._con as con:
-                    # check if we have enough entries to rotate
-                    select_stmt = self.orm_table_spec.table_select_stmt(
-                        select_from=self.orm_table_name,
-                        select_cols="*",
-                        function="count",
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                    )
-                    cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
-                    # we don't have enough entries to delete
-                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                        return
-
+                else:
                     rotate_stmt = self.orm_table_spec.table_delete_stmt(
                         delete_from=self.orm_table_name,
                         where_cols=(bucket_fn,),
@@ -204,7 +178,7 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
                     return list(cur)
 
-            return await self._run_in_pool(_inner)
+        return await self._run_in_pool(_inner)
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
