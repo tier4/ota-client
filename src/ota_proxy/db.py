@@ -96,6 +96,9 @@ class CacheMeta(TableSpec):
         SkipValidation,
     ] = None
 
+    def __hash__(self) -> int:
+        return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
+
     def export_headers_to_client(self) -> dict[str, str]:
         """Export required headers for client.
 
