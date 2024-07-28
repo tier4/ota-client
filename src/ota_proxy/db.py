@@ -21,7 +21,13 @@ from pathlib import Path
 from typing import Optional
 
 from pydantic import SkipValidation
-from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr, utils
+from simple_sqlite3_orm import (
+    ConstrainRepr,
+    ORMBase,
+    TableSpec,
+    TypeAffinityRepr,
+    utils,
+)
 from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
 from typing_extensions import Annotated
 
@@ -108,6 +114,9 @@ class CacheMeta(TableSpec):
                 )
             )
         return res
+
+
+class CacheMetaORM(ORMBase[CacheMeta]): ...
 
 
 class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
