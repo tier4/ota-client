@@ -615,6 +615,7 @@ class OTACache:
             # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(
                 self._db_file,
+                bsize_dict=cfg.BUCKET_FILE_SIZE_DICT,
                 table_name=cfg.TABLE_NAME,
                 thread_nums=cfg.DB_THREADS,
                 thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
