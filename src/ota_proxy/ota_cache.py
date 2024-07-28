@@ -841,6 +841,15 @@ class OTACache:
             return
 
         # check if cache file exists
+        # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
+        #   but the database entry has already been inserted. Here we wait for 3 rounds for
+        #   cache_commit_callback to rename the tmp file.
+        _retry_count = 3
+        for _ in range(_retry_count):
+            if cache_file.is_file():
+                break
+            await asyncio.sleep(0)  # give away the event loop
+
         if not cache_file.is_file():
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
