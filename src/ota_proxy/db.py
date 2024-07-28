@@ -34,7 +34,7 @@ from typing_extensions import Annotated
 from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
-from .cache_control import OTAFileCacheControl
+from .cache_control_header import OTAFileCacheControl
 from .config import config as cfg
 
 logger = logging.getLogger(__name__)
