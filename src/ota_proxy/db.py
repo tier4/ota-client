@@ -206,5 +206,6 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
     orm = CacheMetaORM(con, table_name)
     try:
         orm.orm_create_table(without_rowid=True)
+        utils.enable_wal_mode(con, relax_sync_mode=True)
     finally:
         con.close()
