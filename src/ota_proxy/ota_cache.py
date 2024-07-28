@@ -32,10 +32,10 @@ from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import OTAFileCacheControl
-from .cache_streaming import CacheTracker, CachingRegister
+from .cache_streaming import CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError, CacheStreamingFailed
+from .errors import BaseOTACacheError
 from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash
 
@@ -78,60 +78,6 @@ def create_cachemeta_for_request(
         url=raw_url,
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
     )
-
-
-async def cache_streaming(
-    fd: AsyncIterator[bytes],
-    meta: CacheMeta,
-    tracker: CacheTracker,
-) -> AsyncIterator[bytes]:
-    """A cache streamer that get data chunk from <fd> and tees to multiple destination.
-
-    Data chunk yielded from <fd> will be teed to:
-    1. upper uvicorn otaproxy APP to send back to client,
-    2. cache_tracker cache_write_gen for caching.
-
-    Args:
-        fd: opened connection to a remote file.
-        meta: meta data of the requested resource.
-        tracker: an inst of ongoing cache tracker bound to this request.
-
-    Returns:
-        A bytes async iterator to yield data chunk from, for upper otaproxy uvicorn APP.
-
-    Raises:
-        CacheStreamingFailed if any exception happens during retrieving.
-    """
-
-    async def _inner():
-        _cache_write_gen = tracker.get_cache_write_gen()
-        try:
-            # tee the incoming chunk to two destinations
-            async for chunk in fd:
-                # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
-                #       an empty chunk will be sent to indicate the EOF of stream,
-                #       we MUST handle this empty chunk.
-                if not chunk:  # skip if empty chunk is read from remote
-                    continue
-                # to caching generator
-                if _cache_write_gen and not tracker.writer_finished:
-                    try:
-                        await _cache_write_gen.asend(chunk)
-                    except Exception as e:
-                        await tracker.provider_on_failed()  # signal tracker
-                        logger.error(
-                            f"cache write coroutine failed for {meta=}, abort caching: {e!r}"
-                        )
-                # to uvicorn thread
-                yield chunk
-            await tracker.provider_on_finished()
-        except Exception as e:
-            logger.exception(f"cache tee failed for {meta=}")
-            await tracker.provider_on_failed()
-            raise CacheStreamingFailed from e
-
-    await tracker.provider_start(meta)
-    return _inner()
 
 
 class OTACache:
