@@ -179,6 +179,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
     slot_b_boot_dir = slot_b_boot_dev / "boot"
     slot_b_boot_dir.mkdir()
+    (slot_b_boot_dir / "grub").mkdir()
 
     return SlotMeta(
         slot_a=str(slot_a),
