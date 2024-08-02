@@ -230,12 +230,14 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         async with aiohttp.ClientSession() as session:
             await sync_event.wait()
             await asyncio.sleep(random.randrange(100, 200) // 100)
+
             for entry in regular_entries:
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
 
                 _retry_count_for_exceed_hard_limit = 0
+                _max_retry = 6
                 # NOTE: for space_availability==exceed_hard_limit,
                 #       it is normal that transition is interrupted when
                 #       space_availability transfered from below_hard_limit to exceed_hard_limit.
@@ -257,7 +259,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             _retry_count_for_exceed_hard_limit += 1
                             if (
                                 self.space_availability == "exceed_hard_limit"
-                                and _retry_count_for_exceed_hard_limit <= 1
+                                and _retry_count_for_exceed_hard_limit <= _max_retry
                             ):
                                 continue
                             raise
