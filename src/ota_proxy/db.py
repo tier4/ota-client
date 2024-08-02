@@ -109,7 +109,9 @@ class CacheMeta(TableSpec):
             res[HEADER_CONTENT_ENCODING] = self.content_encoding
 
         # export ota-file-cache-control headers if file_sha256 is valid file hash
-        if self.file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
+        if self.file_sha256 and not self.file_sha256.startswith(
+            cfg.URL_BASED_HASH_PREFIX
+        ):
             res[HEADER_OTA_FILE_CACHE_CONTROL] = (
                 OTAFileCacheControl.export_kwargs_as_header(
                     file_sha256=self.file_sha256,
