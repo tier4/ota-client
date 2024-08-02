@@ -63,7 +63,7 @@ RUN set -eux; \
 
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 
-COPY --from=builder / /${OTA_IMAGE_SERVER_ROOT}
+COPY --from=builder / /${OTA_IMAGE_DIR}
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
@@ -81,8 +81,8 @@ RUN set -eu; \
     git clone ${OTA_METADATA_REPO}; \
     python3 -m venv ota-metadata/.venv; \
     source ota-metadata/.venv/bin/activate; \
-    python3.8 -m pip install --no-cache-dir -U pip; \
-    python3.8 -m pip install --no-cache-dir -q \
+    python3 -m pip install --no-cache-dir -U pip; \
+    python3 -m pip install --no-cache-dir -q \
         -r ota-metadata/metadata/ota_metadata/requirements.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data \
