@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 
 TEST_DIR = Path(__file__).parent
 
+# see test base Dockerfile for more details.
+OTA_IMAGE_DIR = Path("/ota-image")
+KERNEL_PREFIX = "vmlinuz"
+INITRD_PREFIX = "initrd.img"
+
+
+def _get_kernel_version() -> str:
+    boot_dir = OTA_IMAGE_DIR / "boot"
+    _kernel_pa = f"{KERNEL_PREFIX}-*"
+    _kernel = list(boot_dir.glob(_kernel_pa))[0]
+    return _kernel.name.split("-", maxsplit=1)[1]
+
+
+KERNEL_VERSION = _get_kernel_version()
+
 
 @dataclass
 class TestConfiguration:
@@ -52,7 +67,7 @@ class TestConfiguration:
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
     OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
-    KERNEL_VERSION = "5.8.0-53-generic"
+    KERNEL_VERSION = str(KERNEL_VERSION)
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
 
