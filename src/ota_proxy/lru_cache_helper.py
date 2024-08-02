@@ -111,7 +111,9 @@ class LRUCacheHelper:
 
         # first: check the upper bucket, remove 1 item from any of the
         # upper bucket is enough.
-        for _bucket_idx in range(_cur_bucket_idx + 1, len(self.bsize_list)):
+        # NOTE(20240802): limit the max steps we can go to avoid remove too large file
+        max_steps = min(len(self.bsize_list), _cur_bucket_idx + 3)
+        for _bucket_idx in range(_cur_bucket_idx + 1, max_steps):
             if res := await self._async_db.rotate_cache(_bucket_idx, 1):
                 return [entry.file_sha256 for entry in res]
 
