@@ -8,7 +8,6 @@ FROM ${UBUNTU_BASE} AS builder
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CERTS_DIR="/certs"
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 # special treatment to the ota-image: create file that needs url escaping

@@ -1,12 +1,40 @@
 ARG UBUNTU_BASE
 
+#
+# ------ stage 1: prepare base image ------ #
+#
+
+FROM ${UBUNTU_BASE} AS builder
+
+SHELL ["/bin/bash", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
+
+# special treatment to the ota-image: create file that needs url escaping
+# NOTE: include special identifiers #?; into the pathname
+RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
+
+# install required packages
+RUN set -eux; \
+    apt-get update -qq; \
+    apt-get install -y -qq linux-image-generic; \
+    apt-get clean; \
+    rm -rf \
+        /tmp/* \
+        /var/lib/apt/lists/* \
+        /var/tmp/* \
+
+#
+# ------ stage 2: prepare test environment ------ #
+#
+ARG UBUNTU_BASE
+
 FROM ${UBUNTU_BASE}
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG BASE_IMG_URL="http://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.1-base-amd64.tar.gz"
-ARG OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
+ENV OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
 ENV CERTS_DIR="/certs"
@@ -28,26 +56,14 @@ RUN set -eux; \
     apt-get install -y -qq linux-image-generic; \
     apt-get clean
 
-# prepare ubuntu base
-WORKDIR ${OTA_IMAGE_SERVER_ROOT}
-RUN set -eux; \
-    wget -q -O /tmp/base_image.tar.gz ${BASE_IMG_URL}; \
-    mkdir -p ${OTA_IMAGE_DIR}; \
-    tar zxf /tmp/base_image.tar.gz -C ${OTA_IMAGE_DIR}; \
-    cp -a \
-        /boot/vmlinuz-${KERNEL_VERSION} \
-        /boot/initrd.img-${KERNEL_VERSION} \
-        /boot/config-${KERNEL_VERSION} \
-        /boot/System.map-${KERNEL_VERSION} ${OTA_IMAGE_DIR}/boot
-
-# special treatment to the ota-image: create file that needs url escaping
-# NOTE: include special identifiers #?; into the pathname
-RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
-
 # install hatch
 RUN set -eux; \
     python3 -m pip install --no-cache-dir -q -U pip; \
     python3 -m pip install --no-cache-dir -U hatch
+
+WORKDIR ${OTA_IMAGE_SERVER_ROOT}
+
+COPY --from=builder / /${OTA_IMAGE_SERVER_ROOT}
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
@@ -65,7 +81,8 @@ RUN set -eu; \
     git clone ${OTA_METADATA_REPO}; \
     python3 -m venv ota-metadata/.venv; \
     source ota-metadata/.venv/bin/activate; \
-    python3 -m pip install --no-cache-dir -q \
+    python3.8 -m pip install --no-cache-dir -U pip; \
+    python3.8 -m pip install --no-cache-dir -q \
         -r ota-metadata/metadata/ota_metadata/requirements.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data \
