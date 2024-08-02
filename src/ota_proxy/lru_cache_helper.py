@@ -116,9 +116,7 @@ class LRUCacheHelper:
                 return [entry.file_sha256 for entry in res]
 
         # second: if cannot find one entry at any upper bucket, check current bucket
-        res = await self._async_db.rotate_cache(
+        if res := await self._async_db.rotate_cache(
             _cur_bucket_idx, self.bsize_dict[_cur_bucket_size]
-        )
-        if res is None:
-            return
-        return [entry.file_sha256 for entry in res]
+        ):
+            return [entry.file_sha256 for entry in res]
