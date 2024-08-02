@@ -156,6 +156,16 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
 
+    # manually create symlink to kernel and initrd.img
+    vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
+    vmlinuz_symlink.symlink_to(
+        f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+    )
+    initrd_symlink = slot_a / "boot" / TestConfiguration.INITRD_PREFIX
+    initrd_symlink.symlink_to(
+        f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+    )
+
     # prepare slot_b
     slot_b = tmp_path_factory.mktemp("slot_b")
 
@@ -169,6 +179,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
     slot_b_boot_dir = slot_b_boot_dev / "boot"
     slot_b_boot_dir.mkdir()
+
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),
