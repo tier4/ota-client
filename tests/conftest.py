@@ -37,7 +37,7 @@ INITRD_PREFIX = "initrd.img"
 
 
 def _get_kernel_version() -> str:
-    boot_dir = OTA_IMAGE_DIR / "boot"
+    boot_dir = OTA_IMAGE_DIR / "data/boot"
     _kernel_pa = f"{KERNEL_PREFIX}-*"
     _kernel = list(boot_dir.glob(_kernel_pa))[0]
     return _kernel.name.split("-", maxsplit=1)[1]
