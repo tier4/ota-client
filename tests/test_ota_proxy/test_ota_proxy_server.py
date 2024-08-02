@@ -236,7 +236,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
 
-                _retry_count_for_exceed_hard_limit = 0
+                _retry_count = 0
                 _max_retry = 6
                 # NOTE: for space_availability==exceed_hard_limit or below_hard_limit,
                 #       it is normal that transition is interrupted when
@@ -255,10 +255,13 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             assert hash_f.digest() == entry.sha256hash
                             break
                         except AssertionError:
-                            _retry_count_for_exceed_hard_limit += 1
-                            if _retry_count_for_exceed_hard_limit > _max_retry:
+                            _retry_count += 1
+                            if _retry_count > _max_retry:
                                 logger.error(f"failed on {entry}")
                                 raise
+                            logger.warning(
+                                f"failed on {entry}, {_retry_count=}, still retry..."
+                            )
 
     async def test_multiple_clients_download_ota_image(
         self, parse_regulars: list[RegularInf]
