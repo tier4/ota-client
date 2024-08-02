@@ -17,7 +17,7 @@ RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
 # install required packages
 RUN set -eux; \
     apt-get update -qq; \
-    apt-get install -y -qq linux-image-generic; \
+    apt-get install -y -qq --no-install-recommends linux-image-generic; \
     apt-get clean; \
     rm -rf \
         /tmp/* \
@@ -84,6 +84,8 @@ RUN set -eu; \
     python3 -m pip install --no-cache-dir -U pip; \
     python3 -m pip install --no-cache-dir -q \
         -r ota-metadata/metadata/ota_metadata/requirements.txt; \
+    # patch the ignore files
+    echo "" > ota-metadata/metadata/ignore.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data \
         --compressed-dir data.zst \
