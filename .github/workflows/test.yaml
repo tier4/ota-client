@@ -16,8 +16,14 @@ on:
 
 jobs:
   pytest_with_coverage:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: true
+      matrix:
+        test_base:
+          - ubuntu-18.04
+          - ubuntu-20.04
     steps:
       - name: Checkout commit
         uses: actions/checkout@v4
@@ -26,16 +32,18 @@ jobs:
           fetch-depth: 0
       - name: Build ota-test_base docker image
         run: |
-          docker compose -f docker/docker-compose_tests.yml build
+          docker compose -f docker/docker-compose_tests.yml build tester-${{ matrix.test_base }}
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           mkdir -p test_result
-          docker compose -f docker/docker-compose_tests.yml up --abort-on-container-exit
+          docker compose -f docker/docker-compose_tests.yml run -it --rm tester-${{ matrix.test_base }}
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        if: ${{ matrix.test_base == 'ubuntu-20.04' }}
+
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
@@ -43,3 +51,4 @@ jobs:
         with:
           pytest-xml-coverage-path: test_result/coverage.xml
           junitxml-path: test_result/pytest.xml
+        if: ${{ matrix.test_base == 'ubuntu-20.04' }}
