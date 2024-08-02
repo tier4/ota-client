@@ -152,11 +152,12 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(1)  # wait before otaproxy server is ready
             yield
         finally:
-            shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
             try:
                 await self.otaproxy_inst.shutdown()
             except Exception:
                 pass  # ignore exp on shutting down
+            finally:
+                shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
     @pytest.fixture(scope="class")
     def parse_regulars(self) -> list[RegularInf]:
