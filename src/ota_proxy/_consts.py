@@ -1,6 +1,6 @@
 from multidict import istr
 
-from .cache_control import OTAFileCacheControl
+from .cache_control_header import OTAFileCacheControl
 
 # uvicorn
 REQ_TYPE_LIFESPAN = "lifespan"

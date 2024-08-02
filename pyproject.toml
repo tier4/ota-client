@@ -34,6 +34,7 @@ dependencies = [
   "pyopenssl<25,>=24.1",
   "pyyaml<7,>=6.0.1",
   "requests<2.33,>=2.32",
+  "simple-sqlite3-orm @ https://github.com/pga2rn/simple-sqlite3-orm/releases/download/v0.2.0/simple_sqlite3_orm-0.2.0-py3-none-any.whl",
   "typing-extensions>=4.6.3",
   "urllib3<2.3,>=2.2.2",
   "uvicorn[standard]<0.31,>=0.30",
@@ -45,7 +46,7 @@ optional-dependencies.dev = [
   "flake8",
   "isort",
   "pytest==7.1.2",
-  "pytest-asyncio==0.21",
+  "pytest-asyncio==0.23.8",
   "pytest-mock==3.14",
   "requests-mock",
 ]
@@ -53,6 +54,9 @@ urls.Source = "https://github.com/tier4/ota-client"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/_otaclient_version.py"
