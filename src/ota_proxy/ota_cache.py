@@ -210,11 +210,13 @@ class OTACache:
         """
         logger.debug("shutdown ota-cache...")
         async with self._shutdown_lock:
-            if self._cache_enabled and not self._closed:
+            if not self._closed:
                 self._closed = True
                 await self._session.close()
-                self._lru_helper.close()
                 self._executor.shutdown(wait=True)
+
+                if self._cache_enabled:
+                    self._lru_helper.close()
 
         logger.info("shutdown ota-cache completed")
 
