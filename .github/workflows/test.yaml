@@ -23,6 +23,7 @@ jobs:
         test_base:
           - ubuntu-18.04
           - ubuntu-20.04
+          - ubuntu-22.04
     steps:
       - name: Checkout commit
         uses: actions/checkout@v4
@@ -41,7 +42,7 @@ jobs:
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        if: ${{ matrix.test_base == 'ubuntu-20.04' }}
+        if: ${{ matrix.test_base == 'ubuntu-22.04' }}
 
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
@@ -50,4 +51,4 @@ jobs:
         with:
           pytest-xml-coverage-path: test_result/coverage.xml
           junitxml-path: test_result/pytest.xml
-        if: ${{ matrix.test_base == 'ubuntu-20.04' }}
+        if: ${{ matrix.test_base == 'ubuntu-22.04' }}
