@@ -36,7 +36,7 @@ jobs:
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           mkdir -p test_result
-          docker compose -f docker/docker-compose_tests.yml run -it --rm tester-${{ matrix.test_base }}
+          docker compose -f docker/docker-compose_tests.yml run --rm tester-${{ matrix.test_base }}
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         continue-on-error: true
