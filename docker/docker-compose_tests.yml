@@ -2,7 +2,7 @@ services:
   tester-ubuntu-18.04:
     build:
       context: ../
-      dockerfile: ./docker/test_base/Dockerfile
+      dockerfile: ./docker/test_base/Dockerfile_ubuntu-18.04
       args:
         - UBUNTU_BASE=ubuntu:18.04
     image: ota-test_base:ubuntu1804
