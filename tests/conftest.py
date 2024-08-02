@@ -147,6 +147,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     Return:
         A tuple includes the path to A/B slots respectly.
     """
+    logger.info("creating ab_slots for testing ...")
     # prepare slot_a
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
@@ -158,13 +159,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
 
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
-    vmlinuz_symlink.symlink_to(
-        f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
-    )
     initrd_symlink = slot_a / "boot" / TestConfiguration.INITRD_PREFIX
-    initrd_symlink.symlink_to(
-        f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
-    )
+
+    try:
+        vmlinuz_symlink.symlink_to(
+            f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+        )
+        initrd_symlink.symlink_to(
+            f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+        )
+    except FileExistsError:
+        pass
 
     # prepare slot_b
     slot_b = tmp_path_factory.mktemp("slot_b")
