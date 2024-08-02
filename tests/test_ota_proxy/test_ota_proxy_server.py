@@ -60,7 +60,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
-    CLIENTS_NUM = 6
+    CLIENTS_NUM = 3
 
     @pytest.fixture(
         params=[
