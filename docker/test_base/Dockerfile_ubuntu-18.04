@@ -19,9 +19,6 @@ RUN echo -n "${SPECIAL_FILE}" > "/${SPECIAL_FILE}"
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq linux-image-generic; \
-    apt-get clean
-
-RUN set -eux; \
     apt-get clean; \
     rm -rf \
         /tmp/* \
@@ -38,15 +35,11 @@ FROM ${UBUNTU_BASE}
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 
+ENV OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
 ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
-COPY --from=builder / /${OTA_IMAGE_SERVER_ROOT}
-
-ARG OTA_METADATA_REPO="https://github.com/tier4/ota-metadata"
 ENV OTA_IMAGE_DIR="${OTA_IMAGE_SERVER_ROOT}/data"
 ENV CERTS_DIR="/certs"
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
-
-WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 
 # install required packages
 RUN set -eux; \
@@ -65,10 +58,14 @@ RUN set -eux; \
     apt-get install -y -qq linux-image-generic; \
     apt-get clean
 
-# install hatch
+# install hatch to the system
 RUN set -eux; \
     python3.8 -m pip install --no-cache-dir -q -U pip; \
     python3.8 -m pip install --no-cache-dir -U hatch
+
+WORKDIR ${OTA_IMAGE_SERVER_ROOT}
+
+COPY --from=builder / /${OTA_IMAGE_DIR}
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
