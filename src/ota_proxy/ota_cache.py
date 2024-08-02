@@ -418,7 +418,7 @@ class OTACache:
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
         #   but the database entry has already been inserted. Here we wait for 3 rounds for
         #   cache_commit_callback to rename the tmp file.
-        _retry_count_max, _factor = 3, 0.01
+        _retry_count_max, _factor = 6, 0.01
         for _retry_count in range(_retry_count_max):
             if cache_file.is_file():
                 break
