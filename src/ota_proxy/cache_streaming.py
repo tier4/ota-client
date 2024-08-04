@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import threading
@@ -236,7 +237,7 @@ class CacheTracker:
         """
         _gen = self._provider_write_cache()
         # kick start the generator
-        _gen.asend(None)  # type: ignore
+        await _gen.asend(None)  # type: ignore
         return _gen
 
     async def subscribe_tracker(self) -> AsyncIterator[bytes] | None:
