@@ -12,7 +12,7 @@ ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 # special treatment to the ota-image: create file that needs url escaping
 # NOTE: include special identifiers #?; into the pathname
-RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
+RUN echo -n "${SPECIAL_FILE}" > "/${SPECIAL_FILE}"
 
 # install required packages
 RUN set -eux; \
@@ -52,14 +52,15 @@ RUN set -eux; \
 	    libssl-dev \
 	    gcc \
         wget \
-        git; \
+        git \
+        python3.8-venv; \
     apt-get install -y -qq linux-image-generic; \
     apt-get clean
 
-# install hatch
+# install hatch to the system
 RUN set -eux; \
-    python3 -m pip install --no-cache-dir -q -U pip; \
-    python3 -m pip install --no-cache-dir -U hatch
+    python3.8 -m pip install --no-cache-dir -q -U pip; \
+    python3.8 -m pip install --no-cache-dir -U hatch
 
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 
@@ -67,7 +68,7 @@ COPY --from=builder / /${OTA_IMAGE_DIR}
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
-RUN set -eu; \
+RUN set -eux; \
     mkdir -p "${CERTS_DIR}"; \
     pushd /tmp/certs; \
     ./gen_certs.sh; \
@@ -75,22 +76,22 @@ RUN set -eu; \
     popd
 
 # build the test OTA image
-RUN set -eu; \
+RUN set -eux; \
     cp "${CERTS_DIR}"/sign.key sign.key; \
     cp "${CERTS_DIR}"/sign.pem sign.pem; \
     git clone ${OTA_METADATA_REPO}; \
-    python3 -m venv ota-metadata/.venv; \
+    python3.8 -m venv ota-metadata/.venv; \
     source ota-metadata/.venv/bin/activate; \
-    python3 -m pip install --no-cache-dir -U pip; \
-    python3 -m pip install --no-cache-dir -q \
+    python3.8 -m pip install --no-cache-dir -U pip; \
+    python3.8 -m pip install --no-cache-dir -q \
         -r ota-metadata/metadata/ota_metadata/requirements.txt; \
     # patch the ignore files
     echo "" > ota-metadata/metadata/ignore.txt; \
-    python3 ota-metadata/metadata/ota_metadata/metadata_gen.py \
+    python3.8 ota-metadata/metadata/ota_metadata/metadata_gen.py \
         --target-dir data \
         --compressed-dir data.zst \
         --ignore-file ota-metadata/metadata/ignore.txt; \
-    python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
+    python3.8 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key sign.key \
         --cert-file sign.pem \
         --persistent-file ota-metadata/metadata/persistents.txt \
