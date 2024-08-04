@@ -277,44 +277,41 @@ class CachingRegister:
     The later comes callers will become the subscriber to this tracker.
     """
 
-    def __init__(self, base_dir: StrOrPath, *, executor: Executor):
-        self._base_dir = Path(base_dir)
+    def __init__(self):
         self._id_tracker: weakref.WeakValueDictionary[str, CacheTracker] = (
             weakref.WeakValueDictionary()
         )
-        self._executor = executor
 
-    async def get_tracker(
+    def get_tracker(
+        self,
+        cache_identifier: str,
+    ) -> CacheTracker | None:
+        """Get an inst of CacheTracker for the cache_identifier if existed."""
+        _tracker = self._id_tracker.get(cache_identifier)
+        if _tracker and not _tracker.writer_failed:
+            return _tracker
+
+    def register_tracker(
         self,
         cache_identifier: str,
         cache_meta: CacheMeta,
         *,
-        callback: _CACHE_ENTRY_REGISTER_CALLBACK,
+        base_dir: StrOrPath,
+        executor: Executor,
+        commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
-    ) -> tuple[CacheTracker, bool]:
-        """Get an inst of CacheTracker for the cache_identifier.
-
-        Returns:
-            An inst of tracker, and a bool indicates the caller is provider(True),
-                or subscriber(False).
-        """
-        # subscriber
-        if (
-            _tracker := self._id_tracker.get(cache_identifier)
-        ) and not _tracker.writer_failed:
-            return _tracker, False
-
-        # provider
+    ) -> CacheTracker:
+        """Create a register a new tracker into the register."""
         _tracker = CacheTracker(
             cache_identifier=cache_identifier,
             cache_meta=cache_meta,
-            base_dir=self._base_dir,
-            executor=self._executor,
-            commit_cache_cb=callback,
+            base_dir=base_dir,
+            executor=executor,
+            commit_cache_cb=commit_cache_cb,
             below_hard_limit_event=below_hard_limit_event,
         )
         self._id_tracker[cache_identifier] = _tracker
-        return _tracker, True
+        return _tracker
 
 
 async def cache_streaming(
