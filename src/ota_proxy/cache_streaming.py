@@ -171,6 +171,11 @@ class CacheTracker:
             #     "cache write finished, total bytes written"
             #     f"({self._bytes_written}) for {self.meta=}"
             # )
+            # NOTE(20240805): mark the writer succeeded in advance to release the
+            #   subscriber faster. Whether the database entry is committed or not
+            #   doesn't matter here, the subscriber doesn't need to fail if caching
+            #   finished but db commit failed.
+            self._writer_finished.set()
             self.meta.cache_size = self._bytes_written
 
             # commit the cache meta to the database
@@ -181,9 +186,9 @@ class CacheTracker:
                 os.link(self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {self.meta=}: {e!r}")
+            self._writer_finished.set()
             self._writer_failed.set()
         finally:
-            self._writer_finished.set()
             self = None  # remove the ref to tracker
 
     async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
