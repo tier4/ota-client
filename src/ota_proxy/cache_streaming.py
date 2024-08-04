@@ -103,7 +103,6 @@ class CacheTracker:
         below_hard_limit_event: threading.Event,
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.cache_identifier = cache_identifier
         self.save_path = Path(base_dir) / cache_identifier
         self.meta = cache_meta
         self._commit_cache_cb = commit_cache_cb
@@ -161,6 +160,9 @@ class CacheTracker:
                         self._writer_ready.set()
 
                     self._bytes_written += _written
+
+                # NOTE: cover the case if the requested file has 0 size:
+                self._writer_ready.set()
 
             # logger.debug(
             #     "cache write finished, total bytes written"
@@ -225,13 +227,6 @@ class CacheTracker:
             self = None  # del the ref to the tracker on finished
 
     # exposed API
-
-    async def provider_on_finished(self):
-        self._writer_finished.set()
-
-    async def provider_on_failed(self):
-        self._writer_failed.set()
-        self._writer_finished.set()
 
     async def start_provider(self) -> AsyncGenerator[int, bytes]:
         """Register meta to the Tracker, create tmp cache entry and get ready.
@@ -351,27 +346,28 @@ async def cache_streaming(
                 continue
 
             # to caching generator, if the tracker is still working
-            if _cache_write_gen:
-                try:
-                    await _cache_write_gen.asend(chunk)
-                except Exception as e:
-                    logger.error(
-                        f"cache write coroutine failed for {tracker.meta=}, abort caching: {e!r}"
-                    )
-                    _cache_write_gen = None
+            try:
+                await _cache_write_gen.asend(chunk)
+            except Exception as e:
+                logger.error(
+                    f"cache write coroutine failed for {tracker.meta=}, abort caching: {e!r}"
+                )
 
             # to uvicorn thread
             yield chunk
 
-        # if the tracker is stil there, we signal it to finish up
-        if _cache_write_gen:
-            with contextlib.suppress(StopAsyncIteration):
-                await _cache_write_gen.asend(b"")
+        # signal provider on finish, no more data chunk will be sent
+        with contextlib.suppress(StopAsyncIteration):
+            await _cache_write_gen.asend(b"")
     except Exception as e:
         _err_msg = f"cache tee failed for {tracker.meta=}: {e!r}"
         logger.warning(_err_msg)
         raise CacheStreamingFailed(_err_msg) from e
     finally:
+        # force terminate the generator in all condition at exit
+        with contextlib.suppress(StopAsyncIteration):
+            await _cache_write_gen.athrow(StopAsyncIteration)
+
         # remove the refs
         fd, tracker = None, None  # type: ignore
         _cache_write_gen = None
