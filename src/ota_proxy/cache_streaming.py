@@ -347,7 +347,7 @@ async def cache_streaming(
                 continue
 
             # to caching generator, if the tracker is still working
-            if _cache_write_gen and not tracker.writer_finished:
+            if _cache_write_gen:
                 try:
                     await _cache_write_gen.asend(chunk)
                 except Exception as e:
@@ -358,6 +358,11 @@ async def cache_streaming(
 
             # to uvicorn thread
             yield chunk
+
+        # if the tracker is stil there, we signal it to finish up
+        if _cache_write_gen:
+            with contextlib.suppress(StopAsyncIteration):
+                await _cache_write_gen.asend(b"")
     except Exception as e:
         _err_msg = f"cache tee failed for {tracker.meta=}: {e!r}"
         logger.warning(_err_msg)
@@ -365,3 +370,4 @@ async def cache_streaming(
     finally:
         # remove the refs
         fd, tracker = None, None  # type: ignore
+        _cache_write_gen = None
