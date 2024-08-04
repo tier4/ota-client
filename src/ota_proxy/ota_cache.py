@@ -194,7 +194,7 @@ class OTACache:
                 thread_nums=cfg.DB_THREADS,
                 thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
             )
-            self._on_going_caching = CachingRegister(self._base_dir)
+            self._on_going_caching = CachingRegister()
 
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
@@ -542,38 +542,31 @@ class OTACache:
             return _res
 
         # --- case 4: no cache available, streaming remote file and cache --- #
-        tracker, is_writer = await self._on_going_caching.get_tracker(
+        # a online tracker is available for this requrest
+        if tracker := self._on_going_caching.get_tracker(cache_identifier):
+            if stream_fd := await tracker.subscribe_tracker():
+                # logger.debug(f"reader subscribe for {tracker.meta=}")
+                return stream_fd, tracker.meta.export_headers_to_client()
+
+        # caller is the provider of the requested resource
+        remote_fd, resp_headers = await self._retrieve_file_by_downloading(
+            raw_url, headers=headers_from_client
+        )
+        cache_meta = create_cachemeta_for_request(
+            raw_url,
             cache_identifier,
+            compression_alg,
+            resp_headers_from_upper=resp_headers,
+        )
+
+        tracker = self._on_going_caching.register_tracker(
+            cache_identifier=cache_identifier,
+            cache_meta=cache_meta,
+            base_dir=self._base_dir,
             executor=self._executor,
-            callback=self._commit_cache_callback,
+            commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
-        if is_writer:
-            try:
-                remote_fd, resp_headers = await self._retrieve_file_by_downloading(
-                    raw_url, headers=headers_from_client
-                )
-            except Exception:
-                await tracker.provider_on_failed()
-                raise
-
-            cache_meta = create_cachemeta_for_request(
-                raw_url,
-                cache_identifier,
-                compression_alg,
-                resp_headers_from_upper=resp_headers,
-            )
-
-            # start caching
-            wrapped_fd = await cache_streaming(
-                fd=remote_fd,
-                meta=cache_meta,
-                tracker=tracker,
-            )
-            return wrapped_fd, resp_headers
-
-        else:
-            stream_fd = await tracker.subscriber_subscribe_tracker()
-            if stream_fd and tracker.meta:
-                logger.debug(f"reader subscribe for {tracker.meta=}")
-                return stream_fd, tracker.meta.export_headers_to_client()
+        # start caching
+        wrapped_fd = cache_streaming(fd=remote_fd, tracker=tracker)
+        return wrapped_fd, resp_headers
