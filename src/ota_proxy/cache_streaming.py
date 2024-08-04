@@ -28,6 +28,7 @@ from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import aiofiles
 
+from otaclient_common.common import get_backoff
 from otaclient_common.typing import StrOrPath
 
 from .config import config as cfg
@@ -38,7 +39,6 @@ from .errors import (
     CacheStreamingInterrupt,
     StorageReachHardLimit,
 )
-from .utils import wait_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,10 @@ class CacheTracker:
             finish the caching.
     """
 
-    READER_SUBSCRIBE_WAIT_PROVIDER_TIMEOUT = 2
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 3
+    SUBSCRIBER_WAIT_MAX_RETRY = 8
+    SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
+    SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
 
     @classmethod
@@ -213,16 +216,20 @@ class CacheTracker:
 
                     # no data chunk is read, wait with backoff for the next
                     #   data chunk written by the provider.
-                    err_count += 1
-                    if not await wait_with_backoff(
-                        err_count,
-                        _backoff_factor=cfg.STREAMING_BACKOFF_FACTOR,
-                        _backoff_max=cfg.STREAMING_BACKOFF_MAX,
-                    ):
+                    if err_count > self.SUBSCRIBER_WAIT_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
                         _err_msg = f"failed to stream({self.meta=}): timeout getting data, partial read might happen"
                         logger.warning(_err_msg)
                         raise CacheMultiStreamingFailed(_err_msg)
+
+                    await asyncio.sleep(
+                        get_backoff(
+                            err_count,
+                            self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
+                            self.SUBSCRIBER_WAIT_BACKOFF_MAX,
+                        )
+                    )
+                    err_count += 1
         finally:
             self = None  # del the ref to the tracker on finished
 
@@ -246,16 +253,18 @@ class CacheTracker:
         """Reader subscribe this tracker and get a file descriptor to get data chunks."""
         _wait_count = 0
         while not self._writer_ready.is_set():
-            _wait_count += 1
-            if self._writer_failed.is_set() or not await wait_with_backoff(
-                _wait_count,
-                _backoff_factor=cfg.STREAMING_BACKOFF_FACTOR,
-                _backoff_max=self.READER_SUBSCRIBE_WAIT_PROVIDER_TIMEOUT,
-            ):
-                logger.warning(
-                    f"timeout waiting for provider of {self.meta} to start, abort"
+            if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
+                logger.warning(f"timeout waiting provider for {self.meta}, abort")
+                return
+
+            await asyncio.sleep(
+                get_backoff(
+                    _wait_count,
+                    self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
+                    self.SUBSCRIBER_WAIT_MAX_RETRY,
                 )
-                return  # timeout waiting for provider to become ready
+            )
+            _wait_count += 1
 
         if self._writer_failed.is_set():
             return  # try to subscribe a failed stream
