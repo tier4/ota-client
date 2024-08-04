@@ -545,10 +545,11 @@ class OTACache:
 
         # --- case 4: no cache available, streaming remote file and cache --- #
         # a online tracker is available for this requrest
-        if tracker := self._on_going_caching.get_tracker(cache_identifier):
-            if stream_fd := await tracker.subscribe_tracker():
-                # logger.debug(f"reader subscribe for {tracker.meta=}")
-                return stream_fd, tracker.meta.export_headers_to_client()
+        if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
+            stream_fd := await tracker.subscribe_tracker()
+        ):
+            # logger.debug(f"reader subscribe for {tracker.meta=}")
+            return stream_fd, tracker.meta.export_headers_to_client()
 
         # caller is the provider of the requested resource
         remote_fd, resp_headers = await self._retrieve_file_by_downloading(
