@@ -17,26 +17,13 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import threading
 import weakref
 from concurrent.futures import Executor
 from pathlib import Path
-from typing import (
-    AsyncGenerator,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    Generic,
-    List,
-    MutableMapping,
-    Optional,
-    Tuple,
-    TypeVar,
-    Union,
-)
+from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import aiofiles
 
@@ -53,8 +40,6 @@ from .errors import (
 from .utils import wait_with_backoff
 
 logger = logging.getLogger(__name__)
-
-_WEAKREF = TypeVar("_WEAKREF")
 
 # cache tracker
 
@@ -130,7 +115,6 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
-        self._cache_write_gen: Optional[AsyncGenerator[int, bytes]] = None
 
         # self-register the finalizer to this tracker
         weakref.finalize(
@@ -255,7 +239,7 @@ class CacheTracker:
         _gen.asend(None)  # type: ignore
         return _gen
 
-    async def subscribe_tracker(self) -> Optional[AsyncIterator[bytes]]:
+    async def subscribe_tracker(self) -> AsyncIterator[bytes] | None:
         """Reader subscribe this tracker and get a file descriptor to get data chunks."""
         _wait_count = 0
         while not self._writer_ready.is_set():
@@ -293,56 +277,48 @@ class CachingRegister:
     The later comes callers will become the subscriber to this tracker.
     """
 
-    def __init__(self, base_dir: Union[str, Path]):
+    def __init__(self, base_dir: StrOrPath, *, executor: Executor):
         self._base_dir = Path(base_dir)
-        self._id_ref_dict: MutableMapping[str, _Weakref] = weakref.WeakValueDictionary()
-        self._ref_tracker_dict: MutableMapping[_Weakref, CacheTracker] = (
-            weakref.WeakKeyDictionary()
+        self._id_tracker: weakref.WeakValueDictionary[str, CacheTracker] = (
+            weakref.WeakValueDictionary()
         )
+        self._executor = executor
 
     async def get_tracker(
         self,
         cache_identifier: str,
+        cache_meta: CacheMeta,
         *,
-        executor: Executor,
         callback: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
-    ) -> Tuple[CacheTracker, bool]:
+    ) -> tuple[CacheTracker, bool]:
         """Get an inst of CacheTracker for the cache_identifier.
 
         Returns:
             An inst of tracker, and a bool indicates the caller is provider(True),
                 or subscriber(False).
         """
-        _new_ref = _Weakref()
-        _ref = self._id_ref_dict.setdefault(cache_identifier, _new_ref)
-
         # subscriber
         if (
-            _tracker := self._ref_tracker_dict.get(_ref)
+            _tracker := self._id_tracker.get(cache_identifier)
         ) and not _tracker.writer_failed:
             return _tracker, False
 
-        # provider, or override a failed provider
-        if _ref is not _new_ref:  # override a failed tracker
-            self._id_ref_dict[cache_identifier] = _new_ref
-            _ref = _new_ref
-
+        # provider
         _tracker = CacheTracker(
-            cache_identifier,
-            _ref,
+            cache_identifier=cache_identifier,
+            cache_meta=cache_meta,
             base_dir=self._base_dir,
-            executor=executor,
-            callback=callback,
+            executor=self._executor,
+            commit_cache_cb=callback,
             below_hard_limit_event=below_hard_limit_event,
         )
-        self._ref_tracker_dict[_ref] = _tracker
+        self._id_tracker[cache_identifier] = _tracker
         return _tracker, True
 
 
 async def cache_streaming(
     fd: AsyncIterator[bytes],
-    meta: CacheMeta,
     tracker: CacheTracker,
 ) -> AsyncIterator[bytes]:
     """A cache streamer that get data chunk from <fd> and tees to multiple destination.
@@ -362,33 +338,33 @@ async def cache_streaming(
     Raises:
         CacheStreamingFailed if any exception happens during retrieving.
     """
+    try:
+        _cache_write_gen = await tracker.start_provider()
 
-    async def _inner():
-        _cache_write_gen = tracker.get_cache_write_gen()
-        try:
-            # tee the incoming chunk to two destinations
-            async for chunk in fd:
-                # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
-                #       an empty chunk will be sent to indicate the EOF of stream,
-                #       we MUST handle this empty chunk.
-                if not chunk:  # skip if empty chunk is read from remote
-                    continue
-                # to caching generator
-                if _cache_write_gen and not tracker.writer_finished:
-                    try:
-                        await _cache_write_gen.asend(chunk)
-                    except Exception as e:
-                        await tracker.provider_on_failed()  # signal tracker
-                        logger.error(
-                            f"cache write coroutine failed for {meta=}, abort caching: {e!r}"
-                        )
-                # to uvicorn thread
-                yield chunk
-            await tracker.provider_on_finished()
-        except Exception as e:
-            logger.exception(f"cache tee failed for {meta=}")
-            await tracker.provider_on_failed()
-            raise CacheStreamingFailed from e
+        # tee the incoming chunk to two destinations
+        async for chunk in fd:
+            # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
+            #       an empty chunk will be sent to indicate the EOF of stream,
+            #       we MUST handle this empty chunk.
+            if not chunk:  # skip if empty chunk is read from remote
+                continue
 
-    await tracker.provider_start(meta)
-    return _inner()
+            # to caching generator, if the tracker is still working
+            if _cache_write_gen and not tracker.writer_finished:
+                try:
+                    await _cache_write_gen.asend(chunk)
+                except Exception as e:
+                    logger.error(
+                        f"cache write coroutine failed for {tracker.meta=}, abort caching: {e!r}"
+                    )
+                    _cache_write_gen = None
+
+            # to uvicorn thread
+            yield chunk
+    except Exception as e:
+        _err_msg = f"cache tee failed for {tracker.meta=}: {e!r}"
+        logger.warning(_err_msg)
+        raise CacheStreamingFailed(_err_msg) from e
+    finally:
+        # remove the refs
+        fd, tracker = None, None  # type: ignore
