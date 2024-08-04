@@ -226,6 +226,13 @@ class CacheTracker:
 
     # exposed API
 
+    async def provider_on_finished(self):
+        self._writer_finished.set()
+
+    async def provider_on_failed(self):
+        self._writer_failed.set()
+        self._writer_finished.set()
+
     async def start_provider(self) -> AsyncGenerator[int, bytes]:
         """Register meta to the Tracker, create tmp cache entry and get ready.
 
@@ -262,10 +269,6 @@ class CacheTracker:
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
 _CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, None]]
-
-
-class _Weakref:
-    pass
 
 
 class CachingRegister:
