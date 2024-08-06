@@ -98,7 +98,6 @@ class CacheTracker:
     def __init__(
         self,
         cache_identifier: str,
-        cache_meta: CacheMeta,
         *,
         base_dir: StrOrPath,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
@@ -107,7 +106,6 @@ class CacheTracker:
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
         self.save_path = Path(base_dir) / cache_identifier
-        self.meta = cache_meta
         self._commit_cache_cb = commit_cache_cb
 
         self._writer_ready = asyncio.Event()
@@ -134,19 +132,19 @@ class CacheTracker:
     def writer_finished(self) -> bool:
         return self._writer_finished.is_set()
 
-    async def _provider_write_cache(self) -> AsyncGenerator[int, bytes]:
+    async def _provider_write_cache(self, cache_meta: CacheMeta) -> AsyncGenerator[int, bytes]:
         """Provider writes data chunks from upper caller to tmp cache file.
 
         If cache writing failed, this method will exit and tracker.writer_failed and
         tracker.writer_finished will be set.
         """
-        logger.debug(f"start to cache for {self.meta=}...")
+        logger.debug(f"start to cache for {cache_meta=}...")
         try:
             async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
-                        _err_msg = f"abort writing cache for {self.meta=}: {StorageReachHardLimit.__name__}"
+                        _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
                         logger.warning(_err_msg)
                         raise StorageReachHardLimit(_err_msg)
 
@@ -168,16 +166,16 @@ class CacheTracker:
             #   doesn't matter here, the subscriber doesn't need to fail if caching
             #   finished but db commit failed.
             self._writer_finished.set()
-            self.meta.cache_size = self._bytes_written
+            cache_meta.cache_size = self._bytes_written
 
             # commit the cache meta to the database
-            await self._commit_cache_cb(self.meta)
+            await self._commit_cache_cb(cache_meta)
             # finalize the cache file, skip finalize if the target file is
             #   already presented.
             if not self.save_path.is_file():
                 os.link(self.fpath, self.save_path)
         except Exception as e:
-            logger.warning(f"failed to write cache for {self.meta=}: {e!r}")
+            logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
             self._writer_failed.set()
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
@@ -204,7 +202,7 @@ class CacheTracker:
                 ):
                     if self._writer_failed.is_set():
                         raise CacheStreamingInterrupt(
-                            f"provider aborted for {self.meta}"
+                            "abort reading stream on provider failed"
                         )
 
                     if _chunk := await f.read(cfg.CHUNK_SIZE):
@@ -217,7 +215,7 @@ class CacheTracker:
                     #   data chunk written by the provider.
                     if err_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
-                        _err_msg = f"failed to stream({self.meta=}): timeout getting data, partial read might happen"
+                        _err_msg = "failed to read stream: timeout getting data, partial read might happen"
                         logger.warning(_err_msg)
                         raise CacheMultiStreamingFailed(_err_msg)
 
@@ -234,7 +232,7 @@ class CacheTracker:
 
     # exposed API
 
-    async def start_provider(self) -> AsyncGenerator[int, bytes]:
+    async def start_provider(self, cache_meta: CacheMeta) -> AsyncGenerator[int, bytes]:
         """Register meta to the Tracker, create tmp cache entry and get ready.
 
         Check _provider_write_cache for more details.
@@ -243,7 +241,7 @@ class CacheTracker:
             meta: inst of CacheMeta for the requested file tracked by this tracker.
                 This meta is created by open_remote() method.
         """
-        _gen = self._provider_write_cache()
+        _gen = self._provider_write_cache(cache_meta)
         # kick start the generator
         await _gen.asend(None)  # type: ignore
         return _gen
