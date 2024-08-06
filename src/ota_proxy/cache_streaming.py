@@ -134,11 +134,6 @@ class CacheTracker:
     def writer_finished(self) -> bool:
         return self._writer_finished.is_set()
 
-    @property
-    def is_cache_valid(self) -> bool:
-        """Indicates whether the temp cache entry for this tracker is valid."""
-        return self._writer_finished.is_set() and not self._writer_failed.is_set()
-
     async def _provider_write_cache(self) -> AsyncGenerator[int, bytes]:
         """Provider writes data chunks from upper caller to tmp cache file.
 
