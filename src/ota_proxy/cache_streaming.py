@@ -75,8 +75,8 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 3
-    SUBSCRIBER_WAIT_MAX_RETRY = 16
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 6  # 0.315s
+    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # 9s
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
@@ -221,7 +221,7 @@ class CacheTracker:
 
                     # no data chunk is read, wait with backoff for the next
                     #   data chunk written by the provider.
-                    if err_count > self.SUBSCRIBER_WAIT_MAX_RETRY:
+                    if err_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
                         _err_msg = f"failed to stream({self.meta=}): timeout getting data, partial read might happen"
                         logger.warning(_err_msg)
