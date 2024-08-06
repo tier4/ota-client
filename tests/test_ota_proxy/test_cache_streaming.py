@@ -23,7 +23,7 @@ from typing import Coroutine, Optional
 
 import pytest
 
-from ota_proxy.cache_streaming import CachingRegister
+from ota_proxy.cache_streaming import CacheTracker, CachingRegister
 from ota_proxy.db import CacheMeta
 
 logger = logging.getLogger(__name__)
@@ -78,10 +78,20 @@ class TestOngoingCachingRegister:
 
             while not _tracker.writer_finished:  # simulating cache streaming
                 await asyncio.sleep(0.1)
-            return False, _tracker.meta
+            return False, _tracker.cache_meta
 
         # is provider
         logger.info(f"#{idx} is provider")
+
+        # NOTE: register the tracker before open the remote fd!
+        _tracker = CacheTracker(
+            cache_identifier=self.URL,
+            base_dir=self.base_dir,
+            executor=None,  # type: ignore
+            commit_cache_cb=None,  # type: ignore
+            below_hard_limit_event=None,  # type: ignore
+        )
+        self.register.register_tracker(self.URL, _tracker)
 
         # NOTE: use last_access field to store worker index
         # NOTE 2: bypass provider_start method, directly set tracker property
@@ -90,17 +100,10 @@ class TestOngoingCachingRegister:
             url="some_url",
             file_sha256="some_filesha256_value",
         )
+        _tracker.cache_meta = cache_meta  # normally it was set by start_provider
 
         # NOTE: we are not actually start the caching, so not setting
         #   executor, commit_cache_cb and below_hard_limit_event
-        _tracker = self.register.register_tracker(
-            cache_identifier=self.URL,
-            cache_meta=cache_meta,
-            base_dir=self.base_dir,
-            executor=None,  # type: ignore
-            commit_cache_cb=None,  # type: ignore
-            below_hard_limit_event=None,  # type: ignore
-        )
         await self.register_finish.acquire()
 
         # manually set the tracker to be started
@@ -113,7 +116,7 @@ class TestOngoingCachingRegister:
         # finished
         _tracker._writer_finished.set()
         logger.info(f"writer #{idx} finished")
-        return True, _tracker.meta
+        return True, _tracker.cache_meta
 
     async def test_ongoing_cache_register(self):
         """
