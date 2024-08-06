@@ -25,7 +25,7 @@ dynamic = [
 ]
 dependencies = [
   "aiofiles<25,>=24.1",
-  "aiohttp<3.10,>=3.9.5",
+  "aiohttp>=3.9.5,<3.11",
   "cryptography>=42.0.4,<44",
   "grpcio<1.54,>=1.53.2",
   "protobuf<4.22,>=4.21.12",
@@ -38,7 +38,7 @@ dependencies = [
   "typing-extensions>=4.6.3",
   "urllib3<2.3,>=2.2.2",
   "uvicorn[standard]<0.31,>=0.30",
-  "zstandard<0.23,>=0.22",
+  "zstandard<0.24,>=0.22",
 ]
 optional-dependencies.dev = [
   "black",
