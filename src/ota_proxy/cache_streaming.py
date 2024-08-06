@@ -159,9 +159,6 @@ class CacheTracker:
 
                     self._bytes_written += _written
 
-                # NOTE: cover the case if the requested file has 0 size:
-                self._writer_ready.set()
-
             # logger.debug(
             #     "cache write finished, total bytes written"
             #     f"({self._bytes_written}) for {self.meta=}"
@@ -181,9 +178,11 @@ class CacheTracker:
                 os.link(self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {self.meta=}: {e!r}")
-            self._writer_finished.set()
             self._writer_failed.set()
         finally:
+            # NOTE: always unblocked the subscriber waiting for writer ready/finished
+            self._writer_finished.set()
+            self._writer_ready.set()
             self = None  # remove the ref to tracker
 
     async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
