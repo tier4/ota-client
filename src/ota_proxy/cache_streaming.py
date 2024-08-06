@@ -255,6 +255,8 @@ class CacheTracker:
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
                 logger.warning(f"timeout waiting provider for {self.meta}, abort")
                 return
+            if self._writer_failed.is_set():
+                return  # early break on failed provider
 
             await asyncio.sleep(
                 get_backoff(
