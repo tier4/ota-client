@@ -324,6 +324,7 @@ class CachingRegister:
 async def cache_streaming(
     fd: AsyncIterator[bytes],
     tracker: CacheTracker,
+    cache_meta: CacheMeta,
 ) -> AsyncIterator[bytes]:
     """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
@@ -343,7 +344,7 @@ async def cache_streaming(
         CacheStreamingFailed if any exception happens during retrieving.
     """
     try:
-        _cache_write_gen = await tracker.start_provider()
+        _cache_write_gen = await tracker.start_provider(cache_meta)
 
         # tee the incoming chunk to two destinations
         async for chunk in fd:
@@ -358,7 +359,7 @@ async def cache_streaming(
                 await _cache_write_gen.asend(chunk)
             except Exception as e:
                 logger.error(
-                    f"cache write coroutine failed for {tracker.meta=}, abort caching: {e!r}"
+                    f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
                 )
 
             # to uvicorn thread
@@ -368,7 +369,7 @@ async def cache_streaming(
         with contextlib.suppress(StopAsyncIteration):
             await _cache_write_gen.asend(b"")
     except Exception as e:
-        _err_msg = f"cache tee failed for {tracker.meta=}: {e!r}"
+        _err_msg = f"cache tee failed for {cache_meta=}: {e!r}"
         logger.warning(_err_msg)
         raise CacheStreamingFailed(_err_msg) from e
     finally:
