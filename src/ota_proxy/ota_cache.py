@@ -33,7 +33,7 @@ from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import OTAFileCacheControl
-from .cache_streaming import CachingRegister, cache_streaming
+from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
@@ -546,30 +546,40 @@ class OTACache:
         # --- case 4: no cache available, streaming remote file and cache --- #
         # a online tracker is available for this requrest
         if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
-            stream_fd := await tracker.subscribe_tracker()
+            subscription := await tracker.subscribe_tracker()
         ):
             # logger.debug(f"reader subscribe for {tracker.meta=}")
-            return stream_fd, tracker.meta.export_headers_to_client()
+            stream_fd, cache_meta = subscription
+            return stream_fd, cache_meta.export_headers_to_client()
 
-        # caller is the provider of the requested resource
-        remote_fd, resp_headers = await self._retrieve_file_by_downloading(
-            raw_url, headers=headers_from_client
-        )
-        cache_meta = create_cachemeta_for_request(
-            raw_url,
-            cache_identifier,
-            compression_alg,
-            resp_headers_from_upper=resp_headers,
-        )
-
-        tracker = self._on_going_caching.register_tracker(
+        # no valid online tracker is available for this request, create a new one and
+        #   promote the caller to be the provider.
+        # NOTE: register the tracker before open the remote fd!
+        tracker = CacheTracker(
             cache_identifier=cache_identifier,
-            cache_meta=cache_meta,
             base_dir=self._base_dir,
             executor=self._executor,
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
-        # start caching
-        wrapped_fd = cache_streaming(fd=remote_fd, tracker=tracker)
-        return wrapped_fd, resp_headers
+        self._on_going_caching.register_tracker(cache_identifier, tracker)
+
+        # caller is the provider of the requested resource
+        try:
+            remote_fd, resp_headers = await self._retrieve_file_by_downloading(
+                raw_url, headers=headers_from_client
+            )
+            cache_meta = create_cachemeta_for_request(
+                raw_url,
+                cache_identifier,
+                compression_alg,
+                resp_headers_from_upper=resp_headers,
+            )
+            # start caching
+            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
+            return wrapped_fd, resp_headers
+        except Exception:
+            tracker.set_writer_failed()
+            raise
+        finally:
+            tracker = None  # remove ref
