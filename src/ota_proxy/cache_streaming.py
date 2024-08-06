@@ -106,6 +106,7 @@ class CacheTracker:
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
         self.save_path = Path(base_dir) / cache_identifier
+        self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
         self._writer_ready = asyncio.Event()
@@ -132,7 +133,13 @@ class CacheTracker:
     def writer_finished(self) -> bool:
         return self._writer_finished.is_set()
 
-    async def _provider_write_cache(self, cache_meta: CacheMeta) -> AsyncGenerator[int, bytes]:
+    def set_writer_failed(self) -> None:
+        self._writer_finished.set()
+        self._writer_failed.set()
+
+    async def _provider_write_cache(
+        self, cache_meta: CacheMeta
+    ) -> AsyncGenerator[int, bytes]:
         """Provider writes data chunks from upper caller to tmp cache file.
 
         If cache writing failed, this method will exit and tracker.writer_failed and
@@ -241,17 +248,18 @@ class CacheTracker:
             meta: inst of CacheMeta for the requested file tracked by this tracker.
                 This meta is created by open_remote() method.
         """
+        self.cache_meta = cache_meta
         _gen = self._provider_write_cache(cache_meta)
         # kick start the generator
         await _gen.asend(None)  # type: ignore
         return _gen
 
-    async def subscribe_tracker(self) -> AsyncIterator[bytes] | None:
-        """Reader subscribe this tracker and get a file descriptor to get data chunks."""
+    async def subscribe_tracker(self) -> tuple[AsyncIterator[bytes], CacheMeta] | None:
+        """Subscribe to this tracker and get the cache stream and cache_meta."""
         _wait_count = 0
         while not self._writer_ready.is_set():
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
-                logger.warning(f"timeout waiting provider for {self.meta}, abort")
+                logger.warning("timeout waiting provider, abort")
                 return
             if self._writer_failed.is_set():
                 return  # early break on failed provider
@@ -265,9 +273,9 @@ class CacheTracker:
             )
             _wait_count += 1
 
-        if self._writer_failed.is_set():
+        if self._writer_failed.is_set() or self.cache_meta is None:
             return  # try to subscribe a failed stream
-        return self._subscriber_stream_cache()
+        return self._subscriber_stream_cache(), self.cache_meta
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
@@ -289,36 +297,17 @@ class CachingRegister:
             weakref.WeakValueDictionary()
         )
 
-    def get_tracker(
-        self,
-        cache_identifier: str,
-    ) -> CacheTracker | None:
-        """Get an inst of CacheTracker for the cache_identifier if existed."""
+    def get_tracker(self, cache_identifier: str) -> CacheTracker | None:
+        """Get an inst of CacheTracker for the cache_identifier if existed.
+        If the tracker doesn't exist, return a lock for tracker registeration.
+        """
         _tracker = self._id_tracker.get(cache_identifier)
         if _tracker and not _tracker.writer_failed:
             return _tracker
 
-    def register_tracker(
-        self,
-        cache_identifier: str,
-        cache_meta: CacheMeta,
-        *,
-        base_dir: StrOrPath,
-        executor: Executor,
-        commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
-        below_hard_limit_event: threading.Event,
-    ) -> CacheTracker:
+    def register_tracker(self, cache_identifier: str, tracker: CacheTracker) -> None:
         """Create a register a new tracker into the register."""
-        _tracker = CacheTracker(
-            cache_identifier=cache_identifier,
-            cache_meta=cache_meta,
-            base_dir=base_dir,
-            executor=executor,
-            commit_cache_cb=commit_cache_cb,
-            below_hard_limit_event=below_hard_limit_event,
-        )
-        self._id_tracker[cache_identifier] = _tracker
-        return _tracker
+        self._id_tracker[cache_identifier] = tracker
 
 
 async def cache_streaming(
