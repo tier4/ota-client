@@ -266,7 +266,7 @@ class CacheTracker:
                 get_backoff(
                     _wait_count,
                     self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
-                    self.SUBSCRIBER_WAIT_MAX_RETRY,
+                    self.SUBSCRIBER_WAIT_BACKOFF_MAX,
                 )
             )
             _wait_count += 1
