@@ -2,7 +2,7 @@
 
 # https://stackoverflow.com/questions/52500165/problem-verifying-a-self-created-openssl-root-intermediate-and-end-user-certifi
 
-set -e
+set -eux
 
 # Root CA:
 openssl ecparam -out root.key -name prime256v1 -genkey
@@ -53,4 +53,4 @@ openssl x509 -req \
     -out sign.pem \
     -sha256 -CAcreateserial
 
-rm root.key interm.key interm.csr sign.csr *.srl
+rm -f root.key interm.key interm.csr sign.csr *.srl

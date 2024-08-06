@@ -30,6 +30,21 @@ logger = logging.getLogger(__name__)
 
 TEST_DIR = Path(__file__).parent
 
+# see test base Dockerfile for more details.
+OTA_IMAGE_DIR = Path("/ota-image")
+KERNEL_PREFIX = "vmlinuz"
+INITRD_PREFIX = "initrd.img"
+
+
+def _get_kernel_version() -> str:
+    boot_dir = OTA_IMAGE_DIR / "data/boot"
+    _kernel_pa = f"{KERNEL_PREFIX}-*"
+    _kernel = list(boot_dir.glob(_kernel_pa))[0]
+    return _kernel.name.split("-", maxsplit=1)[1]
+
+
+KERNEL_VERSION = _get_kernel_version()
+
 
 @dataclass
 class TestConfiguration:
@@ -52,7 +67,7 @@ class TestConfiguration:
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
     OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
-    KERNEL_VERSION = "5.8.0-53-generic"
+    KERNEL_VERSION = str(KERNEL_VERSION)
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
 
@@ -132,6 +147,7 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     Return:
         A tuple includes the path to A/B slots respectly.
     """
+    logger.info("creating ab_slots for testing ...")
     # prepare slot_a
     slot_a = tmp_path_factory.mktemp("slot_a")
     shutil.copytree(
@@ -140,17 +156,20 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     # simulate the diff between versions
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
     shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
-    # boot dir is a separated folder, so delete the boot folder under slot_a
-    # shutil.rmtree(slot_a / "boot", ignore_errors=True)
+
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
-    vmlinuz_symlink.symlink_to(
-        f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
-    )
     initrd_symlink = slot_a / "boot" / TestConfiguration.INITRD_PREFIX
-    initrd_symlink.symlink_to(
-        f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
-    )
+
+    try:
+        vmlinuz_symlink.symlink_to(
+            f"{TestConfiguration.KERNEL_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+        )
+        initrd_symlink.symlink_to(
+            f"{TestConfiguration.INITRD_PREFIX}-{TestConfiguration.KERNEL_VERSION}"
+        )
+    except FileExistsError:
+        pass
 
     # prepare slot_b
     slot_b = tmp_path_factory.mktemp("slot_b")
@@ -165,6 +184,8 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_b_boot_dev = tmp_path_factory.mktemp("slot_b_boot")
     slot_b_boot_dir = slot_b_boot_dev / "boot"
     slot_b_boot_dir.mkdir()
+    (slot_b_boot_dir / "grub").mkdir()
+
     return SlotMeta(
         slot_a=str(slot_a),
         slot_b=str(slot_b),

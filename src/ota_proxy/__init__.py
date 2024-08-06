@@ -24,7 +24,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional, Protocol
 
 from typing_extensions import ParamSpec, Self
 
-from .cache_control import OTAFileCacheControl
+from .cache_control_header import OTAFileCacheControl
 from .config import config
 from .ota_cache import OTACache
 from .server_app import App

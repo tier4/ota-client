@@ -24,20 +24,21 @@ dynamic = [
   "version",
 ]
 dependencies = [
-  "aiofiles==24.1",
-  "aiohttp<3.10,>=3.9.5",
-  "cryptography<43,>=42.0.4",
+  "aiofiles<25,>=24.1",
+  "aiohttp>=3.9.5,<3.11",
+  "cryptography>=42.0.4,<44",
   "grpcio<1.54,>=1.53.2",
   "protobuf<4.22,>=4.21.12",
-  "pydantic==2.8",
-  "pydantic-settings==2.3.4",
-  "pyopenssl==24.1",
-  "pyyaml==6.0.1",
+  "pydantic<3,>=2.6",
+  "pydantic-settings<3,>=2.3",
+  "pyopenssl<25,>=24.1",
+  "pyyaml<7,>=6.0.1",
   "requests<2.33,>=2.32",
+  "simple-sqlite3-orm @ https://github.com/pga2rn/simple-sqlite3-orm/releases/download/v0.2.1/simple_sqlite3_orm-0.2.1-py3-none-any.whl",
   "typing-extensions>=4.6.3",
-  "urllib3>=2.2.2,<2.3",
-  "uvicorn[standard]==0.30.1",
-  "zstandard==0.23",
+  "urllib3<2.3,>=2.2.2",
+  "uvicorn[standard]<0.31,>=0.30",
+  "zstandard<0.24,>=0.22",
 ]
 optional-dependencies.dev = [
   "black",
@@ -45,7 +46,7 @@ optional-dependencies.dev = [
   "flake8",
   "isort",
   "pytest==7.1.2",
-  "pytest-asyncio==0.21",
+  "pytest-asyncio==0.23.8",
   "pytest-mock==3.14",
   "requests-mock",
 ]
@@ -53,6 +54,9 @@ urls.Source = "https://github.com/tier4/ota-client"
 
 [tool.hatch.version]
 source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/_otaclient_version.py"
