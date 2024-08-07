@@ -38,6 +38,8 @@ class Config:
         32 * (1024**2): 2,  # [32MiB, ~), will not be rotated
     }
     DB_FILE = f"{BASE_DIR}/cache_db"
+    DB_THREADS = 3
+    DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
     # DB configuration/setup
     # ota-cache table
@@ -47,9 +49,6 @@ class Config:
 
     # cache streaming behavior
     AIOHTTP_SOCKET_READ_TIMEOUT = 60  # second
-    STREAMING_BACKOFF_MAX = 30  # seconds
-    STREAMING_BACKOFF_FACTOR = 0.01  # second
-    STREAMING_CACHED_TMP_TIMEOUT = 10  # second
 
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"

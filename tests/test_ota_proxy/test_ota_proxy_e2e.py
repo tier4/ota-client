@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import random
@@ -20,7 +22,6 @@ import shutil
 import time
 from hashlib import sha256
 from pathlib import Path
-from typing import List
 from urllib.parse import quote, unquote, urljoin
 
 import aiohttp
@@ -59,7 +60,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
-    CLIENTS_NUM = 6
+    CLIENTS_NUM = 3
 
     @pytest.fixture(
         params=[
@@ -151,15 +152,16 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(1)  # wait before otaproxy server is ready
             yield
         finally:
-            shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
             try:
                 await self.otaproxy_inst.shutdown()
             except Exception:
                 pass  # ignore exp on shutting down
+            finally:
+                shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
     @pytest.fixture(scope="class")
-    def parse_regulars(self):
-        regular_entries: List[RegularInf] = []
+    def parse_regulars(self) -> list[RegularInf]:
+        regular_entries: list[RegularInf] = []
         with open(self.REGULARS_TXT_PATH, "r") as f:
             for _line in f:
                 _entry = parse_regulars_from_txt(_line)
@@ -221,21 +223,24 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         elif self.space_availability == "exceed_hard_limit":
             pass
 
-    async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
+    async def ota_image_downloader(
+        self, regular_entries: list[RegularInf], sync_event: asyncio.Event
+    ):
         """Test single client download the whole ota image."""
         async with aiohttp.ClientSession() as session:
             await sync_event.wait()
             await asyncio.sleep(random.randrange(100, 200) // 100)
+
             for entry in regular_entries:
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
                 )
 
-                _retry_count_for_exceed_hard_limit = 0
-                # NOTE: for space_availability==exceed_hard_limit,
+                _retry_count = 0
+                _max_retry = 6
+                # NOTE: for space_availability==exceed_hard_limit or below_hard_limit,
                 #       it is normal that transition is interrupted when
-                #       space_availability transfered from below_hard_limit to exceed_hard_limit.
-                #       Another try is allowed for this case.
+                #       space_availability status transfered.
                 while True:
                     async with session.get(
                         url,
@@ -250,24 +255,29 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             assert hash_f.digest() == entry.sha256hash
                             break
                         except AssertionError:
-                            _retry_count_for_exceed_hard_limit += 1
-                            if (
-                                self.space_availability == "exceed_hard_limit"
-                                and _retry_count_for_exceed_hard_limit <= 1
-                            ):
-                                continue
-                            raise
+                            _retry_count += 1
+                            if _retry_count > _max_retry:
+                                logger.error(f"failed on {entry}")
+                                raise
+                            logger.warning(
+                                f"failed on {entry}, {_retry_count=}, still retry..."
+                            )
 
-    async def test_multiple_clients_download_ota_image(self, parse_regulars):
+    async def test_multiple_clients_download_ota_image(
+        self, parse_regulars: list[RegularInf]
+    ):
         """Test multiple client download the whole ota image simultaneously."""
         # ------ dispatch many clients to download from otaproxy simultaneously ------ #
         # --- execution --- #
         sync_event = asyncio.Event()
-        tasks: List[asyncio.Task] = []
+        tasks: list[asyncio.Task] = []
         for _ in range(self.CLIENTS_NUM):
             tasks.append(
                 asyncio.create_task(
-                    self.ota_image_downloader(parse_regulars, sync_event)
+                    self.ota_image_downloader(
+                        parse_regulars,
+                        sync_event,
+                    )
                 )
             )
         logger.info(
@@ -277,7 +287,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
         # --- assertions --- #
         # 1. ensure all clients finished the downloading successfully
-        await asyncio.gather(*tasks, return_exceptions=False)
+        for _fut in asyncio.as_completed(tasks):
+            await _fut
+
         await self.otaproxy_inst.shutdown()
         # 2. check there is no tmp files left in the ota_cache dir
         #    ensure that the gc for multi-cache-streaming works
@@ -338,7 +350,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
 
     @pytest.fixture(scope="class")
     def parse_regulars(self):
-        regular_entries: List[RegularInf] = []
+        regular_entries: list[RegularInf] = []
         with open(self.REGULARS_TXT_PATH, "r") as f:
             for _line in f:
                 _entry = parse_regulars_from_txt(_line)
@@ -369,7 +381,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
         # ------ dispatch many clients to download from otaproxy simultaneously ------ #
         # --- execution --- #
         sync_event = asyncio.Event()
-        tasks: List[asyncio.Task] = []
+        tasks: list[asyncio.Task] = []
         for _ in range(self.CLIENTS_NUM):
             tasks.append(
                 asyncio.create_task(

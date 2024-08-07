@@ -377,10 +377,11 @@ class _OTAUpdater:
                 )
                 continue
 
-            if (
-                _per_fpath.is_file() or _per_fpath.is_dir() or _per_fpath.is_symlink()
-            ):  # NOTE: not equivalent to perinf.path.exists()
+            try:
                 _handler.preserve_persist_entry(_per_fpath)
+            except Exception as e:
+                _err_msg = f"failed to preserve {_per_fpath}: {e!r}, skip"
+                logger.warning(_err_msg)
 
     def _execute_update(self):
         """Implementation of OTA updating."""

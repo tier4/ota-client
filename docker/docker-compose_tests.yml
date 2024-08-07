@@ -1,9 +1,43 @@
 services:
-  tester:
+  tester-ubuntu-18.04:
+    build:
+      context: ../
+      dockerfile: ./docker/test_base/Dockerfile_ubuntu-18.04
+      args:
+        - UBUNTU_BASE=ubuntu:18.04
+    image: ota-test_base:ubuntu1804
+    network_mode: bridge
+    container_name: ota-test
+    environment:
+      OUTPUT_DIR: /test_result
+      CERTS_DIR: /certs
+    volumes:
+      - ..:/otaclient_src:ro
+      - ../test_result:/test_result:rw
+
+  tester-ubuntu-20.04:
     build:
       context: ../
       dockerfile: ./docker/test_base/Dockerfile
-    image: ota-test_base
+      args:
+        - UBUNTU_BASE=ubuntu:20.04
+    image: ota-test_base:ubuntu2004
+    network_mode: bridge
+    container_name: ota-test
+    environment:
+      OUTPUT_DIR: /test_result
+      CERTS_DIR: /certs
+    volumes:
+      - ..:/otaclient_src:ro
+      - ../test_result:/test_result:rw
+
+  tester-ubuntu-22.04:
+    build:
+      context: ../
+      dockerfile: ./docker/test_base/Dockerfile
+      args:
+        - UBUNTU_BASE=ubuntu:22.04
+    image: ota-test_base:ubuntu2204
     network_mode: bridge
     container_name: ota-test
     environment:
