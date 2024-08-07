@@ -306,6 +306,7 @@ class CachingRegister:
         """
         _tracker = self._id_tracker.get(cache_identifier)
         if _tracker and not _tracker.writer_failed:
+            self._id_tracker.pop(cache_identifier, None)
             return _tracker
 
     def register_tracker(self, cache_identifier: str, tracker: CacheTracker) -> None:
