@@ -28,11 +28,12 @@ from urllib.parse import SplitResult, quote, urlsplit
 import aiohttp
 from multidict import CIMultiDictProxy
 
+from otaclient_common.common import get_backoff
 from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import OTAFileCacheControl
-from .cache_streaming import CachingRegister, cache_streaming
+from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
@@ -194,7 +195,7 @@ class OTACache:
                 thread_nums=cfg.DB_THREADS,
                 thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
             )
-            self._on_going_caching = CachingRegister(self._base_dir)
+            self._on_going_caching = CachingRegister()
 
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
@@ -418,11 +419,12 @@ class OTACache:
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
         #   but the database entry has already been inserted. Here we wait for 3 rounds for
         #   cache_commit_callback to rename the tmp file.
-        _retry_count_max, _factor = 3, 0.01
+        _retry_count_max, _factor, _backoff_max = 6, 0.01, 0.1  # 0.255s in total
         for _retry_count in range(_retry_count_max):
             if cache_file.is_file():
                 break
-            await asyncio.sleep(_factor * _retry_count)  # give away the event loop
+
+            await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
 
         if not cache_file.is_file():
             logger.warning(
@@ -542,38 +544,42 @@ class OTACache:
             return _res
 
         # --- case 4: no cache available, streaming remote file and cache --- #
-        tracker, is_writer = await self._on_going_caching.get_tracker(
-            cache_identifier,
+        # a online tracker is available for this requrest
+        if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
+            subscription := await tracker.subscribe_tracker()
+        ):
+            # logger.debug(f"reader subscribe for {tracker.meta=}")
+            stream_fd, cache_meta = subscription
+            return stream_fd, cache_meta.export_headers_to_client()
+
+        # no valid online tracker is available for this request, create a new one and
+        #   promote the caller to be the provider.
+        # NOTE: register the tracker before open the remote fd!
+        tracker = CacheTracker(
+            cache_identifier=cache_identifier,
+            base_dir=self._base_dir,
             executor=self._executor,
-            callback=self._commit_cache_callback,
+            commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
-        if is_writer:
-            try:
-                remote_fd, resp_headers = await self._retrieve_file_by_downloading(
-                    raw_url, headers=headers_from_client
-                )
-            except Exception:
-                await tracker.provider_on_failed()
-                raise
+        self._on_going_caching.register_tracker(cache_identifier, tracker)
 
+        # caller is the provider of the requested resource
+        try:
+            remote_fd, resp_headers = await self._retrieve_file_by_downloading(
+                raw_url, headers=headers_from_client
+            )
             cache_meta = create_cachemeta_for_request(
                 raw_url,
                 cache_identifier,
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
-
             # start caching
-            wrapped_fd = await cache_streaming(
-                fd=remote_fd,
-                meta=cache_meta,
-                tracker=tracker,
-            )
+            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
             return wrapped_fd, resp_headers
-
-        else:
-            stream_fd = await tracker.subscriber_subscribe_tracker()
-            if stream_fd and tracker.meta:
-                logger.debug(f"reader subscribe for {tracker.meta=}")
-                return stream_fd, tracker.meta.export_headers_to_client()
+        except Exception:
+            tracker.set_writer_failed()
+            raise
+        finally:
+            tracker = None  # remove ref
