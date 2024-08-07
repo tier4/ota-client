@@ -133,7 +133,7 @@ class CacheTracker:
     def writer_finished(self) -> bool:
         return self._writer_finished.is_set()
 
-    def set_writer_failed(self) -> None:
+    def set_writer_failed(self) -> None:  # pragma: no cover
         self._writer_finished.set()
         self._writer_failed.set()
 
