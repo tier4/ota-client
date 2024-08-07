@@ -209,7 +209,7 @@ class CacheTracker:
                 ):
                     if self._writer_failed.is_set():
                         raise CacheStreamingInterrupt(
-                            "abort reading stream on provider failed"
+                            f"abort reading stream on provider failed: {self.cache_meta}"
                         )
 
                     if _chunk := await f.read(cfg.CHUNK_SIZE):
@@ -222,7 +222,10 @@ class CacheTracker:
                     #   data chunk written by the provider.
                     if err_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
-                        _err_msg = "failed to read stream: timeout getting data, partial read might happen"
+                        _err_msg = (
+                            f"failed to read stream for {self.cache_meta}: "
+                            "timeout getting data, partial read might happen"
+                        )
                         logger.warning(_err_msg)
                         raise CacheMultiStreamingFailed(_err_msg)
 
@@ -259,7 +262,7 @@ class CacheTracker:
         _wait_count = 0
         while not self._writer_ready.is_set():
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
-                logger.warning("timeout waiting provider, abort")
+                logger.warning(f"timeout waiting provider for {self.cache_meta}, abort")
                 return
             if self._writer_failed.is_set():
                 return  # early break on failed provider
