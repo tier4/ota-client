@@ -323,12 +323,12 @@ async def cache_streaming(
 
     Data chunk yielded from <fd> will be teed to:
     1. upper uvicorn otaproxy APP to send back to client,
-    2. cache_tracker cache_write_gen for caching.
+    2. cache_tracker cache_write_gen for caching to local.
 
     Args:
         fd: opened connection to a remote file.
-        meta: meta data of the requested resource.
         tracker: an inst of ongoing cache tracker bound to this request.
+        cache_meta: meta data of the requested resource.
 
     Returns:
         A bytes async iterator to yield data chunk from, for upper otaproxy uvicorn APP.
@@ -338,6 +338,7 @@ async def cache_streaming(
     """
     try:
         _cache_write_gen = await tracker.start_provider(cache_meta)
+        _cache_writer_failed = False
 
         # tee the incoming chunk to two destinations
         async for chunk in fd:
@@ -348,12 +349,14 @@ async def cache_streaming(
                 continue
 
             # to caching generator, if the tracker is still working
-            try:
-                await _cache_write_gen.asend(chunk)
-            except Exception as e:
-                logger.error(
-                    f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
-                )
+            if not _cache_writer_failed:
+                try:
+                    await _cache_write_gen.asend(chunk)
+                except Exception as e:
+                    logger.error(
+                        f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
+                    )
+                    _cache_writer_failed = True
 
             # to uvicorn thread
             yield chunk
@@ -366,7 +369,8 @@ async def cache_streaming(
         logger.warning(_err_msg)
         raise CacheStreamingFailed(_err_msg) from e
     finally:
-        # force terminate the generator in all condition at exit
+        # force terminate the generator in all condition at exit, this
+        #   can ensure the generator being gced after cache_streaming exits.
         with contextlib.suppress(StopAsyncIteration):
             await _cache_write_gen.athrow(StopAsyncIteration)
 
