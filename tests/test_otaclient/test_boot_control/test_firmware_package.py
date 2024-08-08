@@ -16,11 +16,13 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
 from otaclient.boot_control._firmware_package import (
     DigestValue,
     FirmwareManifest,
     FirmwarePackage,
+    FirmwareUpdateRequest,
     HardwareType,
     NVIDIAFirmwareCompat,
     NVIDIAUEFIFirmwareSpec,
@@ -30,10 +32,10 @@ from otaclient.boot_control._firmware_package import (
 
 
 @pytest.mark.parametrize(
-    "_in, _exepcted",
+    "_in, _expected",
     (
         (
-            "sha256sum:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             [
                 "sha256",
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -55,7 +57,7 @@ def test_digest_value_parsing(_in, _expected):
 
 
 @pytest.mark.parametrize(
-    "_in, _exepcted",
+    "_in, _expected",
     (
         (
             "file:///opt/ota/firmware/BOOTAA64.efi",
@@ -181,4 +183,29 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
     ),
 )
 def test_firmware_manifest_parsing(_in, _expected):
-    assert _in == _expected
+    assert FirmwareManifest.model_validate(yaml.safe_load(_in)) == _expected
+
+
+EXAMPLE_FIRMWARE_UPDATE_REQUEST = """\
+format_version: 1
+firmware_list:
+  - bl_only_payload.Cap
+  - BOOTAA64.efi
+"""
+
+EXAMPLE_FIRMWARE_UPDATE_REQUEST_PARSED = FirmwareUpdateRequest(
+    format_version=1, firmware_list=["bl_only_payload.Cap", "BOOTAA64.efi"]
+)
+
+
+@pytest.mark.parametrize(
+    "_in, _expected",
+    (
+        (
+            EXAMPLE_FIRMWARE_UPDATE_REQUEST,
+            EXAMPLE_FIRMWARE_UPDATE_REQUEST_PARSED,
+        ),
+    ),
+)
+def test_firmware_update_request_parsing(_in, _expected):
+    assert FirmwareUpdateRequest.model_validate(yaml.safe_load(_in)) == _expected

@@ -14,11 +14,29 @@
 """Implementation of firmware update package management specification.
 
 This specification defines how the firmware update packages are described by metadata.
-otaclient can look at these metafiles to discover available firmware update packages.
+    otaclient can look at these metafiles to discover available firmware update packages.
+    Also, it provides a mechanism to control when otaclient should trigger the firmware update.
+    Currently this module is only for NVIDIA Jetson device with UEFI Capsule update support.
 
-Also, it provides a mechanism to control when otaclient should trigger the firmware update.
+A typical firmware package folder layout, assuming the firmware dir is /opt/ota/firmware:
+```
+/opt/ota/firmware
+├── BOOTAA64.efi
+├── bl_only_payload.Cap
+├── firmware_dir_layout
+└── firmware_manifest.yaml
+```
 
-Currently this module is only for NVIDIA Jetson device with UEFI Capsule update support.
+If firmware update is needed, a file name `firmware_update.yaml` needed to be prepared under the
+    firmware package dir, then the folder layout will become:
+```
+/opt/ota/firmware
+├── BOOTAA64.efi
+├── bl_only_payload.Cap
+├── firmware_dir_layout
+├── firmware_manifest.yaml
+└── firmware_update.yaml
+```
 """
 
 
@@ -26,9 +44,10 @@ from __future__ import annotations
 
 import re
 from enum import Enum
-from typing import List, Literal
+from typing import Any, List, Literal
 
-from pydantic import BaseModel, BeforeValidator
+from pydantic import BaseModel, BeforeValidator, GetCoreSchemaHandler
+from pydantic_core import CoreSchema, core_schema
 from typing_extensions import Annotated
 
 from otaclient_common.typing import gen_strenum_validator
@@ -42,6 +61,13 @@ class PayloadType(str, Enum):
 DIGEST_PATTERN = re.compile(r"^(?P<algorithm>[\w\-+ ]+):(?P<digest>[a-zA-Z0-9]+)$")
 
 
+def _pydantic_str_schema(
+    cls, source_type: Any, handler: GetCoreSchemaHandler
+) -> CoreSchema:
+    """Pydantic schema adapter for str."""
+    return core_schema.no_info_after_validator_function(cls, handler(str))
+
+
 class DigestValue(str):
     """Implementation of digest value schema <algorithm>:<hexstr>."""
 
@@ -51,6 +77,8 @@ class DigestValue(str):
             raise ValueError(f"invalid digest value: {_in}")
         self.algorithm = ma.group("algorithm")
         self.digest = ma.group("digest")
+
+    __get_pydantic_core_schema__ = classmethod(_pydantic_str_schema)
 
 
 class NVIDIAFirmwareCompat(BaseModel):
@@ -94,6 +122,8 @@ class PayloadFileLocation(str):
         else:
             self.location_type = "blob"
             self.location_path = DigestValue(_in)
+
+    __get_pydantic_core_schema__ = classmethod(_pydantic_str_schema)
 
 
 class FirmwarePackage(BaseModel):
