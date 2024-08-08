@@ -16,10 +16,10 @@
 from abc import abstractmethod
 from typing import Protocol, Type
 
+from otaclient.create_standby.interface import StandbySlotCreatorProtocol
 from otaclient_api.v2 import otaclient_v2_pb2 as pb2
 
 from .boot_control.protocol import BootControllerProtocol
-from .create_standby.interface import StandbySlotCreatorProtocol
 
 
 class OTAClientProtocol(Protocol):
