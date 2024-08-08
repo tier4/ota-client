@@ -53,17 +53,24 @@ class DigestValue(str):
         self.digest = ma.group("digest")
 
 
+class NVIDIAFirmwareCompat(BaseModel):
+    board_id: str
+    board_sku: str
+    board_rev: str
+    fab_id: str
+    board_conf: str
+
+    def check_compat(self, _tnspec: str) -> bool:
+        for field_name in self.model_fields:
+            if _tnspec.find(getattr(self, field_name)) < 0:
+                return False
+        return True
+
+
 class NVIDIAUEFIFirmwareSpec(BaseModel):
     # NOTE: let the jetson-uefi module parse the bsp_version
     bsp_version: str
     firmware_compat: NVIDIAFirmwareCompat
-
-    class NVIDIAFirmwareCompat(BaseModel):
-        board_id: str
-        board_sku: str
-        board_rev: str
-        fab_id: str
-        board_conf: str
 
 
 class PayloadFileLocation:
@@ -128,11 +135,7 @@ class FirmwareManifest(BaseModel):
         Compat string example:
             2888-400-0004-M.0-1-2-jetson-xavier-rqx580-
         """
-        firmware_compat = self.firmware_spec.firmware_compat
-        for field_name in firmware_compat.model_fields:
-            if _tnspec.find(getattr(firmware_compat, field_name)) < 0:
-                return False
-        return True
+        return self.firmware_spec.firmware_compat.check_compat(_tnspec)
 
     def get_firmware_packages(
         self, update_request: FirmwareUpdateRequest
