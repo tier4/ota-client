@@ -1,0 +1,82 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [
+  "hatch-vcs",
+  "hatchling>=1.20",
+]
+
+[project]
+name = "otaclient_pb2"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: Unix",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dynamic = [
+  "version",
+]
+dependencies = [
+  "grpcio<1.54,>=1.53.2",
+  "protobuf<4.22,>=4.21.12",
+]
+urls.Source = "https://github.com/tier4/ota-client/proto"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/otaclient_pb2/_version.py"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "whl",
+]
+
+[tool.hatch.build.targets.wheel]
+exclude = [
+  "**/.gitignore",
+  "**/*README.md",
+  "whl",
+]
+only-include = [
+  "src",
+]
+sources = [
+  "src",
+]
+
+[tool.black]
+line-length = 88
+target-version = [
+  'py38',
+]
+extend-exclude = '''(
+  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
+)'''
+
+[tool.isort]
+profile = "black"
+extend_skip_glob = [
+  "*_pb2.py*",
+  "_pb2_grpc.py*",
+]
+
+[tool.pyright]
+exclude = [
+  "**/__pycache__",
+]
+ignore = [
+  "**/*_pb2.py*",
+  "**/*_pb2_grpc.py*",
+]
+pythonVersion = "3.8"
