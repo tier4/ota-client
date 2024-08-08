@@ -49,16 +49,14 @@ KERNEL_VERSION = _get_kernel_version()
 @dataclass
 class TestConfiguration:
     # module paths
-    BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.app.boot_control._common"
-    BOOT_CONTROL_CONFIG_MODULE_PATH = "otaclient.app.boot_control.configs"
+    BOOT_CONTROL_COMMON_MODULE_PATH = "otaclient.boot_control._common"
+    BOOT_CONTROL_CONFIG_MODULE_PATH = "otaclient.boot_control.configs"
     CONFIGS_MODULE_PATH = "otaclient.app.configs"
-    CBOOT_MODULE_PATH = "otaclient.app.boot_control._cboot"
-    GRUB_MODULE_PATH = "otaclient.app.boot_control._grub"
-    RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
+    GRUB_MODULE_PATH = "otaclient.boot_control._grub"
+    RPI_BOOT_MODULE_PATH = "otaclient.boot_control._rpi_boot"
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "ota_metadata.legacy.parser"
-    OTAPROXY_MODULE_PATH = "ota_proxy"
     MAIN_MODULE_PATH = "otaclient.app.main"
 
     # dummy ota-image setting

@@ -24,9 +24,9 @@ from typing import Any
 
 import pytest
 
-from otaclient.app.boot_control import _jetson_cboot
-from otaclient.app.boot_control._jetson_cboot import _CBootControl
-from otaclient.app.boot_control._jetson_common import (
+from otaclient.boot_control import _jetson_cboot
+from otaclient.boot_control._jetson_cboot import _CBootControl
+from otaclient.boot_control._jetson_common import (
     BSPVersion,
     FirmwareBSPVersion,
     SlotID,

@@ -23,10 +23,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient import create_standby
-from otaclient.app.boot_control import BootControllerProtocol
 from otaclient.app.configs import BaseConfig
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
+from otaclient.boot_control import BootControllerProtocol
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
