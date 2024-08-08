@@ -20,10 +20,6 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 version = "0.7.1"
-dependencies = [
-  "grpcio<1.54,>=1.53.2",
-  "protobuf<4.22,>=4.21.12",
-]
 urls.Source = "https://github.com/tier4/ota-client/proto"
 
 [tool.hatch.version]
