@@ -19,9 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = [
-  "version",
-]
+version = "0.7.1"
 dependencies = [
   "grpcio<1.54,>=1.53.2",
   "protobuf<4.22,>=4.21.12",
