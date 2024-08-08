@@ -73,7 +73,7 @@ class NVIDIAUEFIFirmwareSpec(BaseModel):
     firmware_compat: NVIDIAFirmwareCompat
 
 
-class PayloadFileLocation:
+class PayloadFileLocation(str):
     """Specifying the payload file location.
 
     It supports file URL or digest value.
