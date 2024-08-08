@@ -170,11 +170,12 @@ class FirmwareManifest(BaseModel):
     def get_firmware_packages(
         self, update_request: FirmwareUpdateRequest
     ) -> list[FirmwarePackage]:
-        res = []
-        for _payload in self.firmware_packages:
-            if _payload.payload_name in update_request.firmware_list:
-                res.append(_payload)
-        return res
+        """Get a list of firmware update packages according to update_request."""
+        return [
+            _payload
+            for _payload in self.firmware_packages
+            if _payload.payload_name in update_request.firmware_list
+        ]
 
 
 class FirmwareUpdateRequest(BaseModel):
