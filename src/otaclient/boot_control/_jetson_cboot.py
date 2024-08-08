@@ -30,11 +30,7 @@ from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import subprocess_run_wrapper
 
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-    SlotMountHelper,
-)
+from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
