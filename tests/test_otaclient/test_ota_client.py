@@ -29,11 +29,7 @@ import pytest_mock
 
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
-from otaclient.app.boot_control import BootControllerProtocol
-from otaclient.app.boot_control.configs import BootloaderType
 from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.create_standby import StandbySlotCreatorProtocol
-from otaclient.app.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (
     OTAClient,
@@ -41,7 +37,11 @@ from otaclient.app.ota_client import (
     OTAServicer,
     _OTAUpdater,
 )
+from otaclient.boot_control import BootControllerProtocol
+from otaclient.boot_control.configs import BootloaderType
 from otaclient.configs.ecu_info import ECUInfo
+from otaclient.create_standby import StandbySlotCreatorProtocol
+from otaclient.create_standby.common import DeltaBundle, RegularDelta
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta

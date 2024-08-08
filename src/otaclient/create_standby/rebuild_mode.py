@@ -21,13 +21,17 @@ from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
+from otaclient.app.configs import config as cfg
+from otaclient.app.update_stats import (
+    OperationRecord,
+    OTAUpdateStatsCollector,
+    ProcessOperation,
+)
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
 
-from ..configs import config as cfg
-from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 from .common import DeltaBundle, DeltaGenerator, HardlinkRegister
 from .interface import StandbySlotCreatorProtocol
 
