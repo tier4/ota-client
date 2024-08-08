@@ -72,6 +72,7 @@ extend_skip_glob = [
 [tool.pyright]
 exclude = [
   "**/__pycache__",
+  "**/.venv",
 ]
 ignore = [
   "**/*_pb2.py*",
