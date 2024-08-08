@@ -89,10 +89,10 @@ class NVIDIAFirmwareCompat(BaseModel):
     board_conf: str
 
     def check_compat(self, _tnspec: str) -> bool:
-        for field_name in self.model_fields:
-            if _tnspec.find(getattr(self, field_name)) < 0:
-                return False
-        return True
+        return all(
+            _tnspec.find(getattr(self, field_name)) > 0
+            for field_name in self.model_fields
+        )
 
 
 class NVIDIAUEFIFirmwareSpec(BaseModel):
