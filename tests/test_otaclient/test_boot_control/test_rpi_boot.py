@@ -1,3 +1,18 @@
+# Copyright 2022 TIER IV, INC. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
 import logging
 import os
 import shutil
@@ -8,9 +23,9 @@ from string import Template
 import pytest
 import pytest_mock
 
-from otaclient.app.boot_control import _rpi_boot
-from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
-from otaclient.app.boot_control.configs import rpi_boot_cfg
+from otaclient.boot_control import _rpi_boot
+from otaclient.boot_control._common import CMDHelperFuncs, SlotMountHelper
+from otaclient.boot_control.configs import rpi_boot_cfg
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -31,7 +46,7 @@ CMDLINE_TXT_SLOT_A = "cmdline_txt_slot_a"
 CMDLINE_TXT_SLOT_B = "cmdline_txt_slot_b"
 
 # module path
-RPI_BOOT_MODULE_PATH = "otaclient.app.boot_control._rpi_boot"
+RPI_BOOT_MODULE_PATH = _rpi_boot.__name__
 rpi_boot__RPIBootControl_MODULE = f"{RPI_BOOT_MODULE_PATH}._RPIBootControl"
 rpi_boot_RPIBoot_CMDHelperFuncs_MODULE = f"{RPI_BOOT_MODULE_PATH}.CMDHelperFuncs"
 boot_control_common_CMDHelperFuncs_MODULE = (
@@ -239,7 +254,7 @@ class TestRPIBootControl:
         )
 
     def test_rpi_boot_normal_update(self, mocker: pytest_mock.MockerFixture):
-        from otaclient.app.boot_control._rpi_boot import RPIBootController
+        from otaclient.boot_control._rpi_boot import RPIBootController
 
         # ------ patch rpi_boot_cfg for boot_controller_inst1.stage 1~3 ------#
         rpi_boot_cfg_path = f"{cfg.BOOT_CONTROL_CONFIG_MODULE_PATH}.rpi_boot_cfg"

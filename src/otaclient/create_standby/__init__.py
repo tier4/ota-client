@@ -16,7 +16,8 @@
 import logging
 from typing import Type
 
-from ..configs import CreateStandbyMechanism
+from otaclient.app.configs import CreateStandbyMechanism
+
 from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)

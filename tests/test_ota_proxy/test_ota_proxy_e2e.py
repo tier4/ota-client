@@ -28,12 +28,15 @@ import aiohttp
 import pytest
 import uvicorn
 
+import ota_proxy
 from ota_metadata.legacy.parser import parse_regulars_from_txt
 from ota_metadata.legacy.types import RegularInf
 from ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
 logger = logging.getLogger(__name__)
+
+MODULE = ota_proxy.__name__
 
 # check the test_base/Dockerfile::SPECIAL_FILE
 SPECIAL_FILE_NAME = r"path;adf.ae?qu.er\y=str#fragファイルement"
@@ -56,7 +59,7 @@ async def _start_uvicorn_server(server: uvicorn.Server):
 
 
 class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
-    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{MODULE}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
@@ -297,7 +300,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
 
 class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
-    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{cfg.OTAPROXY_MODULE_PATH}.otacache"
+    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{MODULE}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
