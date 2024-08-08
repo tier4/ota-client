@@ -13,13 +13,26 @@
 # limitations under the License.
 
 
-from .configs import BootloaderType
-from .protocol import BootControllerProtocol
-from .selecter import detect_bootloader, get_boot_controller
+import logging
+from typing import Type
 
-__all__ = (
-    "get_boot_controller",
-    "detect_bootloader",
-    "BootloaderType",
-    "BootControllerProtocol",
-)
+from otaclient.app.configs import CreateStandbyMechanism
+
+from .interface import StandbySlotCreatorProtocol
+
+logger = logging.getLogger(__name__)
+
+
+def get_standby_slot_creator(
+    mode: CreateStandbyMechanism,
+) -> Type[StandbySlotCreatorProtocol]:
+    logger.info(f"use slot update {mode=}")
+    if mode == CreateStandbyMechanism.REBUILD:
+        from .rebuild_mode import RebuildMode
+
+        return RebuildMode
+    else:
+        raise NotImplementedError(f"slot update {mode=} not implemented")
+
+
+__all__ = ("get_standby_slot_creator",)

@@ -32,10 +32,13 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
+from otaclient.app.configs import config as cfg
+from otaclient.app.update_stats import (
+    OperationRecord,
+    OTAUpdateStatsCollector,
+    ProcessOperation,
+)
 from otaclient_common.common import create_tmp_fname
-
-from ..configs import config as cfg
-from ..update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 

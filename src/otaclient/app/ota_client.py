@@ -37,7 +37,12 @@ import requests.exceptions as requests_exc
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
-from otaclient.app.create_standby.common import DeltaBundle
+from otaclient.boot_control import BootControllerProtocol, get_boot_controller
+from otaclient.create_standby import (
+    StandbySlotCreatorProtocol,
+    get_standby_slot_creator,
+)
+from otaclient.create_standby.common import DeltaBundle
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -50,10 +55,8 @@ from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 from . import errors as ota_errors
-from .boot_control import BootControllerProtocol, get_boot_controller
 from .configs import config as cfg
 from .configs import ecu_info
-from .create_standby import StandbySlotCreatorProtocol, get_standby_slot_creator
 from .interface import OTAClientProtocol
 from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 

@@ -133,7 +133,7 @@ class TestGrubControl:
     DEFAULT_GRUB = (Path(__file__).parent / "default_grub").read_text()
 
     def cfg_for_slot_a_as_current(self):
-        from otaclient.app.boot_control.configs import GrubControlConfig
+        from otaclient.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
         _mocked_grub_cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
@@ -147,7 +147,7 @@ class TestGrubControl:
         return _mocked_grub_cfg
 
     def cfg_for_slot_b_as_current(self):
-        from otaclient.app.boot_control.configs import GrubControlConfig
+        from otaclient.boot_control.configs import GrubControlConfig
 
         _mocked_grub_cfg = GrubControlConfig()
         _mocked_grub_cfg.MOUNT_POINT = str(self.slot_a)  # type: ignore
@@ -219,8 +219,8 @@ class TestGrubControl:
         mocker: pytest_mock.MockerFixture,
         grub_ab_slot,
     ):
-        from otaclient.app.boot_control._common import CMDHelperFuncs, SlotMountHelper
-        from otaclient.app.boot_control._grub import GrubABPartitionDetector
+        from otaclient.boot_control._common import CMDHelperFuncs, SlotMountHelper
+        from otaclient.boot_control._grub import GrubABPartitionDetector
 
         # ------ start fsm ------ #
         self._fsm = GrubFSM(slot_a_mp=self.slot_a, slot_b_mp=self.slot_b)
@@ -310,7 +310,7 @@ class TestGrubControl:
         )
 
     def test_grub_normal_update(self, mocker: pytest_mock.MockerFixture):
-        from otaclient.app.boot_control._grub import GrubController
+        from otaclient.boot_control._grub import GrubController
 
         _cfg_patch_path = f"{cfg.GRUB_MODULE_PATH}.cfg"
 
@@ -459,7 +459,7 @@ GRUB_DISABLE_RECOVERY=true
 def test_update_grub_default(
     input: str, default_entry: typing.Optional[int], expected: str
 ):
-    from otaclient.app.boot_control._grub import GrubHelper
+    from otaclient.boot_control._grub import GrubHelper
 
     updated = GrubHelper.update_grub_default(input, default_entry_idx=default_entry)
     assert updated == expected
