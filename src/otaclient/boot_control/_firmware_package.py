@@ -90,7 +90,7 @@ class NVIDIAFirmwareCompat(BaseModel):
 
     def check_compat(self, _tnspec: str) -> bool:
         return all(
-            _tnspec.find(getattr(self, field_name)) > 0
+            _tnspec.find(getattr(self, field_name)) >= 0
             for field_name in self.model_fields
         )
 
