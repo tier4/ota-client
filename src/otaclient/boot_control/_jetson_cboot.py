@@ -26,12 +26,16 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
-from otaclient.app.boot_control._common import (
+from otaclient.app.configs import config as cfg
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import subprocess_run_wrapper
+
+from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
 )
-from otaclient.app.boot_control._jetson_common import (
+from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
@@ -41,11 +45,8 @@ from otaclient.app.boot_control._jetson_common import (
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
-from otaclient.app.boot_control.configs import cboot_cfg as boot_cfg
-from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient.app.configs import config as cfg
-from otaclient_api.v2 import types as api_types
-from otaclient_common.common import subprocess_run_wrapper
+from .configs import cboot_cfg as boot_cfg
+from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 

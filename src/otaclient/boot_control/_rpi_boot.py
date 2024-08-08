@@ -27,18 +27,19 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
-from otaclient.app.boot_control._common import (
+from otaclient_api.v2 import types as api_types
+from otaclient_common.common import replace_atomic
+from otaclient_common.linux import subprocess_run_wrapper
+from otaclient_common.typing import StrOrPath
+
+from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
     write_str_to_file_sync,
 )
-from otaclient.app.boot_control.configs import rpi_boot_cfg as cfg
-from otaclient.app.boot_control.protocol import BootControllerProtocol
-from otaclient_api.v2 import types as api_types
-from otaclient_common.common import replace_atomic
-from otaclient_common.linux import subprocess_run_wrapper
-from otaclient_common.typing import StrOrPath
+from .configs import rpi_boot_cfg as cfg
+from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
