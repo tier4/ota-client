@@ -34,8 +34,8 @@ from abc import abstractmethod
 from typing import Protocol
 
 from ota_metadata.legacy.parser import OTAMetadata
+from otaclient.app.update_stats import OTAUpdateStatsCollector
 
-from ..update_stats import OTAUpdateStatsCollector
 from .common import DeltaBundle
 
 
