@@ -23,7 +23,7 @@ from pathlib import Path
 
 import grpc.aio
 
-# NOTE: as otaclient_api and ota_metadata are using dynamic module import,
+# NOTE: as ota_metadata are using dynamic module import,
 #   we need to import them before any other otaclient modules.
 import ota_metadata.legacy  # noqa: F401
 from otaclient import __version__
