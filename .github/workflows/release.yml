@@ -45,7 +45,7 @@ jobs:
             done
 
       - name: publish release artifacts
-        if: ${{ github.action.event_name == "release" }}
+        if: ${{ github.event_name == "release" }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
