@@ -11,7 +11,7 @@ You can use `hatch` to simply build the OTA service API python package for build
 python3 -m venv .venv
 # enable the venv
 . .venv/bin/activate
-python3 -m pip -U pip
+python3 -m pip install -U pip
 python3 -m pip install hatch
 ```
 
