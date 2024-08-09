@@ -44,7 +44,8 @@ jobs:
                 ${WHL}.checksum; \
             done
 
-      - name: release
+      - name: publish release artifacts
+        if: ${{ github.event_name == "release" }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
