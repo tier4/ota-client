@@ -52,9 +52,7 @@ sources = [
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 proto_file = "otaclient_v2.proto"
-work_dir = "build"
 output_dir = "src/otaclient_pb2/v2"
-artifacts = "*.py"
 
 [tool.black]
 line-length = 88
