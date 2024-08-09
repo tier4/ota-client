@@ -50,10 +50,10 @@ sources = [
   "src",
 ]
 
-[tool.hatch.build.targets.wheel.hooks.custom]
-proto_file = "otaclient_v2.proto"
-output_dir = "src/otaclient_pb2/v2"
-api_version = "2.1.0"
+[tool.hatch.build.hooks.custom]
+proto_builds = [
+  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.1.0"},
+]
 
 [tool.black]
 line-length = 88
