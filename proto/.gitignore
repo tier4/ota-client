@@ -1,2 +1,3 @@
-pb2/*
-!pb2/setup.py
+.venv/
+dist/
+build/

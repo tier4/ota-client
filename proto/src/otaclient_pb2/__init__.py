@@ -13,20 +13,7 @@
 # limitations under the License.
 
 
-from setuptools import find_packages, setup
+from otaclient_pb2._version import version, version_tuple
 
-
-def get_version():
-    return open("../.version").read().strip()
-
-
-pkg_name = "otaclient_pb2"
-
-setup(
-    name=pkg_name,
-    version=get_version(),
-    packages=find_packages(),
-    description="ota client protobuf package",
-    url="https://github.com/tier4/ota-client",
-    author="Tier4 FMS Development Team",
-)
+__version__ = version
+__version_tuple__ = version_tuple
