@@ -1,6 +1,7 @@
 # OTA Service API proto
 
-This folder includes the OTA service API proto file, and a set of tools to generate the python lib from the proto files.
+This folder includes the OTA service API proto file, and is also a configured python package. 
+You can use `hatch` to simply build the OTA service API python package for building grpc server or client. 
 
 ## How to build
 

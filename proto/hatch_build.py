@@ -25,7 +25,7 @@ from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-INIT_TEMPLATE = r"""\
+INIT_TEMPLATE = r"""
 #
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
