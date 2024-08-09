@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [
   "hatch-vcs",
   "hatchling>=1.20",
-  "grpcio-tools<1.58,>=1.57.0,
+  "grpcio-tools<1.58,>=1.57.0",
 ]
 
 [project]
@@ -49,6 +49,12 @@ only-include = [
 sources = [
   "src",
 ]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+proto_file = "otaclient_v2.proto"
+work_dir = "build"
+output_dir = "src/otaclient_pb2/v2"
+artifacts = "*.py"
 
 [tool.black]
 line-length = 88
