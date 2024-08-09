@@ -1,13 +1,14 @@
 [build-system]
 build-backend = "hatchling.build"
 requires = [
+  "grpcio-tools<1.58,>=1.57",
   "hatch-vcs",
   "hatchling>=1.20",
-  "grpcio-tools<1.58,>=1.57.0",
 ]
 
 [project]
-name = "otaclient_pb2"
+name = "otaclient-pb2"
+version = "0.7.1"
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -20,7 +21,6 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-version = "0.7.1"
 urls.Source = "https://github.com/tier4/ota-client/proto"
 
 [tool.hatch.version]
@@ -52,7 +52,7 @@ sources = [
 
 [tool.hatch.build.hooks.custom]
 proto_builds = [
-  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.1.0"},
+  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.1.0" },
 ]
 
 [tool.black]

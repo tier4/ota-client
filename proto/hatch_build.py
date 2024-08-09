@@ -67,7 +67,7 @@ def _protoc_compile(
         sys.executable, "-m", "grpc_tools.protoc",
         f"--python_out={output_base}",
         f"--pyi_out={output_base}",
-        f"--grpc_python_out={output_base}", 
+        f"--grpc_python_out={output_base}",
     ]
     # fmt: on
     if isinstance(extra_imports, list):
