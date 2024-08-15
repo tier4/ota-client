@@ -125,6 +125,13 @@ class ThreadPoolExecutorWithRetry:
                 daemon=True,
             ).start()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._executor.shutdown(wait=True)
+        return False
+
     def _watchdog(
         self,
         max_retry: int | None,
