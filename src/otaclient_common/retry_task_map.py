@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
-import concurrent.futures.thread as concurrent_fut_thread
+import atexit
 import contextlib
 import itertools
 import logging
+import sys
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -30,12 +31,27 @@ from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
 
+# for waking up any background threads created by this module.
+_shutdown = False
+
+
+def _python_exit():
+    global _shutdown
+    _shutdown = True
+
+
+# see concurrent.futures.thread module for more details.
+if sys.version_info >= (3, 9, 0):
+    threading._register_atexit(_python_exit)
+else:
+    atexit.register(_python_exit)
+
 
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
 
 
-class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
+class ThreadPoolExecutorWithRetry:
 
     def __init__(
         self,
@@ -70,7 +86,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
-        super().__init__(
+        self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
             initializer=initializer,
@@ -91,17 +107,18 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         interval: int,
     ) -> None:
         """Watchdog will shutdown the threadpool on certain conditions being met."""
-        while not self._shutdown and not concurrent_fut_thread._shutdown:
+        executor = self._executor
+        while not executor._shutdown and not _shutdown:
             if max_retry and self._retry_count > max_retry:
                 logger.warning(f"exceed {max_retry=}, abort")
-                return self.shutdown(wait=True)
+                return executor.shutdown(wait=True)
 
             if callable(watchdog_func):
                 try:
                     watchdog_func()
                 except Exception as e:
                     logger.warning(f"custom watchdog func failed: {e!r}, abort")
-                    return self.shutdown(wait=True)
+                    return executor.shutdown(wait=True)
             time.sleep(interval)
 
     def _task_done_cb(
@@ -111,17 +128,19 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._fut_queue.put_nowait(fut)
 
         # ------ on task failed ------ #
+        executor = self._executor
         if fut.exception():
             self._retry_count = next(self._retry_counter)
             with contextlib.suppress(Exception):  # on threadpool shutdown
-                self.submit(func, item).add_done_callback(
+                executor.submit(func, item).add_done_callback(
                     partial(self._task_done_cb, item=item, func=func)
                 )
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
         finished_tasks = 0
+        executor = self._executor
         while True:
-            if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
+            if executor._shutdown or _shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
                 )
@@ -169,17 +188,20 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher() -> None:
+            executor = self._executor
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
                     self._concurrent_semaphore.acquire()
-                    fut = self.submit(func, item)
+                    fut = executor.submit(func, item)
                     fut.add_done_callback(
                         partial(self._task_done_cb, item=item, func=func)
                     )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
-                self.shutdown(wait=True)
+                executor.shutdown(wait=True)
                 return
+            finally:
+                executor = None  # remove ref
 
             self._total_task_num = _tasks_count
             logger.info(f"finish dispatch {_tasks_count} tasks")
@@ -191,3 +213,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         #   a generator so that the first fut will be dispatched before
         #   we start to get from fut_queue.
         return self._fut_gen(ensure_tasks_pull_interval)
+
+    def shutdown(self, *args, **kwargs) -> None:
+        """Shutdown the underlying threadpool."""
+        self._executor.shutdown(*args, **kwargs)
