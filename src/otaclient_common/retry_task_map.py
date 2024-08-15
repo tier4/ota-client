@@ -246,6 +246,11 @@ class ThreadPoolExecutorWithRetry:
             executor = self._executor
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
+                    if executor._shutdown or _shutdown:
+                        raise TasksEnsureFailed(
+                            "threadpool closed during tasks dispatching"
+                        )
+
                     # wait with backoff for continues failures before dispatching new tasks
                     if self._waiton_continues_failure:
                         self._waiton_continues_failure()
