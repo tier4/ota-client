@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import atexit
-import contextlib
 import itertools
 import logging
 import sys
@@ -63,6 +62,8 @@ class ThreadPoolExecutorWithRetry:
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
+        waiton_failure_counts_threshold: int = 16,
+        waiton_interval: int | Callable[[int], int] | None = None,
     ) -> None:
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -78,6 +79,11 @@ class ThreadPoolExecutorWithRetry:
                 Defaults to None.
             initargs (tuple): The same <initargs> param passed through to ThreadPoolExecutor.
                 Defaults to ().
+            waiton_failure_counts_threshold (int): Threshold of continues failures before starting to wait with backoff
+                on exceeding failures above the threshold, only meaningful when waiton_interval is not None. Defaults to 16.
+            waiton_interval (int | Callable[[int], int] | None): An int of static wait time, or a callable that takes an
+                int of continues failures and returns wait time in int, or None to disable the wait on continues failures.
+                Defaults to None, means disable the wait on continues failures.
         """
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
@@ -85,6 +91,22 @@ class ThreadPoolExecutorWithRetry:
         self._retry_count = 0
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
+
+        self._waiton_failure_counts_threshold = waiton_failure_counts_threshold
+        if isinstance(waiton_interval, int):
+
+            def _waiton_interval(_: int):
+                return waiton_interval
+
+            self._waiton_interval = _waiton_interval
+
+        else:
+            self._waiton_interval = waiton_interval
+
+        # NOTE: no need to ensure the atomic assignment for this property,
+        #   this is only for backoff waiting on continues failures,
+        #   a dirty access to this property only causes unharmful extra waiting time.
+        self._continues_failure = 0
 
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers,
@@ -127,14 +149,32 @@ class ThreadPoolExecutorWithRetry:
         self._concurrent_semaphore.release()  # always release se first
         self._fut_queue.put_nowait(fut)
 
+        # ------ on task succeeded ------ #
+        if fut.exception() is None:
+            if self._continues_failure:
+                self._continues_failure = 0
+            return
+
         # ------ on task failed ------ #
-        executor = self._executor
-        if fut.exception():
-            self._retry_count = next(self._retry_counter)
-            with contextlib.suppress(Exception):  # on threadpool shutdown
-                executor.submit(func, item).add_done_callback(
-                    partial(self._task_done_cb, item=item, func=func)
+        self._continues_failure += 1
+        self._retry_count = next(self._retry_counter)
+        try:  # on threadpool shutdown
+            # wait with backoff before putting the failed task back to queue
+            if (
+                self._waiton_interval
+                and (
+                    exceed_failures := self._continues_failure
+                    - self._waiton_failure_counts_threshold
                 )
+                > 0
+            ):
+                time.sleep(self._waiton_interval(exceed_failures))
+
+            self._executor.submit(func, item).add_done_callback(
+                partial(self._task_done_cb, item=item, func=func)
+            )
+        except Exception:
+            del fut, item, func  # remove refs on failed submit
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
         finished_tasks = 0
