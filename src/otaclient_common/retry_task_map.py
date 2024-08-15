@@ -26,6 +26,7 @@ from functools import partial
 from queue import Empty, SimpleQueue
 from typing import Any, Callable, Generator, Iterable, Optional
 
+from otaclient_common.common import get_backoff
 from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,9 @@ class ThreadPoolExecutorWithRetry:
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
         waiton_failure_counts_threshold: int = 16,
-        waiton_interval: int | Callable[[int], int] | None = None,
+        waiton_interval: int | Callable[[int], int | float] = partial(
+            get_backoff, factor=0.01, _max=1
+        ),
     ) -> None:
         """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -83,7 +86,7 @@ class ThreadPoolExecutorWithRetry:
                 on exceeding failures above the threshold, only meaningful when waiton_interval is not None. Defaults to 16.
             waiton_interval (int | Callable[[int], int] | None): An int of static wait time, or a callable that takes an
                 int of continues failures and returns wait time in int, or None to disable the wait on continues failures.
-                Defaults to None, means disable the wait on continues failures.
+                Defaults to backoff with factor==0.1, max==1.
         """
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
