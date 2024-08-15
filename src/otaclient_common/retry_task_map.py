@@ -63,8 +63,8 @@ class ThreadPoolExecutorWithRetry:
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
-        waiton_failure_counts_threshold: int = 16,
-        waiton_interval: int | Callable[[int], int | float] = partial(
+        waiton_failure_counts_threshold: int | None = 16,
+        waiton_interval: int | Callable[[int], int | float] | None = partial(
             get_backoff, factor=0.01, _max=1
         ),
     ) -> None:
@@ -95,16 +95,28 @@ class ThreadPoolExecutorWithRetry:
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
-        self._waiton_failure_counts_threshold = waiton_failure_counts_threshold
-        if isinstance(waiton_interval, int):
+        # configure waiting on continues failure with backoff
+        if waiton_interval is not None and waiton_failure_counts_threshold is not None:
 
-            def _waiton_interval(_: int):
-                return waiton_interval
+            if isinstance(waiton_interval, int):
 
-            self._waiton_interval = _waiton_interval
+                def _get_waiton_time(_: int, /) -> int | float:
+                    return waiton_interval
 
+            else:
+                _get_waiton_time = waiton_interval
+
+            def _waiton_continues_failure() -> None:
+                """A helper method for waiting on continues failures."""
+                if (
+                    exceed_failures := self._continues_failure
+                    - waiton_failure_counts_threshold
+                ) > 0:
+                    time.sleep(_get_waiton_time(exceed_failures))
+
+            self._waiton_continues_failure = _waiton_continues_failure
         else:
-            self._waiton_interval = waiton_interval
+            self._waiton_continues_failure = None
 
         # NOTE: no need to ensure the atomic assignment for this property,
         #   this is only for backoff waiting on continues failures,
@@ -170,15 +182,8 @@ class ThreadPoolExecutorWithRetry:
         self._retry_count = next(self._retry_counter)
         try:  # on threadpool shutdown
             # wait with backoff before putting the failed task back to queue
-            if (
-                self._waiton_interval
-                and (
-                    exceed_failures := self._continues_failure
-                    - self._waiton_failure_counts_threshold
-                )
-                > 0
-            ):
-                time.sleep(self._waiton_interval(exceed_failures))
+            if self._waiton_continues_failure:
+                self._waiton_continues_failure()
 
             self._executor.submit(func, item).add_done_callback(
                 partial(self._task_done_cb, item=item, func=func)
@@ -241,6 +246,10 @@ class ThreadPoolExecutorWithRetry:
             executor = self._executor
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
+                    # wait with backoff for continues failures before dispatching new tasks
+                    if self._waiton_continues_failure:
+                        self._waiton_continues_failure()
+
                     self._concurrent_semaphore.acquire()
                     fut = executor.submit(func, item)
                     fut.add_done_callback(
