@@ -454,22 +454,15 @@ class UEFIFirmwareUpdater:
                 )
                 return False
 
-        logger.info("firmware update package prepare finished")
-        return True
+        logger.warning(
+            "firmware update package prepare finished"
+            f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
+        )
+        logger.info("try to update L4TLauncher ...")
 
-    def l4tlauncher_update(self) -> bool:
-        """Update l4tlauncher if needed.
-
-        NOTE(20240611): Assume that the new L4TLauncher always keeps backward compatibility to
-           work with old firmware. This assumption MUST be confirmed on the real ECU.
-        NOTE(20240611): Only update l4tlauncher but never downgrade it.
-
-        Returns:
-            True if l4tlauncher is updated, else if there is no l4tlauncher update.
-        """
         with _ensure_esp_mounted(self.esp_part, self.esp_mp):
             l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
-            logger.info(f"finished detect l4tlauncher version: {l4tlauncher_bsp_ver}")
+            logger.info(f"current l4tlauncher version: {l4tlauncher_bsp_ver}")
 
             if l4tlauncher_bsp_ver >= self.firmware_package_bsp_ver:
                 logger.info(
@@ -479,8 +472,12 @@ class UEFIFirmwareUpdater:
                         "skip l4tlauncher update"
                     )
                 )
-                return False
-            return self._update_l4tlauncher()
+            else:
+                logger.warning(
+                    f"try to update L4TLauncher to {self.firmware_package_bsp_ver=}"
+                )
+                self._update_l4tlauncher()
+        return True
 
 
 MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
