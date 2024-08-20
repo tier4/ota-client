@@ -307,6 +307,14 @@ def detect_rootfs_bsp_version(rootfs: StrOrPath) -> BSPVersion:
         raise ValueError(_err_msg) from e
 
 
+def get_nvbootctrl_conf_tnspec(nvbootctrl_conf: str) -> str | None:
+    """Get the TNSPEC field from nv_boot_control conf file."""
+    for line in nvbootctrl_conf.splitlines():
+        if line.strip().startswith("TNSPEC"):
+            _, tnspec = line.split(" ", maxsplit=1)
+            return tnspec.strip()
+
+
 def update_extlinux_cfg(_input: str, partuuid: str) -> str:
     """Update input exlinux text with input rootfs <partuuid_str>."""
     partuuid_str = f"PARTUUID={partuuid}"
