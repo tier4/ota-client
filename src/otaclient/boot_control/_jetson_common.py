@@ -103,16 +103,16 @@ BSPVersionStr = Annotated[
     BeforeValidator(BSPVersion.parse),
     PlainSerializer(BSPVersion.dump, return_type=str),
 ]
-"""BSPVersion in string representation, used by FirmwareBSPVersion model."""
+"""BSPVersion in string representation."""
 
 
-class FirmwareBSPVersion(BaseModel):
+class SlotBSPVersion(BaseModel):
     """
     BSP version string schema: Rxx.yy.z
     """
 
-    slot_a: Optional[BSPVersionStr] = None
-    slot_b: Optional[BSPVersionStr] = None
+    slot_a: BSPVersionStr | None = None
+    slot_b: BSPVersionStr | None = None
 
     def set_by_slot(self, slot_id: SlotID, ver: BSPVersion | None) -> None:
         if slot_id == SLOT_A:
@@ -208,37 +208,38 @@ class NVBootctrlCommon:
         return cls._nvbootctrl(cmd, target=target, check_output=True)
 
 
-class FirmwareBSPVersionControl:
-    """firmware_bsp_version ota-status file for tracking firmware version.
+class BSPVersionControl:
+    """bsp_version ota-status file for tracking BSP version.
 
-    The firmware BSP version is stored in /boot/ota-status/firmware_bsp_version json file,
-        tracking the firmware BSP version for each slot.
+    The BSP version is stored in /boot/ota-status/bsp_version json file,
+        tracking the BSP version for each slot.
+    NOTE that we should always keep the rootfs BSP version the same as firmware BSP version!
 
-    Each slot should keep the same firmware_bsp_version file, this file is passed to standby slot
-        during OTA update.
+    Each slot should keep the same bsp_version file, this file is passed to standby slot
+        during OTA update as it.
     """
 
     def __init__(
         self,
         current_slot: SlotID,
-        current_slot_firmware_bsp_ver: BSPVersion,
+        current_slot_bsp_ver: BSPVersion,
         *,
-        current_firmware_bsp_vf: Path,
+        current_bsp_version_file: Path,
     ) -> None:
         self.current_slot, self.standby_slot = current_slot, SLOT_FLIP[current_slot]
 
-        self._version = FirmwareBSPVersion()
+        self._version = SlotBSPVersion()
         try:
-            self._version = FirmwareBSPVersion.model_validate_json(
-                current_firmware_bsp_vf.read_text()
+            self._version = SlotBSPVersion.model_validate_json(
+                current_bsp_version_file.read_text()
             )
         except Exception as e:
-            logger.warning(f"invalid or missing firmware_bsp_verion file: {e!r}")
-            current_firmware_bsp_vf.unlink(missing_ok=True)
+            logger.warning(f"invalid or missing bsp_verion file: {e!r}")
+            current_bsp_version_file.unlink(missing_ok=True)
 
         # NOTE: only check the standby slot's firmware BSP version info from file,
         #   for current slot, always trust the value from nvbootctrl.
-        self._version.set_by_slot(current_slot, current_slot_firmware_bsp_ver)
+        self._version.set_by_slot(current_slot, current_slot_bsp_ver)
         logger.info(f"loading firmware bsp version completed: {self._version}")
 
     def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
@@ -246,20 +247,20 @@ class FirmwareBSPVersionControl:
         write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
 
     @property
-    def current_slot_fw_ver(self) -> BSPVersion:
+    def current_slot_bsp_ver(self) -> BSPVersion:
         assert (res := self._version.get_by_slot(self.current_slot))
         return res
 
-    @current_slot_fw_ver.setter
-    def current_slot_fw_ver(self, bsp_ver: BSPVersion | None):
+    @current_slot_bsp_ver.setter
+    def current_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
         self._version.set_by_slot(self.current_slot, bsp_ver)
 
     @property
-    def standby_slot_fw_ver(self) -> BSPVersion | None:
+    def standby_slot_bsp_ver(self) -> BSPVersion | None:
         return self._version.get_by_slot(self.standby_slot)
 
-    @standby_slot_fw_ver.setter
-    def standby_slot_fw_ver(self, bsp_ver: BSPVersion | None):
+    @standby_slot_bsp_ver.setter
+    def standby_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
         self._version.set_by_slot(self.standby_slot, bsp_ver)
 
 
