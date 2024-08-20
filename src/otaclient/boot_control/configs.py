@@ -65,18 +65,17 @@ class JetsonCBootControlConfig(JetsonBootCommon):
 class JetsonUEFIBootControlConfig(JetsonBootCommon):
     BOOTLOADER = BootloaderType.JETSON_UEFI
     TEGRA_COMPAT_PATH = "/sys/firmware/devicetree/base/compatible"
-    FIRMWARE_LIST = ["bl_only_payload.Cap"]
+    NVBOOTCTRL_CONF_FPATH = "/etc/nv_boot_control.conf"
     L4TLAUNCHER_FNAME = "BOOTAA64.efi"
     ESP_MOUNTPOINT = "/mnt/esp"
     ESP_PARTLABEL = "esp"
     UPDATE_TRIGGER_EFIVAR = "OsIndications-8be4df61-93ca-11d2-aa0d-00e098032b8c"
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
-    CAPSULE_PAYLOAD_AT_ROOTFS = "/opt/ota_package/"
     L4TLAUNCHER_VER_FNAME = "l4tlauncher_version"
 
-    NO_FIRMWARE_UPDATE_HINT_FNAME = ".otaclient_no_firmware_update"
-    """Skip firmware update if this file is presented."""
+    FIRMWARE_UPDATE_REQUEST_FPATH = "/opt/ota/firmware/firmware_update.yaml"
+    FIRMWARE_MANIFEST_FPATH = "/opt/ota/firmware/firmware_manifest.yaml"
 
 
 @dataclass
