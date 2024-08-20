@@ -33,6 +33,7 @@ from typing_extensions import Self
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
+from otaclient.boot_control._firmware_package import FirmwareManifest
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import file_sha256, subprocess_call, write_str_to_file_sync
 from otaclient_common.typing import StrOrPath
@@ -41,7 +42,7 @@ from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
-    FirmwareBSPVersionControl,
+    BSPVersionControl,
     NVBootctrlCommon,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
@@ -104,7 +105,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         bsp_ver = BSPVersion.parse(bsp_ver_str)
         if bsp_ver.major_rev == 0:
             _err_msg = f"invalid BSP version: {bsp_ver_str}, this might indicate an incomplete flash!"
-            logger.warning(_err_msg)
+            logger.error(_err_msg)
             raise ValueError(_err_msg)
         return bsp_ver
 
@@ -188,7 +189,7 @@ def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
 
 class L4TLauncherBSPVersionControl(BaseModel):
     """
-    Schema: <bsp_ver_str>:<digest>
+    Schema: <bsp_ver_str>:<sha256_digest>
     """
 
     bsp_ver: BSPVersion
@@ -212,7 +213,9 @@ class UEFIFirmwareUpdater:
         boot_parent_devpath: StrOrPath,
         standby_slot_mp: StrOrPath,
         *,
-        fw_bsp_ver_control: FirmwareBSPVersionControl,
+        tnspec: str,
+        bsp_ver_control: BSPVersionControl,
+        firmware_manifest: FirmwareManifest,
     ) -> None:
         """Init an instance of UEFIFirmwareUpdater.
 
@@ -223,9 +226,14 @@ class UEFIFirmwareUpdater:
             ota_image_bsp_ver (BSPVersion): The BSP version of OTA image used to update the standby slot.
             fw_bsp_ver_control (FirmwareBSPVersionControl): The firmware BSP version of each slots.
         """
-        self.fw_bsp_ver_control = fw_bsp_ver_control
-        # NOTE: standby slot is updated with OTA image
-        self.ota_image_bsp_ver = detect_rootfs_bsp_version(standby_slot_mp)
+        self.standby_slot_bsp_ver = bsp_ver_control.standby_slot_bsp_ver
+        self.current_slot_bsp_ver = bsp_ver_control.current_slot_bsp_ver
+
+        self.tnspec = tnspec
+        self.firmware_manifest = firmware_manifest
+        self.firmware_package_bsp_ver = BSPVersion.parse(
+            firmware_manifest.firmware_spec.bsp_version
+        )
 
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
@@ -243,6 +251,7 @@ class UEFIFirmwareUpdater:
         self.bootaa64_at_esp_bak = (
             self.esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
         )
+        """The location to backup current L4TLauncher binary."""
 
         self.standby_slot_mp = Path(standby_slot_mp)
         self.fw_loc_at_standby_slot = self.standby_slot_mp / Path(
@@ -284,8 +293,9 @@ class UEFIFirmwareUpdater:
 
     def _update_l4tlauncher(self) -> bool:
         """update L4TLauncher with OTA image's one."""
-        ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
-        logger.warning(f"update the l4tlauncher to version {ota_image_l4tlauncher_ver}")
+        logger.warning(
+            f"update the l4tlauncher to version {self.firmware_package_bsp_ver}"
+        )
 
         # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
         ota_image_bootaa64 = self.fw_loc_at_standby_slot / boot_cfg.L4TLAUNCHER_FNAME
@@ -295,10 +305,11 @@ class UEFIFirmwareUpdater:
 
         shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
         shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
+        os.sync()  # ensure the boot application is written to the disk
+
         write_str_to_file_sync(
-            self.l4tlauncher_ver_fpath, ota_image_l4tlauncher_ver.dump()
+            self.l4tlauncher_ver_fpath, self.firmware_package_bsp_ver.dump()
         )
-        os.sync()
         return True
 
     @staticmethod
@@ -356,19 +367,17 @@ class UEFIFirmwareUpdater:
         # NOTE(20240624): if we failed to detect the l4tlauncher's version,
         #   we assume that the launcher is the same version as current slot's fw.
         #   This is typically the case of a newly flashed ECU.
-        current_slot_fw_bsp_ver = self.fw_bsp_ver_control.current_slot_fw_ver
-        logger.error(
+        logger.warning(
             (
                 "failed to determine the l4tlauncher's version, assuming "
-                f"version is the same as current slot's fw version: {current_slot_fw_bsp_ver}"
+                f"version is the same as current slot's fw version: {self.current_slot_bsp_ver}"
             )
         )
-        l4tlauncher_bsp_ver = current_slot_fw_bsp_ver
         _ver_control = L4TLauncherBSPVersionControl(
-            bsp_ver=l4tlauncher_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
+            bsp_ver=self.current_slot_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
         )
         write_str_to_file_sync(self.l4tlauncher_ver_fpath, _ver_control.dump())
-        return l4tlauncher_bsp_ver
+        return self.current_slot_bsp_ver
 
     # APIs
 
@@ -378,17 +387,27 @@ class UEFIFirmwareUpdater:
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
-        standby_slot_fw_bsp_ver = self.fw_bsp_ver_control.standby_slot_fw_ver
+        # check BSP version, NVIDIA Jetson device doesn't allow firmware downgrade.
         if (
-            standby_slot_fw_bsp_ver
-            and standby_slot_fw_bsp_ver >= self.ota_image_bsp_ver
+            self.standby_slot_bsp_ver
+            and self.standby_slot_bsp_ver >= self.firmware_package_bsp_ver
         ):
             logger.info(
                 (
                     "standby slot has newer or equal ver of firmware, skip firmware update: "
-                    f"{standby_slot_fw_bsp_ver=}, {self.ota_image_bsp_ver=}"
+                    f"{self.standby_slot_bsp_ver=}, {self.firmware_package_bsp_ver=}"
                 )
             )
+            return False
+
+        # check firmware compatibility, this is to prevent failed firmware update beforehand.
+        if not self.firmware_manifest.check_compat(self.tnspec):
+            _err_msg = (
+                "firmware package is incompatible with this device: "
+                f"{self.tnspec=}, {self.firmware_manifest.firmware_spec.firmware_compat}, "
+                "skip firmware update"
+            )
+            logger.warning(_err_msg)
             return False
 
         with _ensure_esp_mounted(self.esp_part, self.esp_mp):
@@ -425,12 +444,11 @@ class UEFIFirmwareUpdater:
             l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
             logger.info(f"finished detect l4tlauncher version: {l4tlauncher_bsp_ver}")
 
-            ota_image_l4tlauncher_ver = self.ota_image_bsp_ver
-            if l4tlauncher_bsp_ver >= ota_image_l4tlauncher_ver:
+            if l4tlauncher_bsp_ver >= self.firmware_package_bsp_ver:
                 logger.info(
                     (
                         "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
-                        f"{l4tlauncher_bsp_ver=}, {ota_image_l4tlauncher_ver=}, "
+                        f"{l4tlauncher_bsp_ver=}, {self.firmware_package_bsp_ver=}, "
                         "skip l4tlauncher update"
                     )
                 )
