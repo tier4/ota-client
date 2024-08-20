@@ -33,8 +33,14 @@ from typing_extensions import Self
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
-from otaclient.boot_control._firmware_package import FirmwareManifest
+from otaclient.boot_control._firmware_package import (
+    DigestValue,
+    FirmwareManifest,
+    FirmwareUpdateRequest,
+    PayloadType,
+)
 from otaclient_api.v2 import types as api_types
+from otaclient_common import replace_root
 from otaclient_common.common import file_sha256, subprocess_call, write_str_to_file_sync
 from otaclient_common.typing import StrOrPath
 
@@ -215,6 +221,7 @@ class UEFIFirmwareUpdater:
         *,
         tnspec: str,
         bsp_ver_control: BSPVersionControl,
+        firmware_update_request: FirmwareUpdateRequest,
         firmware_manifest: FirmwareManifest,
     ) -> None:
         """Init an instance of UEFIFirmwareUpdater.
@@ -230,6 +237,7 @@ class UEFIFirmwareUpdater:
         self.current_slot_bsp_ver = bsp_ver_control.current_slot_bsp_ver
 
         self.tnspec = tnspec
+        self.firmware_update_request = firmware_update_request
         self.firmware_manifest = firmware_manifest
         self.firmware_package_bsp_ver = BSPVersion.parse(
             firmware_manifest.firmware_spec.bsp_version
@@ -254,10 +262,6 @@ class UEFIFirmwareUpdater:
         """The location to backup current L4TLauncher binary."""
 
         self.standby_slot_mp = Path(standby_slot_mp)
-        self.fw_loc_at_standby_slot = self.standby_slot_mp / Path(
-            boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS
-        ).relative_to("/")
-        """where the fw update capsule and l4tlauncher bin located."""
 
         self.esp_part = _detect_esp_dev(boot_parent_devpath)
 
@@ -276,19 +280,30 @@ class UEFIFirmwareUpdater:
 
         # ------ prepare capsule update payload ------ #
         firmware_package_configured = False
-        for capsule_fname in boot_cfg.FIRMWARE_LIST:
+        for capsule_payload in self.firmware_manifest.get_firmware_packages(
+            self.firmware_update_request
+        ):
+            if capsule_payload.type != PayloadType.UEFI_CAPSULE:
+                continue
+
+            # NOTE: currently we only support payload indicated by file path.
+            capsule_fpath = capsule_payload.file_location
+            assert not isinstance(capsule_fpath, DigestValue)
+
             try:
                 shutil.copy(
-                    src=self.fw_loc_at_standby_slot / capsule_fname,
-                    dst=capsule_dir_at_esp / capsule_fname,
+                    src=replace_root(capsule_fpath, "/", self.standby_slot_mp),
+                    dst=capsule_dir_at_esp / capsule_payload.payload_name,
                 )
                 firmware_package_configured = True
-                logger.info(f"copy {capsule_fname} to {capsule_dir_at_esp}")
+                logger.info(
+                    f"copy {capsule_payload.payload_name} to {capsule_dir_at_esp}"
+                )
             except Exception as e:
                 logger.warning(
-                    f"failed to copy {capsule_fname} from {self.fw_loc_at_standby_slot} to {capsule_dir_at_esp}: {e!r}"
+                    f"failed to copy {capsule_payload.payload_name} to {capsule_dir_at_esp}: {e!r}"
                 )
-                logger.warning(f"skip {capsule_fname}")
+                logger.warning(f"skip prepare {capsule_payload.payload_name}")
         return firmware_package_configured
 
     def _update_l4tlauncher(self) -> bool:
@@ -296,21 +311,33 @@ class UEFIFirmwareUpdater:
         logger.warning(
             f"update the l4tlauncher to version {self.firmware_package_bsp_ver}"
         )
+        for capsule_payload in self.firmware_manifest.get_firmware_packages(
+            self.firmware_update_request
+        ):
+            if capsule_payload.type != PayloadType.UEFI_CAPSULE:
+                continue
 
-        # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
-        ota_image_bootaa64 = self.fw_loc_at_standby_slot / boot_cfg.L4TLAUNCHER_FNAME
-        if not ota_image_bootaa64.is_file():
-            logger.warning(f"{ota_image_bootaa64} not found, skip update l4tlauncher")
-            return False
+            # NOTE: currently we only support payload indicated by file path.
+            bootapp_fpath = capsule_payload.file_location
+            assert not isinstance(bootapp_fpath, DigestValue)
 
-        shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
-        shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
-        os.sync()  # ensure the boot application is written to the disk
+            # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
+            ota_image_bootaa64 = replace_root(bootapp_fpath, "/", self.standby_slot_mp)
+            try:
+                shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
+                shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
+                os.sync()  # ensure the boot application is written to the disk
 
-        write_str_to_file_sync(
-            self.l4tlauncher_ver_fpath, self.firmware_package_bsp_ver.dump()
-        )
-        return True
+                write_str_to_file_sync(
+                    self.l4tlauncher_ver_fpath, self.firmware_package_bsp_ver.dump()
+                )
+                return True
+            except Exception as e:
+                _err_msg = f"failed to prepare boot application update: {e!r}, skip"
+                logger.warning(_err_msg)
+
+        logger.info("no boot application update is configured in the request, skip")
+        return False
 
     @staticmethod
     def _write_magic_efivar() -> None:
