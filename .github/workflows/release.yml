@@ -3,10 +3,12 @@ name: Release CI
 on:
   release:
     types: [published]
+  # allow manually triggering the build
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: checkout
@@ -22,18 +24,17 @@ jobs:
         run: |
           python -m pip install -U pip
           python -m pip install -U hatch
-          python -m pip install -r proto/requirements.txt
 
       - name: build otaclient package
         run: |
           hatch build -t wheel
 
-      - name: build a proto binary
+      - name: build otaclient service API python package
         run: |
           pushd proto
-          make
+          hatch build -t wheel
           popd
-          cp proto/pb2/dist/*.whl dist
+          cp proto/dist/*.whl dist
 
       - name: calculate checksum
         run: |
@@ -43,7 +44,8 @@ jobs:
                 ${WHL}.checksum; \
             done
 
-      - name: release
+      - name: publish release artifacts
+        if: ${{ github.event_name == 'release' }}
         uses: softprops/action-gh-release@v2
         with:
           files: |
