@@ -390,11 +390,11 @@ class UEFIFirmwareUpdater:
         # check BSP version, NVIDIA Jetson device doesn't allow firmware downgrade.
         if (
             self.standby_slot_bsp_ver
-            and self.standby_slot_bsp_ver >= self.firmware_package_bsp_ver
+            and self.standby_slot_bsp_ver > self.firmware_package_bsp_ver
         ):
             logger.info(
                 (
-                    "standby slot has newer or equal ver of firmware, skip firmware update: "
+                    "standby slot has newer ver of firmware, skip firmware update: "
                     f"{self.standby_slot_bsp_ver=}, {self.firmware_package_bsp_ver=}"
                 )
             )
