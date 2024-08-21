@@ -146,11 +146,57 @@ class NVUpdateEngine:
             )
         )
 
-    @classmethod
-    def apply_firmware_update(cls, payload: Path | str, *, unified_ab: bool) -> None:
-        if unified_ab:
-            return cls._nv_update_engine_unified_ab(payload)
-        return cls._nv_update_engine(payload)
+    def __init__(
+        self,
+        tnspec: str,
+        fw_bsp_ver_control: FirmwareBSPVersionControl,
+        firmware_update_request: FirmwareUpdateRequest,
+        firmware_manifest: FirmwareManifest,
+        unify_ab: bool,
+    ) -> None:
+        self._tnspec = tnspec
+        self._fw_bsp_ver_control = fw_bsp_ver_control
+        self._firmware_update_request = firmware_update_request
+        self._firmware_manifest = firmware_manifest
+        self._unify_ab = unify_ab
+
+    def firmware_update(self) -> bool:
+        """Perform firmware update if needed.
+
+        Returns:
+            True if firmware update is performed, False if there is no firmware update.
+        """
+        # check firmware compatibility, this is to prevent failed firmware update beforehand.
+        if not self._firmware_manifest.check_compat(self._tnspec):
+            _err_msg = (
+                "firmware package is incompatible with this device: "
+                f"{self._tnspec=}, {self._firmware_manifest.firmware_spec.firmware_compat}, "
+                "skip firmware update"
+            )
+            logger.warning(_err_msg)
+            return False
+
+        firmware_update_executed = False
+        for update_payload in self._firmware_manifest.get_firmware_packages(
+            self._firmware_update_request
+        ):
+            if update_payload.type != PayloadType.BUP:
+                continue
+
+            # NOTE: currently we only support payload indicated by file path.
+            bup_fpath = update_payload.file_location
+            assert not isinstance(bup_fpath, DigestValue)
+
+            if not Path(bup_fpath).is_file():
+                logger.warning(f"{bup_fpath=} doesn't exist! skip...")
+                continue
+
+            if self._unify_ab:
+                self._nv_update_engine_unified_ab(bup_fpath)
+            else:
+                self._nv_update_engine(bup_fpath)
+            firmware_update_executed = True
+        return firmware_update_executed
 
     @classmethod
     def verify_update(cls) -> subprocess.CompletedProcess[bytes]:
@@ -167,9 +213,6 @@ class NVUpdateEngine:
 
 
 class _CBootControl:
-    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
-    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
-    INTERNAL_EMMC_DEVNAME = "mmcblk0"
     _slot_id_partid = {SlotID("0"): "1", SlotID("1"): "2"}
 
     def __init__(self):
