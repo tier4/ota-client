@@ -32,6 +32,8 @@ from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
+    load_manifest,
+    load_request,
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -39,13 +41,13 @@ from otaclient_common.common import subprocess_run_wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
-    BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
     SlotID,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
+    get_nvbootctrl_conf_tnspec,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -237,6 +239,9 @@ class _CBootControl:
             raise JetsonCBootContrlError(_err_msg)
 
         # ------ check BSP version ------ #
+        # NOTE(20240821): unfortunately, we don't have proper method to detect
+        #   the firmware BSP version, so we assume that the rootfs BSP version is the
+        #   same as the firmware BSP version.
         try:
             self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
                 rootfs=cfg.ACTIVE_ROOTFS_PATH
@@ -341,6 +346,21 @@ class _CBootControl:
                 f"nvbootctrl -t rootfs dump-slots-info: \n{_NVBootctrl.dump_slots_info(target='rootfs')}"
             )
 
+        # load tnspec for firmware update compatibility check
+        try:
+            self.tnspec = get_nvbootctrl_conf_tnspec(
+                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
+            )
+            logger.info(f"firmware compatibility: {self.tnspec}")
+        except Exception as e:
+            logger.warning(
+                (
+                    f"failed to load tnspec: {e!r}, "
+                    "this will result in firmware update being skipped!"
+                )
+            )
+            self.tnspec = None
+
     # API
 
     @property
@@ -374,7 +394,7 @@ class JetsonCBootControl(BootControllerProtocol):
     def __init__(self) -> None:
         try:
             # startup boot controller
-            self._cboot_control = _CBootControl()
+            self._cboot_control = cboot_control = _CBootControl()
 
             # mount point prepare
             self._mp_control = SlotMountHelper(
@@ -383,20 +403,16 @@ class JetsonCBootControl(BootControllerProtocol):
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             )
-            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
-            standby_ota_status_dir = self._mp_control.standby_slot_mount_point / Path(
-                boot_cfg.OTA_STATUS_DIR
-            ).relative_to("/")
-
-            # load firmware BSP version from current rootfs slot
-            self._firmware_ver_control = FirmwareBSPVersionControl(
-                current_firmware_bsp_vf=current_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
-                standby_firmware_bsp_vf=standby_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME,
-            )
 
             # init ota-status files
+            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
+            standby_ota_status_dir = Path(
+                replace_root(
+                    boot_cfg.OTA_STATUS_DIR,
+                    "/",
+                    cfg.MOUNT_POINT,
+                )
+            )
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=str(self._cboot_control.current_rootfs_slot),
                 standby_slot=str(self._cboot_control.standby_rootfs_slot),
@@ -405,6 +421,26 @@ class JetsonCBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
+
+            # load firmware BSP version
+            current_fw_bsp_ver_fpath = (
+                current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+            )
+            self._firmware_bsp_ver_control = bsp_ver_ctrl = FirmwareBSPVersionControl(
+                current_slot=cboot_control.current_bootloader_slot,
+                # NOTE: see comments at L240-242
+                current_slot_bsp_ver=cboot_control.rootfs_bsp_version,
+                current_bsp_version_file=current_fw_bsp_ver_fpath,
+            )
+            # always update the bsp_version_file on startup to reflect
+            #   the up-to-date current slot BSP version
+            self._firmware_bsp_ver_control.write_to_file(current_fw_bsp_ver_fpath)
+            logger.info(
+                f"\ncurrent slot firmware BSP version: {bsp_ver_ctrl.current_slot_bsp_ver}\n"
+                f"standby slot firmware BSP version: {bsp_ver_ctrl.standby_slot_bsp_ver}"
+            )
+
+            logger.info("jetson-cboot boot control start up finished")
         except Exception as e:
             _err_msg = f"failed to start jetson-cboot controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
@@ -416,7 +452,6 @@ class JetsonCBootControl(BootControllerProtocol):
         Also if unified A/B is NOT enabled and everything is alright, execute mark-boot-success <cur_slot>
             to mark the current booted rootfs boots successfully.
         """
-        current_boot_slot = self._cboot_control.current_bootloader_slot
         current_rootfs_slot = self._cboot_control.current_rootfs_slot
 
         update_result = NVUpdateEngine.verify_update()
@@ -428,10 +463,6 @@ class JetsonCBootControl(BootControllerProtocol):
                 "failing the OTA and clear firmware version due to new bootloader slot boot failed."
             )
             logger.error(_err_msg)
-
-            # NOTE: always only change current slots firmware_bsp_version file here.
-            self._firmware_ver_control.set_version_by_slot(current_boot_slot, None)
-            self._firmware_ver_control.write_current_firmware_bsp_version()
             return False
 
         # NOTE(20240417): rootfs slot is manually switched by set-active-boot-slot,
@@ -444,82 +475,69 @@ class JetsonCBootControl(BootControllerProtocol):
         )
         return True
 
-    def _nv_firmware_update(self) -> Optional[bool]:
-        """Perform firmware update with nv_update_engine.
+    def _firmware_update(self) -> bool | None:
+        """Perform firmware update with nv_update_engine if needed.
 
         Returns:
             True if firmware update applied, False for failed firmware update,
                 None for no firmware update occurs.
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
-        standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
-        standby_firmware_bsp_ver = self._firmware_ver_control.get_version_by_slot(
-            standby_bootloader_slot
-        )
-        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
 
         # ------ check if we need to do firmware update ------ #
-        _new_bsp_v_fpath = self._mp_control.standby_slot_mount_point / Path(
-            boot_cfg.NV_TEGRA_RELEASE_FPATH
-        ).relative_to("/")
-        try:
-            new_bsp_v = parse_bsp_version(_new_bsp_v_fpath.read_text())
-        except Exception as e:
-            logger.warning(f"failed to detect new image's BSP version: {e!r}")
-            logger.warning("skip firmware update due to new image BSP version unknown")
+        if not (tnspec := self._cboot_control.tnspec):
+            logger.warning("tnspec is not defined, skip firmware update")
             return
 
-        logger.info(f"BUP package version: {new_bsp_v=}")
-        if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= new_bsp_v:
-            logger.info(
-                f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
-            )
+        # only perform update when we have a request file
+        firmware_update_request_fpath = Path(
+            replace_root(
+                boot_cfg.FIRMWARE_UPDATE_REQUEST_FPATH,
+                "/",
+                self._mp_control.standby_slot_mount_point,
+            ),
+        )
+        try:
+            firmware_update_request = load_request(firmware_update_request_fpath)
+        except FileNotFoundError:
+            logger.warning("no firmware update request file presented, skip")
             return
+        except Exception as e:
+            logger.warning(f"invalid request file: {e!r}")
+            return
+
+        # if firmware package doesn't have a manifest file, skip update
+        firmware_manifest_fpath = Path(
+            replace_root(
+                boot_cfg.FIRMWARE_MANIFEST_FPATH,
+                "/",
+                self._mp_control.standby_slot_mount_point,
+            )
+        )
+        try:
+            firmware_manifest = load_manifest(firmware_manifest_fpath)
+        except FileNotFoundError:
+            logger.warning("no firmware manifest file presented, skip")
+            return
+        except Exception as e:
+            logger.warning(f"invalid manifest file: {e!r}")
+            return
+
+        standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
+        standby_firmware_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
 
         # ------ preform firmware update ------ #
-        firmware_dpath = self._mp_control.standby_slot_mount_point / Path(
-            boot_cfg.FIRMWARE_DPATH
-        ).relative_to("/")
-
-        _firmware_applied = False
-        for firmware_fname in boot_cfg.FIRMWARE_LIST:
-            if (firmware_fpath := firmware_dpath / firmware_fname).is_file():
-                logger.info(f"nv_firmware: apply {firmware_fpath} ...")
-                try:
-                    NVUpdateEngine.apply_firmware_update(
-                        firmware_fpath,
-                        unified_ab=bool(self._cboot_control.unified_ab_enabled),
-                    )
-                    _firmware_applied = True
-                except subprocess.CalledProcessError as e:
-                    _err_msg = (
-                        f"failed to apply BUP {firmware_fpath}: {e!r}, \n"
-                        f"stderr={e.stderr.decode()}, \n"
-                        f"stdout={e.stdout.decode()}"
-                    )
-                    logger.error(_err_msg)
-                    logger.warning("firmware update interrupted, failing OTA...")
-
-                    # if the firmware update is interrupted halfway(some of the BUP is applied),
-                    #   revert bootloader slot switch
-                    if _firmware_applied:
-                        logger.warning(
-                            "revert bootloader slot switch to current active slot"
-                        )
-                        _NVBootctrl.set_active_boot_slot(
-                            self._cboot_control.current_bootloader_slot
-                        )
-                    return False
+        firmware_updater = NVUpdateEngine(
+            tnspec=tnspec,
+            fw_bsp_ver_control=self._firmware_bsp_ver_control,
+            firmware_update_request=firmware_update_request,
+            firmware_manifest=firmware_manifest,
+            unify_ab=bool(self._cboot_control.unified_ab_enabled),
+        )
 
         # ------ register new firmware version ------ #
-        if _firmware_applied:
-            logger.info(
-                f"nv_firmware: successfully apply firmware to {self._cboot_control.standby_rootfs_slot=}"
-            )
-            self._firmware_ver_control.set_version_by_slot(
-                standby_bootloader_slot, new_bsp_v
-            )
-            return True
+        return firmware_updater.firmware_update()
 
     # APIs
 
