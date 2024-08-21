@@ -50,7 +50,7 @@ from otaclient.boot_control._firmware_package import (
         ),
     ),
 )
-def test_digest_value_parsing(_in, _expected):
+def test_digest_value_parsing(_in, _expected: list[str]):
     _parsed = DigestValue(_in)
     assert _parsed.algorithm == _expected[0]
     assert _parsed.digest == _expected[1]
@@ -72,7 +72,7 @@ def test_digest_value_parsing(_in, _expected):
         ),
     ),
 )
-def test_payload_file_location(_in, _expected):
+def test_payload_file_location(_in, _expected: list[str] | list[str | DigestValue]):
     _parsed = PayloadFileLocation(_in)
     assert _parsed.location_type == _expected[0]
     assert _parsed.location_path == _expected[1]
