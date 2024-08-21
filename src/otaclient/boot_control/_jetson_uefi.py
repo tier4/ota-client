@@ -52,6 +52,7 @@ from ._jetson_common import (
     NVBootctrlCommon,
     copy_standby_slot_boot_to_internal_emmc,
     detect_rootfs_bsp_version,
+    get_nvbootctrl_conf_tnspec,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -484,7 +485,7 @@ MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
 """Only after R35.2, the Capsule Firmware update is available."""
 
 
-class _UEFIBoot:
+class _UEFIBootControl:
     """Low-level boot control implementation for jetson-uefi."""
 
     def __init__(self):
@@ -625,7 +626,16 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         ).relative_to("/")
 
         try:
-            self._uefi_control = uefi_control = _UEFIBoot()
+            self.tnspec = get_nvbootctrl_conf_tnspec(
+                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
+            )
+            logger.info(f"{self.tnspec=}")
+        except Exception as e:
+            logger.warning(f"failed to load tnspec: {e!r}")
+            self.tnspec = None
+
+        try:
+            self._uefi_control = uefi_control = _UEFIBootControl()
 
             # mount point prepare
             self._mp_control = SlotMountHelper(
