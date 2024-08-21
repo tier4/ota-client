@@ -509,6 +509,21 @@ class _UEFIBootControl:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
+        # load tnspec for firmware update compatibility check
+        try:
+            self.tnspec = get_nvbootctrl_conf_tnspec(
+                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
+            )
+            logger.info(f"firmware compatibility: {self.tnspec}")
+        except Exception as e:
+            logger.warning(
+                (
+                    f"failed to load tnspec: {e!r}, "
+                    "this will result in firmware update being skipped!"
+                )
+            )
+            self.tnspec = None
+
         # ------ check current slot BSP version ------ #
         # check current slot firmware BSP version
         try:
@@ -624,15 +639,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         standby_ota_status_dir = Path(cfg.MOUNT_POINT) / Path(
             boot_cfg.OTA_STATUS_DIR
         ).relative_to("/")
-
-        try:
-            self.tnspec = get_nvbootctrl_conf_tnspec(
-                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
-            )
-            logger.info(f"{self.tnspec=}")
-        except Exception as e:
-            logger.warning(f"failed to load tnspec: {e!r}")
-            self.tnspec = None
 
         try:
             self._uefi_control = uefi_control = _UEFIBootControl()
