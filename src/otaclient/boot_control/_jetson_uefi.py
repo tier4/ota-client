@@ -644,12 +644,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     """BootControllerProtocol implementation for jetson-uefi."""
 
     def __init__(self) -> None:
-        current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
-        current_ota_status_dir.mkdir(exist_ok=True, parents=True)
-        standby_ota_status_dir = Path(cfg.MOUNT_POINT) / Path(
-            boot_cfg.OTA_STATUS_DIR
-        ).relative_to("/")
-
         try:
             self._uefi_control = uefi_control = _UEFIBootControl()
 
@@ -659,6 +653,24 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_slot_mount_point=cfg.MOUNT_POINT,
                 active_slot_dev=self._uefi_control.curent_rootfs_devpath,
                 active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+            )
+
+            # init ota-status files
+            current_ota_status_dir = Path(boot_cfg.OTA_STATUS_DIR)
+            standby_ota_status_dir = Path(
+                replace_root(
+                    boot_cfg.OTA_STATUS_DIR,
+                    "/",
+                    cfg.MOUNT_POINT,
+                )
+            )
+            self._ota_status_control = OTAStatusFilesControl(
+                active_slot=str(self._uefi_control.current_slot),
+                standby_slot=str(self._uefi_control.standby_slot),
+                current_ota_status_dir=current_ota_status_dir,
+                # NOTE: might not yet be populated before OTA update applied!
+                standby_ota_status_dir=standby_ota_status_dir,
+                finalize_switching_boot=self._finalize_switching_boot,
             )
 
             # load firmware BSP version
@@ -678,15 +690,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 f"standby slot firmware BSP version: {bsp_ver_ctrl.standby_slot_bsp_ver}"
             )
 
-            # init ota-status files
-            self._ota_status_control = OTAStatusFilesControl(
-                active_slot=str(self._uefi_control.current_slot),
-                standby_slot=str(self._uefi_control.standby_slot),
-                current_ota_status_dir=current_ota_status_dir,
-                # NOTE: might not yet be populated before OTA update applied!
-                standby_ota_status_dir=standby_ota_status_dir,
-                finalize_switching_boot=self._finalize_switching_boot,
-            )
             logger.info("jetson-uefi boot control start up finished")
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
