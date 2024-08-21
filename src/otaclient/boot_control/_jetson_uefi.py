@@ -102,7 +102,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
     def get_current_fw_bsp_version(cls) -> BSPVersion:
         """Get current boot chain's firmware BSP version with nvbootctrl."""
         _raw = cls.dump_slots_info()
-        pa = re.compile(r"\s*Current version:\s*(?P<bsp_ver>[\.\d]+)\s*")
+        pa = re.compile(r"Current version:\s*(?P<bsp_ver>[\.\d]+)")
 
         if not (ma := pa.search(_raw)):
             _err_msg = "nvbootctrl failed to report BSP version"
