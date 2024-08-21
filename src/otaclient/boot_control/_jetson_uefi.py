@@ -38,6 +38,8 @@ from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
+    load_manifest,
+    load_request,
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -708,42 +710,63 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.warning(f"nvbootctrl verify failed: {e!r}")
         return True
 
-    def _capsule_firmware_update(self) -> bool:
+    def _firmware_update(self) -> bool:
         """Perform firmware update with UEFI Capsule update if needed.
-
-        If standby slot is known to have newer bootable firmware, skip firmware update.
 
         Returns:
             True if there is firmware update configured, False for no firmware update.
         """
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
-        standby_bootloader_slot = self._uefi_control.standby_slot
 
-        # ------ check if we need to skip firmware update ------ #
-        skip_firmware_update_hint_file = (
-            self._mp_control.standby_slot_mount_point
-            / Path(boot_cfg.CAPSULE_PAYLOAD_AT_ROOTFS).relative_to("/")
-            / Path(boot_cfg.NO_FIRMWARE_UPDATE_HINT_FNAME)
+        # ------ check if we need to do firmware update ------ #
+        if not (tnspec := self._uefi_control.tnspec):
+            logger.warning("tnspec is not defined, skip firmware update")
+            return False
+
+        # only perform update when we have a request file
+        firmware_update_request_fpath = Path(
+            replace_root(
+                boot_cfg.FIRMWARE_UPDATE_REQUEST_FPATH,
+                "/",
+                self._mp_control.standby_slot_mount_point,
+            ),
         )
-        if skip_firmware_update_hint_file.is_file():
-            logger.warning(
-                "target image is configured to not doing firmware update, skip"
-            )
-            return False
-
         try:
-            ota_image_bsp_ver = detect_rootfs_bsp_version(
-                self._mp_control.standby_slot_mount_point
-            )
+            firmware_update_request = load_request(firmware_update_request_fpath)
+        except FileNotFoundError:
+            logger.warning("no firmware update request file presented, skip")
+            return False
         except Exception as e:
-            logger.warning(f"failed to detect new image's BSP version: {e!r}")
-            logger.info("skip firmware update due to new image BSP version unknown")
+            logger.warning(f"invalid request file: {e!r}")
             return False
 
-        standby_firmware_bsp_ver = self._firmware_ver_control.standby_slot_fw_ver
-        if standby_firmware_bsp_ver and standby_firmware_bsp_ver >= ota_image_bsp_ver:
+        # if firmware package doesn't have a manifest file, skip update
+        firmware_manifest_fpath = Path(
+            replace_root(
+                boot_cfg.FIRMWARE_MANIFEST_FPATH,
+                "/",
+                self._mp_control.standby_slot_mount_point,
+            )
+        )
+        try:
+            firmware_manifest = load_manifest(firmware_manifest_fpath)
+        except FileNotFoundError:
+            logger.warning("no firmware manifest file presented, skip")
+            return False
+        except Exception as e:
+            logger.warning(f"invalid manifest file: {e!r}")
+            return False
+
+        # if firmware package has older version than standby slot, skip update
+        fw_update_bsp_ver = BSPVersion.parse(
+            firmware_manifest.firmware_spec.bsp_version
+        )
+        logger.info(f"firmware update package BSP version: {fw_update_bsp_ver}")
+
+        standby_slot_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        if standby_slot_bsp_ver and fw_update_bsp_ver < standby_slot_bsp_ver:
             logger.info(
-                f"{standby_bootloader_slot=} has newer or equal ver of firmware, skip firmware update"
+                "firmware package has older version than current standby slot, skip update"
             )
             return False
 
@@ -751,19 +774,12 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         firmware_updater = UEFIFirmwareUpdater(
             boot_parent_devpath=self._uefi_control.parent_devpath,
             standby_slot_mp=self._mp_control.standby_slot_mount_point,
-            fw_bsp_ver_control=self._firmware_ver_control,
+            tnspec=tnspec,
+            fw_bsp_ver_control=self._firmware_bsp_ver_control,
+            firmware_update_request=firmware_update_request,
+            firmware_manifest=firmware_manifest,
         )
-        if firmware_updater.firmware_update():
-            firmware_updater.l4tlauncher_update()
-
-            logger.info(
-                (
-                    f"will update to new firmware version in next reboot: {ota_image_bsp_ver=}, \n"
-                    f"will switch to Slot({standby_bootloader_slot}) on successful firmware update"
-                )
-            )
-            return True
-        return False
+        return firmware_updater.firmware_update()
 
     # APIs
 
@@ -806,7 +822,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 self._ota_status_control.standby_ota_status_dir
                 / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
             )
-            self._firmware_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
+            self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
@@ -818,8 +834,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 / "ota",
             )
 
-            # ------ switch boot to standby ------ #
-            firmware_update_triggered = self._capsule_firmware_update()
+            # ------ firmware update & switch boot to standby ------ #
+            firmware_update_triggered = self._firmware_update()
             # NOTE: manual switch boot will cancel the scheduled firmware update!
             if not firmware_update_triggered:
                 self._uefi_control.switch_boot_to_standby()
