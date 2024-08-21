@@ -58,6 +58,7 @@ from otaclient_common.typing import StrOrPath, gen_strenum_validator
 class PayloadType(str, Enum):
     UEFI_CAPSULE = "UEFI-CAPSULE"
     UEFI_BOOT_APP = "UEFI-BOOT-APP"
+    BUP = "BUP"
 
 
 DIGEST_PATTERN = re.compile(r"^(?P<algorithm>[\w\-+ ]+):(?P<digest>[a-zA-Z0-9]+)$")
@@ -97,8 +98,8 @@ class NVIDIAFirmwareCompat(BaseModel):
         )
 
 
-class NVIDIAUEFIFirmwareSpec(BaseModel):
-    # NOTE: let the jetson-uefi module parse the bsp_version
+class NVIDIAFirmwareSpec(BaseModel):
+    # NOTE: let the boot control module parse BSP version
     bsp_version: str
     firmware_compat: NVIDIAFirmwareCompat
 
@@ -158,7 +159,7 @@ class FirmwareManifest(BaseModel):
     ]
     hardware_series: str
     hardware_model: str
-    firmware_spec: NVIDIAUEFIFirmwareSpec
+    firmware_spec: NVIDIAFirmwareSpec
     firmware_packages: List[FirmwarePackage]
 
     def check_compat(self, _tnspec: str) -> bool:

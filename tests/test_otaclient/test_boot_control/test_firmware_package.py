@@ -25,7 +25,7 @@ from otaclient.boot_control._firmware_package import (
     FirmwareUpdateRequest,
     HardwareType,
     NVIDIAFirmwareCompat,
-    NVIDIAUEFIFirmwareSpec,
+    NVIDIAFirmwareSpec,
     PayloadFileLocation,
     PayloadType,
 )
@@ -140,7 +140,7 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
     hardware_type=HardwareType("nvidia_jetson"),
     hardware_series="ADLINK RQX",
     hardware_model="rqx580",
-    firmware_spec=NVIDIAUEFIFirmwareSpec(
+    firmware_spec=NVIDIAFirmwareSpec(
         bsp_version="r35.4.1",
         firmware_compat=NVIDIAFirmwareCompat(
             board_id="2888",
