@@ -238,6 +238,7 @@ class UEFIFirmwareUpdater:
             firmware_update_request (FirmwareUpdateRequest)
             firmware_manifest (FirmwareBSPVersionControl)
         """
+        self.current_slot_bsp_ver = fw_bsp_ver_control.current_slot_bsp_ver
         self.standby_slot_bsp_ver = fw_bsp_ver_control.standby_slot_bsp_ver
 
         self.tnspec = tnspec
@@ -254,14 +255,12 @@ class UEFIFirmwareUpdater:
         self.esp_mp = Path(boot_cfg.ESP_MOUNTPOINT)
         self.esp_mp.mkdir(exist_ok=True)
 
-        self.esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
-        self.l4tlauncher_ver_fpath = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
+        esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
+        self.l4tlauncher_ver_fpath = esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
         """A plain text file stores the BSP version string."""
-        self.bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
+        self.bootaa64_at_esp = esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
         """The canonical location of L4TLauncher, called by UEFI."""
-        self.bootaa64_at_esp_bak = (
-            self.esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
-        )
+        self.bootaa64_at_esp_bak = esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
         """The location to backup current L4TLauncher binary."""
         self.capsule_dir_at_esp = self.esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
         """The location to put UEFI capsule to. The UEFI will use the capsule in this location."""
