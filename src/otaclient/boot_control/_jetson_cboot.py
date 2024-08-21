@@ -32,8 +32,7 @@ from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
-    load_manifest,
-    load_request,
+    load_firmware_package,
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -208,6 +207,7 @@ class NVUpdateEngine:
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
                 continue
 
+            logger.warning(f"apply BUP {bup_fpath} to standby slot ...")
             update_execute_func(bup_fpath)
             firmware_update_executed = True
         return firmware_update_executed
@@ -483,49 +483,26 @@ class JetsonCBootControl(BootControllerProtocol):
                 None for no firmware update occurs.
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
-
-        # ------ check if we need to do firmware update ------ #
         if not (tnspec := self._cboot_control.tnspec):
             logger.warning("tnspec is not defined, skip firmware update")
             return
 
-        # only perform update when we have a request file
-        firmware_update_request_fpath = Path(
-            replace_root(
+        firmware_package_meta = load_firmware_package(
+            firmware_update_request_fpath=replace_root(
                 boot_cfg.FIRMWARE_UPDATE_REQUEST_FPATH,
                 "/",
                 self._mp_control.standby_slot_mount_point,
             ),
-        )
-        try:
-            firmware_update_request = load_request(firmware_update_request_fpath)
-        except FileNotFoundError:
-            logger.warning("no firmware update request file presented, skip")
-            return
-        except Exception as e:
-            logger.warning(f"invalid request file: {e!r}")
-            return
-
-        # if firmware package doesn't have a manifest file, skip update
-        firmware_manifest_fpath = Path(
-            replace_root(
+            firmware_manifest_fpath=replace_root(
                 boot_cfg.FIRMWARE_MANIFEST_FPATH,
                 "/",
                 self._mp_control.standby_slot_mount_point,
-            )
+            ),
         )
-        try:
-            firmware_manifest = load_manifest(firmware_manifest_fpath)
-        except FileNotFoundError:
-            logger.warning("no firmware manifest file presented, skip")
+        if firmware_package_meta is None:
+            logger.info("skip firmware update ...")
             return
-        except Exception as e:
-            logger.warning(f"invalid manifest file: {e!r}")
-            return
-
-        standby_bootloader_slot = self._cboot_control.standby_bootloader_slot
-        standby_firmware_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
-        logger.info(f"{standby_bootloader_slot=} BSP ver: {standby_firmware_bsp_ver}")
+        firmware_update_request, firmware_manifest = firmware_package_meta
 
         # ------ preform firmware update ------ #
         firmware_updater = NVUpdateEngine(
@@ -535,8 +512,6 @@ class JetsonCBootControl(BootControllerProtocol):
             firmware_manifest=firmware_manifest,
             unify_ab=bool(self._cboot_control.unified_ab_enabled),
         )
-
-        # ------ register new firmware version ------ #
         return firmware_updater.firmware_update()
 
     # APIs
