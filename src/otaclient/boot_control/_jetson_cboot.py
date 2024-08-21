@@ -585,16 +585,20 @@ class JetsonCBootControl(BootControllerProtocol):
             )
 
             # ------ firmware update ------ #
-            firmware_update_result = self._nv_firmware_update()
-            if firmware_update_result:
-                self._firmware_ver_control.write_current_firmware_bsp_version()
-            elif firmware_update_result is None:
+            firmware_update_result = self._firmware_update()
+            if firmware_update_result is None:
                 logger.info("no firmware update occurs")
-            else:
+            elif firmware_update_result is False:
                 raise JetsonCBootContrlError("firmware update failed")
+            else:
+                logger.info("new firmware is written to the standby slot")
 
             # ------ preserve BSP version files to standby slot ------ #
-            self._firmware_ver_control.write_standby_firmware_bsp_version()
+            standby_fw_bsp_ver_fpath = (
+                self._ota_status_control.standby_ota_status_dir
+                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+            )
+            self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             preserve_ota_config_files_to_standby(
