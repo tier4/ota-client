@@ -148,6 +148,7 @@ class NVUpdateEngine:
 
     def __init__(
         self,
+        *,
         tnspec: str,
         fw_bsp_ver_control: FirmwareBSPVersionControl,
         firmware_update_request: FirmwareUpdateRequest,
@@ -176,6 +177,12 @@ class NVUpdateEngine:
             logger.warning(_err_msg)
             return False
 
+        update_execute_func = (
+            self._nv_update_engine_unified_ab
+            if self._unify_ab
+            else self._nv_update_engine
+        )
+
         firmware_update_executed = False
         for update_payload in self._firmware_manifest.get_firmware_packages(
             self._firmware_update_request
@@ -191,10 +198,7 @@ class NVUpdateEngine:
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
                 continue
 
-            if self._unify_ab:
-                self._nv_update_engine_unified_ab(bup_fpath)
-            else:
-                self._nv_update_engine(bup_fpath)
+            update_execute_func(bup_fpath)
             firmware_update_executed = True
         return firmware_update_executed
 
