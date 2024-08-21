@@ -665,7 +665,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             current_fw_bsp_ver_fpath = (
                 current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
             )
-            self._firmware_bsp_ver_control = FirmwareBSPVersionControl(
+            self._firmware_bsp_ver_control = bsp_ver_ctrl = FirmwareBSPVersionControl(
                 current_slot=uefi_control.current_slot,
                 current_slot_bsp_ver=uefi_control.fw_bsp_version,
                 current_bsp_version_file=current_fw_bsp_ver_fpath,
@@ -673,6 +673,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # always update the bsp_version_file on startup to reflect
             #   the up-to-date current slot BSP version
             self._firmware_bsp_ver_control.write_to_file(current_fw_bsp_ver_fpath)
+            logger.info(
+                f"\ncurrent slot firmware BSP version: {uefi_control.fw_bsp_version}\n"
+                f"standby slot firmware BSP version: {bsp_ver_ctrl.standby_slot_bsp_ver}"
+            )
 
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
@@ -683,6 +687,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 standby_ota_status_dir=standby_ota_status_dir,
                 finalize_switching_boot=self._finalize_switching_boot,
             )
+            logger.info("jetson-uefi boot control start up finished")
         except Exception as e:
             _err_msg = f"failed to start jetson-uefi controller: {e!r}"
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
