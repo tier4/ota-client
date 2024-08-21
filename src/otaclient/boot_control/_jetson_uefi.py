@@ -184,7 +184,7 @@ def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
         raise JetsonUEFIBootControlError("no ESP partition presented")
 
     for _esp_part in esp_parts:
-        if _esp_part.find(str(boot_parent_devpath)) != -1:
+        if _esp_part.strip().startswith(str(boot_parent_devpath)):
             logger.info(f"find esp partition at {_esp_part}")
             esp_part = _esp_part
             break
@@ -196,7 +196,8 @@ def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
 
 
 class L4TLauncherBSPVersionControl(BaseModel):
-    """
+    """Track the L4TLauncher binary BSP version.
+
     Schema: <bsp_ver_str>:<sha256_digest>
     """
 
@@ -232,11 +233,12 @@ class UEFIFirmwareUpdater:
             boot_parent_devpath (StrOrPath): The parent dev of current rootfs device.
             standby_slot_mp (StrOrPath): The mount point of updated standby slot. The firmware update package
                 is located at <standby_slot_mp>/opt/ota_package folder.
-            ota_image_bsp_ver (BSPVersion): The BSP version of OTA image used to update the standby slot.
-            fw_bsp_ver_control (FirmwareBSPVersionControl): The firmware BSP version of each slots.
+            tnspec (str): The firmware compatibility string.
+            fw_bsp_ver_control (FirmwareBSPVersionControl): The firmware BSP version control for each slots.
+            firmware_update_request (FirmwareUpdateRequest)
+            firmware_manifest (FirmwareBSPVersionControl)
         """
         self.standby_slot_bsp_ver = fw_bsp_ver_control.standby_slot_bsp_ver
-        self.current_slot_bsp_ver = fw_bsp_ver_control.current_slot_bsp_ver
 
         self.tnspec = tnspec
         self.firmware_update_request = firmware_update_request
@@ -245,6 +247,7 @@ class UEFIFirmwareUpdater:
             firmware_manifest.firmware_spec.bsp_version
         )
 
+        self.esp_part = _detect_esp_dev(boot_parent_devpath)
         # NOTE: use the esp partition at the current booted device
         #   i.e., if we boot from nvme0n1, then bootdev_path is /dev/nvme0n1 and
         #   we use the esp at nvme0n1.
@@ -254,24 +257,22 @@ class UEFIFirmwareUpdater:
         self.esp_boot_dir = self.esp_mp / "EFI" / "BOOT"
         self.l4tlauncher_ver_fpath = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_VER_FNAME
         """A plain text file stores the BSP version string."""
-
         self.bootaa64_at_esp = self.esp_boot_dir / boot_cfg.L4TLAUNCHER_FNAME
         """The canonical location of L4TLauncher, called by UEFI."""
-
         self.bootaa64_at_esp_bak = (
             self.esp_boot_dir / f"{boot_cfg.L4TLAUNCHER_FNAME}_bak"
         )
         """The location to backup current L4TLauncher binary."""
-
-        self.standby_slot_mp = Path(standby_slot_mp)
-
-        self.esp_part = _detect_esp_dev(boot_parent_devpath)
-
         self.capsule_dir_at_esp = self.esp_mp / boot_cfg.CAPSULE_PAYLOAD_AT_ESP
         """The location to put UEFI capsule to. The UEFI will use the capsule in this location."""
 
+        self.standby_slot_mp = Path(standby_slot_mp)
+
     def _prepare_fwupdate_capsule(self) -> bool:
         """Copy the Capsule update payloads to specific location at esp partition.
+
+        The UEFI framework will look for the firmware update capsule there and start
+            the firmware update.
 
         Returns:
             True if at least one of the update capsule is prepared, False if no update
@@ -305,7 +306,7 @@ class UEFIFirmwareUpdater:
                 logger.warning(
                     f"failed to copy {capsule_payload.payload_name} to {capsule_dir_at_esp}: {e!r}"
                 )
-                logger.warning(f"skip prepare {capsule_payload.payload_name}")
+                logger.warning(f"skip preparing {capsule_payload.payload_name}")
         return firmware_package_configured
 
     def _update_l4tlauncher(self) -> bool:
@@ -316,7 +317,7 @@ class UEFIFirmwareUpdater:
         for capsule_payload in self.firmware_manifest.get_firmware_packages(
             self.firmware_update_request
         ):
-            if capsule_payload.type != PayloadType.UEFI_CAPSULE:
+            if capsule_payload.type != PayloadType.UEFI_BOOT_APP:
                 continue
 
             # NOTE: currently we only support payload indicated by file path.
