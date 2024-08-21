@@ -27,17 +27,25 @@ from typing import Generator, Optional
 
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
+from otaclient.boot_control._firmware_package import (
+    DigestValue,
+    FirmwareManifest,
+    FirmwareUpdateRequest,
+    PayloadType,
+)
 from otaclient_api.v2 import types as api_types
+from otaclient_common import replace_root
 from otaclient_common.common import subprocess_run_wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
     SlotID,
     copy_standby_slot_boot_to_internal_emmc,
-    parse_bsp_version,
+    detect_rootfs_bsp_version,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -97,9 +105,9 @@ class _NVBootctrl(NVBootctrlCommon):
         except subprocess.CalledProcessError as e:
             if e.returncode == 70:
                 return False
-            elif e.returncode == 69:
+            if e.returncode == 69:
                 return
-            raise ValueError(f"{cmd} returns unexpected result: {e.returncode=}, {e!r}")
+            logger.warning(f"{cmd} returns unexpected result: {e.returncode=}, {e!r}")
 
 
 class NVUpdateEngine:
@@ -230,19 +238,19 @@ class _CBootControl:
 
         # ------ check BSP version ------ #
         try:
-            self.bsp_version = bsp_version = parse_bsp_version(
-                Path(boot_cfg.NV_TEGRA_RELEASE_FPATH).read_text()
+            self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
+                rootfs=cfg.ACTIVE_ROOTFS_PATH
             )
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
-        logger.info(f"{bsp_version=}")
+        logger.info(f"{rootfs_bsp_version=}")
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
-        if not bsp_version < (34, 0, 0):
+        if rootfs_bsp_version >= (34, 0, 0):
             _err_msg = (
-                f"jetson-cboot only supports BSP version < R34, but get {bsp_version=}. "
+                f"jetson-cboot only supports BSP version < R34, but get {rootfs_bsp_version=}. "
                 "Please use jetson-uefi bootloader type for device with BSP >= R34."
             )
             logger.error(_err_msg)
@@ -251,27 +259,11 @@ class _CBootControl:
         # ------ check if unified A/B is enabled ------ #
         # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
         #   is NOT supported and MUST not occur.
-        unified_ab_enabled = False
-        if bsp_version >= (32, 6, 0):
-            # NOTE: unified A/B is supported starting from r32.6
-            unified_ab_enabled = _NVBootctrl.is_unified_enabled()
-            if unified_ab_enabled is None:
-                _err_msg = "rootfs A/B is not enabled!"
-                logger.error(_err_msg)
-                raise JetsonCBootContrlError(_err_msg)
-        else:  # R32.5 and below doesn't support unified A/B
-            try:
-                _NVBootctrl.get_current_slot(target="rootfs")
-            except subprocess.CalledProcessError:
-                _err_msg = "rootfs A/B is not enabled!"
-                logger.error(_err_msg)
-                raise JetsonCBootContrlError(_err_msg)
-        self.unified_ab_enabled = unified_ab_enabled
-
-        if unified_ab_enabled:
+        if unified_ab_enabled := _NVBootctrl.is_unified_enabled():
             logger.info(
                 "unified A/B is enabled, rootfs and bootloader will be switched together"
             )
+        self.unified_ab_enabled = unified_ab_enabled
 
         # ------ check A/B slots ------ #
         self.current_bootloader_slot = current_bootloader_slot = (
