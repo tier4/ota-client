@@ -208,14 +208,18 @@ class NVBootctrlCommon:
         return cls._nvbootctrl(cmd, target=target, check_output=True)
 
 
-class BSPVersionControl:
-    """bsp_version ota-status file for tracking BSP version.
+class FirmwareBSPVersionControl:
+    """firmware_bsp_version ota-status file for tracking BSP version.
 
-    The BSP version is stored in /boot/ota-status/bsp_version json file,
-        tracking the BSP version for each slot.
-    NOTE that we should always keep the rootfs BSP version the same as firmware BSP version!
+    The BSP version is stored in /boot/ota-status/firmware_bsp_version json file,
+        tracking the firmware BSP version for each slot.
+    NOTE that we only cares about firmware BSP version.
 
-    Each slot should keep the same bsp_version file, this file is passed to standby slot
+    Unfortunately, we don't have method to detect standby slot's firwmare vesrion,
+        when the firmware_bsp_version file is not presented(typical case when we have newly setup device),
+        we ASSUME that both slots are running the same BSP version of firmware.
+
+    Each slot should keep the same firmware_bsp_version file, this file is passed to standby slot
         during OTA update as it.
     """
 
@@ -236,6 +240,10 @@ class BSPVersionControl:
         except Exception as e:
             logger.warning(f"invalid or missing bsp_verion file: {e!r}")
             current_bsp_version_file.unlink(missing_ok=True)
+            logger.warning(
+                "assume standby slot is running the same version of firmware"
+            )
+            self._version.set_by_slot(self.standby_slot, current_slot_bsp_ver)
 
         # NOTE: only check the standby slot's firmware BSP version info from file,
         #   for current slot, always trust the value from nvbootctrl.
