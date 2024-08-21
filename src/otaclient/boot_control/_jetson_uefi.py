@@ -38,8 +38,7 @@ from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
-    load_manifest,
-    load_request,
+    load_firmware_package,
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -717,58 +716,31 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             True if there is firmware update configured, False for no firmware update.
         """
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
-
-        # ------ check if we need to do firmware update ------ #
         if not (tnspec := self._uefi_control.tnspec):
             logger.warning("tnspec is not defined, skip firmware update")
             return False
 
-        # only perform update when we have a request file
-        firmware_update_request_fpath = Path(
-            replace_root(
+        firmware_package_meta = load_firmware_package(
+            firmware_update_request_fpath=replace_root(
                 boot_cfg.FIRMWARE_UPDATE_REQUEST_FPATH,
                 "/",
                 self._mp_control.standby_slot_mount_point,
             ),
-        )
-        try:
-            firmware_update_request = load_request(firmware_update_request_fpath)
-        except FileNotFoundError:
-            logger.warning("no firmware update request file presented, skip")
-            return False
-        except Exception as e:
-            logger.warning(f"invalid request file: {e!r}")
-            return False
-
-        # if firmware package doesn't have a manifest file, skip update
-        firmware_manifest_fpath = Path(
-            replace_root(
+            firmware_manifest_fpath=replace_root(
                 boot_cfg.FIRMWARE_MANIFEST_FPATH,
                 "/",
                 self._mp_control.standby_slot_mount_point,
-            )
+            ),
         )
-        try:
-            firmware_manifest = load_manifest(firmware_manifest_fpath)
-        except FileNotFoundError:
-            logger.warning("no firmware manifest file presented, skip")
+        if firmware_package_meta is None:
+            logger.info("skip firmware update ...")
             return False
-        except Exception as e:
-            logger.warning(f"invalid manifest file: {e!r}")
-            return False
+        firmware_update_request, firmware_manifest = firmware_package_meta
 
-        # if firmware package has older version than standby slot, skip update
         fw_update_bsp_ver = BSPVersion.parse(
             firmware_manifest.firmware_spec.bsp_version
         )
         logger.info(f"firmware update package BSP version: {fw_update_bsp_ver}")
-
-        standby_slot_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
-        if standby_slot_bsp_ver and fw_update_bsp_ver < standby_slot_bsp_ver:
-            logger.info(
-                "firmware package has older version than current standby slot, skip update"
-            )
-            return False
 
         # ------ prepare firmware update ------ #
         firmware_updater = UEFIFirmwareUpdater(
