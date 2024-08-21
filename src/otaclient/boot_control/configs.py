@@ -35,19 +35,24 @@ class GrubControlConfig(BaseConfig):
 
 
 class JetsonBootCommon:
+    # ota_status related
     OTA_STATUS_DIR = "/boot/ota-status"
     FIRMWARE_BSP_VERSION_FNAME = "firmware_bsp_version"
+
+    # boot control related
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
-    FIRMWARE_DPATH = "/opt/ota_package"
-    """Refer to standby slot rootfs."""
     MODEL_FPATH = "/proc/device-tree/model"
-
-    NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
-    SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
-
     MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
     NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
     INTERNAL_EMMC_DEVNAME = "mmcblk0"
+    NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
+    SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
+
+    # firmware update related
+    NVBOOTCTRL_CONF_FPATH = "/etc/nv_boot_control.conf"
+    FIRMWARE_DPATH = "/opt/ota/firmware"
+    FIRMWARE_UPDATE_REQUEST_FPATH = f"{FIRMWARE_DPATH}/firmware_update.yaml"
+    FIRMWARE_MANIFEST_FPATH = f"{FIRMWARE_DPATH}/firmware_manifest.yaml"
 
 
 class JetsonCBootControlConfig(JetsonBootCommon):
@@ -65,7 +70,6 @@ class JetsonCBootControlConfig(JetsonBootCommon):
 class JetsonUEFIBootControlConfig(JetsonBootCommon):
     BOOTLOADER = BootloaderType.JETSON_UEFI
     TEGRA_COMPAT_PATH = "/sys/firmware/devicetree/base/compatible"
-    NVBOOTCTRL_CONF_FPATH = "/etc/nv_boot_control.conf"
     L4TLAUNCHER_FNAME = "BOOTAA64.efi"
     ESP_MOUNTPOINT = "/mnt/esp"
     ESP_PARTLABEL = "esp"
@@ -73,9 +77,6 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     MAGIC_BYTES = b"\x07\x00\x00\x00\x04\x00\x00\x00\x00\x00\x00\x00"
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
     L4TLAUNCHER_VER_FNAME = "l4tlauncher_version"
-
-    FIRMWARE_UPDATE_REQUEST_FPATH = "/opt/ota/firmware/firmware_update.yaml"
-    FIRMWARE_MANIFEST_FPATH = "/opt/ota/firmware/firmware_manifest.yaml"
 
 
 @dataclass
