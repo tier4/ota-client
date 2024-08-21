@@ -44,13 +44,15 @@ from __future__ import annotations
 
 import re
 from enum import Enum
+from pathlib import Path
 from typing import Any, List, Literal
 
+import yaml
 from pydantic import BaseModel, BeforeValidator, GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 from typing_extensions import Annotated
 
-from otaclient_common.typing import gen_strenum_validator
+from otaclient_common.typing import StrOrPath, gen_strenum_validator
 
 
 class PayloadType(str, Enum):
@@ -186,3 +188,19 @@ class FirmwareUpdateRequest(BaseModel):
 
     format_version: Literal[1] = 1
     firmware_list: List[str]
+
+
+def load_request(request_fpath: StrOrPath) -> FirmwareUpdateRequest:
+    """Load update request from <request_fpath>."""
+    _raw = Path(request_fpath).read_text()
+    _raw_loaded = yaml.safe_load(_raw)
+    _res = FirmwareUpdateRequest.model_validate(_raw_loaded)
+    return _res
+
+
+def load_manifest(manifest_fpath: StrOrPath) -> FirmwareManifest:
+    """Load manifest from <manifest_fpath>."""
+    _raw = Path(manifest_fpath).read_text()
+    _raw_loaded = yaml.safe_load(_raw)
+    _res = FirmwareManifest.model_validate(_raw_loaded)
+    return _res
