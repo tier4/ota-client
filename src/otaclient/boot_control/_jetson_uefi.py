@@ -310,14 +310,15 @@ class UEFIFirmwareUpdater:
 
     def _update_l4tlauncher(self) -> bool:
         """update L4TLauncher with OTA image's one."""
-        logger.warning(
-            f"update the l4tlauncher to version {self.firmware_package_bsp_ver}"
-        )
         for capsule_payload in self.firmware_manifest.get_firmware_packages(
             self.firmware_update_request
         ):
             if capsule_payload.type != PayloadType.UEFI_BOOT_APP:
                 continue
+
+            logger.warning(
+                f"update the l4tlauncher to version {self.firmware_package_bsp_ver} ..."
+            )
 
             # NOTE: currently we only support payload indicated by file path.
             bootapp_fpath = capsule_payload.file_location
@@ -411,12 +412,19 @@ class UEFIFirmwareUpdater:
     # APIs
 
     def firmware_update(self) -> bool:
-        """Trigger firmware update in next boot.
+        """Trigger firmware update in next boot if configured.
+
+        Only when the following conditions met the firmware update will be configured:
+        1. a firmware_update_request file is presented and valid in the OTA image.
+        2. the firmware_manifest is presented and valid in the OTA image.
+        3. the firmware package is compatible with the device.
+        4. firmware specified in firmware_update_request is valid.
+        5. the standby slot's firmware is older than the OTA image's one.
 
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
-        # check BSP version, NVIDIA Jetson device doesn't allow firmware downgrade.
+        # check BSP version, NVIDIA Jetson device with R34 or newer doesn't allow firmware downgrade.
         if (
             self.standby_slot_bsp_ver
             and self.standby_slot_bsp_ver > self.firmware_package_bsp_ver
@@ -439,11 +447,28 @@ class UEFIFirmwareUpdater:
             logger.warning(_err_msg)
             return False
 
+        # copy the firmware update capsule to specific location
         with _ensure_esp_mounted(self.esp_part, self.esp_mp):
             if not self._prepare_fwupdate_capsule():
                 logger.info("no firmware file is prepared, skip firmware update")
                 return False
 
+            logger.info("on capsule prepared, try to update L4TLauncher ...")
+            l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
+            logger.info(f"current l4tlauncher version: {l4tlauncher_bsp_ver}")
+
+            if l4tlauncher_bsp_ver >= self.firmware_package_bsp_ver:
+                logger.info(
+                    (
+                        "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
+                        f"{l4tlauncher_bsp_ver=}, {self.firmware_package_bsp_ver=}, "
+                        "skip l4tlauncher update"
+                    )
+                )
+            else:
+                self._update_l4tlauncher()
+
+        # write special UEFI variable to trigger firmware update on next reboot
         with _ensure_efivarfs_mounted():
             try:
                 self._write_magic_efivar()
@@ -460,25 +485,6 @@ class UEFIFirmwareUpdater:
             "firmware update package prepare finished"
             f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
         )
-        logger.info("try to update L4TLauncher ...")
-
-        with _ensure_esp_mounted(self.esp_part, self.esp_mp):
-            l4tlauncher_bsp_ver = self._detect_l4tlauncher_version()
-            logger.info(f"current l4tlauncher version: {l4tlauncher_bsp_ver}")
-
-            if l4tlauncher_bsp_ver >= self.firmware_package_bsp_ver:
-                logger.info(
-                    (
-                        "installed l4tlauncher has newer or equal version of l4tlauncher to OTA image's one, "
-                        f"{l4tlauncher_bsp_ver=}, {self.firmware_package_bsp_ver=}, "
-                        "skip l4tlauncher update"
-                    )
-                )
-            else:
-                logger.warning(
-                    f"try to update L4TLauncher to {self.firmware_package_bsp_ver=}"
-                )
-                self._update_l4tlauncher()
         return True
 
 
