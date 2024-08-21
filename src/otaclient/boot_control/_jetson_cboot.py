@@ -40,6 +40,7 @@ from otaclient_common.common import subprocess_run_wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
@@ -159,13 +160,11 @@ class NVUpdateEngine:
         self,
         *,
         tnspec: str,
-        fw_bsp_ver_control: FirmwareBSPVersionControl,
         firmware_update_request: FirmwareUpdateRequest,
         firmware_manifest: FirmwareManifest,
         unify_ab: bool,
     ) -> None:
         self._tnspec = tnspec
-        self._fw_bsp_ver_control = fw_bsp_ver_control
         self._firmware_update_request = firmware_update_request
         self._firmware_manifest = firmware_manifest
         self._unify_ab = unify_ab
@@ -505,9 +504,13 @@ class JetsonCBootControl(BootControllerProtocol):
         firmware_update_request, firmware_manifest = firmware_package_meta
 
         # ------ preform firmware update ------ #
+        fw_update_bsp_ver = BSPVersion.parse(
+            firmware_manifest.firmware_spec.bsp_version
+        )
+        logger.info(f"firmware update package BSP version: {fw_update_bsp_ver}")
+
         firmware_updater = NVUpdateEngine(
             tnspec=tnspec,
-            fw_bsp_ver_control=self._firmware_bsp_ver_control,
             firmware_update_request=firmware_update_request,
             firmware_manifest=firmware_manifest,
             unify_ab=bool(self._cboot_control.unified_ab_enabled),
