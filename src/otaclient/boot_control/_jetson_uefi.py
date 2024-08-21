@@ -556,6 +556,16 @@ class _UEFIBootControl:
                 )
             )
 
+        if rootfs_bsp_version != fw_bsp_version:
+            logger.warning(
+                (
+                    f"current slot has rootfs BSP version {rootfs_bsp_version}, "
+                    f"while the firmware version is {fw_bsp_version}, "
+                    "rootfs BSP version and firmware version are MISMATCHED! "
+                    "This might result in nvbootctrl not working as expected!"
+                )
+            )
+
         # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
         if fw_bsp_version < MINIMUM_SUPPORTED_BSP_VERSION:
             _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {fw_bsp_version=}. "
