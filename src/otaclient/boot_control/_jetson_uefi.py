@@ -13,8 +13,8 @@
 # limitations under the License.
 """Boot control implementation for NVIDIA Jetson device boots with UEFI.
 
-jetson-uefi module currently support BSP version >= R35.2.
-NOTE: R34~R35.1 is not supported as Capsule update is only available after R35.2.
+jetson-uefi module currently support BSP version >= R34(which UEFI is introduced).
+But firmware update is only supported after BSP R35.2.
 """
 
 
@@ -61,6 +61,11 @@ from .configs import jetson_uefi_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
+
+MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(34, 0, 0)
+"""Only after R34, UEFI is introduced."""
+FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
+"""Only after R35.2, UEFI Capsule firmware update is introduced."""
 
 L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
     "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718": BSPVersion(
@@ -424,6 +429,19 @@ class UEFIFirmwareUpdater:
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
+        # sanity check, UEFI Capsule firmware update is only supported after R35.2.
+        if (
+            self.standby_slot_bsp_ver
+            and self.standby_slot_bsp_ver
+            < FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION
+        ):
+            _err_msg = (
+                f"UEFI Capsule firmware update is introduced since {FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION}, "
+                f"but get {self.standby_slot_bsp_ver}, abort"
+            )
+            logger.error(_err_msg)
+            return False
+
         # check BSP version, NVIDIA Jetson device with R34 or newer doesn't allow firmware downgrade.
         if (
             self.standby_slot_bsp_ver
@@ -486,10 +504,6 @@ class UEFIFirmwareUpdater:
             f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
         )
         return True
-
-
-MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
-"""Only after R35.2, the Capsule Firmware update is available."""
 
 
 class _UEFIBootControl:
@@ -573,9 +587,9 @@ class _UEFIBootControl:
                 )
             )
 
-        # ------ sanity check, currently jetson-uefi only supports >= R35.2 ----- #
+        # ------ sanity check, jetson-uefi only supports >= R34 ----- #
         if fw_bsp_version < MINIMUM_SUPPORTED_BSP_VERSION:
-            _err_msg = f"jetson-uefi only supports BSP version >= R35.2, but get {fw_bsp_version=}. "
+            _err_msg = f"jetson-uefi only supports BSP version >= {MINIMUM_SUPPORTED_BSP_VERSION}, but get {fw_bsp_version=}. "
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
