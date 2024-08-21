@@ -42,6 +42,7 @@ If firmware update is needed, a file name `firmware_update.yaml` needed to be pr
 
 from __future__ import annotations
 
+import logging
 import re
 from enum import Enum
 from pathlib import Path
@@ -53,6 +54,8 @@ from pydantic_core import CoreSchema, core_schema
 from typing_extensions import Annotated
 
 from otaclient_common.typing import StrOrPath, gen_strenum_validator
+
+logger = logging.getLogger(__name__)
 
 
 class PayloadType(str, Enum):
@@ -191,17 +194,32 @@ class FirmwareUpdateRequest(BaseModel):
     firmware_list: List[str]
 
 
-def load_request(request_fpath: StrOrPath) -> FirmwareUpdateRequest:
-    """Load update request from <request_fpath>."""
-    _raw = Path(request_fpath).read_text()
-    _raw_loaded = yaml.safe_load(_raw)
-    _res = FirmwareUpdateRequest.model_validate(_raw_loaded)
-    return _res
+def load_firmware_package(
+    *,
+    firmware_update_request_fpath: StrOrPath,
+    firmware_manifest_fpath: StrOrPath,
+) -> tuple[FirmwareUpdateRequest, FirmwareManifest] | None:
+    """Parse firmware update package."""
+    try:
+        firmware_update_request = FirmwareUpdateRequest.model_validate(
+            yaml.safe_load(Path(firmware_update_request_fpath).read_text())
+        )
+    except FileNotFoundError:
+        logger.info("firmware update request file not found, skip firmware update")
+        return
+    except Exception as e:
+        logger.warning(f"invalid request file: {e!r}")
+        return
 
+    try:
+        firmware_manifest = FirmwareManifest.model_validate(
+            yaml.safe_load(Path(firmware_manifest_fpath).read_text())
+        )
+    except FileNotFoundError:
+        logger.warning("no firmware manifest file presented, skip firmware update!")
+        return
+    except Exception as e:
+        logger.warning(f"invalid manifest file: {e!r}")
+        return
 
-def load_manifest(manifest_fpath: StrOrPath) -> FirmwareManifest:
-    """Load manifest from <manifest_fpath>."""
-    _raw = Path(manifest_fpath).read_text()
-    _raw_loaded = yaml.safe_load(_raw)
-    _res = FirmwareManifest.model_validate(_raw_loaded)
-    return _res
+    return firmware_update_request, firmware_manifest
