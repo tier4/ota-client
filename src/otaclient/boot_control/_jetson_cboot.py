@@ -328,20 +328,15 @@ class _CBootControl:
                 f"nvbootctrl -t rootfs dump-slots-info: \n{_NVBootctrl.dump_slots_info(target='rootfs')}"
             )
 
-        # load tnspec for firmware update compatibility check
-        try:
-            self.tnspec = get_nvbootctrl_conf_tnspec(
-                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
-            )
-            logger.info(f"firmware compatibility: {self.tnspec}")
-        except Exception as e:
-            logger.warning(
-                (
-                    f"failed to load tnspec: {e!r}, "
-                    "this will result in firmware update being skipped!"
-                )
-            )
-            self.tnspec = None
+        # load nvbootctrl config file
+        if not (
+            nvbootctrl_conf_fpath := Path(boot_cfg.NVBOOTCTRL_CONF_FPATH)
+        ).is_file():
+            _err_msg = "nv_boot_ctrl.conf is missing!"
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg)
+        self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
+        logger.info(f"nvboot_ctrl_conf: \n{self.nvbootctrl_conf}")
 
     # API
 
@@ -465,8 +460,9 @@ class JetsonCBootControl(BootControllerProtocol):
                 None for no firmware update occurs.
         """
         logger.info("jetson-cboot: entering nv firmware update ...")
-        if not (tnspec := self._cboot_control.tnspec):
-            logger.warning("tnspec is not defined, skip firmware update")
+        tnspec = get_nvbootctrl_conf_tnspec(self._cboot_control.nvbootctrl_conf)
+        if not tnspec:
+            logger.warning("tnspec is not defined, skip firmware update!")
             return
 
         firmware_package_meta = load_firmware_package(
