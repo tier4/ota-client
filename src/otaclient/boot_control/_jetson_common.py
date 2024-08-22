@@ -112,8 +112,8 @@ class SlotBSPVersion(BaseModel):
     BSP version string schema: Rxx.yy.z
     """
 
-    slot_a: BSPVersionStr | None = None
-    slot_b: BSPVersionStr | None = None
+    slot_a: Optional[BSPVersionStr] = None
+    slot_b: Optional[BSPVersionStr] = None
 
     def set_by_slot(self, slot_id: SlotID, ver: BSPVersion | None) -> None:
         if slot_id == SLOT_A:
