@@ -52,8 +52,10 @@ from ._jetson_common import (
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     copy_standby_slot_boot_to_internal_emmc,
+    detect_external_rootdev,
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
+    get_partition_devpath,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -589,7 +591,7 @@ class _UEFIBootControl:
 
         # ------ sanity check, jetson-uefi only supports >= R34 ----- #
         if fw_bsp_version < MINIMUM_SUPPORTED_BSP_VERSION:
-            _err_msg = f"jetson-uefi only supports BSP version >= {MINIMUM_SUPPORTED_BSP_VERSION}, but get {fw_bsp_version=}. "
+            _err_msg = f"jetson-uefi only supports BSP version >= {MINIMUM_SUPPORTED_BSP_VERSION}, but get {fw_bsp_version=}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
@@ -610,23 +612,11 @@ class _UEFIBootControl:
         )
 
         # --- detect boot device --- #
-        self.external_rootfs = False
+        self.external_rootfs = detect_external_rootdev(parent_devpath)
 
-        parent_devname = parent_devpath.name
-        if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
-            logger.info(f"device boots from internal emmc: {parent_devpath}")
-        elif parent_devname.startswith(boot_cfg.NVMESSD_DEV_PREFIX):
-            logger.info(f"device boots from external nvme ssd: {parent_devpath}")
-            self.external_rootfs = True
-        else:
-            _err_msg = f"currently we don't support booting from {parent_devpath=}"
-            logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg) from NotImplementedError(
-                f"unsupported bootdev {parent_devpath}"
-            )
-
-        self.standby_rootfs_devpath = (
-            f"/dev/{parent_devname}p{SLOT_PAR_MAP[standby_slot]}"
+        self.standby_rootfs_devpath = get_partition_devpath(
+            parent_devpath=parent_devpath,
+            partition_id=SLOT_PAR_MAP[standby_slot],
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
             "PARTUUID", self.standby_rootfs_devpath
@@ -641,8 +631,9 @@ class _UEFIBootControl:
             f"standby_rootfs(slot {standby_slot}): {self.standby_rootfs_devpath=}, {self.standby_rootfs_dev_partuuid=}"
         )
 
-        self.standby_internal_emmc_devpath = (
-            f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{SLOT_PAR_MAP[standby_slot]}"
+        self.standby_internal_emmc_devpath = get_partition_devpath(
+            parent_devpath=f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}",
+            partition_id=SLOT_PAR_MAP[standby_slot],
         )
 
         logger.info("finished jetson-uefi boot control startup")
