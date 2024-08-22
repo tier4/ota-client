@@ -202,6 +202,39 @@ def _detect_esp_dev(boot_parent_devpath: StrOrPath) -> str:
     return esp_part
 
 
+def _detect_ota_bootdev_is_qspi(nvboot_ctrl_conf: str) -> bool | None:
+    """Detect whether the device is using QSPI or not.
+
+    This is required for determining the way to trigger UEFI Capsule update.
+    If the TEGRA_OTA_BOOT_DEVICE is mtdblock device, then the device is using QSPI.
+    If is mmcblk0bootx, then the device is using internal emmc.
+
+    If we cannot determine the TEGRA_OTA_BOOT_DEVICE, we MUST NOT execute the firmware update.
+
+    Returns:
+        True if device is using QSPI flash, False for device is using internal emmc,
+            None for unrecognized device or missing TEGRA_OTA_BOOT_DEVICE field in conf.
+    """
+    for line in nvboot_ctrl_conf.splitlines():
+        if line.strip().startswith("TEGRA_OTA_BOOT_DEVICE"):
+            _, _ota_bootdev = line.split(" ", maxsplit=1)
+            ota_bootdev = _ota_bootdev.strip()
+            break
+    else:
+        logger.warning("no TEGRA_OTA_BOOT_DEVICE field found in nv_boot_ctrl.conf")
+        return
+
+    if ota_bootdev.startswith("/dev/mmcblk0"):
+        logger.info("device doesn't use QSPI flash as TEGRA_OTA_BOOT_DEVICE")
+        return False
+
+    if ota_bootdev.startswith("/dev/mtdblock0"):
+        logger.info("device uses QSPI flash as TEGRA_OTA_BOOT_DEVICE")
+        return True
+
+    logger.warning(f"device uses unknown TEGRA_OTA_BOOT_DEVICE: {ota_bootdev}")
+
+
 class L4TLauncherBSPVersionControl(BaseModel):
     """Track the L4TLauncher binary BSP version.
 
