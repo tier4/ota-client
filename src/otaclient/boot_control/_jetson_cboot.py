@@ -20,7 +20,6 @@ Supports BSP version < R34.
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Generator, Optional
@@ -28,7 +27,6 @@ from typing import Generator, Optional
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
-    DigestValue,
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
@@ -202,8 +200,9 @@ class NVUpdateEngine:
                 continue
 
             # NOTE: currently we only support payload indicated by file path.
-            bup_fpath = update_payload.file_location
-            assert not isinstance(bup_fpath, DigestValue)
+            bup_flocation = update_payload.file_location
+            assert bup_flocation.location_type == "file"
+            bup_fpath = bup_flocation.location_path
 
             if not Path(bup_fpath).is_file():
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
@@ -230,14 +229,6 @@ class NVUpdateEngine:
 
 class _CBootControl:
     def __init__(self):
-        # ------ sanity check, confirm we are at jetson device ------ #
-        if not os.path.exists(boot_cfg.TEGRA_CHIP_ID_PATH):
-            _err_msg = (
-                f"not a jetson device, {boot_cfg.TEGRA_CHIP_ID_PATH} doesn't exist"
-            )
-            logger.error(_err_msg)
-            raise JetsonCBootContrlError(_err_msg)
-
         # ------ check BSP version ------ #
         # NOTE(20240821): unfortunately, we don't have proper method to detect
         #   the firmware BSP version < R34, so we assume that the rootfs BSP version is the

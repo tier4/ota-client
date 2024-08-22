@@ -296,8 +296,9 @@ class UEFIFirmwareUpdater:
                 continue
 
             # NOTE: currently we only support payload indicated by file path.
-            capsule_fpath = capsule_payload.file_location
-            assert not isinstance(capsule_fpath, DigestValue)
+            capsule_flocation = capsule_payload.file_location
+            assert capsule_flocation.location_type == "file"
+            capsule_fpath = capsule_flocation.location_path
 
             try:
                 shutil.copy(
