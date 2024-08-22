@@ -313,7 +313,7 @@ class UEFIFirmwareUpdater:
         boot_parent_devpath: StrOrPath,
         standby_slot_mp: StrOrPath,
         *,
-        tnspec: str,
+        nvbootctrl_conf: str,
         fw_bsp_ver_control: FirmwareBSPVersionControl,
         firmware_update_request: FirmwareUpdateRequest,
         firmware_manifest: FirmwareManifest,
@@ -324,7 +324,7 @@ class UEFIFirmwareUpdater:
             boot_parent_devpath (StrOrPath): The parent dev of current rootfs device.
             standby_slot_mp (StrOrPath): The mount point of updated standby slot. The firmware update package
                 is located at <standby_slot_mp>/opt/ota_package folder.
-            tnspec (str): The firmware compatibility string.
+            nvbootctrl_conf (str): The contents of nv_boot_ctrl.conf file.
             fw_bsp_ver_control (FirmwareBSPVersionControl): The firmware BSP version control for each slots.
             firmware_update_request (FirmwareUpdateRequest)
             firmware_manifest (FirmwareBSPVersionControl)
@@ -332,7 +332,7 @@ class UEFIFirmwareUpdater:
         self.current_slot_bsp_ver = fw_bsp_ver_control.current_slot_bsp_ver
         self.standby_slot_bsp_ver = fw_bsp_ver_control.standby_slot_bsp_ver
 
-        self.tnspec = tnspec
+        self.nvbootctrl_conf = nvbootctrl_conf
         self.firmware_update_request = firmware_update_request
         self.firmware_manifest = firmware_manifest
         self.firmware_package_bsp_ver = BSPVersion.parse(
@@ -530,10 +530,17 @@ class UEFIFirmwareUpdater:
             return False
 
         # check firmware compatibility, this is to prevent failed firmware update beforehand.
-        if not self.firmware_manifest.check_compat(self.tnspec):
+        tnspec = get_nvbootctrl_conf_tnspec(self.nvbootctrl_conf)
+        if not tnspec:
+            logger.warning(
+                "TNSPEC is not defined in nvbootctrl config file, skip firmware update!"
+            )
+            return False
+
+        if not self.firmware_manifest.check_compat(tnspec):
             _err_msg = (
                 "firmware package is incompatible with this device: "
-                f"{self.tnspec=}, {self.firmware_manifest.firmware_spec.firmware_compat}, "
+                f"{tnspec=}, {self.firmware_manifest.firmware_spec.firmware_compat}, "
                 "skip firmware update"
             )
             logger.warning(_err_msg)
@@ -561,23 +568,20 @@ class UEFIFirmwareUpdater:
                 self._update_l4tlauncher()
 
         # write special UEFI variable to trigger firmware update on next reboot
-        with _ensure_efivarfs_mounted():
-            try:
-                self._write_magic_efivar()
-            except Exception as e:
-                logger.warning(
-                    (
-                        f"failed to configure capsule update by write magic value: {e!r}\n"
-                        "firmware update might be skipped!"
-                    )
-                )
-                return False
+        firmware_update_triggerred = False
+        if _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf):
+            firmware_update_triggerred = _trigger_capsule_update_qspi_ota_bootdev()
+        else:
+            firmware_update_triggerred = _trigger_capsule_update_non_qspi_ota_bootdev(
+                self.esp_mp
+            )
 
-        logger.warning(
-            "firmware update package prepare finished"
-            f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
-        )
-        return True
+        if firmware_update_triggerred:
+            logger.warning(
+                "firmware update package prepare finished"
+                f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
+            )
+        return firmware_update_triggerred
 
 
 class _UEFIBootControl:
@@ -612,6 +616,7 @@ class _UEFIBootControl:
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
         self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
+        logger.info(f"nvboot_ctrl_conf: \n{self.nvbootctrl_conf}")
 
         # ------ check current slot BSP version ------ #
         # check current slot firmware BSP version
@@ -793,10 +798,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             True if there is firmware update configured, False for no firmware update.
         """
         logger.info("jetson-uefi: checking if we need to do firmware update ...")
-        if not (tnspec := self._uefi_control.tnspec):
-            logger.warning("tnspec is not defined, skip firmware update")
-            return False
-
         firmware_package_meta = load_firmware_package(
             firmware_update_request_fpath=replace_root(
                 boot_cfg.FIRMWARE_UPDATE_REQUEST_FPATH,
@@ -823,10 +824,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         firmware_updater = UEFIFirmwareUpdater(
             boot_parent_devpath=self._uefi_control.parent_devpath,
             standby_slot_mp=self._mp_control.standby_slot_mount_point,
-            tnspec=tnspec,
             fw_bsp_ver_control=self._firmware_bsp_ver_control,
             firmware_update_request=firmware_update_request,
             firmware_manifest=firmware_manifest,
+            nvbootctrl_conf=self._uefi_control.nvbootctrl_conf,
         )
         return firmware_updater.firmware_update()
 
