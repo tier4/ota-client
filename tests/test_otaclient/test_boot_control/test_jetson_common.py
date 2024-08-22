@@ -308,7 +308,7 @@ TEGRA_OTA_GPT_DEVICE /dev/mmcblk0boot1
 TNSPEC 3701-500-0005-A.0-1-0-cti-orin-agx-agx201-00-
 TEGRA_CHIPID 0x23
 TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0
-TEGRA_OTA_GPT_DEVICE /dev/mtdblock0      
+TEGRA_OTA_GPT_DEVICE /dev/mtdblock0
 """,
             "3701-500-0005-A.0-1-0-cti-orin-agx-agx201-00-",
         ),
