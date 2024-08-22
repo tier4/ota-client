@@ -276,7 +276,7 @@ def _detect_ota_bootdev_is_qspi(nvboot_ctrl_conf: str) -> bool | None:
         return
 
     if ota_bootdev.startswith("/dev/mmcblk0"):
-        logger.info("device doesn't use QSPI flash as TEGRA_OTA_BOOT_DEVICE")
+        logger.info("device is using internal emmc flash as TEGRA_OTA_BOOT_DEVICE")
         return False
 
     if ota_bootdev.startswith("/dev/mtdblock0"):
@@ -570,10 +570,8 @@ class UEFIFirmwareUpdater:
         # write special UEFI variable to trigger firmware update on next reboot
         firmware_update_triggerred = False
         if _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf):
-            logger.info("device is using QSPI flash as TEGRA_OTA_BOOT_DEVICE")
             firmware_update_triggerred = _trigger_capsule_update_qspi_ota_bootdev()
         else:
-            logger.info("device is using internal EMMC flash as TEGRA_OTA_BOOT_DEVICE")
             firmware_update_triggerred = _trigger_capsule_update_non_qspi_ota_bootdev(
                 self.esp_mp
             )
