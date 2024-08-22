@@ -163,6 +163,30 @@ def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
         ) from e
 
 
+def _trigger_capsule_update_qspi_ota_bootdev() -> bool:
+    """Write magic efivar to trigger firmware Capsule update in next boot.
+
+    This method is for device using QSPI flash as TEGRA_OTA_BOOT_DEVICE.
+    """
+    with _ensure_efivarfs_mounted():
+        try:
+            magic_efivar_fpath = (
+                Path(EFIVARS_SYS_MOUNT_POINT) / boot_cfg.UPDATE_TRIGGER_EFIVAR
+            )
+            magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
+            os.sync()
+
+            return True
+        except Exception as e:
+            logger.warning(
+                (
+                    f"failed to configure capsule update by write magic value: {e!r}\n"
+                    "firmware update might be skipped!"
+                )
+            )
+            return False
+
+
 @contextlib.contextmanager
 def _ensure_esp_mounted(
     esp_dev: StrOrPath, mount_point: StrOrPath
