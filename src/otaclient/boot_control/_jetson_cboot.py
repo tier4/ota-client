@@ -40,14 +40,17 @@ from otaclient_common.common import subprocess_run_wrapper
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
+    SLOT_PAR_MAP,
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
     NVBootctrlTarget,
     SlotID,
     copy_standby_slot_boot_to_internal_emmc,
+    detect_external_rootdev,
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
+    get_partition_devpath,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -226,8 +229,6 @@ class NVUpdateEngine:
 
 
 class _CBootControl:
-    _slot_id_partid = {SlotID("0"): "1", SlotID("1"): "2"}
-
     def __init__(self):
         # ------ sanity check, confirm we are at jetson device ------ #
         if not os.path.exists(boot_cfg.TEGRA_CHIP_ID_PATH):
@@ -239,7 +240,7 @@ class _CBootControl:
 
         # ------ check BSP version ------ #
         # NOTE(20240821): unfortunately, we don't have proper method to detect
-        #   the firmware BSP version, so we assume that the rootfs BSP version is the
+        #   the firmware BSP version < R34, so we assume that the rootfs BSP version is the
         #   same as the firmware BSP version.
         try:
             self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
@@ -304,30 +305,19 @@ class _CBootControl:
             CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
         )
 
-        self._external_rootfs = False
-        parent_devname = parent_devpath.name
-        if parent_devname.startswith(boot_cfg.MMCBLK_DEV_PREFIX):
-            logger.info(f"device boots from internal emmc: {parent_devpath}")
-        elif parent_devname.startswith(boot_cfg.NVMESSD_DEV_PREFIX):
-            logger.info(f"device boots from external nvme ssd: {parent_devpath}")
-            self._external_rootfs = True
-        else:
-            _err_msg = f"we don't support boot from {parent_devpath=} currently"
-            logger.error(_err_msg)
-            raise JetsonCBootContrlError(_err_msg) from NotImplementedError(
-                f"unsupported bootdev {parent_devpath}"
-            )
+        self._external_rootfs = detect_external_rootdev(parent_devpath)
 
         # rootfs partition
-        self.standby_rootfs_devpath = (
-            f"/dev/{parent_devname}p{self._slot_id_partid[standby_rootfs_slot]}"
+        self.standby_rootfs_devpath = get_partition_devpath(
+            parent_devpath=parent_devpath,
+            partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
         )
         self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", f"{self.standby_rootfs_devpath}"
-        )
+            "PARTUUID", self.standby_rootfs_devpath
+        ).strip()
         current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
             "PARTUUID", current_rootfs_devpath
-        )
+        ).strip()
 
         logger.info(
             "finish detecting rootfs devs: \n"
@@ -336,8 +326,10 @@ class _CBootControl:
         )
 
         # internal emmc partition
-        self.standby_internal_emmc_devpath = f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}p{self._slot_id_partid[standby_rootfs_slot]}"
-
+        self.standby_internal_emmc_devpath = get_partition_devpath(
+            parent_devpath=f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}",
+            partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
+        )
         logger.info(f"finished cboot control init: {current_rootfs_slot=}")
         logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
         if not unified_ab_enabled:
