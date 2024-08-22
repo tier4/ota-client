@@ -418,3 +418,42 @@ def update_standby_slot_extlinux_cfg(
             standby_slot_partuuid,
         ),
     )
+
+
+def detect_external_rootdev(parent_devpath: StrOrPath) -> bool:
+    """Check whether the ECU is using external device as root device or not.
+
+    Returns:
+        True if device is booted from external NVMe SSD, False if device is booted
+            from internal emmc device.
+    """
+    parent_devname = Path(parent_devpath).name
+    if parent_devname.startswith(jetson_common_cfg.INTERNAL_EMMC_DEVNAME):
+        logger.info(f"device boots from internal emmc: {parent_devpath}")
+        return False
+    logger.info(f"device boots from external device: {parent_devpath}")
+    return True
+
+
+def get_partition_devpath(parent_devpath: StrOrPath, partition_id: int) -> str:
+    """Get partition devpath from <parent_devpath> and <partition_id>.
+
+    For internal emmc like /dev/mmcblk0 with partition_id 1, we will get:
+        /dev/mmcblk0p1
+    For external NVMe SSD like /dev/nvme0n1 with partition_id 1, we will get:
+        /dev/nvme0n1p1
+    For other types of device, including USB drive, like /dev/sda with partition_id 1,
+        we will get: /dev/sda1
+    """
+    parent_devpath = str(parent_devpath).strip().rstrip("/")
+
+    parent_devname = Path(parent_devpath).name
+    if parent_devname.startswith(
+        jetson_common_cfg.MMCBLK_DEV_PREFIX
+    ) or parent_devname.startswith(jetson_common_cfg.NVMESSD_DEV_PREFIX):
+        return f"{parent_devpath}p{partition_id}"
+    if parent_devname.startswith(jetson_common_cfg.SDX_DEV_PREFIX):
+        return f"{parent_devpath}{partition_id}"
+
+    logger.warning(f"unexpected {parent_devname=}, treat it the same as sdx type")
+    return f"{parent_devpath}{partition_id}"

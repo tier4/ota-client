@@ -42,11 +42,14 @@ class JetsonBootCommon:
     # boot control related
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"
     MODEL_FPATH = "/proc/device-tree/model"
-    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
-    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
-    INTERNAL_EMMC_DEVNAME = "mmcblk0"
     NV_TEGRA_RELEASE_FPATH = "/etc/nv_tegra_release"
     SEPARATE_BOOT_MOUNT_POINT = "/mnt/standby_boot"
+
+    # boot device related
+    MMCBLK_DEV_PREFIX = "mmcblk"  # internal emmc
+    NVMESSD_DEV_PREFIX = "nvme"  # external nvme ssd
+    SDX_DEV_PREFIX = "sd"  # non-specific device name
+    INTERNAL_EMMC_DEVNAME = "mmcblk0"
 
     # firmware update related
     NVBOOTCTRL_CONF_FPATH = "/etc/nv_boot_control.conf"
