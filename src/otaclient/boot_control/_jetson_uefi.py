@@ -570,8 +570,10 @@ class UEFIFirmwareUpdater:
         # write special UEFI variable to trigger firmware update on next reboot
         firmware_update_triggerred = False
         if _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf):
+            logger.info("device is using QSPI flash as TEGRA_OTA_BOOT_DEVICE")
             firmware_update_triggerred = _trigger_capsule_update_qspi_ota_bootdev()
         else:
+            logger.info("device is using internal EMMC flash as TEGRA_OTA_BOOT_DEVICE")
             firmware_update_triggerred = _trigger_capsule_update_non_qspi_ota_bootdev(
                 self.esp_mp
             )
