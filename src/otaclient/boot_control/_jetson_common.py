@@ -29,6 +29,7 @@ from typing import Any, NamedTuple, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
+from otaclient_common import replace_root
 from otaclient_common.common import copytree_identical, write_str_to_file_sync
 from otaclient_common.typing import StrOrPath
 
@@ -304,11 +305,13 @@ def detect_rootfs_bsp_version(rootfs: StrOrPath) -> BSPVersion:
     Returns:
         BSPversion of the <rootfs>.
     """
-    nv_tegra_release_fpath = Path(rootfs) / Path(
-        jetson_common_cfg.NV_TEGRA_RELEASE_FPATH
-    ).relative_to("/")
+    nv_tegra_release_fpath = replace_root(
+        jetson_common_cfg.NV_TEGRA_RELEASE_FPATH,
+        "/",
+        rootfs,
+    )
     try:
-        return parse_nv_tegra_release(nv_tegra_release_fpath.read_text())
+        return parse_nv_tegra_release(Path(nv_tegra_release_fpath).read_text())
     except Exception as e:
         _err_msg = f"failed to detect rootfs BSP version at: {rootfs}: {e!r}"
         logger.error(_err_msg)
@@ -343,9 +346,9 @@ def update_extlinux_cfg(_input: str, partuuid: str) -> str:
 
 def copy_standby_slot_boot_to_internal_emmc(
     *,
-    internal_emmc_mp: Path | str,
-    internal_emmc_devpath: Path | str,
-    standby_slot_boot_dirpath: Path | str,
+    internal_emmc_mp: StrOrPath,
+    internal_emmc_devpath: StrOrPath,
+    standby_slot_boot_dirpath: StrOrPath,
 ) -> None:
     """Copy the standby slot's /boot to internal emmc dev.
 
