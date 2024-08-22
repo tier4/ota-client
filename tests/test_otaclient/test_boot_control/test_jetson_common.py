@@ -21,13 +21,16 @@ from typing import Any
 
 import pytest
 
-from otaclient.app.boot_control._jetson_common import (
+from otaclient.boot_control._jetson_common import (
     SLOT_A,
     SLOT_B,
     BSPVersion,
-    FirmwareBSPVersion,
     FirmwareBSPVersionControl,
+    SlotBSPVersion,
     SlotID,
+    detect_external_rootdev,
+    get_nvbootctrl_conf_tnspec,
+    get_partition_devpath,
     parse_nv_tegra_release,
     update_extlinux_cfg,
 )
@@ -95,41 +98,41 @@ class TestBSPVersion:
         assert _in.dump() == _expect
 
 
-class TestFirmwareBSPVersion:
+class TestSlotBSPVersion:
 
     @pytest.mark.parametrize(
         "_in, _slot, _bsp_ver, _expect",
         (
             (
-                FirmwareBSPVersion(),
+                SlotBSPVersion(),
                 SLOT_A,
                 BSPVersion(32, 6, 1),
-                FirmwareBSPVersion(slot_a=BSPVersion(32, 6, 1)),
+                SlotBSPVersion(slot_a=BSPVersion(32, 6, 1)),
             ),
             (
-                FirmwareBSPVersion(
+                SlotBSPVersion(
                     slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
                 ),
                 SLOT_B,
                 None,
-                FirmwareBSPVersion(slot_a=BSPVersion(32, 5, 1), slot_b=None),
+                SlotBSPVersion(slot_a=BSPVersion(32, 5, 1), slot_b=None),
             ),
             (
-                FirmwareBSPVersion(
+                SlotBSPVersion(
                     slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
                 ),
                 SLOT_A,
                 None,
-                FirmwareBSPVersion(slot_a=None, slot_b=BSPVersion(32, 6, 1)),
+                SlotBSPVersion(slot_a=None, slot_b=BSPVersion(32, 6, 1)),
             ),
         ),
     )
     def test_set_by_slot(
         self,
-        _in: FirmwareBSPVersion,
+        _in: SlotBSPVersion,
         _slot: SlotID,
         _bsp_ver: BSPVersion | None,
-        _expect: FirmwareBSPVersion,
+        _expect: SlotBSPVersion,
     ):
         _in.set_by_slot(_slot, _bsp_ver)
         assert _in == _expect
@@ -138,19 +141,19 @@ class TestFirmwareBSPVersion:
         "_in, _slot, _expect",
         (
             (
-                FirmwareBSPVersion(),
+                SlotBSPVersion(),
                 SLOT_A,
                 None,
             ),
             (
-                FirmwareBSPVersion(
+                SlotBSPVersion(
                     slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
                 ),
                 SLOT_B,
                 BSPVersion(32, 6, 1),
             ),
             (
-                FirmwareBSPVersion(
+                SlotBSPVersion(
                     slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
                 ),
                 SLOT_A,
@@ -160,7 +163,7 @@ class TestFirmwareBSPVersion:
     )
     def test_get_by_slot(
         self,
-        _in: FirmwareBSPVersion,
+        _in: SlotBSPVersion,
         _slot: SlotID,
         _expect: BSPVersion | None,
     ):
@@ -169,17 +172,13 @@ class TestFirmwareBSPVersion:
     @pytest.mark.parametrize(
         "_in",
         (
-            (FirmwareBSPVersion()),
-            (FirmwareBSPVersion(slot_a=BSPVersion(32, 5, 1))),
-            (
-                FirmwareBSPVersion(
-                    slot_a=BSPVersion(35, 4, 1), slot_b=BSPVersion(35, 5, 0)
-                )
-            ),
+            (SlotBSPVersion()),
+            (SlotBSPVersion(slot_a=BSPVersion(32, 5, 1))),
+            (SlotBSPVersion(slot_a=BSPVersion(35, 4, 1), slot_b=BSPVersion(35, 5, 0))),
         ),
     )
-    def test_load_and_dump(self, _in: FirmwareBSPVersion):
-        assert FirmwareBSPVersion.model_validate_json(_in.model_dump_json()) == _in
+    def test_load_and_dump(self, _in: SlotBSPVersion):
+        assert SlotBSPVersion.model_validate_json(_in.model_dump_json()) == _in
 
 
 class TestFirmwareBSPVersionControl:
@@ -192,33 +191,33 @@ class TestFirmwareBSPVersionControl:
 
     def test_init(self):
         self.test_fw_bsp_vf.write_text(
-            FirmwareBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
+            SlotBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
         )
 
         loaded = FirmwareBSPVersionControl(
             SLOT_A,
             self.slot_a_ver,
-            current_firmware_bsp_vf=self.test_fw_bsp_vf,
+            current_bsp_version_file=self.test_fw_bsp_vf,
         )
 
         # NOTE: FirmwareBSPVersionControl will not use the information for current slot.
-        assert loaded.current_slot_fw_ver == self.slot_a_ver
-        assert loaded.standby_slot_fw_ver == self.slot_b_ver
+        assert loaded.current_slot_bsp_ver == self.slot_a_ver
+        assert loaded.standby_slot_bsp_ver == self.slot_b_ver
 
     def test_write_to_file(self):
         self.test_fw_bsp_vf.write_text(
-            FirmwareBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
+            SlotBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
         )
         loaded = FirmwareBSPVersionControl(
             SLOT_A,
             self.slot_a_ver,
-            current_firmware_bsp_vf=self.test_fw_bsp_vf,
+            current_bsp_version_file=self.test_fw_bsp_vf,
         )
         loaded.write_to_file(self.test_fw_bsp_vf)
 
         assert (
             self.test_fw_bsp_vf.read_text()
-            == FirmwareBSPVersion(
+            == SlotBSPVersion(
                 slot_a=self.slot_a_ver, slot_b=self.slot_b_ver
             ).model_dump_json()
         )
@@ -264,3 +263,60 @@ def test_update_extlinux_conf(_template_f: Path, _updated_f: Path, partuuid: str
     _in = (TEST_DATA_DIR / _template_f).read_text()
     _expected = (TEST_DATA_DIR / _updated_f).read_text()
     assert update_extlinux_cfg(_in, partuuid) == _expected
+
+
+@pytest.mark.parametrize(
+    "parent_devpath, is_external_rootdev",
+    (
+        ("/dev/mmcblk0", False),
+        ("/dev/mmcblk1", True),
+        ("/dev/sda", True),
+        ("/dev/nvme0n1", True),
+    ),
+)
+def test_detect_external_rootdev(parent_devpath, is_external_rootdev):
+    assert detect_external_rootdev(parent_devpath) is is_external_rootdev
+
+
+@pytest.mark.parametrize(
+    "parent_devpath, partition_id, expected",
+    (
+        ("/dev/mmcblk0", 1, "/dev/mmcblk0p1"),
+        ("/dev/mmcblk1", 1, "/dev/mmcblk1p1"),
+        ("/dev/sda", 1, "/dev/sda1"),
+        ("/dev/nvme0n1", 1, "/dev/nvme0n1p1"),
+    ),
+)
+def test_get_partition_devpath(parent_devpath, partition_id, expected):
+    assert get_partition_devpath(parent_devpath, partition_id) == expected
+
+
+@pytest.mark.parametrize(
+    "nvbooctrl_conf, expected",
+    (
+        (
+            """\
+TNSPEC 2888-400-0004-M.0-1-2-jetson-xavier-rqx580-
+TEGRA_CHIPID 0x19
+TEGRA_OTA_BOOT_DEVICE /dev/mmcblk0boot0
+TEGRA_OTA_GPT_DEVICE /dev/mmcblk0boot1
+""",
+            "2888-400-0004-M.0-1-2-jetson-xavier-rqx580-",
+        ),
+        (
+            """\
+TNSPEC 3701-500-0005-A.0-1-0-cti-orin-agx-agx201-00-
+TEGRA_CHIPID 0x23
+TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0
+TEGRA_OTA_GPT_DEVICE /dev/mtdblock0      
+""",
+            "3701-500-0005-A.0-1-0-cti-orin-agx-agx201-00-",
+        ),
+        (
+            "not a nvbooctrl file",
+            None,
+        ),
+    ),
+)
+def test_get_nvbootctrl_conf_tnspec(nvbooctrl_conf, expected):
+    assert get_nvbootctrl_conf_tnspec(nvbooctrl_conf) == expected
