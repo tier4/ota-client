@@ -604,20 +604,14 @@ class _UEFIBootControl:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
-        # load tnspec for firmware update compatibility check
-        try:
-            self.tnspec = get_nvbootctrl_conf_tnspec(
-                Path(boot_cfg.NVBOOTCTRL_CONF_FPATH).read_text()
-            )
-            logger.info(f"firmware compatibility: {self.tnspec}")
-        except Exception as e:
-            logger.warning(
-                (
-                    f"failed to load tnspec: {e!r}, "
-                    "this will result in firmware update being skipped!"
-                )
-            )
-            self.tnspec = None
+        # load nvbootctrl config file
+        if not (
+            nvbootctrl_conf_fpath := Path(boot_cfg.NVBOOTCTRL_CONF_FPATH)
+        ).is_file():
+            _err_msg = "nv_boot_ctrl.conf is missing!"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg)
+        self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
 
         # ------ check current slot BSP version ------ #
         # check current slot firmware BSP version
