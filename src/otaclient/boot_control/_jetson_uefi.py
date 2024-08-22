@@ -187,6 +187,33 @@ def _trigger_capsule_update_qspi_ota_bootdev() -> bool:
             return False
 
 
+def _trigger_capsule_update_non_qspi_ota_bootdev(esp_mp: StrOrPath) -> bool:
+    """Write magic efivar to trigger firmware Capsule update in next boot.
+
+    Write a special file with magic value into specific location at internal emmc ESP partition.
+
+    This method is for device NOT using QSPI flash as TEGRA_OTA_BOOT_DEVICE.
+    """
+    uefi_variable_dir = Path(esp_mp) / "EFI/NVDA/Variables"
+    magic_variable_fpath = uefi_variable_dir / boot_cfg.UPDATE_TRIGGER_EFIVAR
+
+    try:
+        emmc_esp_partition = _detect_esp_dev(f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}")
+        with _ensure_esp_mounted(emmc_esp_partition, esp_mp):
+            magic_variable_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
+            os.sync()
+
+        return True
+    except Exception as e:
+        logger.warning(
+            (
+                f"failed to configure capsule update: {e!r}\n"
+                "firmware update might be skipped!"
+            )
+        )
+        return False
+
+
 @contextlib.contextmanager
 def _ensure_esp_mounted(
     esp_dev: StrOrPath, mount_point: StrOrPath
@@ -406,19 +433,6 @@ class UEFIFirmwareUpdater:
 
         logger.info("no boot application update is configured in the request, skip")
         return False
-
-    @staticmethod
-    def _write_magic_efivar() -> None:
-        """Write magic efivar to trigger firmware Capsule update in next boot.
-
-        Raises:
-            JetsonUEFIBootControlError on failed Capsule update preparing.
-        """
-        magic_efivar_fpath = (
-            Path(EFIVARS_SYS_MOUNT_POINT) / boot_cfg.UPDATE_TRIGGER_EFIVAR
-        )
-        magic_efivar_fpath.write_bytes(boot_cfg.MAGIC_BYTES)
-        os.sync()
 
     def _detect_l4tlauncher_version(self) -> BSPVersion:
         """Try to determine the current in use l4tlauncher version."""
