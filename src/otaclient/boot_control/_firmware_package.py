@@ -46,11 +46,10 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, List, Literal
+from typing import List, Literal, Union
 
 import yaml
-from pydantic import BaseModel, BeforeValidator, GetCoreSchemaHandler
-from pydantic_core import CoreSchema, core_schema
+from pydantic import BaseModel, BeforeValidator
 from typing_extensions import Annotated
 
 from otaclient_common.typing import StrOrPath, gen_strenum_validator
@@ -67,24 +66,18 @@ class PayloadType(str, Enum):
 DIGEST_PATTERN = re.compile(r"^(?P<algorithm>[\w\-+ ]+):(?P<digest>[a-zA-Z0-9]+)$")
 
 
-def _pydantic_str_schema(
-    cls, source_type: Any, handler: GetCoreSchemaHandler
-) -> CoreSchema:
-    """Pydantic schema adapter for str."""
-    return core_schema.no_info_after_validator_function(cls, handler(str))
-
-
-class DigestValue(str):
+class DigestValue(BaseModel):
     """Implementation of digest value schema <algorithm>:<hexstr>."""
 
-    def __init__(self, _in: str) -> None:
+    algorithm: str
+    digest: str
+
+    @classmethod
+    def parse(cls, _in: str) -> DigestValue:
         _in = _in.strip()
         if not (ma := DIGEST_PATTERN.match(_in)):
             raise ValueError(f"invalid digest value: {_in}")
-        self.algorithm = ma.group("algorithm")
-        self.digest = ma.group("digest")
-
-    __get_pydantic_core_schema__ = classmethod(_pydantic_str_schema)
+        return DigestValue(algorithm=ma.group("algorithm"), digest=ma.group("digest"))
 
 
 class NVIDIAFirmwareCompat(BaseModel):
@@ -107,7 +100,7 @@ class NVIDIAFirmwareSpec(BaseModel):
     firmware_compat: NVIDIAFirmwareCompat
 
 
-class PayloadFileLocation(str):
+class PayloadFileLocation(BaseModel):
     """Specifying the payload file location.
 
     It supports file URL or digest value.
@@ -119,26 +112,28 @@ class PayloadFileLocation(str):
     """
 
     location_type: Literal["blob", "file"]
-    location_path: str | DigestValue
+    location_path: Union[str, DigestValue]
 
-    def __init__(self, _in: str) -> None:
+    @classmethod
+    def parse(cls, _in: str) -> PayloadFileLocation:
         if _in.startswith("file://"):
-            self.location_type = "file"
-            self.location_path = _in.replace("file://", "", 1)
+            location_type = "file"
+            location_path = _in.replace("file://", "", 1)
         else:
-            self.location_type = "blob"
-            self.location_path = DigestValue(_in)
-
-    __get_pydantic_core_schema__ = classmethod(_pydantic_str_schema)
+            location_type = "blob"
+            location_path = DigestValue.parse(_in)
+        return cls(location_type=location_type, location_path=location_path)
 
 
 class FirmwarePackage(BaseModel):
     """Metadata of a firmware update package payload."""
 
     payload_name: str
-    file_location: Annotated[PayloadFileLocation, BeforeValidator(PayloadFileLocation)]
+    file_location: Annotated[
+        PayloadFileLocation, BeforeValidator(PayloadFileLocation.parse)
+    ]
     type: Annotated[PayloadType, BeforeValidator(gen_strenum_validator(PayloadType))]
-    digest: DigestValue
+    digest: Annotated[DigestValue, BeforeValidator(DigestValue.parse)]
 
 
 class HardwareType(str, Enum):
