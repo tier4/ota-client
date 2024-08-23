@@ -546,6 +546,17 @@ class UEFIFirmwareUpdater:
             logger.error(_err_msg)
             return False
 
+        if (
+            self.firmware_package_bsp_ver
+            < FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION
+        ):
+            _err_msg = (
+                f"update firmware to BSP version < {FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION} "
+                "is not supported, abort"
+            )
+            logger.warning(_err_msg)
+            return False
+
         # check BSP version, NVIDIA Jetson device with R34 or newer doesn't allow firmware downgrade.
         if (
             self.standby_slot_bsp_ver
