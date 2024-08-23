@@ -82,7 +82,7 @@ L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
 }
 
 
-class JetsonUEFIBootControlError(Exception):
+class JetsonUEFIBootControlError(Exception):  # pragma: no cover
     """Exception type for covering jetson-uefi related errors."""
 
 
@@ -125,7 +125,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         return bsp_ver
 
     @classmethod
-    def verify(cls) -> str:
+    def verify(cls) -> str:  # pragma: no cover
         """Verify the bootloader and rootfs boot."""
         return cls._nvbootctrl("verify", check_output=True)
 
@@ -135,7 +135,7 @@ EFIVARS_SYS_MOUNT_POINT = "/sys/firmware/efi/efivars/"
 
 
 @contextlib.contextmanager
-def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
+def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:  # pragma: no cover
     """Ensure the efivarfs is mounted as rw, and then umount it."""
     if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT):
         options = "remount,rw,nosuid,nodev,noexec,relatime"
@@ -163,7 +163,7 @@ def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:
         ) from e
 
 
-def _trigger_capsule_update_qspi_ota_bootdev() -> bool:
+def _trigger_capsule_update_qspi_ota_bootdev() -> bool:  # pragma: no cover
     """Write magic efivar to trigger firmware Capsule update in next boot.
 
     This method is for device using QSPI flash as TEGRA_OTA_BOOT_DEVICE.
@@ -187,7 +187,9 @@ def _trigger_capsule_update_qspi_ota_bootdev() -> bool:
             return False
 
 
-def _trigger_capsule_update_non_qspi_ota_bootdev(esp_mp: StrOrPath) -> bool:
+def _trigger_capsule_update_non_qspi_ota_bootdev(
+    esp_mp: StrOrPath,
+) -> bool:  # pragma: no cover
     """Write magic efivar to trigger firmware Capsule update in next boot.
 
     Write a special file with magic value into specific location at internal emmc ESP partition.
@@ -217,7 +219,7 @@ def _trigger_capsule_update_non_qspi_ota_bootdev(esp_mp: StrOrPath) -> bool:
 @contextlib.contextmanager
 def _ensure_esp_mounted(
     esp_dev: StrOrPath, mount_point: StrOrPath
-) -> Generator[None, Any, None]:
+) -> Generator[None, Any, None]:  # pragma: no cover
     """Mount the esp partition and then umount it."""
     mount_point = Path(mount_point)
     mount_point.mkdir(exist_ok=True, parents=True)
@@ -714,7 +716,7 @@ class _UEFIBootControl:
 
     # API
 
-    def switch_boot_to_standby(self) -> None:
+    def switch_boot_to_standby(self) -> None:  # pragma: no cover
         target_slot = self.standby_slot
 
         logger.info(f"switch boot to standby slot({target_slot})")
@@ -833,10 +835,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     # APIs
 
-    def get_standby_slot_path(self) -> Path:
+    def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def get_standby_boot_dir(self) -> Path:
+    def get_standby_boot_dir(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_boot_dir
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
@@ -952,8 +954,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
-    def load_version(self) -> str:
+    def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> api_types.StatusOta:
+    def get_booted_ota_status(self) -> api_types.StatusOta:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
