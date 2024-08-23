@@ -471,9 +471,9 @@ class UEFIFirmwareUpdater:
             )
 
             try:
+                _digest = file_digest(capsule_fpath, algorithm=capsule_digest_alg)
                 assert (
-                    _digest := file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                    == capsule_digest_value
+                    _digest == capsule_digest_value
                 ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
 
                 shutil.copy(
@@ -523,11 +523,9 @@ class UEFIFirmwareUpdater:
                 sha256_digest=_payload.digest.digest,
             )
             try:
+                _digest = file_digest(ota_image_bootaa64, algorithm=payload_digest_alg)
                 assert (
-                    _digest := file_digest(
-                        ota_image_bootaa64, algorithm=payload_digest_alg
-                    )
-                    == payload_digest_value
+                    _digest == payload_digest_value
                 ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
