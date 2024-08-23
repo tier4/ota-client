@@ -34,7 +34,7 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
-from otaclient_common.common import subprocess_run_wrapper
+from otaclient_common.common import file_digest, subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
@@ -225,6 +225,11 @@ class NVUpdateEngine:
             bup_fpath = bup_flocation.location_path
             assert bup_flocation.location_type == "file" and isinstance(bup_fpath, str)
 
+            payload_digest_alg, payload_digest_value = (
+                update_payload.digest.algorithm,
+                update_payload.digest.digest,
+            )
+
             # bup is located at the OTA image
             bup_fpath = replace_root(
                 bup_fpath,
@@ -233,6 +238,15 @@ class NVUpdateEngine:
             )
             if not Path(bup_fpath).is_file():
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
+                continue
+
+            _digest = file_digest(bup_fpath, algorithm=payload_digest_alg)
+            if _digest != payload_digest_value:
+                logger.warning(
+                    f"{payload_digest_alg} validation failed, "
+                    f"expect {payload_digest_value}, get {_digest}, "
+                    f"skip apply {update_payload.payload_name}"
+                )
                 continue
 
             logger.warning(f"apply BUP {bup_fpath} to standby slot ...")
