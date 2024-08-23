@@ -15,9 +15,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pytest_mock import MockerFixture
-from typing_extensions import LiteralString
 
 from otaclient.boot_control import _jetson_uefi
 from otaclient.boot_control._jetson_common import BSPVersion
@@ -241,7 +242,7 @@ def test__l4tlauncher_version_control(
     current_bsp_ver,
     expected_bsp_ver,
     expected_ver_ctrl,
-    tmp_path,
+    tmp_path: Path,
     mocker: MockerFixture,
 ):
     ver_control_f = tmp_path / "l4tlauncher_ver_control"
