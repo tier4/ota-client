@@ -35,6 +35,7 @@ from otaclient.boot_control._firmware_package import (
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
 from otaclient_common.common import subprocess_run_wrapper
+from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
 from ._jetson_common import (
@@ -56,6 +57,12 @@ from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
+
+MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE = BSPVersion(34, 0, 0)
+"""After R34, cboot is replaced by UEFI.
+
+Also, cboot firmware update with nvupdate engine is supported up to this version(exclude).
+"""
 
 
 class JetsonCBootContrlError(Exception):
@@ -159,12 +166,14 @@ class NVUpdateEngine:
 
     def __init__(
         self,
+        standby_slot_mp: StrOrPath,
         *,
         tnspec: str,
         firmware_update_request: FirmwareUpdateRequest,
         firmware_manifest: FirmwareManifest,
         unify_ab: bool,
     ) -> None:
+        self._standby_slot_mp = standby_slot_mp
         self._tnspec = tnspec
         self._firmware_update_request = firmware_update_request
         self._firmware_manifest = firmware_manifest
@@ -201,9 +210,15 @@ class NVUpdateEngine:
 
             # NOTE: currently we only support payload indicated by file path.
             bup_flocation = update_payload.file_location
-            assert bup_flocation.location_type == "file"
             bup_fpath = bup_flocation.location_path
+            assert bup_flocation.location_type == "file" and isinstance(bup_fpath, str)
 
+            # bup is located at the OTA image
+            bup_fpath = replace_root(
+                bup_fpath,
+                "/",
+                self._standby_slot_mp,
+            )
             if not Path(bup_fpath).is_file():
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
                 continue
@@ -489,6 +504,7 @@ class JetsonCBootControl(BootControllerProtocol):
         logger.info(f"firmware update package BSP version: {fw_update_bsp_ver}")
 
         firmware_updater = NVUpdateEngine(
+            standby_slot_mp=self._mp_control.standby_slot_mount_point,
             tnspec=tnspec,
             firmware_update_request=firmware_update_request,
             firmware_manifest=firmware_manifest,
