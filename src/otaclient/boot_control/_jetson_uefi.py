@@ -313,14 +313,17 @@ def _l4tlauncher_version_control(
     *,
     current_slot_bsp_ver: BSPVersion,
 ) -> BSPVersion:
-    """Try to determine the current in use l4tlauncher version and update ver control file.
+    """Try to determine the current in use l4tlauncher version and update ver control file if needed.
 
     If the version file is presented and the sha256digest matched, return the BSP version from version file.
 
     If sha256digest mismatched or version file missing:
     1. try to lookup the L4TLAUNCHER_BSP_VER_SHA256_MAP.
     2. assume that the launcher is the same version of current slot firmware BSP version.
-    Write new version file after detecting.
+    Write new version file after new detecting.
+
+    Returns:
+        The detected L4TLauncher BSP version.
     """
     l4tlauncher_sha256_digest = file_sha256(l4tlauncher_at_esp)
     l4tlauncher_ver_fpath = Path(l4tlauncher_ver_fpath)

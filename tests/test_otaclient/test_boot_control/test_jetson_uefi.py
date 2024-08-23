@@ -27,6 +27,7 @@ from otaclient.boot_control._jetson_uefi import (
     NVBootctrlJetsonUEFI,
     _detect_esp_dev,
     _detect_ota_bootdev_is_qspi,
+    _l4tlauncher_version_control,
 )
 
 MODULE = _jetson_uefi.__name__
@@ -195,3 +196,68 @@ class TestL4TLauncherBSPVersionControl:
     )
     def test_dump(self, to_be_dumped: L4TLauncherBSPVersionControl, expected: str):
         assert to_be_dumped.dump() == expected
+
+
+@pytest.mark.parametrize(
+    "ver_ctrl, l4tlauncher_digest, current_bsp_ver, expected_bsp_ver, expected_ver_ctrl",
+    (
+        # valid version file, hash matched
+        (
+            "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+            "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+            BSPVersion(1, 2, 3),
+            BSPVersion(36, 3, 0),
+            "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+        ),
+        # no version file, lookup table hit
+        (
+            "invalid_version_file",
+            "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+            BSPVersion(1, 2, 3),
+            BSPVersion(36, 3, 0),
+            "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+        ),
+        # valid version file, hash mismatched, use slot BSP version
+        (
+            "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+            "hash_mismatched",
+            BSPVersion(1, 2, 3),
+            BSPVersion(1, 2, 3),
+            "R1.2.3:hash_mismatched",
+        ),
+        # no version file, lookup table unhit
+        (
+            "invalid_version_file",
+            "not_recorded_hash",
+            BSPVersion(1, 2, 3),
+            BSPVersion(1, 2, 3),
+            "R1.2.3:not_recorded_hash",
+        ),
+    ),
+)
+def test__l4tlauncher_version_control(
+    ver_ctrl,
+    l4tlauncher_digest,
+    current_bsp_ver,
+    expected_bsp_ver,
+    expected_ver_ctrl,
+    tmp_path,
+    mocker: MockerFixture,
+):
+    ver_control_f = tmp_path / "l4tlauncher_ver_control"
+    ver_control_f.write_text(ver_ctrl)
+
+    mocker.patch(
+        f"{MODULE}.file_sha256", mocker.MagicMock(return_value=l4tlauncher_digest)
+    )
+
+    assert (
+        _l4tlauncher_version_control(
+            ver_control_f,
+            "any",
+            current_slot_bsp_ver=current_bsp_ver,
+        )
+        == expected_bsp_ver
+    )
+    # ensure the version control file is expected
+    assert ver_control_f.read_text() == expected_ver_ctrl
