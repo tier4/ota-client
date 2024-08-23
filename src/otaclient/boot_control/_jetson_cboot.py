@@ -185,6 +185,18 @@ class NVUpdateEngine:
         Returns:
             True if firmware update is performed, False if there is no firmware update.
         """
+        firmware_bsp_ver = BSPVersion.parse(
+            self._firmware_manifest.firmware_spec.bsp_version
+        )
+        if firmware_bsp_ver >= MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE:
+            logger.warning(
+                f"firmware package has {firmware_bsp_ver}, "
+                f"which newer or equal to {MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE}. "
+                f"firmware update to {MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE} or newer is NOT supported, "
+                "skip firmware update"
+            )
+            return False
+
         # check firmware compatibility, this is to prevent failed firmware update beforehand.
         if not self._firmware_manifest.check_compat(self._tnspec):
             _err_msg = (
@@ -259,10 +271,11 @@ class _CBootControl:
         logger.info(f"{rootfs_bsp_version=}")
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
-        if rootfs_bsp_version >= (34, 0, 0):
+        if rootfs_bsp_version >= MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE:
             _err_msg = (
-                f"jetson-cboot only supports BSP version < R34, but get {rootfs_bsp_version=}. "
-                "Please use jetson-uefi bootloader type for device with BSP >= R34."
+                f"jetson-cboot only supports BSP version < {MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE},"
+                f" but get {rootfs_bsp_version=}. "
+                f"Please use jetson-uefi control for device with BSP >= {MAXIMUM_SUPPORTED_BSP_VERSION_EXCLUDE}."
             )
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
