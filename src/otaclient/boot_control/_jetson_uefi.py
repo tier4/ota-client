@@ -570,8 +570,12 @@ class UEFIFirmwareUpdater:
                 self._update_l4tlauncher()
 
         # write special UEFI variable to trigger firmware update on next reboot
-        firmware_update_triggerred = False
-        if _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf):
+        device_uses_qspi = _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf)
+        if device_uses_qspi is None:
+            logger.warning("failed to detect OTA_BOOTDEV, skip firmware update")
+            return False
+
+        if device_uses_qspi:
             firmware_update_triggerred = _trigger_capsule_update_qspi_ota_bootdev()
         else:
             firmware_update_triggerred = _trigger_capsule_update_non_qspi_ota_bootdev(
