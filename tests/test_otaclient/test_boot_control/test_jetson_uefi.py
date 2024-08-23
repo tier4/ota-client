@@ -17,13 +17,16 @@ from __future__ import annotations
 
 import pytest
 from pytest_mock import MockerFixture
+from typing_extensions import LiteralString
 
 from otaclient.boot_control import _jetson_uefi
 from otaclient.boot_control._jetson_common import BSPVersion
 from otaclient.boot_control._jetson_uefi import (
     JetsonUEFIBootControlError,
+    L4TLauncherBSPVersionControl,
     NVBootctrlJetsonUEFI,
     _detect_esp_dev,
+    _detect_ota_bootdev_is_qspi,
 )
 
 MODULE = _jetson_uefi.__name__
@@ -127,6 +130,68 @@ def test__detect_esp_dev(
         assert _detect_esp_dev(boot_parent_devpath) == expected
 
 
-class TestDetectDeviceOTABOOTDEV:
+@pytest.mark.parametrize(
+    "nvbootctrl_conf, expected",
+    (
+        (
+            """\
+TNSPEC 3701-500-0005-A.0-1-0-cti-orin-agx-agx201-00-
+TEGRA_CHIPID 0x23
+TEGRA_OTA_BOOT_DEVICE /dev/mtdblock0
+TEGRA_OTA_GPT_DEVICE /dev/mtdblock0
+""",
+            True,
+        ),
+        (
+            """\
+TNSPEC 2888-400-0004-M.0-1-2-jetson-xavier-rqx580-
+TEGRA_CHIPID 0x19
+TEGRA_OTA_BOOT_DEVICE /dev/mmcblk0boot0
+TEGRA_OTA_GPT_DEVICE /dev/mmcblk0boot1
+""",
+            False,
+        ),
+        ("", None),
+    ),
+)
+def test__detect_ota_bootdev_is_qspi(nvbootctrl_conf, expected):
+    assert _detect_ota_bootdev_is_qspi(nvbootctrl_conf) is expected
 
-    pass
+
+class TestL4TLauncherBSPVersionControl:
+
+    @pytest.mark.parametrize(
+        "_in, expected",
+        _test_case := (
+            (
+                "R35.4.1:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e",
+                L4TLauncherBSPVersionControl(
+                    bsp_ver=BSPVersion(35, 4, 1),
+                    sha256_digest="ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e",
+                ),
+            ),
+            (
+                "R35.5.0:3928e0feb84e37db87dc6705a02eec95a6fca2dccd3467b61fa66ed8e1046b67",
+                L4TLauncherBSPVersionControl(
+                    bsp_ver=BSPVersion(35, 5, 0),
+                    sha256_digest="3928e0feb84e37db87dc6705a02eec95a6fca2dccd3467b61fa66ed8e1046b67",
+                ),
+            ),
+            (
+                "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+                L4TLauncherBSPVersionControl(
+                    bsp_ver=BSPVersion(36, 3, 0),
+                    sha256_digest="b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+                ),
+            ),
+        ),
+    )
+    def test_parse(self, _in, expected):
+        assert L4TLauncherBSPVersionControl.parse(_in) == expected
+
+    @pytest.mark.parametrize(
+        "to_be_dumped, expected",
+        tuple((entry[1], entry[0]) for entry in _test_case),
+    )
+    def test_dump(self, to_be_dumped: L4TLauncherBSPVersionControl, expected: str):
+        assert to_be_dumped.dump() == expected
