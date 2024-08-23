@@ -653,7 +653,7 @@ class UEFIFirmwareUpdater:
 
         if firmware_update_triggerred:
             logger.warning(
-                "firmware update package prepare finished"
+                "firmware update package prepare finished. "
                 f"will update firmware to {self.firmware_package_bsp_ver} in next reboot"
             )
         return firmware_update_triggerred
@@ -705,7 +705,6 @@ class _UEFIBootControl:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
-        logger.info(f"{fw_bsp_version=}")
 
         # check current slot rootfs BSP version
         try:
@@ -937,8 +936,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # ------ update extlinux.conf ------ #
             update_standby_slot_extlinux_cfg(
                 active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
-                standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
-                / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
+                standby_slot_extlinux_fpath=Path(
+                    replace_root(
+                        boot_cfg.EXTLINUX_FILE,
+                        "/",
+                        self._mp_control.standby_slot_mount_point,
+                    )
+                ),
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 

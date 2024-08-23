@@ -249,7 +249,6 @@ class FirmwareBSPVersionControl:
         # NOTE: only check the standby slot's firmware BSP version info from file,
         #   for current slot, always trust the value from nvbootctrl.
         self._version.set_by_slot(current_slot, current_slot_bsp_ver)
-        logger.info(f"loading firmware bsp version completed: {self._version}")
 
     def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
