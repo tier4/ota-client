@@ -34,7 +34,6 @@ from typing_extensions import Self
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
-    DigestValue,
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
@@ -455,8 +454,10 @@ class UEFIFirmwareUpdater:
 
             # NOTE: currently we only support payload indicated by file path.
             capsule_flocation = capsule_payload.file_location
-            assert capsule_flocation.location_type == "file"
             capsule_fpath = capsule_flocation.location_path
+            assert capsule_flocation.location_type == "file" and isinstance(
+                capsule_fpath, str
+            )
 
             try:
                 shutil.copy(
@@ -476,10 +477,10 @@ class UEFIFirmwareUpdater:
 
     def _update_l4tlauncher(self) -> bool:
         """update L4TLauncher with OTA image's one."""
-        for capsule_payload in self.firmware_manifest.get_firmware_packages(
+        for _payload in self.firmware_manifest.get_firmware_packages(
             self.firmware_update_request
         ):
-            if capsule_payload.type != PayloadType.UEFI_BOOT_APP:
+            if _payload.type != PayloadType.UEFI_BOOT_APP:
                 continue
 
             logger.warning(
@@ -487,18 +488,27 @@ class UEFIFirmwareUpdater:
             )
 
             # NOTE: currently we only support payload indicated by file path.
-            bootapp_fpath = capsule_payload.file_location
-            assert not isinstance(bootapp_fpath, DigestValue)
+            bootapp_flocation = _payload.file_location
+            bootapp_fpath, bootapp_ftype = (
+                bootapp_flocation.location_path,
+                bootapp_flocation.location_type,
+            )
+            assert bootapp_ftype == "file" and isinstance(bootapp_fpath, str)
 
-            # new BOOTAA64.efi is located at /opt/ota_package/BOOTAA64.efi
+            # new BOOTAA64.efi is located at OTA image
             ota_image_bootaa64 = replace_root(bootapp_fpath, "/", self.standby_slot_mp)
+            new_l4tlauncher_ver_ctrl = L4TLauncherBSPVersionControl(
+                bsp_ver=self.firmware_package_bsp_ver,
+                sha256_digest=_payload.digest.digest,
+            )
             try:
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
                 os.sync()  # ensure the boot application is written to the disk
 
                 write_str_to_file_sync(
-                    self.l4tlauncher_ver_fpath, self.firmware_package_bsp_ver.dump()
+                    self.l4tlauncher_ver_fpath,
+                    new_l4tlauncher_ver_ctrl.dump(),
                 )
                 return True
             except Exception as e:
