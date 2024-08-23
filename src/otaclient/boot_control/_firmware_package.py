@@ -46,7 +46,7 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import List, Literal, Union
+from typing import Any, List, Literal, Union
 
 import yaml
 from pydantic import BaseModel, BeforeValidator
@@ -73,11 +73,18 @@ class DigestValue(BaseModel):
     digest: str
 
     @classmethod
-    def parse(cls, _in: str) -> DigestValue:
-        _in = _in.strip()
-        if not (ma := DIGEST_PATTERN.match(_in)):
-            raise ValueError(f"invalid digest value: {_in}")
-        return DigestValue(algorithm=ma.group("algorithm"), digest=ma.group("digest"))
+    def parse(cls, _in: str | DigestValue | Any) -> DigestValue:
+        if isinstance(_in, DigestValue):
+            return _in
+
+        if isinstance(_in, str):
+            _in = _in.strip()
+            if not (ma := DIGEST_PATTERN.match(_in)):
+                raise ValueError(f"invalid digest value: {_in}")
+            return DigestValue(
+                algorithm=ma.group("algorithm"), digest=ma.group("digest")
+            )
+        raise TypeError(f"expect instance of str or {cls}, get {type(_in)}")
 
 
 class NVIDIAFirmwareCompat(BaseModel):
@@ -115,14 +122,19 @@ class PayloadFileLocation(BaseModel):
     location_path: Union[str, DigestValue]
 
     @classmethod
-    def parse(cls, _in: str) -> PayloadFileLocation:
-        if _in.startswith("file://"):
-            location_type = "file"
-            location_path = _in.replace("file://", "", 1)
-        else:
-            location_type = "blob"
-            location_path = DigestValue.parse(_in)
-        return cls(location_type=location_type, location_path=location_path)
+    def parse(cls, _in: str | PayloadFileLocation | Any) -> PayloadFileLocation:
+        if isinstance(_in, PayloadFileLocation):
+            return _in
+
+        if isinstance(_in, str):
+            if _in.startswith("file://"):
+                location_type = "file"
+                location_path = _in.replace("file://", "", 1)
+            else:
+                location_type = "blob"
+                location_path = DigestValue.parse(_in)
+            return cls(location_type=location_type, location_path=location_path)
+        raise TypeError(f"expect instance of str of {cls}, get {type(_in)}")
 
 
 class FirmwarePackage(BaseModel):
