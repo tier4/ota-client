@@ -51,7 +51,7 @@ from otaclient.boot_control._firmware_package import (
     ),
 )
 def test_digest_value_parsing(_in, _expected: list[str]):
-    _parsed = DigestValue(_in)
+    _parsed = DigestValue.parse(_in)
     assert _parsed.algorithm == _expected[0]
     assert _parsed.digest == _expected[1]
 
@@ -67,13 +67,13 @@ def test_digest_value_parsing(_in, _expected: list[str]):
             _in := "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d",
             [
                 "blob",
-                DigestValue(_in),
+                DigestValue.parse(_in),
             ],
         ),
     ),
 )
 def test_payload_file_location(_in, _expected: list[str] | list[str | DigestValue]):
-    _parsed = PayloadFileLocation(_in)
+    _parsed = PayloadFileLocation.parse(_in)
     assert _parsed.location_type == _expected[0]
     assert _parsed.location_path == _expected[1]
 
@@ -153,19 +153,21 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
     firmware_packages=[
         FirmwarePackage(
             payload_name="bl_only_payload.Cap",
-            file_location=PayloadFileLocation(
+            file_location=PayloadFileLocation.parse(
                 "file:///opt/ota/firmware/bl_only_payload.Cap"
             ),
             type=PayloadType("UEFI-CAPSULE"),
-            digest=DigestValue(
+            digest=DigestValue.parse(
                 "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d"
             ),
         ),
         FirmwarePackage(
             payload_name="BOOTAA64.efi",
-            file_location=PayloadFileLocation("file:///opt/ota/firmware/BOOTAA64.efi"),
+            file_location=PayloadFileLocation.parse(
+                "file:///opt/ota/firmware/BOOTAA64.efi"
+            ),
             type=PayloadType("UEFI-BOOT-APP"),
-            digest=DigestValue(
+            digest=DigestValue.parse(
                 "sha256:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e"
             ),
         ),
