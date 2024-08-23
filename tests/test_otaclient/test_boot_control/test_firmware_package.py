@@ -133,6 +133,10 @@ firmware_packages:
     file_location: file:///opt/ota/firmware/BOOTAA64.efi
     type: UEFI-BOOT-APP
     digest: "sha256:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e"
+  - payload_name: some_payload_in_blob_storage
+    file_location: "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
+    type: UEFI-CAPSULE
+    digest: "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
 """
 
 EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
@@ -169,6 +173,16 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
             type=PayloadType("UEFI-BOOT-APP"),
             digest=DigestValue.parse(
                 "sha256:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e"
+            ),
+        ),
+        FirmwarePackage(
+            payload_name="some_payload_in_blob_storage",
+            file_location=PayloadFileLocation.parse(
+                "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
+            ),
+            type=PayloadType("UEFI-CAPSULE"),
+            digest=DigestValue.parse(
+                "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
             ),
         ),
     ],
