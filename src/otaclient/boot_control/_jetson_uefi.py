@@ -41,7 +41,12 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
-from otaclient_common.common import file_sha256, subprocess_call, write_str_to_file_sync
+from otaclient_common.common import (
+    file_digest,
+    file_sha256,
+    subprocess_call,
+    write_str_to_file_sync,
+)
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
@@ -459,9 +464,20 @@ class UEFIFirmwareUpdater:
                 capsule_fpath, str
             )
 
+            capsule_fpath = Path(replace_root(capsule_fpath, "/", self.standby_slot_mp))
+            capsule_digest_alg, capsule_digest_value = (
+                capsule_payload.digest.algorithm,
+                capsule_payload.digest.digest,
+            )
+
             try:
+                assert (
+                    _digest := file_digest(capsule_fpath, algorithm=capsule_digest_alg)
+                    == capsule_digest_value
+                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+
                 shutil.copy(
-                    src=replace_root(capsule_fpath, "/", self.standby_slot_mp),
+                    src=capsule_fpath,
                     dst=capsule_dir_at_esp / capsule_payload.payload_name,
                 )
                 firmware_package_configured = True
@@ -497,11 +513,23 @@ class UEFIFirmwareUpdater:
 
             # new BOOTAA64.efi is located at OTA image
             ota_image_bootaa64 = replace_root(bootapp_fpath, "/", self.standby_slot_mp)
+            payload_digest_alg, payload_digest_value = (
+                _payload.digest.algorithm,
+                _payload.digest.digest,
+            )
+
             new_l4tlauncher_ver_ctrl = L4TLauncherBSPVersionControl(
                 bsp_ver=self.firmware_package_bsp_ver,
                 sha256_digest=_payload.digest.digest,
             )
             try:
+                assert (
+                    _digest := file_digest(
+                        ota_image_bootaa64, algorithm=payload_digest_alg
+                    )
+                    == payload_digest_value
+                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
                 os.sync()  # ensure the boot application is written to the disk
