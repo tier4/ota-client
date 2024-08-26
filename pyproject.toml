@@ -147,7 +147,6 @@ target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
   "src/**/*.py",
-  "proto/**/*.py",
   "pyproject.toml",
 ]
 extend-exclude = [
