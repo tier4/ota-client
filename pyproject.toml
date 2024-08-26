@@ -143,17 +143,13 @@ select = [
   "E9",
   "F",
   "B",
+  "Q",
+  "I",
 ]
-# ignore the following Errors:
-#   E266(too many leading '#'):
-#       sometimes we use multiple # for separting sections
-#   E203(white space before ':'):
-#       this error conflicts with black linting
-#   E701(multiple statements on one line)
 ignore = [
-  "E266",
-  "E203",
-  "E701",
+  "E266", # (too many leading '#'): sometimes we use multiple # for separting sections
+  "E203", # (white space before ':'): this error conflicts with black linting
+  "E701", # (multiple statements on one line)
 ]
 
 [tool.ruff.format]
