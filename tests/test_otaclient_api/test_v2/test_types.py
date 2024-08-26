@@ -163,20 +163,20 @@ class Test_enum_wrapper_cooperate:
 
     def test_assign_to_protobuf_message(self):
         """wrapper enum can be directly assigned in protobuf message."""
-        l, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
+        left, r = v2.StatusProgress(phase=v2.REGULAR), v2.StatusProgress(
             phase=api_types.StatusProgressPhase.REGULAR.value,  # type: ignore
         )
-        compare_message(l, r)
+        compare_message(left, r)
 
     def test_used_in_message_wrapper(self):
         """wrapper enum can be exported."""
-        l, r = (
+        left, r = (
             v2.StatusProgress(phase=v2.REGULAR),
             api_types.StatusProgress(
                 phase=api_types.StatusProgressPhase.REGULAR
             ).export_pb(),
         )
-        compare_message(l, r)
+        compare_message(left, r)
 
     def test_converted_from_protobuf_enum(self):
         """wrapper enum can be converted from and to protobuf enum."""
