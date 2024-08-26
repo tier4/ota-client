@@ -408,7 +408,7 @@ class TestGrubControl:
 
 
 @pytest.mark.parametrize(
-    "input, default_entry, expected",
+    "_input, default_entry, expected",
     (
         (
             # test point:
