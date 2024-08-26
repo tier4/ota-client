@@ -91,13 +91,13 @@ def read_str_from_file(path: Union[Path, str], *, missing_ok=True, default="") -
         raise
 
 
-def write_str_to_file(path: Path, input: str):
-    path.write_text(input)
+def write_str_to_file(path: Path, _input: str):
+    path.write_text(_input)
 
 
-def write_str_to_file_sync(path: Union[Path, str], input: str):
+def write_str_to_file_sync(path: Union[Path, str], _input: str):
     with open(path, "w") as f:
-        f.write(input)
+        f.write(_input)
         f.flush()
         os.fsync(f.fileno())
 
