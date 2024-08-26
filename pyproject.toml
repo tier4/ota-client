@@ -172,4 +172,5 @@ ignore = [
   "E266", # (too many leading '#'): sometimes we use multiple # for separting sections
   "E203", # (white space before ':'): this error conflicts with black linting
   "E701", # (multiple statements on one line)
+  "S101", # (use of assert): mostly we use assert for typing
 ]
