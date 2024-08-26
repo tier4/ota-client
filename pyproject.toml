@@ -165,7 +165,6 @@ select = [
   "I",   # isort
   "B",   # flake8-bugbear
   "A",   # flake8-builtins
-  "S",   # flake8-bandit
   "ICN", # flake8-import-conventions
 ]
 ignore = [
