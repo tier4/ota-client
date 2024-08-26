@@ -491,7 +491,6 @@ def test_copy_tree_B_exists(mocker, tmp_path):
     os.chown(dst_B, 1, 2, follow_symlinks=False)
     os.chmod(dst_A, 0o765)
     os.chmod(dst_B, 0o654)
-    st = os.stat(dst_A, follow_symlinks=False)
 
     (
         src_passwd_file,

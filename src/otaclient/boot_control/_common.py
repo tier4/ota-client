@@ -764,7 +764,9 @@ class SlotMountHelper:
             _dst = self.standby_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
         except Exception as e:
-            raise ValueError(f"failed to copy /boot/ota from active to standby: {e!r}")
+            raise ValueError(
+                f"failed to copy /boot/ota from active to standby: {e!r}"
+            ) from e
 
     def prepare_standby_dev(
         self,

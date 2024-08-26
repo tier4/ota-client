@@ -704,7 +704,7 @@ class _UEFIBootControl:
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from None
 
         # check current slot rootfs BSP version
         try:

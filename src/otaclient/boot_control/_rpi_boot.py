@@ -152,7 +152,7 @@ class _RPIBootControl:
         except Exception as e:
             _err_msg = f"failed to detect partition layout: {e!r}"
             logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
+            raise _RPIBootControllerError(_err_msg) from None
 
         # check system-boot partition mount
         system_boot_partition = device_tree[1]
@@ -185,7 +185,7 @@ class _RPIBootControl:
         except ValueError:
             raise _RPIBootControllerError(
                 f"active slot dev not found: {active_slot_dev=}, {rootfs_partitions=}"
-            )
+            ) from None
 
         if idx == 0:  # slot_a
             self.active_slot = SLOT_A
@@ -335,7 +335,7 @@ class _RPIBootControl:
         except subprocess.CalledProcessError as e:
             _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
             logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
+            raise _RPIBootControllerError(_err_msg) from None
 
         try:
             # flash-kernel will install the kernel and initrd.img files from /boot to /boot/firmware
@@ -359,7 +359,7 @@ class _RPIBootControl:
         except Exception as e:
             _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
             logger.error(_err_msg)
-            raise _RPIBootControllerError(_err_msg)
+            raise _RPIBootControllerError(_err_msg) from None
 
     # exposed API methods/properties
 

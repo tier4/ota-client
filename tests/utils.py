@@ -86,7 +86,7 @@ def run_http_server(addr: str, port: int, *, directory: str):
 def compare_dir(left: Path, right: Path):
     _a_glob = set(map(lambda x: x.relative_to(left), left.glob("**/*")))
     _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
-    if not _a_glob == _b_glob:  # first check paths are identical
+    if _a_glob != _b_glob:  # first check paths are identical
         raise ValueError(
             f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}\n"
             f"{_a_glob=}\n"
@@ -193,19 +193,19 @@ def zstd_compress_file(src: Union[str, Path], dst: Union[str, Path]):
         cctx.copy_stream(src_f, dst_f)
 
 
-def compare_message(l, r):
+def compare_message(left, r):
     """
     NOTE: we don't directly compare two protobuf message by ==
           due to the behavior difference between empty Duration and
           unset Duration.
     """
-    if (_proto_class := type(l)) is not type(r):
-        raise TypeError(f"{type(l)=} != {type(r)=}")
+    if (_proto_class := type(left)) is not type(r):
+        raise TypeError(f"{type(left)=} != {type(r)=}")
 
     for _attrn in _proto_class.__slots__:
-        _attrv_l, _attrv_r = getattr(l, _attrn), getattr(r, _attrn)
+        _attrv_l, _attrv_r = getattr(left, _attrn), getattr(r, _attrn)
         # first check each corresponding attr has the same type,
-        assert type(_attrv_l) == type(_attrv_r), f"compare failed on {_attrn=}"
+        assert type(_attrv_l) is type(_attrv_r), f"compare failed on {_attrn=}"
 
         if isinstance(_attrv_l, _Message):
             compare_message(_attrv_l, _attrv_r)

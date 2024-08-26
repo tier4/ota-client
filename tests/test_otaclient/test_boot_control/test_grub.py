@@ -408,7 +408,7 @@ class TestGrubControl:
 
 
 @pytest.mark.parametrize(
-    "input, default_entry, expected",
+    "_input, default_entry, expected",
     (
         (
             # test point:
@@ -457,9 +457,9 @@ GRUB_DISABLE_RECOVERY=true
     ),
 )
 def test_update_grub_default(
-    input: str, default_entry: typing.Optional[int], expected: str
+    _input: str, default_entry: typing.Optional[int], expected: str
 ):
     from otaclient.boot_control._grub import GrubHelper
 
-    updated = GrubHelper.update_grub_default(input, default_entry_idx=default_entry)
+    updated = GrubHelper.update_grub_default(_input, default_entry_idx=default_entry)
     assert updated == expected

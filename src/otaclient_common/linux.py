@@ -30,7 +30,7 @@ from otaclient_common.typing import StrOrPath
 
 
 def create_swapfile(
-    swapfile_fpath: str | Path, size_in_MiB: int, *, timeout=900
+    swapfile_fpath: str | Path, size_in_mibytes: int, *, timeout=900
 ) -> Path:
     """Create swapfile at <swapfile_fpath> with <size_in_MiB>MiB.
 
@@ -62,7 +62,7 @@ def create_swapfile(
             "if=/dev/zero",
             f"of={str(swapfile_fpath)}",
             "bs=1M",
-            f"count={size_in_MiB}",
+            f"count={size_in_mibytes}",
         ],
         timeout=timeout,
     )
@@ -106,7 +106,7 @@ class ParsedPasswd:
                     self._by_name[_name] = _uid
             self._by_uid = {v: k for k, v in self._by_name.items()}
         except Exception as e:
-            raise ValueError(f"invalid or missing {passwd_fpath=}: {e!r}")
+            raise ValueError(f"invalid or missing {passwd_fpath=}: {e!r}") from None
 
 
 class ParsedGroup:
@@ -131,7 +131,7 @@ class ParsedGroup:
                     self._by_name[_raw_list[0]] = int(_raw_list[2])
             self._by_gid = {v: k for k, v in self._by_name.items()}
         except Exception as e:
-            raise ValueError(f"invalid or missing {group_fpath=}: {e!r}")
+            raise ValueError(f"invalid or missing {group_fpath=}: {e!r}") from None
 
 
 def map_uid_by_pwnam(*, src_db: ParsedPasswd, dst_db: ParsedPasswd, uid: int) -> int:
@@ -143,7 +143,7 @@ def map_uid_by_pwnam(*, src_db: ParsedPasswd, dst_db: ParsedPasswd, uid: int) ->
     try:
         return dst_db._by_name[src_db._by_uid[uid]]
     except KeyError:
-        raise ValueError(f"failed to find mapping for {uid}")
+        raise ValueError(f"failed to find mapping for {uid}") from None
 
 
 def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> int:
@@ -155,7 +155,7 @@ def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> 
     try:
         return dst_db._by_name[src_db._by_gid[gid]]
     except KeyError:
-        raise ValueError(f"failed to find mapping for {gid}")
+        raise ValueError(f"failed to find mapping for {gid}") from None
 
 
 #

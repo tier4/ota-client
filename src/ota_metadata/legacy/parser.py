@@ -197,7 +197,7 @@ class MetaFieldDescriptor(Generic[FV]):
                 except KeyError:
                     raise ValueError(
                         f"invalid metafile field {self.field_name}: {value}"
-                    )
+                    ) from None
             # normal key-value field
             else:
                 try:
@@ -208,7 +208,7 @@ class MetaFieldDescriptor(Generic[FV]):
                 except KeyError:
                     raise ValueError(
                         f"invalid metafile field {self.field_name}: {value}"
-                    )
+                    ) from None
         raise ValueError(f"attempt to assign invalid {value=} to {self.field_name=}")
 
     def __set_name__(self, owner: type, name: str):

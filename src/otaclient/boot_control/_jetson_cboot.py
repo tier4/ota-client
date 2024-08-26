@@ -281,7 +281,7 @@ class _CBootControl:
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
-            raise JetsonCBootContrlError(_err_msg)
+            raise JetsonCBootContrlError(_err_msg) from None
         logger.info(f"{rootfs_bsp_version=}")
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
