@@ -131,6 +131,12 @@ pythonVersion = "3.11"
 
 [tool.ruff]
 target-version = "py311"
+# NOTE: not include tests and tools for now
+include = [
+  "src/**/*.py",
+  "proto/**/*.py",
+  "pyproject.toml",
+]
 extend-exclude = [
   "*_pb2.py*",
   "*_pb2_grpc.py*",
