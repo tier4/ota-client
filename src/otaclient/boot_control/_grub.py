@@ -267,7 +267,7 @@ class GrubHelper:
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
-            )
+            ) from None
 
     @staticmethod
     def grub_reboot(idx: int):

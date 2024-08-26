@@ -99,7 +99,9 @@ class _NVBootctrl(NVBootctrlCommon):
                 return False
             elif e.returncode == 69:
                 return
-            raise ValueError(f"{cmd} returns unexpected result: {e.returncode=}, {e!r}")
+            raise ValueError(
+                f"{cmd} returns unexpected result: {e.returncode=}, {e!r}"
+            ) from None
 
 
 class NVUpdateEngine:
@@ -189,7 +191,7 @@ class _CBootControl:
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
             logger.error(_err_msg)
-            raise JetsonCBootContrlError(_err_msg)
+            raise JetsonCBootContrlError(_err_msg) from None
         logger.info(f"{bsp_version=}")
 
         # ------ sanity check, jetson-cboot is not used after BSP R34 ------ #
@@ -218,7 +220,7 @@ class _CBootControl:
             except subprocess.CalledProcessError:
                 _err_msg = "rootfs A/B is not enabled!"
                 logger.error(_err_msg)
-                raise JetsonCBootContrlError(_err_msg)
+                raise JetsonCBootContrlError(_err_msg) from None
         self.unified_ab_enabled = unified_ab_enabled
 
         if unified_ab_enabled:
