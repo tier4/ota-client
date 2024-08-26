@@ -1,9 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = [
-  "hatch-vcs",
-  "hatchling>=1.20",
-]
+requires = ["hatch-vcs", "hatchling>=1.20"]
 
 [project]
 name = "otaclient"
@@ -20,9 +17,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = [
-  "version",
-]
+dynamic = ["version"]
 dependencies = [
   "aiofiles<25,>=24.1",
   "aiohttp>=3.9.5,<3.11",
@@ -62,44 +57,27 @@ allow-direct-references = true
 version-file = "src/_otaclient_version.py"
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-  "/tools",
-  ".github",
-]
+exclude = ["/tools", ".github"]
 
 [tool.hatch.build.targets.wheel]
-exclude = [
-  "**/.gitignore",
-  "**/*README.md",
-]
-only-include = [
-  "src",
-]
-sources = [
-  "src",
-]
+exclude = ["**/.gitignore", "**/*README.md"]
+only-include = ["src"]
+sources = ["src"]
 
 [tool.hatch.envs.dev]
 type = "virtual"
-features = [
-  "dev",
-]
+features = ["dev"]
 
 [tool.black]
 line-length = 88
-target-version = [
-  'py38',
-]
+target-version = ['py38']
 extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
 )'''
 
 [tool.isort]
 profile = "black"
-extend_skip_glob = [
-  "*_pb2.py*",
-  "_pb2_grpc.py*",
-]
+extend_skip_glob = ["*_pb2.py*", "_pb2_grpc.py*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -107,9 +85,7 @@ log_auto_indent = true
 log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(message)s"
 log_cli = true
 log_cli_level = "INFO"
-testpaths = [
-  "./tests",
-]
+testpaths = ["./tests"]
 
 [tool.coverage.run]
 branch = false
@@ -123,10 +99,7 @@ source = [
 ]
 
 [tool.coverage.report]
-omit = [
-  "**/*_pb2.py*",
-  "**/*_pb2_grpc.py*",
-]
+omit = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
 exclude_also = [
   "def __repr__",
   "if __name__ == .__main__.:",
@@ -138,11 +111,6 @@ skip_empty = true
 skip_covered = true
 
 [tool.pyright]
-exclude = [
-  "**/__pycache__",
-]
-ignore = [
-  "**/*_pb2.py*",
-  "**/*_pb2_grpc.py*",
-]
+exclude = ["**/__pycache__"]
+ignore = ["**/*_pb2.py*", "**/*_pb2_grpc.py*"]
 pythonVersion = "3.8"
