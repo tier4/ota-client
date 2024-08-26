@@ -110,7 +110,7 @@ class ZstdDecompressionAdapter(DecompressionAdapter):
         except zstandard.ZstdError as e:
             raise BrokenDecompressionError(
                 f"failure during decompressing file stream: {e!r}"
-            )
+            ) from e
 
 
 # ------ OTA-Cache-File-Control protocol implementation ------ #
@@ -557,7 +557,7 @@ class DownloaderPool:
         """Close all the downloader instances."""
         # at final, trigger an update to the total_downloaded_bytes, in case
         #   we still need the total_downloaded_bytes data after pool shutdown.
-        self.total_downloaded_bytes
+        _ = self.total_downloaded_bytes
 
         with self._instance_map_lock:
             for _instance in self._instances:

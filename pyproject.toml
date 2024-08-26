@@ -43,12 +43,11 @@ dependencies = [
 optional-dependencies.dev = [
   "black",
   "coverage",
-  "flake8",
-  "isort",
   "pytest==7.1.2",
   "pytest-asyncio==0.23.8",
   "pytest-mock==3.14",
   "requests-mock",
+  "ruff",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
@@ -85,22 +84,6 @@ features = [
   "dev",
 ]
 
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
-
-[tool.isort]
-profile = "black"
-extend_skip_glob = [
-  "*_pb2.py*",
-  "_pb2_grpc.py*",
-]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 log_auto_indent = true
@@ -110,6 +93,18 @@ log_cli_level = "INFO"
 testpaths = [
   "./tests",
 ]
+
+[tool.black]
+line-length = 88
+target-version = [
+  'py38',
+  'py39',
+  'py310',
+  'py311',
+]
+extend-exclude = '''(
+  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
+)'''
 
 [tool.coverage.run]
 branch = false
@@ -142,7 +137,40 @@ exclude = [
   "**/__pycache__",
 ]
 ignore = [
+  "proto/**",
   "**/*_pb2.py*",
   "**/*_pb2_grpc.py*",
 ]
 pythonVersion = "3.8"
+
+[tool.ruff]
+target-version = "py38"
+# NOTE: not include tests and tools for now
+include = [
+  "tests/**/*.py",
+  "src/**/*.py",
+  "pyproject.toml",
+]
+extend-exclude = [
+  "*_pb2.py*",
+  "*_pb2_grpc.py*",
+]
+
+[tool.ruff.lint]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",   # pyflakes
+  "Q",   # flake8-quotes
+  "I",   # isort
+  "B",   # flake8-bugbear
+  "A",   # flake8-builtins
+  "ICN", # flake8-import-conventions
+]
+ignore = [
+  "E266", # (too many leading '#'): sometimes we use multiple # for separting sections
+  "E203", # (white space before ':'): this error conflicts with black linting
+  "E701", # (multiple statements on one line)
+  "S101", # (use of assert): mostly we use assert for typing
+]

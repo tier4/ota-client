@@ -8,6 +8,11 @@ repos:
       - id: check-toml
       - id: end-of-file-fixer
       - id: trailing-whitespace
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.2
+    hooks:
+      - id: ruff
+        args: [--fix]
   # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
   - repo: https://github.com/psf/black-pre-commit-mirror
     rev: 24.4.2
@@ -18,24 +23,6 @@ repos:
         # pre-commit's default_language_version, see
         # https://pre-commit.com/#top_level-default_language_version
         language_version: python3.11
-  # - repo: https://github.com/pycqa/isort
-  #   rev: 5.13.2
-  #   hooks:
-  #     - id: isort
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
-    hooks:
-      - id: flake8
-        additional_dependencies:
-          - flake8-bugbear==24.2.6
-          - flake8-comprehensions
-          - flake8-simplify
-  - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "2.2.1"
-    hooks:
-      - id: pyproject-fmt
-        # https://pyproject-fmt.readthedocs.io/en/latest/#calculating-max-supported-python-version
-        additional_dependencies: ["tox>=4.9"]
   - repo: https://github.com/igorshubovych/markdownlint-cli
     rev: v0.41.0
     hooks:

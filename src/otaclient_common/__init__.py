@@ -72,4 +72,4 @@ def import_from_file(path: Path) -> tuple[str, ModuleType]:
         _spec.loader.exec_module(_module)  # type: ignore
         return _module_name, _module
     except Exception:
-        raise ImportError(f"failed to import module from {path=}.")
+        raise ImportError(f"failed to import module from {path=}.") from None

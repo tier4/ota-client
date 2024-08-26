@@ -25,7 +25,6 @@ from otaclient.app.main import create_otaclient_grpc_server
 from otaclient.configs.ecu_info import ECUInfo
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
-from tests.conftest import cfg
 from tests.utils import compare_message
 
 OTACLIENT_APP_MAIN = "otaclient.app.main"
