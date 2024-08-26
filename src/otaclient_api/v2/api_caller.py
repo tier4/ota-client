@@ -44,7 +44,7 @@ class OTAClientCall:
                 return types.StatusResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to status request on-time: {e!r}"
-            raise ECUNoResponse(_msg) from None
+            raise ECUNoResponse(_msg) from e
 
     @staticmethod
     async def update_call(
@@ -63,7 +63,7 @@ class OTAClientCall:
                 return types.UpdateResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to update request on-time: {e!r}"
-            raise ECUNoResponse(_msg) from None
+            raise ECUNoResponse(_msg) from e
 
     @staticmethod
     async def rollback_call(
@@ -82,4 +82,4 @@ class OTAClientCall:
                 return types.RollbackResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to rollback request on-time: {e!r}"
-            raise ECUNoResponse(_msg) from None
+            raise ECUNoResponse(_msg) from e
