@@ -41,6 +41,7 @@ dependencies = [
   "zstandard<0.24,>=0.22",
 ]
 optional-dependencies.dev = [
+  "black",
   "coverage",
   "pytest==7.1.2",
   "pytest-asyncio==0.23.8",
@@ -92,6 +93,18 @@ log_cli_level = "INFO"
 testpaths = [
   "./tests",
 ]
+
+[tool.black]
+line-length = 88
+target-version = [
+  'py38',
+  'py39',
+  'py310',
+  'py311',
+]
+extend-exclude = '''(
+  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
+)'''
 
 [tool.coverage.run]
 branch = false
