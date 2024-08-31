@@ -42,19 +42,22 @@ logger = logging.getLogger(__name__)
 class SlotID(str):
     """slot_id for A/B slots.
 
-    On NVIDIA Jetson device, slot_a has slot_id=0, slot_b has slot_id=1.
-        For slot_a, the slot partition name suffix is "" or "_a".
-        For slot_b, the slot partition name suffix is "_b".
+    slot_a has slot_id=0, slot_b has slot_id=1.
     """
 
     VALID_SLOTS = ["0", "1"]
+    VALID_SLOTS_CHAR = ["A", "B"]
 
     def __new__(cls, _in: str | Self) -> Self:
         if isinstance(_in, cls):
             return _in
         if _in in cls.VALID_SLOTS:
             return str.__new__(cls, _in)
-        raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
+        if _in in cls.VALID_SLOTS_CHAR:
+            return str.__new__(cls, "0") if _in == "A" else str.__new__(cls, "1")
+        raise ValueError(
+            f"{_in=} is not valid slot num, should be '0'('A') or '1'('B')."
+        )
 
 
 SLOT_A, SLOT_B = SlotID("0"), SlotID("1")
