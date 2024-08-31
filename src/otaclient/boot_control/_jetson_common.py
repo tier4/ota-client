@@ -143,6 +143,10 @@ class SlotBSPVersion(BaseModel):
 NVBootctrlTarget = Literal["bootloader", "rootfs"]
 
 
+class NVBootctrlExecError(Exception):
+    """Raised when nvbootctrl command execution failed."""
+
+
 class NVBootctrlCommon:
     """Helper for calling nvbootctrl commands.
 
@@ -170,6 +174,10 @@ class NVBootctrlCommon:
         check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
     ) -> Any:
+        """
+        Raises:
+            CalledProcessError on return code not equal to 0.
+        """
         cmd = [cls.NVBOOTCTRL]
         if target:
             cmd.extend(["-t", target])
@@ -187,16 +195,26 @@ class NVBootctrlCommon:
 
     @classmethod
     def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
-        """Prints currently running SLOT."""
+        """Prints currently running SLOT.
+
+        Raises:
+            NVBootctrlExecError on failed to get current slot.
+        """
         cmd = "get-current-slot"
-        res = cls._nvbootctrl(cmd, check_output=True, target=target)
-        return SlotID(res.strip())
+        try:
+            res = cls._nvbootctrl(cmd, check_output=True, target=target)
+            return SlotID(res.strip())
+        except Exception as e:
+            raise NVBootctrlExecError from e
 
     @classmethod
     def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
         """Prints standby SLOT.
 
         NOTE: this method is implemented with nvbootctrl get-current-slot.
+
+        Raises:
+            NVBootctrlExecError on failed to get current slot.
         """
         current_slot = cls.get_current_slot(target=target)
         return SLOT_FLIP[current_slot]
@@ -205,15 +223,31 @@ class NVBootctrlCommon:
     def set_active_boot_slot(
         cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
     ) -> None:
-        """On next boot, load and execute SLOT."""
+        """On next boot, load and execute SLOT.
+
+        Raises:
+            NVBootctrlExecError on nvbootctrl call failed.
+        """
         cmd = "set-active-boot-slot"
-        return cls._nvbootctrl(cmd, SlotID(slot_id), check_output=False, target=target)
+        try:
+            return cls._nvbootctrl(
+                cmd, SlotID(slot_id), check_output=False, target=target
+            )
+        except subprocess.CalledProcessError as e:
+            raise NVBootctrlExecError from e
 
     @classmethod
     def dump_slots_info(cls, *, target: Optional[NVBootctrlTarget] = None) -> str:
-        """Prints info for slots."""
+        """Prints info for slots.
+
+        Raises:
+            NVBootctrlExecError on nvbootctrl call failed.
+        """
         cmd = "dump-slots-info"
-        return cls._nvbootctrl(cmd, target=target, check_output=True)
+        try:
+            return cls._nvbootctrl(cmd, target=target, check_output=True)
+        except subprocess.CalledProcessError as e:
+            raise NVBootctrlExecError from e
 
 
 class FirmwareBSPVersionControl:
