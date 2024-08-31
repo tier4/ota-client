@@ -129,6 +129,29 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         return bsp_ver
 
     @classmethod
+    def get_active_bootloader_slot(cls) -> SlotID | None:
+        """Get the active bootloader slot.
+
+        Returns:
+            SlotID of active bootloader slot, or None if failed to detect.
+        """
+        _raw = cls.dump_slots_info()
+        pa = re.compile(r"Active bootloader slot:\s*(?P<slot_id_char>[AB])")
+
+        if not (ma := pa.search(_raw)):
+            _err_msg = f"nvbootctrl report invalid active slot: \n{_raw=}"
+            logger.error(_err_msg)
+            return
+
+        slot_id_char = ma.group("slot_id_char")
+        try:
+            return SlotID(slot_id_char)
+        except ValueError as e:
+            _err_msg = f"failed to detect active bootloader slot: {e!r}"
+            logger.error(_err_msg)
+            return
+
+    @classmethod
     def verify(cls) -> str:  # pragma: no cover
         """Verify the bootloader and rootfs boot."""
         return cls._nvbootctrl("verify", check_output=True)
