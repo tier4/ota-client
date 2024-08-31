@@ -440,7 +440,6 @@ def preserve_ota_config_files_to_standby(
             f"{active_slot_ota_dirpath} doesn't exist, skip preserve /boot/ota folder."
         )
         return
-    # TODO: (20240411) reconsidering should we preserve /boot/ota?
     copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
 
 
