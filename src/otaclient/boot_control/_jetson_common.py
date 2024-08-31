@@ -82,12 +82,17 @@ class BSPVersion(NamedTuple):
 
     @classmethod
     def parse(cls, _in: str | BSPVersion | Any) -> Self:
-        """Parse BSP version string into BSPVersion."""
+        """Parse BSP version string into BSPVersion.
+
+        Raises:
+            ValueError on invalid input.
+        """
         if isinstance(_in, cls):
             return _in
         if isinstance(_in, str):
             ma = BSP_VERSION_STR_PA.match(_in)
-            assert ma, f"not a valid bsp version string: {_in}"
+            if not ma:
+                raise ValueError(f"not a valid bsp version string: {_in}")
 
             major_ver, major_rev, minor_rev = (
                 ma.group("major_ver"),
