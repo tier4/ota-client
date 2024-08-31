@@ -55,6 +55,7 @@ from ._jetson_common import (
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
+    SlotID,
     copy_standby_slot_boot_to_internal_emmc,
     detect_external_rootdev,
     detect_rootfs_bsp_version,
@@ -766,6 +767,7 @@ class _UEFIBootControl:
         # ------ check A/B slots ------ #
         self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot()
         self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot()
+        self.active_bootloader_slot = NVBootctrlJetsonUEFI.get_active_bootloader_slot()
         logger.info(f"{current_slot=}, {standby_slot=}")
 
         # ------ detect rootfs_dev and parent_dev ------ #
@@ -984,6 +986,26 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             )
 
             # ------ firmware update & switch boot to standby ------ #
+            if (
+                self._uefi_control.active_bootloader_slot
+                and self._uefi_control.current_slot
+                != self._uefi_control.active_bootloader_slot
+            ):
+                _err_msg = (
+                    "warning, active bootloader slot is mismatched with current slot: "
+                    f"current_slot={self._uefi_control.current_slot}, "
+                    f"active_bootloader_slot={self._uefi_control.active_bootloader_slot}. "
+                    "this migth indicate an previous interrupted OTA, and this mismatch "
+                    "will cancel the firmware update if configured, "
+                    "correct this mismatch ..."
+                )
+                NVBootctrlJetsonUEFI.set_active_boot_slot(
+                    self._uefi_control.current_slot
+                )
+                self._uefi_control.active_bootloader_slot = (
+                    NVBootctrlJetsonUEFI.get_active_bootloader_slot()
+                )
+
             firmware_update_triggered = self._firmware_update()
             # NOTE: manual switch boot will cancel the scheduled firmware update!
             if not firmware_update_triggered:
