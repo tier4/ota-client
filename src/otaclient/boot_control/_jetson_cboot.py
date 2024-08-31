@@ -43,6 +43,7 @@ from ._jetson_common import (
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
+    NVBootctrlExecError,
     NVBootctrlTarget,
     SlotID,
     copy_standby_slot_boot_to_internal_emmc,
@@ -312,22 +313,27 @@ class _CBootControl:
         self.unified_ab_enabled = unified_ab_enabled
 
         # ------ check A/B slots ------ #
-        self.current_bootloader_slot = current_bootloader_slot = (
-            NVBootctrlJetsonCBOOT.get_current_slot()
-        )
-        self.standby_bootloader_slot = standby_bootloader_slot = (
-            NVBootctrlJetsonCBOOT.get_standby_slot()
-        )
-        if not unified_ab_enabled:
-            self.current_rootfs_slot = current_rootfs_slot = (
-                NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
+        try:
+            self.current_bootloader_slot = current_bootloader_slot = (
+                NVBootctrlJetsonCBOOT.get_current_slot()
             )
-            self.standby_rootfs_slot = standby_rootfs_slot = (
-                NVBootctrlJetsonCBOOT.get_standby_slot(target="rootfs")
+            self.standby_bootloader_slot = standby_bootloader_slot = (
+                NVBootctrlJetsonCBOOT.get_standby_slot()
             )
-        else:
-            self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
-            self.standby_rootfs_slot = standby_rootfs_slot = standby_bootloader_slot
+            if not unified_ab_enabled:
+                self.current_rootfs_slot = current_rootfs_slot = (
+                    NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
+                )
+                self.standby_rootfs_slot = standby_rootfs_slot = (
+                    NVBootctrlJetsonCBOOT.get_standby_slot(target="rootfs")
+                )
+            else:
+                self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
+                self.standby_rootfs_slot = standby_rootfs_slot = standby_bootloader_slot
+        except NVBootctrlExecError as e:
+            _err_msg = f"failed to detect slot info: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg) from e
 
         # check if rootfs slot and bootloader slot mismatches, this only happens
         #   when unified_ab is not enabled.
@@ -339,26 +345,36 @@ class _CBootControl:
             logger.warning("this might indicates a failed previous firmware update")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev()
-        )
-        self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
-        )
+        try:
+            self.curent_rootfs_devpath = current_rootfs_devpath = (
+                CMDHelperFuncs.get_current_rootfs_dev()
+            )
+            self.parent_devpath = parent_devpath = Path(
+                CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+            )
+        except Exception as e:
+            _err_msg = f"failed to detect rootfs: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg) from e
 
         self._external_rootfs = detect_external_rootdev(parent_devpath)
 
         # rootfs partition
-        self.standby_rootfs_devpath = get_partition_devpath(
-            parent_devpath=parent_devpath,
-            partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
-        )
-        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", self.standby_rootfs_devpath
-        ).strip()
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", current_rootfs_devpath
-        ).strip()
+        try:
+            self.standby_rootfs_devpath = get_partition_devpath(
+                parent_devpath=parent_devpath,
+                partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
+            )
+            self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+                "PARTUUID", self.standby_rootfs_devpath
+            ).strip()
+            current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+                "PARTUUID", current_rootfs_devpath
+            ).strip()
+        except Exception as e:
+            _err_msg = f"failed to detect rootfs dev partuuid: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg) from e
 
         logger.info(
             "finish detecting rootfs devs: \n"
