@@ -780,18 +780,30 @@ class _UEFIBootControl:
         logger.info("unified A/B is enabled")
 
         # ------ check A/B slots ------ #
-        self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot()
-        self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot()
-        self.active_bootloader_slot = NVBootctrlJetsonUEFI.get_active_bootloader_slot()
+        try:
+            self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot()
+            self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot()
+            self.active_bootloader_slot = (
+                NVBootctrlJetsonUEFI.get_active_bootloader_slot()
+            )
+        except NVBootctrlExecError as e:
+            _err_msg = f"failed to get slot info: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from e
         logger.info(f"{current_slot=}, {standby_slot=}")
 
         # ------ detect rootfs_dev and parent_dev ------ #
-        self.curent_rootfs_devpath = current_rootfs_devpath = (
-            CMDHelperFuncs.get_current_rootfs_dev()
-        )
-        self.parent_devpath = parent_devpath = Path(
-            CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
-        )
+        try:
+            self.curent_rootfs_devpath = current_rootfs_devpath = (
+                CMDHelperFuncs.get_current_rootfs_dev()
+            )
+            self.parent_devpath = parent_devpath = Path(
+                CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+            )
+        except Exception as e:
+            _err_msg = f"failed to detect rootfs dev: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from e
 
         # --- detect boot device --- #
         self.external_rootfs = detect_external_rootdev(parent_devpath)
