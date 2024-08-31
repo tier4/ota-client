@@ -112,21 +112,30 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
 
     @classmethod
     def get_current_fw_bsp_version(cls) -> BSPVersion:
-        """Get current boot chain's firmware BSP version with nvbootctrl."""
+        """Get current boot chain's firmware BSP version with nvbootctrl.
+
+        Raises:
+            JetsonUEFIBootControlError if failed to detect fw bsp version,
+                or the reported version doesn't make sense.
+        """
         _raw = cls.dump_slots_info()
         pa = re.compile(r"Current version:\s*(?P<bsp_ver>[\.\d]+)")
 
         if not (ma := pa.search(_raw)):
-            _err_msg = "nvbootctrl failed to report BSP version"
+            _err_msg = f"nvbootctrl reports invalid BSP version: \n{_raw=}"
             logger.error(_err_msg)
             raise JetsonUEFIBootControlError(_err_msg)
 
-        bsp_ver_str = ma.group("bsp_ver")
-        bsp_ver = BSPVersion.parse(bsp_ver_str)
+        try:
+            bsp_ver_str = ma.group("bsp_ver")
+            bsp_ver = BSPVersion.parse(bsp_ver_str)
+        except ValueError as e:
+            raise JetsonUEFIBootControlError(f"invalid bsp version: {e!r}") from e
+
         if bsp_ver.major_rev == 0:
             _err_msg = f"invalid BSP version: {bsp_ver_str}, this might indicate an incomplete flash!"
             logger.error(_err_msg)
-            raise ValueError(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg)
         return bsp_ver
 
     @classmethod
@@ -999,6 +1008,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                     "will cancel the firmware update if configured, "
                     "correct this mismatch ..."
                 )
+                logger.warning(_err_msg)
                 NVBootctrlJetsonUEFI.set_active_boot_slot(
                     self._uefi_control.current_slot
                 )
