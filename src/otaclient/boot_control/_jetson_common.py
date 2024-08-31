@@ -173,7 +173,7 @@ class NVBootctrlCommon:
         *,
         check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
-    ) -> Any:
+    ) -> Any:  # pragma: no cover
         """
         Raises:
             CalledProcessError on return code not equal to 0.
@@ -194,7 +194,9 @@ class NVBootctrlCommon:
             return res.stdout.decode()
 
     @classmethod
-    def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
+    def get_current_slot(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> SlotID:  # pragma: no cover
         """Prints currently running SLOT.
 
         Raises:
@@ -208,7 +210,9 @@ class NVBootctrlCommon:
             raise NVBootctrlExecError from e
 
     @classmethod
-    def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
+    def get_standby_slot(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> SlotID:  # pragma: no cover
         """Prints standby SLOT.
 
         NOTE: this method is implemented with nvbootctrl get-current-slot.
@@ -222,7 +226,7 @@ class NVBootctrlCommon:
     @classmethod
     def set_active_boot_slot(
         cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """On next boot, load and execute SLOT.
 
         Raises:
@@ -237,7 +241,9 @@ class NVBootctrlCommon:
             raise NVBootctrlExecError from e
 
     @classmethod
-    def dump_slots_info(cls, *, target: Optional[NVBootctrlTarget] = None) -> str:
+    def dump_slots_info(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> str:  # pragma: no cover
         """Prints info for slots.
 
         Raises:

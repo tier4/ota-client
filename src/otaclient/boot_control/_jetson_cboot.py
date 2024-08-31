@@ -79,7 +79,7 @@ class _NVBootctrl(NVBootctrlCommon):
     @classmethod
     def mark_boot_successful(
         cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Mark current slot as GOOD."""
         cmd = "mark-boot-successful"
         cls._nvbootctrl(cmd, slot_id, check_output=False, target=target)
@@ -87,13 +87,13 @@ class _NVBootctrl(NVBootctrlCommon):
     @classmethod
     def set_slot_as_unbootable(
         cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
-    ) -> None:
+    ) -> None:  # pragma: no cover
         """Mark SLOT as invalid."""
         cmd = "set-slot-as-unbootable"
         return cls._nvbootctrl(cmd, SlotID(slot_id), check_output=False, target=target)
 
     @classmethod
-    def is_unified_enabled(cls) -> bool | None:
+    def is_unified_enabled(cls) -> bool | None:  # pragma: no cover
         """Returns 0 only if unified a/b is enabled.
 
         NOTE: this command is available after BSP R32.6.1.
