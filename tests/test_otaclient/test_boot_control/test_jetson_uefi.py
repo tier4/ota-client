@@ -21,7 +21,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.boot_control import _jetson_uefi
-from otaclient.boot_control._jetson_common import BSPVersion
+from otaclient.boot_control._jetson_common import BSPVersion, SlotID
 from otaclient.boot_control._jetson_uefi import (
     JetsonUEFIBootControlError,
     L4TLauncherBSPVersionControl,
@@ -76,7 +76,7 @@ slot: 1,             status: normal
             ),
         ),
     )
-    def get_current_fw_bsp_version(
+    def test_get_current_fw_bsp_version(
         self, _input: str, expected: BSPVersion | Exception, mocker: MockerFixture
     ):
         mocker.patch.object(
@@ -90,6 +90,45 @@ slot: 1,             status: normal
                 NVBootctrlJetsonUEFI.get_current_fw_bsp_version()
         else:
             assert NVBootctrlJetsonUEFI.get_current_fw_bsp_version() == expected
+
+    @pytest.mark.parametrize(
+        "_input, expected",
+        (
+            (
+                """\
+Current version: 35.4.1
+Capsule update status: 1
+Current bootloader slot: A
+Active bootloader slot: A
+num_slots: 2
+slot: 0,             status: normal
+slot: 1,             status: normal
+             """,
+                SlotID("0"),
+            ),
+            (
+                """\
+Current version: 35.4.1
+Capsule update status: 1
+Current bootloader slot: A
+Active bootloader slot: B
+num_slots: 2
+slot: 0,             status: normal
+slot: 1,             status: normal
+             """,
+                SlotID("1"),
+            ),
+        ),
+    )
+    def test_get_active_bootloader_slot(
+        self, _input: str, expected: SlotID, mocker: MockerFixture
+    ):
+        mocker.patch.object(
+            NVBootctrlJetsonUEFI,
+            "dump_slots_info",
+            mocker.MagicMock(return_value=_input),
+        )
+        assert NVBootctrlJetsonUEFI.get_active_bootloader_slot() == expected
 
 
 @pytest.mark.parametrize(
