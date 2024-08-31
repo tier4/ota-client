@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, ClassVar, Generator, Literal
 
@@ -55,6 +56,7 @@ from ._jetson_common import (
     BSPVersion,
     FirmwareBSPVersionControl,
     NVBootctrlCommon,
+    NVBootctrlExecError,
     SlotID,
     copy_standby_slot_boot_to_internal_emmc,
     detect_external_rootdev,
@@ -115,7 +117,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         """Get current boot chain's firmware BSP version with nvbootctrl.
 
         Raises:
-            JetsonUEFIBootControlError if failed to detect fw bsp version,
+            NVBootctrlExecError if failed to detect fw bsp version,
                 or the reported version doesn't make sense.
         """
         _raw = cls.dump_slots_info()
@@ -124,18 +126,18 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         if not (ma := pa.search(_raw)):
             _err_msg = f"nvbootctrl reports invalid BSP version: \n{_raw=}"
             logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg)
+            raise NVBootctrlExecError(_err_msg)
 
         try:
             bsp_ver_str = ma.group("bsp_ver")
             bsp_ver = BSPVersion.parse(bsp_ver_str)
         except ValueError as e:
-            raise JetsonUEFIBootControlError(f"invalid bsp version: {e!r}") from e
+            raise NVBootctrlExecError(f"invalid bsp version: {e!r}") from e
 
         if bsp_ver.major_rev == 0:
             _err_msg = f"invalid BSP version: {bsp_ver_str}, this might indicate an incomplete flash!"
             logger.error(_err_msg)
-            raise JetsonUEFIBootControlError(_err_msg)
+            raise NVBootctrlExecError(_err_msg)
         return bsp_ver
 
     @classmethod
@@ -162,9 +164,13 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
             return
 
     @classmethod
-    def verify(cls) -> str:  # pragma: no cover
+    def verify(cls) -> str | None:  # pragma: no cover
         """Verify the bootloader and rootfs boot."""
-        return cls._nvbootctrl("verify", check_output=True)
+        try:
+            return cls._nvbootctrl("verify", check_output=True)
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"nvbootctrl verify call failed: {e!r}")
+            return
 
 
 EFIVARS_FSTYPE = "efivarfs"
@@ -889,11 +895,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         NOTE that if capsule firmware update failed, we must be booted back to the
             previous slot, so actually we don't need to do any checks here.
         """
-        try:
-            fw_update_verify = NVBootctrlJetsonUEFI.verify()
+        fw_update_verify = NVBootctrlJetsonUEFI.verify()
+        if fw_update_verify:
             logger.info(f"nvbootctrl verify: {fw_update_verify}")
-        except Exception as e:
-            logger.warning(f"nvbootctrl verify failed: {e!r}")
         return True
 
     def _firmware_update(self) -> bool:
