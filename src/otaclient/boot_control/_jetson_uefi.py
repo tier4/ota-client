@@ -408,7 +408,6 @@ class UEFIFirmwareUpdater:
             firmware_manifest (FirmwareBSPVersionControl)
         """
         self.current_slot_bsp_ver = fw_bsp_ver_control.current_slot_bsp_ver
-        self.standby_slot_bsp_ver = fw_bsp_ver_control.standby_slot_bsp_ver
 
         self.nvbootctrl_conf = nvbootctrl_conf
         self.firmware_update_request = firmware_update_request
@@ -554,20 +553,20 @@ class UEFIFirmwareUpdater:
         2. the firmware_manifest is presented and valid in the OTA image.
         3. the firmware package is compatible with the device.
         4. firmware specified in firmware_update_request is valid.
-        5. the standby slot's firmware is older than the OTA image's one.
+        5. the firmware package's BSP version is the same or newer than current slot's firmware BSP version.
+
+        NOTE: firmware CANNOT be downgraded with UEFI Capsule update mechanism.
+        NOTE(20240826): the firmware update is executed by the CURRENT slot's UEFI framework, so
+            we need to check the firmware package's version against CURRENT slot's firmware BSP version.
 
         Returns:
             True if firmware update is configured, False if there is no firmware update.
         """
         # sanity check, UEFI Capsule firmware update is only supported after R35.2.
-        if (
-            self.standby_slot_bsp_ver
-            and self.standby_slot_bsp_ver
-            < FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION
-        ):
+        if self.current_slot_bsp_ver < FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION:
             _err_msg = (
                 f"UEFI Capsule firmware update is introduced since {FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION}, "
-                f"but get {self.standby_slot_bsp_ver}, abort"
+                f"but get {self.current_slot_bsp_ver=}, abort"
             )
             logger.error(_err_msg)
             return False
@@ -584,14 +583,12 @@ class UEFIFirmwareUpdater:
             return False
 
         # check BSP version, NVIDIA Jetson device with R34 or newer doesn't allow firmware downgrade.
-        if (
-            self.standby_slot_bsp_ver
-            and self.standby_slot_bsp_ver > self.firmware_package_bsp_ver
-        ):
+        if self.current_slot_bsp_ver > self.firmware_package_bsp_ver:
             logger.info(
                 (
-                    "standby slot has newer ver of firmware, skip firmware update: "
-                    f"{self.standby_slot_bsp_ver=}, {self.firmware_package_bsp_ver=}"
+                    "current slot's firmware BSP version is newer than firmware package's,"
+                    " skip firmware update: "
+                    f"{self.current_slot_bsp_ver=}, {self.firmware_package_bsp_ver=}"
                 )
             )
             return False
