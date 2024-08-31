@@ -303,6 +303,16 @@ class _CBootControl:
             logger.error(_err_msg)
             raise JetsonCBootContrlError(_err_msg)
 
+        # ------ load nvbootctrl config file ------ #
+        if not (
+            nvbootctrl_conf_fpath := Path(boot_cfg.NVBOOTCTRL_CONF_FPATH)
+        ).is_file():
+            _err_msg = "nv_boot_ctrl.conf is missing!"
+            logger.error(_err_msg)
+            raise JetsonCBootContrlError(_err_msg)
+        self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
+        logger.info(f"nvboot_ctrl_conf: \n{self.nvbootctrl_conf}")
+
         # ------ check if unified A/B is enabled ------ #
         # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
         #   is NOT supported and MUST not occur.
@@ -395,16 +405,6 @@ class _CBootControl:
             logger.info(
                 f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs')}"
             )
-
-        # load nvbootctrl config file
-        if not (
-            nvbootctrl_conf_fpath := Path(boot_cfg.NVBOOTCTRL_CONF_FPATH)
-        ).is_file():
-            _err_msg = "nv_boot_ctrl.conf is missing!"
-            logger.error(_err_msg)
-            raise JetsonCBootContrlError(_err_msg)
-        self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
-        logger.info(f"nvboot_ctrl_conf: \n{self.nvbootctrl_conf}")
 
     # API
 

@@ -719,7 +719,7 @@ class _UEFIBootControl:
             raise JetsonUEFIBootControlError(_err_msg)
         logger.info(f"dev compatibility: {compat_info}")
 
-        # load nvbootctrl config file
+        # ------ load nvbootctrl config file ------ #
         if not (
             nvbootctrl_conf_fpath := Path(boot_cfg.NVBOOTCTRL_CONF_FPATH)
         ).is_file():
@@ -812,12 +812,18 @@ class _UEFIBootControl:
             parent_devpath=parent_devpath,
             partition_id=SLOT_PAR_MAP[standby_slot],
         )
-        self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", self.standby_rootfs_devpath
-        ).strip()
-        current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
-            "PARTUUID", current_rootfs_devpath
-        ).strip()
+
+        try:
+            self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+                "PARTUUID", self.standby_rootfs_devpath
+            ).strip()
+            current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+                "PARTUUID", current_rootfs_devpath
+            ).strip()
+        except Exception as e:
+            _err_msg = f"failed to detect rootfs PARTUUID: {e!r}"
+            logger.error(_err_msg)
+            raise JetsonUEFIBootControlError(_err_msg) from e
 
         logger.info(
             "rootfs device: \n"
