@@ -69,7 +69,7 @@ class JetsonCBootContrlError(Exception):
     """Exception types for covering jetson-cboot related errors."""
 
 
-class _NVBootctrl(NVBootctrlCommon):
+class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
     """Helper for calling nvbootctrl commands.
 
     For BSP version < R34.
@@ -82,7 +82,10 @@ class _NVBootctrl(NVBootctrlCommon):
     ) -> None:  # pragma: no cover
         """Mark current slot as GOOD."""
         cmd = "mark-boot-successful"
-        cls._nvbootctrl(cmd, slot_id, check_output=False, target=target)
+        try:
+            cls._nvbootctrl(cmd, slot_id, check_output=False, target=target)
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
 
     @classmethod
     def set_slot_as_unbootable(
@@ -90,7 +93,12 @@ class _NVBootctrl(NVBootctrlCommon):
     ) -> None:  # pragma: no cover
         """Mark SLOT as invalid."""
         cmd = "set-slot-as-unbootable"
-        return cls._nvbootctrl(cmd, SlotID(slot_id), check_output=False, target=target)
+        try:
+            return cls._nvbootctrl(
+                cmd, SlotID(slot_id), check_output=False, target=target
+            )
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
 
     @classmethod
     def is_unified_enabled(cls) -> bool | None:  # pragma: no cover
@@ -297,7 +305,7 @@ class _CBootControl:
         # ------ check if unified A/B is enabled ------ #
         # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
         #   is NOT supported and MUST not occur.
-        if unified_ab_enabled := _NVBootctrl.is_unified_enabled():
+        if unified_ab_enabled := NVBootctrlJetsonCBOOT.is_unified_enabled():
             logger.info(
                 "unified A/B is enabled, rootfs and bootloader will be switched together"
             )
@@ -305,17 +313,17 @@ class _CBootControl:
 
         # ------ check A/B slots ------ #
         self.current_bootloader_slot = current_bootloader_slot = (
-            _NVBootctrl.get_current_slot()
+            NVBootctrlJetsonCBOOT.get_current_slot()
         )
         self.standby_bootloader_slot = standby_bootloader_slot = (
-            _NVBootctrl.get_standby_slot()
+            NVBootctrlJetsonCBOOT.get_standby_slot()
         )
         if not unified_ab_enabled:
             self.current_rootfs_slot = current_rootfs_slot = (
-                _NVBootctrl.get_current_slot(target="rootfs")
+                NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
             )
             self.standby_rootfs_slot = standby_rootfs_slot = (
-                _NVBootctrl.get_standby_slot(target="rootfs")
+                NVBootctrlJetsonCBOOT.get_standby_slot(target="rootfs")
             )
         else:
             self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
@@ -364,10 +372,12 @@ class _CBootControl:
             partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
         )
         logger.info(f"finished cboot control init: {current_rootfs_slot=}")
-        logger.info(f"nvbootctrl dump-slots-info: \n{_NVBootctrl.dump_slots_info()}")
+        logger.info(
+            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}"
+        )
         if not unified_ab_enabled:
             logger.info(
-                f"nvbootctrl -t rootfs dump-slots-info: \n{_NVBootctrl.dump_slots_info(target='rootfs')}"
+                f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs')}"
             )
 
         # load nvbootctrl config file
@@ -392,7 +402,9 @@ class _CBootControl:
         return self._external_rootfs
 
     def set_standby_rootfs_unbootable(self):
-        _NVBootctrl.set_slot_as_unbootable(self.standby_rootfs_slot, target="rootfs")
+        NVBootctrlJetsonCBOOT.set_slot_as_unbootable(
+            self.standby_rootfs_slot, target="rootfs"
+        )
 
     def switch_boot_to_standby(self) -> None:
         # NOTE(20240412): we always try to align bootloader slot with rootfs.
@@ -400,11 +412,11 @@ class _CBootControl:
 
         logger.info(f"switch boot to standby slot({target_slot})")
         if not self.unified_ab_enabled:
-            _NVBootctrl.set_active_boot_slot(target_slot, target="rootfs")
+            NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, target="rootfs")
 
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
-        _NVBootctrl.set_active_boot_slot(target_slot)
+        NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot)
 
 
 class JetsonCBootControl(BootControllerProtocol):
@@ -487,7 +499,9 @@ class JetsonCBootControl(BootControllerProtocol):
         # NOTE(20240417): rootfs slot is manually switched by set-active-boot-slot,
         #   so we need to manually set the slot as success after first reboot.
         if not self._cboot_control.unified_ab_enabled:
-            _NVBootctrl.mark_boot_successful(current_rootfs_slot, target="rootfs")
+            NVBootctrlJetsonCBOOT.mark_boot_successful(
+                current_rootfs_slot, target="rootfs"
+            )
 
         logger.info(
             f"nv_update_engine verify succeeded: \n{update_result.stdout.decode()}"
@@ -632,7 +646,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
-            logger.info(f"[post-update]: \n{_NVBootctrl.dump_slots_info()}")
+            logger.info(f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
             yield  # hand over control back to otaclient
             CMDHelperFuncs.reboot()
