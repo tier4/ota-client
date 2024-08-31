@@ -167,7 +167,7 @@ class NVBootctrlCommon:
         _cmd: str,
         _slot_id: Optional[SlotID] = None,
         *,
-        check_output,
+        check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
     ) -> Any:
         cmd = [cls.NVBOOTCTRL]
@@ -190,7 +190,6 @@ class NVBootctrlCommon:
         """Prints currently running SLOT."""
         cmd = "get-current-slot"
         res = cls._nvbootctrl(cmd, check_output=True, target=target)
-        assert isinstance(res, str), f"invalid output from get-current-slot: {res}"
         return SlotID(res.strip())
 
     @classmethod
