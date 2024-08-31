@@ -21,7 +21,11 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.boot_control import _jetson_uefi
-from otaclient.boot_control._jetson_common import BSPVersion, SlotID
+from otaclient.boot_control._jetson_common import (
+    BSPVersion,
+    NVBootctrlExecError,
+    SlotID,
+)
 from otaclient.boot_control._jetson_uefi import (
     JetsonUEFIBootControlError,
     L4TLauncherBSPVersionControl,
@@ -72,7 +76,7 @@ num_slots: 2
 slot: 0,             status: normal
 slot: 1,             status: normal
              """,
-                ValueError(),
+                NVBootctrlExecError(),
             ),
         ),
     )

@@ -70,7 +70,7 @@ class TestBSPVersion:
             ("32.6.1", BSPVersion(32, 6, 1), None),
             ("R35.4.1", BSPVersion(35, 4, 1), None),
             ("1.22.333", BSPVersion(1, 22, 333), None),
-            ("not_a_valid_bsp_ver", None, AssertionError),
+            ("not_a_valid_bsp_ver", None, ValueError),
             (123, None, ValueError),
         ),
     )
