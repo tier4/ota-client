@@ -316,11 +316,13 @@ class _CBootControl:
         # ------ check if unified A/B is enabled ------ #
         # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
         #   is NOT supported and MUST not occur.
-        if unified_ab_enabled := NVBootctrlJetsonCBOOT.is_unified_enabled():
-            logger.info(
-                "unified A/B is enabled, rootfs and bootloader will be switched together"
-            )
-        self.unified_ab_enabled = unified_ab_enabled
+        self.unified_ab_enabled = False
+        if rootfs_bsp_version >= BSPVersion(32, 6, 1):
+            if unified_ab_enabled := NVBootctrlJetsonCBOOT.is_unified_enabled():
+                logger.info(
+                    "unified A/B is enabled, rootfs and bootloader will be switched together"
+                )
+            self.unified_ab_enabled = unified_ab_enabled
 
         # ------ check A/B slots ------ #
         try:
@@ -428,6 +430,9 @@ class _CBootControl:
 
         logger.info(f"switch boot to standby slot({target_slot})")
         if not self.unified_ab_enabled:
+            logger.info(
+                f"unified AB slot is not enabled, also set active rootfs slot to ${target_slot}"
+            )
             NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, target="rootfs")
 
         # when unified_ab enabled, switching bootloader slot will also switch
@@ -586,6 +591,9 @@ class JetsonCBootControl(BootControllerProtocol):
             if not self._cboot_control.unified_ab_enabled:
                 # set standby rootfs as unbootable as we are going to update it
                 # this operation not applicable when unified A/B is enabled.
+                logger.info(
+                    "unified AB slot is not enabled, set standby rootfs slot as unbootable"
+                )
                 self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
