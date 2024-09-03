@@ -20,12 +20,13 @@ TODO(20240603): the old otaclient.app.common, split it by functionalities in
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shutil
 import subprocess
 import time
-from hashlib import sha256
+from functools import partial
 from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urljoin
@@ -33,6 +34,7 @@ from urllib.parse import urljoin
 import requests
 
 from otaclient_common.linux import subprocess_run_wrapper
+from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -52,17 +54,17 @@ def wait_with_backoff(_retry_cnt: int, *, _backoff_factor: float, _backoff_max: 
 
 
 # file verification
-def file_sha256(
-    filename: Union[Path, str], *, chunk_size: int = 1 * 1024 * 1024
-) -> str:
-    with open(filename, "rb") as f:
-        m = sha256()
-        while True:
-            d = f.read(chunk_size)
-            if len(d) == 0:
-                break
-            m.update(d)
-        return m.hexdigest()
+def file_digest(fpath: StrOrPath, *, algorithm: str, chunk_size: int = 1 * 1024 * 1024):
+    """Generate file digest with <algorithm>."""
+    with open(fpath, "rb") as f:
+        hasher = hashlib.new(algorithm)
+        while d := f.read(chunk_size):
+            hasher.update(d)
+        return hasher.hexdigest()
+
+
+file_sha256 = partial(file_digest, algorithm="sha256")
+file_sha256.__doc__ = "Generate file digest with sha256."
 
 
 def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
