@@ -520,6 +520,9 @@ class JetsonCBootControl(BootControllerProtocol):
         # NOTE(20240417): rootfs slot is manually switched by set-active-boot-slot,
         #   so we need to manually set the slot as success after first reboot.
         if not self._cboot_control.unified_ab_enabled:
+            logger.info(
+                f"unified A/B is not enabled, set {current_rootfs_slot} boot succeeded."
+            )
             NVBootctrlJetsonCBOOT.mark_boot_successful(
                 current_rootfs_slot, target="rootfs"
             )
