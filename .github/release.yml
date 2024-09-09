@@ -1,0 +1,44 @@
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+    authors:
+      # not include the PRs for updating pre-commit-ci hooks ver
+      - pre-commit-ci
+  categories:
+    - title: Security related!
+      labels:
+        - security
+    - title: Breaking Changes!
+      labels:
+        - breaking-change
+    - title: New Features
+      labels:
+        - feature
+    - title: Bug Fixes
+      labels:
+        - bug
+    - title: Improvements & Refinements
+      labels:
+        - refactor
+        - refinement
+    - title: Build, CI & Dependencies
+      labels:
+        - build/ci
+        - dependencies
+    - title: Tests Updates
+      labels:
+        - test_files
+    - title: Docs Updates
+      labels:
+        - documentation
+    - title: Tools Updates
+      labels:
+        - tools
+    - title: Chore & Misc.
+      labels:
+        - chore
+        - misc
+    - title: Other Changes
+      labels:
+        - "*"
