@@ -128,7 +128,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
         finished_tasks = 0
-        while self._total_task_num != -1 and finished_tasks != self._total_task_num:
+        while finished_tasks == 0 or finished_tasks != self._total_task_num:
+            if self._total_task_num < 0:
+                return
+
             if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
