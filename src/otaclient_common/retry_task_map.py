@@ -169,6 +169,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher() -> None:
+            _tasks_count = 0
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
                     self._concurrent_semaphore.acquire()
