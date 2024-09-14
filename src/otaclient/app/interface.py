@@ -16,19 +16,20 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import Protocol, Type
+from typing import TYPE_CHECKING, Protocol
 
-from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.create_standby.interface import StandbySlotCreatorProtocol
-from otaclient_api.v2 import types as api_types
+if TYPE_CHECKING:
+    from otaclient.boot_control.protocol import BootControllerProtocol
+    from otaclient.create_standby.interface import StandbySlotCreatorProtocol
+    from otaclient_api.v2 import types as api_types
 
 
 class OTAClientProtocol(Protocol):
     def __init__(
         self,
         *,
-        boot_control_cls: Type[BootControllerProtocol],
-        create_standby_cls: Type[StandbySlotCreatorProtocol],
+        boot_control_cls: type[BootControllerProtocol],
+        create_standby_cls: type[StandbySlotCreatorProtocol],
         my_ecu_id: str = "",
     ) -> None: ...
 
