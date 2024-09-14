@@ -65,6 +65,14 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         """
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
+        """
+        NOTE: 
+            1. when is 0, the tasks dispatch is not yet started.
+            2. when becomes -1, it means that the input tasks iterable yields
+                no tasks, the task execution gen should stop immediately.
+            3. only value >=1 is valid.
+        """
+
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
@@ -120,7 +128,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
         finished_tasks = 0
-        while True:
+        while self._total_task_num != -1 and finished_tasks != self._total_task_num:
             if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
                 logger.warning(
                     f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
@@ -133,10 +141,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     finished_tasks += 1
                 yield done_fut
             except Empty:
-                if self._total_task_num == 0 or finished_tasks != self._total_task_num:
-                    time.sleep(interval)
-                    continue
-                return
+                time.sleep(interval)
 
     def ensure_tasks(
         self,
@@ -169,7 +174,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher() -> None:
-            _tasks_count = 0
+            _tasks_count = -1  # means no task is scheduled
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
                     self._concurrent_semaphore.acquire()
@@ -183,7 +188,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 return
 
             self._total_task_num = _tasks_count
-            logger.info(f"finish dispatch {_tasks_count} tasks")
+            if _tasks_count > 0:
+                logger.info(f"finish dispatch {_tasks_count} tasks")
+            else:
+                logger.warning("no task is scheduled!")
 
         threading.Thread(target=_dispatcher, daemon=True).start()
 
