@@ -316,13 +316,13 @@ class _CBootControl:
         # ------ check if unified A/B is enabled ------ #
         # NOTE: mismatch rootfs BSP version and bootloader firmware BSP version
         #   is NOT supported and MUST not occur.
-        self.unified_ab_enabled = False
+        unified_ab_enabled = False
         if rootfs_bsp_version >= BSPVersion(32, 6, 1):
             if unified_ab_enabled := NVBootctrlJetsonCBOOT.is_unified_enabled():
                 logger.info(
                     "unified A/B is enabled, rootfs and bootloader will be switched together"
                 )
-            self.unified_ab_enabled = unified_ab_enabled
+        self.unified_ab_enabled = unified_ab_enabled
 
         # ------ check A/B slots ------ #
         try:
@@ -332,7 +332,7 @@ class _CBootControl:
             self.standby_bootloader_slot = standby_bootloader_slot = (
                 NVBootctrlJetsonCBOOT.get_standby_slot()
             )
-            if not unified_ab_enabled:
+            if not self.unified_ab_enabled:
                 self.current_rootfs_slot = current_rootfs_slot = (
                     NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
                 )
