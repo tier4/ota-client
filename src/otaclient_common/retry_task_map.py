@@ -66,7 +66,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
         """
-        NOTE: 
+        NOTE:
             1. when is 0, the tasks dispatch is not yet started.
             2. when becomes -1, it means that the input tasks iterable yields
                 no tasks, the task execution gen should stop immediately.
