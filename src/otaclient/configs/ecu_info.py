@@ -108,6 +108,20 @@ class ECUInfo(BaseFixedConfig):
             return [self.ecu_id]
         return self.available_ecu_ids.copy()
 
+    def check_ecu_ids(self, *ecu_ids: str) -> bool:
+        """Check whether all the input ecu_ids are valid or not."""
+        _input_ids = set(ecu_ids)
+        _input_ids.discard(self.ecu_id)
+
+        for sub_ecu in self.secondaries:
+            _input_ids.discard(sub_ecu.ecu_id)
+
+        # all the ids in input ecu_ids should be matched(so discarded)
+        _invalid_ids_found = bool(_input_ids)
+        if _invalid_ids_found:
+            logger.warning(f"invalid ids found: {_input_ids}")
+        return not _invalid_ids_found
+
 
 # NOTE: this is backward compatibility for old x1 that doesn't have
 #       ecu_info.yaml installed.
@@ -135,6 +149,60 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
         return DEFAULT_ECU_INFO
 
 
+SELECT_ECU_CHARS_TO_CLEAN = ["\n\r"]
+SELECT_ECU_COMPATIBLE_SEP = ["、，"]
+SELECT_ECU_SEP_CHAR = ","
+
+
+def parse_select_ecu(select_ecu_file: StrOrPath, ecu_info: ECUInfo) -> set[str]:
+    """Get a list of ECU ids that should receive OTA update from select_ecu config.
+
+    This file MUST contains a list of comma(,) separated ECU ids.
+
+    If select_ecu config is file presented and valid, otaclient will read
+        this file to load the configuration of allowing which ECUs to OTA.
+        This file has higher priority over the `available_ecu_ids` field
+        in the ecu_info.yaml.
+
+    If select_ecu config is not available, use the `available_ecu_ids` field
+        from the ecu_info.yaml file.
+    """
+    select_ecu_file = Path(select_ecu_file)
+    if not select_ecu_file.is_file():
+        return set(ecu_info.get_available_ecu_ids())
+
+    raw_select_ecu_cfg = select_ecu_file.read_text()
+    for _c in SELECT_ECU_CHARS_TO_CLEAN:
+        raw_select_ecu_cfg = raw_select_ecu_cfg.replace(_c, " ")
+    for _c in SELECT_ECU_COMPATIBLE_SEP:
+        raw_select_ecu_cfg = raw_select_ecu_cfg.replace(_c, SELECT_ECU_SEP_CHAR)
+    select_ecu_from_cfg = [
+        _id.strip() for _id in raw_select_ecu_cfg.split(SELECT_ECU_SEP_CHAR)
+    ]
+
+    if not select_ecu_from_cfg:
+        logger.warning(
+            "WARN: no ECU is specified in select_ecu config file! ARE YOU SURE?"
+        )
+        return set()
+
+    if ecu_info.check_ecu_ids(*select_ecu_from_cfg):
+        logger.warning(
+            f"WARN: only allow OTA from the following ECUs: {select_ecu_from_cfg}, "
+            "not all ECUs defined in ecu_info.yaml will receive OTA!"
+        )
+        return set(select_ecu_from_cfg)
+
+    logger.warning(
+        "WARN: select_ecu file contains invalid ECU ids!"
+        "still use `available_ecu_ids` from ecu_info.yaml"
+    )
+    return set(ecu_info.get_available_ecu_ids())
+
+
 # NOTE(20240327): set the default as literal for now,
 #   in the future this will be app_cfg.ECU_INFO_FPATH
 ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")
+select_ecu_set = parse_select_ecu(
+    select_ecu_file="/boot/ota/select_ecu", ecu_info=ecu_info
+)
