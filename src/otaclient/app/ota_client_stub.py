@@ -38,7 +38,7 @@ from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
 from .configs import config as cfg
-from .configs import ecu_info, proxy_info, server_cfg
+from .configs import ecu_info, proxy_info, select_ecu_list, server_cfg
 from .ota_client import OTAClientControlFlags, OTAServicer
 
 logger = logging.getLogger(__name__)
@@ -333,9 +333,7 @@ class ECUStatusStorage:
         # TODO: in the future if otaclient can preserve OTA session info,
         #       ECUStatusStorage should restore the tracked_active_ecus info
         #       in the saved session info.
-        self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(
-            ecu_info.get_available_ecu_ids()
-        )
+        self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(select_ecu_list)
 
         # The attribute that will be exported in status API response,
         # NOTE(20230801): available_ecu_ids only serves information purpose,
@@ -343,9 +341,7 @@ class ECUStatusStorage:
         #                 available_ecu_ids field in sub ECUs' status report.
         # NOTE(20230801): for web.auto user, available_ecu_ids in status API response
         #                 will be used to generate update request list, so be-careful!
-        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
-            ecu_info.get_available_ecu_ids()
-        )
+        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(select_ecu_list)
 
         self._all_ecus_status_v2: Dict[str, api_types.StatusResponseEcuV2] = {}
         self._all_ecus_status_v1: Dict[str, api_types.StatusResponseEcu] = {}

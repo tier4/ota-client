@@ -154,7 +154,7 @@ SELECT_ECU_COMPATIBLE_SEP = ["、，"]
 SELECT_ECU_SEP_CHAR = ","
 
 
-def parse_select_ecu(select_ecu_file: StrOrPath, ecu_info: ECUInfo) -> set[str]:
+def parse_select_ecu(select_ecu_file: StrOrPath, ecu_info: ECUInfo) -> list[str]:
     """Get a list of ECU ids that should receive OTA update from select_ecu config.
 
     This file MUST contains a list of comma(,) separated ECU ids.
@@ -169,7 +169,7 @@ def parse_select_ecu(select_ecu_file: StrOrPath, ecu_info: ECUInfo) -> set[str]:
     """
     select_ecu_file = Path(select_ecu_file)
     if not select_ecu_file.is_file():
-        return set(ecu_info.get_available_ecu_ids())
+        return ecu_info.get_available_ecu_ids()
 
     raw_select_ecu_cfg = select_ecu_file.read_text()
     for _c in SELECT_ECU_CHARS_TO_CLEAN:
@@ -184,25 +184,25 @@ def parse_select_ecu(select_ecu_file: StrOrPath, ecu_info: ECUInfo) -> set[str]:
         logger.warning(
             "WARN: no ECU is specified in select_ecu config file! ARE YOU SURE?"
         )
-        return set()
+        return []
 
     if ecu_info.check_ecu_ids(*select_ecu_from_cfg):
         logger.warning(
             f"WARN: only allow OTA from the following ECUs: {select_ecu_from_cfg}, "
             "not all ECUs defined in ecu_info.yaml will receive OTA!"
         )
-        return set(select_ecu_from_cfg)
+        return select_ecu_from_cfg
 
     logger.warning(
         "WARN: select_ecu file contains invalid ECU ids!"
         "still use `available_ecu_ids` from ecu_info.yaml"
     )
-    return set(ecu_info.get_available_ecu_ids())
+    return ecu_info.get_available_ecu_ids()
 
 
 # NOTE(20240327): set the default as literal for now,
 #   in the future this will be app_cfg.ECU_INFO_FPATH
 ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")
-select_ecu_set = parse_select_ecu(
+select_ecu_list = parse_select_ecu(
     select_ecu_file="/boot/ota/select_ecu", ecu_info=ecu_info
 )
