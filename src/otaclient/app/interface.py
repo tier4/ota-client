@@ -13,12 +13,14 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 from abc import abstractmethod
 from typing import Protocol, Type
 
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.create_standby.interface import StandbySlotCreatorProtocol
-from otaclient_api.v2 import otaclient_v2_pb2 as pb2
+from otaclient_api.v2 import types as api_types
 
 
 class OTAClientProtocol(Protocol):
@@ -42,4 +44,4 @@ class OTAClientProtocol(Protocol):
     def rollback(self) -> None: ...
 
     @abstractmethod
-    def status(self) -> pb2.StatusResponseEcu: ...
+    def status(self) -> api_types.StatusResponseEcuV2: ...
