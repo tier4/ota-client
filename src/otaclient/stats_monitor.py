@@ -20,6 +20,7 @@ import atexit
 import queue
 import threading
 import time
+from collections import deque
 from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
@@ -299,7 +300,7 @@ class OTAClientStatsCollector:
     def __init__(
         self,
         msg_queue: queue.Queue[StatsReport],
-        push_queue: queue.Queue[OTAClientStatus],
+        push_queue: deque[OTAClientStatus],
         *,
         min_collect_interval: int = 1,
         min_push_interval: int = 1,
@@ -345,11 +346,11 @@ class OTAClientStatsCollector:
                 and _time_delta > self.min_push_interval
             ):
                 _new_copy = copy(self._stats)
-                self._push_queue.put_nowait(_new_copy)
+                self._push_queue.append(_new_copy)
                 _last_time_pushed = _now
                 _last_time_snapshot = _new_copy
             elif _time_delta > self.force_push_interval:
-                self._push_queue.put_nowait(_last_time_snapshot)
+                self._push_queue.append(_last_time_snapshot)
                 _last_time_pushed = _now
             else:
                 # 1. stat is not updated, but interval doesn't reach force_push_interval
