@@ -13,20 +13,20 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import os
 import shutil
 from pathlib import Path
+from queue import Queue
+import stat
 from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
 from otaclient.app.configs import config as cfg
-from otaclient.app.update_stats import (
-    OperationRecord,
-    OTAUpdateStatsCollector,
-    ProcessOperation,
-)
+from otaclient.stats_monitor import StatsReport, StatsReportType, UpdateProgressReport
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
@@ -46,10 +46,12 @@ class RebuildMode(StandbySlotCreatorProtocol):
         boot_dir: str,
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
-        stats_collector: OTAUpdateStatsCollector,
+        stats_report_queue: Queue[StatsReport],
+        session_id: str,
     ) -> None:
         self._ota_metadata = ota_metadata
-        self.stats_collector = stats_collector
+        self._stats_report_queue = stats_report_queue
+        self.session_id = session_id
 
         # path configuration
         self.boot_dir = Path(boot_dir)
@@ -99,11 +101,19 @@ class RebuildMode(StandbySlotCreatorProtocol):
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
             try:
-                for _ in _mapper.ensure_tasks(
+                for _done in _mapper.ensure_tasks(
                     _task,
                     self.delta_bundle.new_delta.items(),
                 ):
-                    pass
+                    if not _done.exception():
+                        stat_report = _done.result()
+                        self._stats_report_queue.put_nowait(
+                            StatsReport(
+                                type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                                payload=stat_report,
+                                session_id=self.session_id,
+                            )
+                        )
             except ValueError as e:
                 logger.error(f"failed to start file process threadpool: {e!r}")
                 raise
@@ -114,7 +124,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
     def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
         _hash, _regs_set = _input
         _hash_str = _hash.hex()
-        stat_report = OperationRecord(op=ProcessOperation.APPLY_DELTA)
+        stat_report = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        )
 
         _local_copy = self._ota_tmp / _hash_str
         _f_size = _local_copy.stat().st_size
@@ -163,8 +175,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 stat_report.processed_file_num += 1
                 stat_report.processed_file_size += _f_size
 
-        # report the stats to the stats_collector
-        self.stats_collector.report_stat(stat_report)
+        return stat_report
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
