@@ -508,6 +508,7 @@ class _OTAUpdater:
             standby_slot_mount_point=cfg.MOUNT_POINT,
             active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
             stats_report_queue=self._stats_report_queue,
+            session_id=self.session_id,
         )
 
         self._stats_report_queue.put_nowait(
@@ -699,7 +700,7 @@ class OTAClient:
     # API
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
-        # TOOD: session_id
+        # TODO: session_id
         session_id = "GENERATESESSIONID"
         try:
             logger.info("[update] entering local update...")
@@ -728,7 +729,7 @@ class OTAClient:
             gc.collect()  # trigger a forced gc
 
     def rollback(self):
-        # TOOD: session_id
+        # TODO: session_id
         session_id = "GENERATESESSIONID"
         self._stats_report_queue.put_nowait(
             StatsReport(
