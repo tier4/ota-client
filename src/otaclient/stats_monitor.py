@@ -25,7 +25,18 @@ from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Optional, Union
+from typing import Union
+
+from otaclient._types import (
+    FailureType,
+    OTAClientStatus,
+    OTAStatus,
+    StatsReportType,
+    UpdateMeta,
+    UpdatePhase,
+    UpdateProgress,
+    UpdateTiming,
+)
 
 _otaclient_shutdown = False
 _status_collector_thread: threading.Thread | None = None
@@ -43,194 +54,6 @@ def _global_shutdown():
 
 
 atexit.register(_global_shutdown)
-
-#
-# ------ enum definitions ------ #
-#
-
-
-class UpdatePhase(str, Enum):
-    INITIALIZING = "INITIALIZING"
-    PROCESSING_METADATA = "PROCESSING_METADATA"
-    CALCULATING_DELTA = "CALCULATING_DELTA"
-    DOWNLOADING_OTA_FILES = "DOWNLOADING_OTA_FILES"
-    APPLYING_UPDATE = "APPLYING_UPDATE"
-    PROCESSING_POSTUPDATE = "PROCESSING_POSTUPDATE"
-    FINALIZING_UPDATE = "FINALIZING_UPDATE"
-
-
-class OTAStatus(str, Enum):
-    INITIALIZED = "INITIALIZED"
-    SUCCESS = "SUCCESS"
-    FAILURE = "FAILURE"
-    UPDATING = "UPDATING"
-    ROLLBACKING = "ROLLBACKING"
-    ROLLBACK_FAILURE = "ROLLBACK_FAILURE"
-
-
-class StatsReportType(str, Enum):
-    SET_OTA_UPDATE_PHASE = "SET_OTA_UPDATE_PHASE"
-    SET_OTA_STATUS = "SET_OTA_STATUS"
-    SET_OTA_UPDATE_PROGRESS = "SET_OTA_UPDATE_PROGRESS"
-    SET_OTA_UPDATE_META = "SET_OTA_UPDATE_META"
-
-
-class FailureType(str, Enum):
-    NO_FAILURE = "NO_FAILURE"
-    RECOVERABLE = "RECOVERABLE"
-    UNRECOVERABLE = "UNRECOVERABLE"
-
-
-#
-# ------ status push message type ------ #
-#
-
-
-@dataclass
-class UpdateMeta:
-    update_firmware_version: str = ""
-    image_size_uncompressed: int = 0
-    image_file_entries: int = 0
-    total_download_files_num: int = 0
-    total_download_files_size: int = 0
-    total_remove_files_num: int = 0
-
-
-@dataclass
-class UpdateProgress:
-    downloaded_files_num: int = 0
-    downloaded_bytes: int = 0
-    downloaded_files_size: int = 0
-    downloading_errors: int = 0
-    removed_files_num: int = 0
-    processed_files_num: int = 0
-    processed_files_size: int = 0
-
-
-@dataclass
-class UpdateTiming:
-    update_start_timestamp: int = 0  # in second
-    delta_generate_start_timestamp: int = 0  # in second
-    download_start_timestamp: int = 0  # in second
-    update_apply_start_timestamp: int = 0  # in second
-
-
-@dataclass
-class OTAClientStatus:
-    """otaclient internal status definition."""
-
-    ota_status: OTAStatus = OTAStatus.INITIALIZED
-    session_id: Optional[str] = None
-    update_phase: Optional[UpdatePhase] = None
-    update_meta: Optional[UpdateMeta] = None
-    update_progress: Optional[UpdateProgress] = None
-    update_timing: Optional[UpdateTiming] = None
-    failure_type: Optional[FailureType] = None
-    failure_reason: Optional[str] = None
-
-    def _on_session_finished(self, payload: OTAStatusChangeReport):
-        self.session_id = ""
-        self.update_phase = None
-        self.update_meta = None
-        self.update_progress = None
-        self.update_timing = None
-        self.ota_status = payload.new_ota_status
-
-        if payload.new_ota_status in [OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE]:
-            self.failure_type = payload.failure_type
-            self.failure_reason = payload.failure_reason
-        else:
-            self.failure_type = FailureType.NO_FAILURE
-            self.failure_reason = ""
-
-    def _on_new_ota_session(self, payload: OTAStatusChangeReport):
-        self.ota_status = payload.new_ota_status
-        self.update_phase = UpdatePhase.INITIALIZING
-        self.update_meta = UpdateMeta()
-        self.update_progress = UpdateProgress()
-        self.update_timing = UpdateTiming()
-        self.failure_type = FailureType.NO_FAILURE
-        self.failure_reason = ""
-
-    def _on_update_phase_changed(self, payload: OTAUpdatePhaseChangeReport):
-        phase, trigger_timestamp = payload.new_update_phase, payload.trigger_timestamp
-
-        update_timing = self.update_timing
-        if update_timing is None:
-            self.update_timing = update_timing = UpdateTiming()
-
-        if phase == UpdatePhase.DOWNLOADING_OTA_FILES:
-            update_timing.download_start_timestamp = trigger_timestamp
-        elif phase == UpdatePhase.CALCULATING_DELTA:
-            update_timing.delta_generate_start_timestamp = trigger_timestamp
-        elif phase == UpdatePhase.APPLYING_UPDATE:
-            update_timing.update_apply_start_timestamp = trigger_timestamp
-        elif phase == UpdatePhase.INITIALIZING:
-            update_timing.update_start_timestamp = trigger_timestamp
-
-        self.update_phase = phase
-
-    def _on_update_progress(self, payload: UpdateProgressReport):
-        update_progress = self.update_progress
-        if update_progress is None:
-            self.update_progress = update_progress = UpdateProgress()
-
-        op = payload.operation
-        if (
-            op == UpdateProgressReport.Type.PREPARE_LOCAL_COPY
-            or op == UpdateProgressReport.Type.APPLY_DELTA
-        ):
-            update_progress.processed_files_num += payload.processed_file_num
-            update_progress.processed_files_size += payload.processed_file_size
-        # NOTE: downloading files number is not included in the processed_files_num
-        elif op == UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY:
-            update_progress.downloaded_bytes += payload.downloaded_bytes
-            update_progress.downloaded_files_num += payload.processed_file_num
-            update_progress.downloaded_files_size += payload.processed_file_size
-            update_progress.downloading_errors += payload.errors
-        elif op == UpdateProgressReport.Type.APPLY_REMOVE_DELTA:
-            update_progress.removed_files_num += payload.processed_file_num
-
-    def _on_update_meta(self, payload: UpdateMeta):
-        _input = asdict(payload)
-        update_meta = self.update_meta
-        for k, v in _input.items():
-            if v:
-                setattr(update_meta, k, v)
-
-    def load_report(self, report: StatsReport):
-        # ------ on session start/end ------ #
-        payload = report.payload
-        if report.type == StatsReportType.SET_OTA_STATUS and isinstance(
-            payload, OTAStatusChangeReport
-        ):
-            new_ota_status = payload.new_ota_status
-            if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
-                self.session_id = report.session_id
-                return self._on_new_ota_session(payload)
-
-            self.session_id = ""  # clear session if we are not in an OTA
-            return self._on_session_finished(payload)
-
-        # ------ during OTA session ------ #
-        report_session_id = report.session_id
-        if report_session_id != self.session_id:
-            return  # drop invalid report
-
-        if report.type == StatsReportType.SET_OTA_UPDATE_PHASE and isinstance(
-            payload, OTAUpdatePhaseChangeReport
-        ):
-            return self._on_update_phase_changed(payload)
-
-        if report.type == StatsReportType.SET_OTA_UPDATE_PROGRESS and isinstance(
-            payload, UpdateProgressReport
-        ):
-            return self._on_update_progress(payload)
-
-        if report.type == StatsReportType.SET_OTA_UPDATE_META and isinstance(
-            payload, SetUpdateMetaReport
-        ):
-            return self._on_update_meta(payload)
 
 
 #
@@ -291,6 +114,125 @@ class StatsReport:
 
 
 #
+# ------ helper functions ------ #
+#
+def _on_session_finished(
+    status_storage: OTAClientStatus, payload: OTAStatusChangeReport
+):
+    status_storage.session_id = ""
+    status_storage.update_phase = None
+    status_storage.update_meta = None
+    status_storage.update_progress = None
+    status_storage.update_timing = None
+    status_storage.ota_status = payload.new_ota_status
+
+    if payload.new_ota_status in [OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE]:
+        status_storage.failure_type = payload.failure_type
+        status_storage.failure_reason = payload.failure_reason
+    else:
+        status_storage.failure_type = FailureType.NO_FAILURE
+        status_storage.failure_reason = ""
+
+
+def _on_new_ota_session(
+    status_storage: OTAClientStatus, payload: OTAStatusChangeReport
+):
+    status_storage.ota_status = payload.new_ota_status
+    status_storage.update_phase = UpdatePhase.INITIALIZING
+    status_storage.update_meta = UpdateMeta()
+    status_storage.update_progress = UpdateProgress()
+    status_storage.update_timing = UpdateTiming()
+    status_storage.failure_type = FailureType.NO_FAILURE
+    status_storage.failure_reason = ""
+
+
+def _on_update_phase_changed(
+    status_storage: OTAClientStatus, payload: OTAUpdatePhaseChangeReport
+):
+    phase, trigger_timestamp = payload.new_update_phase, payload.trigger_timestamp
+
+    update_timing = status_storage.update_timing
+    if update_timing is None:
+        status_storage.update_timing = update_timing = UpdateTiming()
+
+    if phase == UpdatePhase.DOWNLOADING_OTA_FILES:
+        update_timing.download_start_timestamp = trigger_timestamp
+    elif phase == UpdatePhase.CALCULATING_DELTA:
+        update_timing.delta_generate_start_timestamp = trigger_timestamp
+    elif phase == UpdatePhase.APPLYING_UPDATE:
+        update_timing.update_apply_start_timestamp = trigger_timestamp
+    elif phase == UpdatePhase.INITIALIZING:
+        update_timing.update_start_timestamp = trigger_timestamp
+
+    status_storage.update_phase = phase
+
+
+def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgressReport):
+    update_progress = status_storage.update_progress
+    if update_progress is None:
+        status_storage.update_progress = update_progress = UpdateProgress()
+
+    op = payload.operation
+    if (
+        op == UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        or op == UpdateProgressReport.Type.APPLY_DELTA
+    ):
+        update_progress.processed_files_num += payload.processed_file_num
+        update_progress.processed_files_size += payload.processed_file_size
+    # NOTE: downloading files number is not included in the processed_files_num
+    elif op == UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY:
+        update_progress.downloaded_bytes += payload.downloaded_bytes
+        update_progress.downloaded_files_num += payload.processed_file_num
+        update_progress.downloaded_files_size += payload.processed_file_size
+        update_progress.downloading_errors += payload.errors
+    elif op == UpdateProgressReport.Type.APPLY_REMOVE_DELTA:
+        update_progress.removed_files_num += payload.processed_file_num
+
+
+def _on_update_meta(status_storage: OTAClientStatus, payload: UpdateMeta):
+    _input = asdict(payload)
+    update_meta = status_storage.update_meta
+    for k, v in _input.items():
+        if v:
+            setattr(update_meta, k, v)
+
+
+def load_report(status_storage: OTAClientStatus, report: StatsReport):
+    # ------ on session start/end ------ #
+    payload = report.payload
+    if report.type == StatsReportType.SET_OTA_STATUS and isinstance(
+        payload, OTAStatusChangeReport
+    ):
+        new_ota_status = payload.new_ota_status
+        if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
+            status_storage.session_id = report.session_id
+            return _on_new_ota_session(status_storage, payload)
+
+        status_storage.session_id = ""  # clear session if we are not in an OTA
+        return _on_session_finished(status_storage, payload)
+
+    # ------ during OTA session ------ #
+    report_session_id = report.session_id
+    if report_session_id != status_storage.session_id:
+        return  # drop invalid report
+
+    if report.type == StatsReportType.SET_OTA_UPDATE_PHASE and isinstance(
+        payload, OTAUpdatePhaseChangeReport
+    ):
+        return _on_update_phase_changed(status_storage, payload)
+
+    if report.type == StatsReportType.SET_OTA_UPDATE_PROGRESS and isinstance(
+        payload, UpdateProgressReport
+    ):
+        return _on_update_progress(status_storage, payload)
+
+    if report.type == StatsReportType.SET_OTA_UPDATE_META and isinstance(
+        payload, SetUpdateMetaReport
+    ):
+        return _on_update_meta(status_storage, payload)
+
+
+#
 # ------ stats monitor implementation ------ #
 #
 
@@ -331,7 +273,7 @@ class OTAClientStatsCollector:
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
                 continue
-            self._stats.load_report(report)
+            load_report(self._stats, report)
 
     def _status_msg_push_thread(self) -> None:
         _last_time_pushed = 0
