@@ -68,8 +68,6 @@ from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 from . import errors as ota_errors
 from .configs import config as cfg
 from .configs import ecu_info
-from .interface import OTAClientProtocol
-from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +245,6 @@ class _OTAUpdater:
                 session_id=session_id,
             )
         )
-
         stats_report_queue.put_nowait(
             StatsReport(
                 type=StatsReportType.SET_OTA_UPDATE_PHASE,
@@ -255,6 +252,15 @@ class _OTAUpdater:
                     new_update_phase=UpdatePhase.INITIALIZING,
                     trigger_timestamp=self.update_start_timestamp,
                 ),
+            )
+        )
+        stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_META,
+                payload=SetUpdateMetaReport(
+                    update_firmware_version=version,
+                ),
+                session_id=self.session_id,
             )
         )
 
@@ -286,10 +292,18 @@ class _OTAUpdater:
     ) -> DeltaBundle:
         logger.info("start to calculate and prepare delta...")
         delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
-        # update dynamic information
-        self.total_download_files_num = len(delta_bundle.download_list)
-        self.total_download_fiies_size = delta_bundle.total_download_files_size
-        self.total_remove_files_num = len(delta_bundle.rm_delta)
+
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_META,
+                payload=SetUpdateMetaReport(
+                    total_download_files_num=len(delta_bundle.download_list),
+                    total_download_files_size=delta_bundle.total_download_files_size,
+                    total_remove_files_num=len(delta_bundle.rm_delta),
+                ),
+                session_id=self.session_id,
+            )
+        )
         return delta_bundle
 
     def _download_files(
@@ -448,6 +462,17 @@ class _OTAUpdater:
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
+            self._stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTA_UPDATE_META,
+                    payload=SetUpdateMetaReport(
+                        image_file_entries=otameta.total_files_num,
+                        image_size_uncompressed=otameta.total_files_size_uncompressed,
+                    ),
+                    session_id=self.session_id,
+                )
+            )
+
         except ota_metadata_parser.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
@@ -597,7 +622,7 @@ class _OTARollbacker:
             raise
 
 
-class OTAClient(OTAClientProtocol):
+class OTAClient:
     """
     Init params:
         boot_controller: boot control instance
@@ -747,6 +772,7 @@ class OTAServicer:
         executor: Optional[ThreadPoolExecutor] = None,
         otaclient_version: str = __version__,
         proxy: Optional[str] = None,
+        stats_report_queue: Queue[StatsReport],
     ) -> None:
         self.ecu_id = ecu_info.ecu_id
         self.otaclient_version = otaclient_version
@@ -805,6 +831,7 @@ class OTAServicer:
                 my_ecu_id=ecu_info.ecu_id,
                 control_flags=control_flags,
                 proxy=proxy,
+                stats_report_queue=stats_report_queue,
             )
         except ota_errors.OTAError as e:
             logger.error(
