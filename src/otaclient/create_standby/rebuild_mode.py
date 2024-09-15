@@ -20,7 +20,6 @@ import os
 import shutil
 from pathlib import Path
 from queue import Queue
-import stat
 from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
@@ -69,7 +68,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             ota_metadata=self._ota_metadata,
             delta_src=self.active_slot_mp,
             local_copy_dir=self._ota_tmp,
-            stats_collector=self.stats_collector,
+            stats_report_queue=self._stats_report_queue,
+            session_id=self.session_id,
         )
         delta_bundle = delta_calculator.calculate_and_process_delta()
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
@@ -125,7 +125,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
         _hash, _regs_set = _input
         _hash_str = _hash.hex()
         stat_report = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+            operation=UpdateProgressReport.Type.APPLY_DELTA
         )
 
         _local_copy = self._ota_tmp / _hash_str
