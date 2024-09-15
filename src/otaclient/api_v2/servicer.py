@@ -29,7 +29,7 @@ from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, proxy_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
-from otaclient.ota_runner import OTAClientControlFlags
+from otaclient.otaclient import OTAClientControlFlags
 from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
