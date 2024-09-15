@@ -37,7 +37,7 @@ from otaclient_common.common import ensure_otaproxy_start
 logger = logging.getLogger(__name__)
 
 
-class _OTAProxyContext(OTAProxyContextProto):
+class OTAProxyContext(OTAProxyContextProto):
     EXTERNAL_CACHE_KEY = "external_cache"
 
     def __init__(

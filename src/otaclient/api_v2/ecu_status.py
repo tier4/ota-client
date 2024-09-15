@@ -427,7 +427,7 @@ class ECUStatusStorage:
             return res
 
 
-class _ECUTracker:
+class ECUTracker:
     """Tracker that queries and stores ECU status from all defined ECUs."""
 
     def __init__(
