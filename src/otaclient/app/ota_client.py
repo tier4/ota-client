@@ -824,6 +824,17 @@ class OTAServicer:
                 )
             return
 
+        # TODO: convert OTAStatus here
+        _boot_ctrl_loaded_ota_status = _bootctrl_inst.get_booted_ota_status()
+        stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_STATUS,
+                payload=OTAStatusChangeReport(
+                    new_ota_status=_boot_ctrl_loaded_ota_status
+                ),
+            )
+        )
+
         # otaclient core starts up
         try:
             self._otaclient_inst = OTAClient(
