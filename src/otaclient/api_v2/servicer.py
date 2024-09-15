@@ -66,6 +66,8 @@ class OTAClientServiceStub:
         )
 
         self._otaclient_control_flags = OTAClientControlFlags()
+        # TODO: OTA session control, prevent overlapping OTA session
+        # TODO: directly use OTAClient here
         self._otaclient_wrapper = OTAServicer(
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
@@ -155,7 +157,7 @@ class OTAClientServiceStub:
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await self._polling_waiter()
 
-    # API stub
+    # API implementation
 
     async def update(
         self, request: api_types.UpdateRequest
