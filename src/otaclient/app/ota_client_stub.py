@@ -16,14 +16,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import sys
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from itertools import chain
 from pathlib import Path
+from queue import Queue
 from typing import Any, Dict, Iterable, Optional, Set, Type, TypeVar
 
 from typing_extensions import Self
@@ -33,6 +36,7 @@ from ota_proxy import config as local_otaproxy_cfg
 from otaclient import log_setting
 from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.configs.ecu_info import ECUContact
+from otaclient.stats_monitor import OTAClientStatsCollector, OTAClientStatus
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
@@ -657,10 +661,9 @@ class _ECUTracker:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        *,
-        otaclient_wrapper: OTAServicer,
+        stats_push_queue: deque[OTAClientStatus],
     ) -> None:
-        self._otaclient_wrapper = otaclient_wrapper  # for local ECU status polling
+        self._stats_push_queue = stats_push_queue  # for local ECU status polling
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -693,9 +696,12 @@ class _ECUTracker:
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
+        # TODO: covert from internal format to api types
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            status_report = await self._otaclient_wrapper.get_status()
-            await self._ecu_status_storage.update_from_local_ecu(status_report)
+            with contextlib.suppress(IndexError):
+                status_report = self._stats_push_queue.pop()
+                await self._ecu_status_storage.update_from_local_ecu(status_report)
+
             await self._polling_waiter()
 
 
@@ -718,18 +724,28 @@ class OTAClientServiceStub:
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
+        # init stats collector
+        # we only need the latest status report
+        self._stats_push_queue = push_queue = deque(maxlen=1)
+        stats_report_queue = Queue()
+        self._stats_collector = OTAClientStatsCollector(
+            msg_queue=stats_report_queue,
+            push_queue=push_queue,
+        )
+
         self._otaclient_control_flags = OTAClientControlFlags()
         self._otaclient_wrapper = OTAServicer(
             executor=self._executor,
             control_flags=self._otaclient_control_flags,
             proxy=proxy_info.get_proxy_for_local_ota(),
+            stats_report_queue=stats_report_queue,
         )
 
         # ecu status tracking
         self._ecu_status_storage = ECUStatusStorage()
         self._ecu_status_tracker = _ECUTracker(
-            self._ecu_status_storage,
-            otaclient_wrapper=self._otaclient_wrapper,
+            ecu_status_storage=self._ecu_status_storage,
+            stats_push_queue=push_queue,
         )
 
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
