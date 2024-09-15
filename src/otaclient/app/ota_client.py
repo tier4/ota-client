@@ -29,6 +29,7 @@ from hashlib import sha256
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
+from queue import Queue
 from typing import Any, Iterator, Optional, Type
 from urllib.parse import urlparse
 
@@ -43,6 +44,16 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
+from otaclient.stats_monitor import (
+    OTAStatus,
+    OTAStatusChangeReport,
+    OTAUpdatePhaseChangeReport,
+    SetUpdateMetaReport,
+    StatsReport,
+    StatsReportType,
+    UpdatePhase,
+    UpdateProgressReport,
+)
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -176,12 +187,10 @@ class _OTAUpdater:
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
-        status_query_interval: int = DEFAULT_STATUS_QUERY_INTERVAL,
+        stats_report_queue: Queue[StatsReport],
+        session_id: str,
     ) -> None:
-        self._shutdown = False
-        self._update_status = api_types.UpdateStatus()
-        self._last_status_query_timestamp = 0
-        self.status_query_interval = status_query_interval
+        self._stats_report_queue = stats_report_queue
 
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.MOUNT_POINT) / Path(
@@ -225,9 +234,29 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # ------ init update status ------ #
-        self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self.updating_version: str = version
-        self.failure_reason = ""
+        self.update_version = version
+        self.update_start_timestamp = int(time.time())
+
+        self.session_id = session_id
+        stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_STATUS,
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=session_id,
+            )
+        )
+
+        stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.INITIALIZING,
+                    trigger_timestamp=self.update_start_timestamp,
+                ),
+            )
+        )
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -250,10 +279,6 @@ class _OTAUpdater:
             proxies=proxies,
         )
         self._downloader_mapper: dict[int, Downloader] = {}
-
-        # ------ start stats collector ------ #
-        self._update_stats_collector = OTAUpdateStatsCollector()
-        self._update_stats_collector.start_collector()
 
     def _calculate_delta(
         self,
@@ -326,21 +351,31 @@ class _OTAUpdater:
         ) as _mapper:
             for _fut in _mapper.ensure_tasks(_download_file, download_list):
                 if _download_exception_handler(_fut):  # donwload succeeded
-                    err_count, file_size, _ = _fut.result()
-                    self._update_stats_collector.report_stat(
-                        OperationRecord(
-                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            errors=err_count,
-                            processed_file_size=file_size,
-                            processed_file_num=1,
+                    err_count, file_size, downloaded_bytes = _fut.result()
+
+                    self._stats_report_queue.put_nowait(
+                        StatsReport(
+                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                                processed_file_num=1,
+                                processed_file_size=file_size,
+                                errors=err_count,
+                                downloaded_bytes=downloaded_bytes,
+                            ),
+                            session_id=self.session_id,
                         )
                     )
                 else:  # download failed, but exceptions can be handled
-                    self._update_stats_collector.report_stat(
-                        OperationRecord(
-                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            errors=1,
-                        ),
+                    self._stats_report_queue.put_nowait(
+                        StatsReport(
+                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                                errors=1,
+                            ),
+                            session_id=self.session_id,
+                        )
                     )
 
         # release the downloader instances
@@ -388,11 +423,21 @@ class _OTAUpdater:
 
     def _execute_update(self):
         """Implementation of OTA updating."""
-        logger.info(f"execute local update: {self.updating_version=},{self.url_base=}")
+        logger.info(f"execute local update: {self.update_version=},{self.url_base=}")
 
         # ------ init, processing metadata ------ #
         logger.debug("process metadata.jwt...")
-        self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
         try:
             # TODO(20240619): ota_metadata should not be responsible for downloading anything
             otameta = ota_metadata_parser.OTAMetadata(
@@ -423,7 +468,7 @@ class _OTAUpdater:
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
-            self.updating_version,
+            self.update_version,
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
@@ -437,11 +482,20 @@ class _OTAUpdater:
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
             standby_slot_mount_point=cfg.MOUNT_POINT,
             active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
-            stats_collector=self._update_stats_collector,
+            stats_report_queue=self._stats_report_queue,
         )
 
-        self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
-        self._update_stats_collector.delta_calculation_started()
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
         try:
             delta_bundle = self._calculate_delta(standby_slot_creator)
         except Exception as e:
@@ -450,26 +504,50 @@ class _OTAUpdater:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
-        self._update_stats_collector.delta_calculation_finished()
+
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
 
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
-        self._update_stats_collector.download_started()
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
         finally:
             del delta_bundle
-        self._update_stats_collector.download_finished()
+            self._downloader_pool.shutdown()
 
-        self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
-        self._update_stats_collector.apply_update_started()
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.APPLYING_UPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         logger.info("start to apply changes to standby slot...")
         standby_slot_creator.create_standby_slot()
-        self._update_stats_collector.apply_update_finished()
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
-        self.update_phase = api_types.UpdatePhase.PROCESSING_POSTUPDATE
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         # NOTE(20240219): move persist file handling here
         self._process_persistents(otameta)
 
@@ -481,58 +559,6 @@ class _OTAUpdater:
         next(_postupdate_gen, None)  # reboot
 
     # API
-
-    def shutdown(self):
-        self._shutdown = True
-        self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self._downloader_pool.shutdown()
-        self._update_stats_collector.shutdown_collector()
-
-    def get_update_status(self) -> api_types.UpdateStatus:
-        """
-        Returns:
-            A tuple contains the version and the update_progress.
-        """
-        cur_time = int(time.time())
-        if (
-            self._shutdown
-            or cur_time - self._last_status_query_timestamp < self.status_query_interval
-        ):
-            return self._update_status
-
-        collector = self._update_stats_collector
-        update_stats = api_types.UpdateStatus(
-            # from OTA image metadata
-            update_firmware_version=self.updating_version,
-            total_files_size_uncompressed=self.total_files_size_uncompressed,
-            total_files_num=self.total_files_num,
-            total_download_files_num=self.total_download_files_num,
-            total_download_files_size=self.total_download_fiies_size,
-            # from self
-            phase=self.update_phase,
-            total_remove_files_num=self.total_remove_files_num,
-            # from downloader pool
-            downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
-            # from collector
-            update_start_timestamp=collector.update_started_timestamp,
-            total_elapsed_time=api_types.Duration(seconds=collector.total_elapsed_time),
-            processed_files_num=collector.processed_files_num,
-            processed_files_size=collector.processed_files_size,
-            delta_generating_elapsed_time=api_types.Duration(
-                seconds=collector.delta_calculation_elapsed_time
-            ),
-            downloaded_files_num=collector.downloaded_files_num,
-            downloaded_files_size=collector.downloaded_files_size,
-            downloading_elapsed_time=api_types.Duration(
-                seconds=collector.download_elapsed_time
-            ),
-            downloading_errors=collector.downloading_errors,
-            update_applying_elapsed_time=api_types.Duration(
-                seconds=collector.apply_update_elapsed_time
-            ),
-        )
-        self._update_status, self._last_status_query_timestamp = update_stats, cur_time
-        return update_stats
 
     def execute(self) -> None:
         """Main entry for executing local OTA update.
@@ -549,13 +575,17 @@ class _OTAUpdater:
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
-        finally:
-            self.shutdown()
 
 
 class _OTARollbacker:
-    def __init__(self, boot_controller: BootControllerProtocol) -> None:
+    def __init__(
+        self,
+        boot_controller: BootControllerProtocol,
+        *,
+        stats_report_queue: Queue[StatsReport],
+    ) -> None:
         self._boot_controller = boot_controller
+        self._stats_report_queue = stats_report_queue
 
     def execute(self):
         try:
@@ -587,7 +617,9 @@ class OTAClient(OTAClientProtocol):
         my_ecu_id: str,
         control_flags: OTAClientControlFlags,
         proxy: Optional[str] = None,
+        stats_report_queue: Queue[StatsReport],
     ):
+        self._stats_report_queue = stats_report_queue
         try:
             self.my_ecu_id = my_ecu_id
 
@@ -600,27 +632,38 @@ class OTAClient(OTAClientProtocol):
             self.current_version = self.boot_controller.load_version()
             self.proxy = proxy
             self.control_flags = control_flags
-
-            # executors for update/rollback
-            self._update_executor: _OTAUpdater | None = None
-            self._rollback_executor: _OTARollbacker | None = None
-
-            # err record
-            self.last_failure_type = api_types.FailureType.NO_FAILURE
-            self.last_failure_reason = ""
-            self.last_failure_traceback = ""
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAClientStartupFailed(_err_msg, module=__name__) from e
 
-    def _on_failure(self, exc: ota_errors.OTAError, ota_status: api_types.StatusOta):
+    def _on_failure(
+        self,
+        exc: ota_errors.OTAError,
+        ota_status: api_types.StatusOta,
+        *,
+        session_id: str,
+    ):
         self.live_ota_status.set_ota_status(ota_status)
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
             if cfg.DEBUG_MODE:
                 self.last_failure_traceback = exc.get_failure_traceback()
+
+            self._stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTA_STATUS,
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=(
+                            OTAStatus.FAILURE
+                            if ota_status == api_types.StatusOta.FAILURE
+                            else OTAStatus.ROLLBACK_FAILURE
+                        ),
+                    ),
+                    session_id=session_id,
+                )
+            )
 
             logger.error(
                 exc.get_error_report(f"OTA failed with {ota_status.name}: {exc!r}")
@@ -631,9 +674,11 @@ class OTAClient(OTAClientProtocol):
     # API
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
+        # TOOD: session_id
+        session_id = "GENERATESESSIONID"
         try:
             logger.info("[update] entering local update...")
-            self._update_executor = _OTAUpdater(
+            _update_executor = _OTAUpdater(
                 version=version,
                 raw_url_base=url_base,
                 cookies_json=cookies_json,
@@ -641,6 +686,8 @@ class OTAClient(OTAClientProtocol):
                 create_standby_cls=self.create_standby_cls,
                 control_flags=self.control_flags,
                 upper_otaproxy=self.proxy,
+                stats_report_queue=self._stats_report_queue,
+                session_id=session_id,
             )
 
             self.last_failure_type = api_types.FailureType.NO_FAILURE
@@ -648,18 +695,31 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_traceback = ""
 
             self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
-            self._update_executor.execute()
+            _update_executor.execute()
         except ota_errors.OTAError as e:
-            self._on_failure(e, api_types.StatusOta.FAILURE)
+            self._on_failure(e, api_types.StatusOta.FAILURE, session_id=session_id)
         finally:
-            self._update_executor = None
+            _update_executor = None
             gc.collect()  # trigger a forced gc
 
     def rollback(self):
+        # TOOD: session_id
+        session_id = "GENERATESESSIONID"
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_STATUS,
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.ROLLBACKING,
+                ),
+                session_id=session_id,
+            )
+        )
+
         try:
             logger.info("[rollback] entering...")
-            self._rollback_executor = _OTARollbacker(
-                boot_controller=self.boot_controller
+            _rollback_executor = _OTARollbacker(
+                boot_controller=self.boot_controller,
+                stats_report_queue=self._stats_report_queue,
             )
 
             # clear failure information on handling new rollback request
@@ -669,27 +729,14 @@ class OTAClient(OTAClientProtocol):
 
             # entering rollback
             self.live_ota_status.set_ota_status(api_types.StatusOta.ROLLBACKING)
-            self._rollback_executor.execute()
+            _rollback_executor.execute()
         # silently ignore overlapping request
         except ota_errors.OTAError as e:
-            self._on_failure(e, api_types.StatusOta.ROLLBACK_FAILURE)
+            self._on_failure(
+                e, api_types.StatusOta.ROLLBACK_FAILURE, session_id=session_id
+            )
         finally:
-            self._rollback_executor = None  # type: ignore
-
-    def status(self) -> api_types.StatusResponseEcuV2:
-        live_ota_status = self.live_ota_status.get_ota_status()
-        status_report = api_types.StatusResponseEcuV2(
-            ecu_id=self.my_ecu_id,
-            firmware_version=self.current_version,
-            otaclient_version=self.OTACLIENT_VERSION,
-            ota_status=live_ota_status,
-            failure_type=self.last_failure_type,
-            failure_reason=self.last_failure_reason,
-            failure_traceback=self.last_failure_traceback,
-        )
-        if live_ota_status == api_types.StatusOta.UPDATING and self._update_executor:
-            status_report.update_status = self._update_executor.get_update_status()
-        return status_report
+            _rollback_executor = None
 
 
 class OTAServicer:
@@ -865,11 +912,3 @@ class OTAServicer:
         return api_types.RollbackResponseEcu(
             ecu_id=self.ecu_id, result=api_types.FailureType.NO_FAILURE
         )
-
-    async def get_status(self) -> api_types.StatusResponseEcuV2:
-        # otaclient is not started due to boot control startup failed
-        if self._otaclient_inst is None:
-            return self._otaclient_startup_failed_status
-
-        # otaclient core started, query status from it
-        return await self._run_in_executor(self._otaclient_inst.status)
