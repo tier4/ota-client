@@ -99,7 +99,7 @@ class OTAUpdatePhaseChangeReport:
 
 @dataclass
 class SetUpdateMetaReport(UpdateMeta):
-    pass
+    metadata_downloaded_bytes: int = 0
 
 
 @dataclass
@@ -186,10 +186,13 @@ def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgress
         update_progress.removed_files_num += payload.processed_file_num
 
 
-def _on_update_meta(status_storage: OTAClientStatus, payload: UpdateMeta):
+def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaReport):
     _input = asdict(payload)
     update_meta = status_storage.update_meta
     for k, v in _input.items():
+        if k == "metadata_downloaded_bytes" and v:
+            status_storage.update_progress.downloaded_bytes += v
+            continue
         if v:
             setattr(update_meta, k, v)
 
