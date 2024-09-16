@@ -16,25 +16,36 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
 import time
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from queue import Queue
 from typing import Dict
 
+from otaclient._types import OTAStatus
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
 from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, proxy_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
-from otaclient.otaclient import OTAClientControlFlags
+from otaclient.otaclient import OTAClient, OTAClientControlFlags
 from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
+
+_otaclient_shutdown = False
+
+
+def _global_shutdown():
+    global _otaclient_shutdown
+    _otaclient_shutdown = True
+
+
+atexit.register(_global_shutdown)
 
 
 class OTAClientAPIServicer:
@@ -56,20 +67,17 @@ class OTAClientAPIServicer:
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
+        self._ota_session_lock = asyncio.Lock()
+        asyncio.create_task(self._ota_session_lock_manager())
+
         # init stats collector
-        # we only need the latest status report
-        self._stats_push_queue = push_queue = deque(maxlen=1)
         stats_report_queue = Queue()
-        self._stats_collector = OTAClientStatsCollector(
-            msg_queue=stats_report_queue,
-            push_queue=push_queue,
+        self._local_otaclient_monitor = OTAClientStatsCollector(
+            msg_queue=stats_report_queue
         )
 
         self._otaclient_control_flags = OTAClientControlFlags()
-        # TODO: OTA session control, prevent overlapping OTA session
-        # TODO: directly use OTAClient here
-        self._otaclient_wrapper = OTAServicer(
-            executor=self._executor,
+        self._otaclient = OTAClient(
             control_flags=self._otaclient_control_flags,
             proxy=proxy_info.get_proxy_for_local_ota(),
             stats_report_queue=stats_report_queue,
@@ -79,7 +87,7 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ECUStatusStorage()
         self._ecu_status_tracker = ECUTracker(
             ecu_status_storage=self._ecu_status_storage,
-            stats_push_queue=push_queue,
+            stats_monitor=self._local_otaclient_monitor,
         )
 
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -156,6 +164,32 @@ class OTAClientAPIServicer:
                     )
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await self._polling_waiter()
+
+    async def _ota_session_lock_manager(self) -> None:
+        """Background task for maintaining the OTA session lock."""
+        _previous_status_is_locked = False
+        while not _otaclient_shutdown:
+            if not self._ota_session_lock.locked():
+                await asyncio.sleep(6)
+                continue
+
+            if not _previous_status_is_locked:
+                _previous_status_is_locked = True
+                # new OTA session starts, hold the lock for at least 1min
+                #   for the local otaclient to update its OTA status.
+                await asyncio.sleep(60)
+                continue
+
+            # if local OTA session finished(by checking the OTA status), release the
+            #   session lock.
+            local_otaclient_status = self._local_otaclient_monitor.otaclient_status
+            if local_otaclient_status.ota_status not in [
+                OTAStatus.UPDATING,
+                OTAStatus.ROLLBACKING,
+            ]:
+                self._ota_session_lock.release()
+                _previous_status_is_locked = False
+            await asyncio.sleep(6)
 
     # API implementation
 
