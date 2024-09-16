@@ -96,6 +96,8 @@ class OTAClientStatus:
     """otaclient internal status definition."""
 
     ecu_id: str
+    firmware_version: str = ""
+
     ota_status: OTAStatus = OTAStatus.INITIALIZED
     session_id: Optional[str] = None
     update_phase: Optional[UpdatePhase] = None

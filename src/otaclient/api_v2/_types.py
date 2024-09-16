@@ -65,7 +65,7 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
         failure_reason=_in.failure_reason,
         ota_status=_in.ota_status,
         otaclient_version=__version__,
-        firmware_version="TODO",
+        firmware_version=_in.firmware_version,
     )
 
     if _in.ota_status != OTAStatus.UPDATING or not (
