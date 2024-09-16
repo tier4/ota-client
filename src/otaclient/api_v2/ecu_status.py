@@ -24,6 +24,7 @@ from collections import deque
 from itertools import chain
 from typing import Dict, Iterable, TypeVar
 
+from otaclient.api_v2._types import convert_status
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
@@ -468,10 +469,11 @@ class ECUTracker:
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
-        # TODO: covert from internal format to api types
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
             with contextlib.suppress(IndexError):
                 status_report = self._stats_push_queue.pop()
-                await self._ecu_status_storage.update_from_local_ecu(status_report)
+                await self._ecu_status_storage.update_from_local_ecu(
+                    convert_status(status_report)
+                )
 
             await self._polling_waiter()
