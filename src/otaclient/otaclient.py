@@ -47,6 +47,7 @@ from otaclient.stats_monitor import (
     OTAStatus,
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
+    SetOTAClientMetaReport,
     SetUpdateMetaReport,
     StatsReport,
     StatsReportType,
@@ -635,11 +636,9 @@ class OTAClient:
         self.my_ecu_id = ecu_info.ecu_id
         self._stats_report_queue = stats_report_queue
 
-        _bootctrl_cls = get_boot_controller(ecu_info.bootloader)
         self.create_standby_cls = get_standby_slot_creator(cfg.STANDBY_CREATION_MODE)
-
         try:
-            self.boot_controller = _bootctrl_cls()
+            self.boot_controller = get_boot_controller(ecu_info.bootloader)()
         except ota_errors.OTAError as e:
             logger.error(
                 e.get_error_report(title=f"boot controller startup failed: {e!r}")
@@ -658,21 +657,32 @@ class OTAClient:
                 )
             return
 
-        # TODO: convert OTAStatus here
+        # TODO: otaclient internal not directly using api_types anymore
+        # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         stats_report_queue.put_nowait(
             StatsReport(
                 type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status
+                    new_ota_status=OTAStatus[_boot_ctrl_loaded_ota_status.name],
                 ),
             )
         )
         self.live_ota_status = LiveOTAStatus(
             self.boot_controller.get_booted_ota_status()
         )
-        # TODO: report current version in OTAStatusChange
+
+        # load and report current running system image version
         self.current_version = self.boot_controller.load_version()
+        stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTACLIENT_META,
+                payload=SetOTAClientMetaReport(
+                    ecu_id=self.my_ecu_id,
+                    firmware_version=self.current_version,
+                ),
+            )
+        )
 
         try:
             self.proxy = proxy
