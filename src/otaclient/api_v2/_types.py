@@ -90,6 +90,8 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
 
     # for UPDATING OTAStatus, convert api_types' update_status attr
     update_status = api_types.UpdateStatus()
+    if _in.update_phase:
+        update_status.phase = api_types.UpdatePhase[_in.update_phase]
 
     _now = int(time.time())
     update_started_timestamp = _in.update_timing.update_start_timestamp
