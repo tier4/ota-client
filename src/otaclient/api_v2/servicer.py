@@ -60,7 +60,7 @@ class OTAClientAPIServicer:
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
     def __init__(self):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+        self._executor = ThreadPoolExecutor(thread_name_prefix="local_ota_executor")
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )
@@ -221,8 +221,15 @@ class OTAClientAPIServicer:
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        logger.info("local otaclient is ready for OTA")
-        _resp_ecu = await self._otaclient.dispatch_update(update_req_ecu)
+        self._run_in_executor(
+            partial(
+                self._otaclient.update,
+                version=request.version,
+                url_base=request.url,
+                cookies_json=request.cookies,
+            )
+        )
+        logger.info("local OTA update dispatched")
         return api_types.UpdateResponseEcu(
             ecu_id=self.my_ecu_id,
             result=api_types.FailureType.NO_FAILURE,
@@ -241,8 +248,8 @@ class OTAClientAPIServicer:
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        logger.info("local otaclient is ready for OTA")
-        _resp_ecu = await self._otaclient.dispatch_update(update_req_ecu)
+        self._run_in_executor(self._otaclient.rollback)
+        logger.info("local OTA rollback dispatched")
         return api_types.RollbackResponseEcu(
             ecu_id=self.my_ecu_id,
             result=api_types.FailureType.NO_FAILURE,
