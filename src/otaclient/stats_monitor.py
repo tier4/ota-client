@@ -62,6 +62,12 @@ atexit.register(_global_shutdown)
 
 
 @dataclass
+class SetOTAClientMetaReport:
+    ecu_id: str
+    firmware_version: str
+
+
+@dataclass
 class UpdateProgressReport:
 
     class Type(Enum):
@@ -105,6 +111,7 @@ class SetUpdateMetaReport(UpdateMeta):
 class StatsReport:
     type: StatsReportType
     payload: Union[
+        SetOTAClientMetaReport,
         UpdateProgressReport,
         OTAStatusChangeReport,
         OTAUpdatePhaseChangeReport,
@@ -198,8 +205,15 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: UpdateMeta):
 
 
 def load_report(status_storage: OTAClientStatus, report: StatsReport):
-    # ------ on session start/end ------ #
     payload = report.payload
+    # ------ update otaclient meta ------ #
+    if report.type == StatsReportType.SET_OTACLIENT_META and isinstance(
+        payload, SetOTAClientMetaReport
+    ):
+        status_storage.ecu_id = payload.ecu_id
+        status_storage.firmware_version = payload.firmware_version
+
+    # ------ on session start/end ------ #
     if report.type == StatsReportType.SET_OTA_STATUS and isinstance(
         payload, OTAStatusChangeReport
     ):
