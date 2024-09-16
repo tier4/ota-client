@@ -37,6 +37,7 @@ import requests.exceptions as requests_exc
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from otaclient import __version__
+from otaclient._types import FailureType
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
@@ -54,7 +55,6 @@ from otaclient.stats_monitor import (
     UpdatePhase,
     UpdateProgressReport,
 )
-from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -75,27 +75,27 @@ DEFAULT_STATUS_QUERY_INTERVAL = 1
 
 
 class LiveOTAStatus:
-    def __init__(self, ota_status: api_types.StatusOta) -> None:
+    def __init__(self, ota_status: OTAStatus) -> None:
         self.live_ota_status = ota_status
 
-    def get_ota_status(self) -> api_types.StatusOta:
+    def get_ota_status(self) -> OTAStatus:
         return self.live_ota_status
 
-    def set_ota_status(self, _status: api_types.StatusOta):
+    def set_ota_status(self, _status: OTAStatus):
         self.live_ota_status = _status
 
     def request_update(self) -> bool:
         return self.live_ota_status in [
-            api_types.StatusOta.INITIALIZED,
-            api_types.StatusOta.SUCCESS,
-            api_types.StatusOta.FAILURE,
-            api_types.StatusOta.ROLLBACK_FAILURE,
+            OTAStatus.INITIALIZED,
+            OTAStatus.SUCCESS,
+            OTAStatus.FAILURE,
+            OTAStatus.ROLLBACK_FAILURE,
         ]
 
     def request_rollback(self) -> bool:
         return self.live_ota_status in [
-            api_types.StatusOta.SUCCESS,
-            api_types.StatusOta.ROLLBACK_FAILURE,
+            OTAStatus.SUCCESS,
+            OTAStatus.ROLLBACK_FAILURE,
         ]
 
 
@@ -643,32 +643,30 @@ class OTAClient:
             logger.error(
                 e.get_error_report(title=f"boot controller startup failed: {e!r}")
             )
-            self._otaclient_startup_failed_status = api_types.StatusResponseEcuV2(
-                ecu_id=ecu_info.ecu_id,
-                otaclient_version=__version__,
-                ota_status=api_types.StatusOta.FAILURE,
-                failure_type=api_types.FailureType.UNRECOVERABLE,
-                failure_reason=e.get_failure_reason(),
-            )
 
-            if cfg.DEBUG_MODE:
-                self._otaclient_startup_failed_status.failure_traceback = (
-                    e.get_failure_traceback()
+            stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTA_STATUS,
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.FAILURE,
+                        failure_type=FailureType.UNRECOVERABLE,
+                        failure_reason=e.get_failure_reason(),
+                    ),
                 )
+            )
             return
 
-        # TODO: otaclient internal not directly using api_types anymore
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         stats_report_queue.put_nowait(
             StatsReport(
                 type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus[_boot_ctrl_loaded_ota_status.name],
+                    new_ota_status=_boot_ctrl_loaded_ota_status,
                 ),
             )
         )
-        self.live_ota_status = LiveOTAStatus(
+        self._live_ota_status = LiveOTAStatus(
             self.boot_controller.get_booted_ota_status()
         )
 
@@ -695,11 +693,11 @@ class OTAClient:
     def _on_failure(
         self,
         exc: ota_errors.OTAError,
-        ota_status: api_types.StatusOta,
+        ota_status: OTAStatus,
         *,
         session_id: str,
     ):
-        self.live_ota_status.set_ota_status(ota_status)
+        self._live_ota_status.set_ota_status(ota_status)
         try:
             self.last_failure_type = exc.failure_type
             self.last_failure_reason = exc.get_failure_reason()
@@ -712,7 +710,7 @@ class OTAClient:
                     payload=OTAStatusChangeReport(
                         new_ota_status=(
                             OTAStatus.FAILURE
-                            if ota_status == api_types.StatusOta.FAILURE
+                            if ota_status == OTAStatus.FAILURE
                             else OTAStatus.ROLLBACK_FAILURE
                         ),
                     ),
@@ -727,6 +725,11 @@ class OTAClient:
             del exc  # prevent ref cycle
 
     # API
+
+    @property
+    def live_ota_status(self) -> LiveOTAStatus:
+        """Exposed for checking whether current OTAClient should start new OTA session or not."""
+        return self._live_ota_status
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
         # TODO: session_id
@@ -754,10 +757,10 @@ class OTAClient:
                 stats_report_queue=self._stats_report_queue,
                 session_id=session_id,
             )
-            self.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
+            self._live_ota_status.set_ota_status(OTAStatus.UPDATING)
             _update_executor.execute()
         except ota_errors.OTAError as e:
-            self._on_failure(e, api_types.StatusOta.FAILURE, session_id=session_id)
+            self._on_failure(e, OTAStatus.FAILURE, session_id=session_id)
         finally:
             _update_executor = None
             gc.collect()  # trigger a forced gc
@@ -783,12 +786,10 @@ class OTAClient:
             )
 
             # entering rollback
-            self.live_ota_status.set_ota_status(api_types.StatusOta.ROLLBACKING)
+            self._live_ota_status.set_ota_status(OTAStatus.ROLLBACKING)
             _rollback_executor.execute()
         # silently ignore overlapping request
         except ota_errors.OTAError as e:
-            self._on_failure(
-                e, api_types.StatusOta.ROLLBACK_FAILURE, session_id=session_id
-            )
+            self._on_failure(e, OTAStatus.ROLLBACK_FAILURE, session_id=session_id)
         finally:
             _rollback_executor = None
