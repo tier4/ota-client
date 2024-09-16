@@ -744,9 +744,6 @@ class OTAClient:
         return self._live_ota_status
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
-        if not self.live_ota_status.request_update():
-            return  # a final protection for preventing overlapping ongoing OTA
-
         self._live_ota_status.set_ota_status(OTAStatus.UPDATING)
         new_session_id = self._gen_session_id(version)
         self._stats_report_queue.put_nowait(
@@ -780,9 +777,6 @@ class OTAClient:
             gc.collect()  # trigger a forced gc
 
     def rollback(self):
-        if not self.live_ota_status.request_rollback():
-            return
-
         self._live_ota_status.set_ota_status(OTAStatus.ROLLBACKING)
         new_session_id = self._gen_session_id("<rollback>")
         self._stats_report_queue.put_nowait(
