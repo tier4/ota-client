@@ -183,8 +183,9 @@ def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgress
     ):
         update_progress.processed_files_num += payload.processed_file_num
         update_progress.processed_files_size += payload.processed_file_size
-    # NOTE: downloading files number is not included in the processed_files_num
     elif op == UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY:
+        update_progress.processed_files_num += payload.processed_file_num
+        update_progress.processed_files_size += payload.processed_file_size
         update_progress.downloaded_bytes += payload.downloaded_bytes
         update_progress.downloaded_files_num += payload.processed_file_num
         update_progress.downloaded_files_size += payload.processed_file_size

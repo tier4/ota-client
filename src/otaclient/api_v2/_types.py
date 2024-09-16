@@ -39,11 +39,11 @@ def _calculate_elapsed_time(
     if (downloaded_started_timestamp := _in.download_start_timestamp) <= 0:
         # download not yet started
         _res.delta_generating_elapsed_time = Duration(
-            seconds=min(1, _now - delta_calculated_started_timestamp)
+            seconds=max(1, _now - delta_calculated_started_timestamp)
         )
         return _res
     _res.delta_generating_elapsed_time = Duration(
-        seconds=min(
+        seconds=max(
             1, delta_calculated_started_timestamp - downloaded_started_timestamp
         )
     )
@@ -51,21 +51,21 @@ def _calculate_elapsed_time(
     if (update_apply_started_timestamp := _in.update_apply_start_timestamp) <= 0:
         # apply update not yet started
         _res.downloading_elapsed_time = Duration(
-            seconds=min(1, _now - downloaded_started_timestamp)
+            seconds=max(1, _now - downloaded_started_timestamp)
         )
         return _res
     _res.downloading_elapsed_time = Duration(
-        seconds=min(1, update_apply_started_timestamp - downloaded_started_timestamp)
+        seconds=max(1, update_apply_started_timestamp - downloaded_started_timestamp)
     )
 
     if (post_update_started_timestamp := _in.post_update_start_timestamp) <= 0:
         # post update not yet started
         _res.downloading_elapsed_time = Duration(
-            seconds=min(1, _now - update_apply_started_timestamp)
+            seconds=max(1, _now - update_apply_started_timestamp)
         )
         return _res
     _res.update_applying_elapsed_time = Duration(
-        seconds=min(1, post_update_started_timestamp - _in.update_apply_start_timestamp)
+        seconds=max(1, post_update_started_timestamp - _in.update_apply_start_timestamp)
     )
     return _res
 
@@ -102,6 +102,8 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
 
     # update_progress
     _update_progress = _in.update_progress
+    update_status.processed_files_num = _update_progress.processed_files_num
+    update_status.processed_files_size = _update_progress.processed_files_size
     update_status.downloaded_bytes = _update_progress.downloaded_bytes
     update_status.downloaded_files_num = _update_progress.downloaded_files_num
     update_status.downloaded_files_size = _update_progress.downloaded_files_size
