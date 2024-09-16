@@ -24,6 +24,7 @@ from functools import partial
 from queue import Queue
 from typing import Dict
 
+from otaclient._types import OTAStatus, UpdatePhase
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
 from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
@@ -150,20 +151,31 @@ class OTAClientAPIServicer:
         under UPDATING ota_status.
         """
         while not _otaclient_shutdown:
-            _can_reboot = self._otaclient_control_flags.is_can_reboot_flag_set()
-            if not self._ecu_status_storage.in_update_child_ecus_id:
-                if not _can_reboot:
-                    logger.info(
-                        "local otaclient can reboot as no child ECU is in UPDATING ota_status"
-                    )
-                self._otaclient_control_flags.set_can_reboot_flag()
-            else:
-                if _can_reboot:
+            can_reboot_flag = self._otaclient_control_flags.is_can_reboot_flag_set()
+
+            local_ota_status = self._local_otaclient_monitor.otaclient_status.ota_status
+            update_phase = self._local_otaclient_monitor.otaclient_status.update_phase
+
+            _sub_ecus_ok = not self._ecu_status_storage.in_update_child_ecus_id
+            # wait for all stats being collected by the collector
+            _local_ecu_ok = not (
+                local_ota_status == OTAStatus.UPDATING
+                and update_phase != UpdatePhase.FINALIZING_UPDATE
+            )
+
+            if _sub_ecus_ok and _local_ecu_ok:
+                if can_reboot_flag:
                     logger.info(
                         f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_child_ecus_id}"
                         " are in UPDATING ota_status"
                     )
                 self._otaclient_control_flags.clear_can_reboot_flag()
+            else:
+                if not can_reboot_flag:
+                    logger.info(
+                        "local otaclient can reboot as no child ECU is in UPDATING ota_status"
+                    )
+                self._otaclient_control_flags.set_can_reboot_flag()
             await self._polling_waiter()
 
     def _on_ota_finished(self, _: asyncio.Future[None]):
