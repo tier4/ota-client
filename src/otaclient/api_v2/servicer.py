@@ -98,10 +98,6 @@ class OTAClientAPIServicer:
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
         # otaproxy lifecycle and dependency managing
-        # NOTE: _debug_status_checking_shutdown_event is for test only,
-        #       allow us to stop background task without changing codes.
-        #       In normal running this event will never be set.
-        self._debug_status_checking_shutdown_event = asyncio.Event()
         if proxy_info.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(
                 executor=self._executor,
@@ -123,7 +119,7 @@ class OTAClientAPIServicer:
               cache_dir will be removed.
         """
         otaproxy_last_launched_timestamp = 0
-        while not self._debug_status_checking_shutdown_event.is_set():
+        while not _otaclient_shutdown:
             cur_timestamp = int(time.time())
             any_requires_network = self._ecu_status_storage.any_requires_network
             if self._otaproxy_launcher.is_running:
@@ -153,7 +149,7 @@ class OTAClientAPIServicer:
         Prevent self ECU from rebooting when their is at least one ECU
         under UPDATING ota_status.
         """
-        while not self._debug_status_checking_shutdown_event.is_set():
+        while not _otaclient_shutdown:
             _can_reboot = self._otaclient_control_flags.is_can_reboot_flag_set()
             if not self._ecu_status_storage.in_update_child_ecus_id:
                 if not _can_reboot:
