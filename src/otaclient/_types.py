@@ -90,6 +90,7 @@ class UpdateTiming:
     delta_generate_start_timestamp: int = 0  # in second
     download_start_timestamp: int = 0  # in second
     update_apply_start_timestamp: int = 0  # in second
+    post_update_start_timestamp: int = 0  # in second
 
 
 @dataclass

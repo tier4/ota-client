@@ -158,7 +158,9 @@ def _on_update_phase_changed(
     if update_timing is None:
         status_storage.update_timing = update_timing = UpdateTiming()
 
-    if phase == UpdatePhase.DOWNLOADING_OTA_FILES:
+    if phase == UpdatePhase.PROCESSING_POSTUPDATE:
+        update_timing.post_update_start_timestamp = trigger_timestamp
+    elif phase == UpdatePhase.DOWNLOADING_OTA_FILES:
         update_timing.download_start_timestamp = trigger_timestamp
     elif phase == UpdatePhase.CALCULATING_DELTA:
         update_timing.delta_generate_start_timestamp = trigger_timestamp
