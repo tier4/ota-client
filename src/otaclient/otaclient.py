@@ -20,6 +20,7 @@ import errno
 import gc
 import json
 import logging
+import os
 import threading
 import time
 from concurrent.futures import Future
@@ -724,6 +725,17 @@ class OTAClient:
         finally:
             del exc  # prevent ref cycle
 
+    def _gen_session_id(self, update_version: str = "") -> str:
+        """Generate a unique session_id for the new OTA session.
+
+        token schema:
+            <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
+        """
+        _time_factor = str(int(time.time()))
+        _random_factor = os.urandom(4).hex()
+
+        return f"{update_version}-{_time_factor}-{_random_factor}"
+
     # API
 
     @property
@@ -732,15 +744,14 @@ class OTAClient:
         return self._live_ota_status
 
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
-        # TODO: session_id
-        session_id = "GENERATESESSIONID"
+        new_session_id = self._gen_session_id(version)
         self._stats_report_queue.put_nowait(
             StatsReport(
                 type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.UPDATING,
                 ),
-                session_id=session_id,
+                session_id=new_session_id,
             )
         )
 
@@ -755,26 +766,25 @@ class OTAClient:
                 control_flags=self.control_flags,
                 upper_otaproxy=self.proxy,
                 stats_report_queue=self._stats_report_queue,
-                session_id=session_id,
+                session_id=new_session_id,
             )
             self._live_ota_status.set_ota_status(OTAStatus.UPDATING)
             _update_executor.execute()
         except ota_errors.OTAError as e:
-            self._on_failure(e, OTAStatus.FAILURE, session_id=session_id)
+            self._on_failure(e, OTAStatus.FAILURE, session_id=new_session_id)
         finally:
             _update_executor = None
             gc.collect()  # trigger a forced gc
 
     def rollback(self):
-        # TODO: session_id
-        session_id = "GENERATESESSIONID"
+        new_session_id = self._gen_session_id("<rollback>")
         self._stats_report_queue.put_nowait(
             StatsReport(
                 type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.ROLLBACKING,
                 ),
-                session_id=session_id,
+                session_id=new_session_id,
             )
         )
 
@@ -790,6 +800,6 @@ class OTAClient:
             _rollback_executor.execute()
         # silently ignore overlapping request
         except ota_errors.OTAError as e:
-            self._on_failure(e, OTAStatus.ROLLBACK_FAILURE, session_id=session_id)
+            self._on_failure(e, OTAStatus.ROLLBACK_FAILURE, session_id=new_session_id)
         finally:
             _rollback_executor = None
