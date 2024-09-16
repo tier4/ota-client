@@ -244,6 +244,7 @@ class OTAClientStatsCollector:
         msg_queue: queue.Queue[StatsReport],
         push_queue: deque[OTAClientStatus],
         *,
+        ecu_id: str,
         min_collect_interval: int = 1,
         min_push_interval: int = 1,
         force_push_interval: int = 6,
@@ -254,7 +255,7 @@ class OTAClientStatsCollector:
 
         self._input_queue = msg_queue
         self._push_queue = push_queue
-        self._stats = OTAClientStatus()
+        self._stats = OTAClientStatus(ecu_id)
 
         global _status_collector_thread
         _status_collector_thread = Thread(target=self._stats_collector_thread)

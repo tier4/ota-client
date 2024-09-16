@@ -58,7 +58,7 @@ class FailureType(str, Enum):
 
 
 #
-# ------ status push message type ------ #
+# ------ otaclient internal status report ------ #
 #
 
 
@@ -95,6 +95,7 @@ class UpdateTiming:
 class OTAClientStatus:
     """otaclient internal status definition."""
 
+    ecu_id: str
     ota_status: OTAStatus = OTAStatus.INITIALIZED
     session_id: Optional[str] = None
     update_phase: Optional[UpdatePhase] = None
