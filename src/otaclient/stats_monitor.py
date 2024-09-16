@@ -20,7 +20,6 @@ import atexit
 import queue
 import threading
 import time
-from collections import deque
 from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
@@ -40,7 +39,6 @@ from otaclient._types import (
 
 _otaclient_shutdown = False
 _status_collector_thread: threading.Thread | None = None
-_status_push_thread: threading.Thread | None = None
 
 
 def _global_shutdown():
@@ -49,8 +47,6 @@ def _global_shutdown():
 
     if _status_collector_thread:
         _status_collector_thread.join()
-    if _status_push_thread:
-        _status_push_thread.join()
 
 
 atexit.register(_global_shutdown)
@@ -256,27 +252,19 @@ class OTAClientStatsCollector:
     def __init__(
         self,
         msg_queue: queue.Queue[StatsReport],
-        push_queue: deque[OTAClientStatus],
         *,
         min_collect_interval: int = 1,
         min_push_interval: int = 1,
-        force_push_interval: int = 6,
     ) -> None:
         self.min_collect_interval = min_collect_interval
         self.min_push_interval = min_push_interval
-        self.force_push_interval = force_push_interval
 
         self._input_queue = msg_queue
-        self._push_queue = push_queue
         self._stats = OTAClientStatus()
 
         global _status_collector_thread
         _status_collector_thread = Thread(target=self._stats_collector_thread)
         _status_collector_thread.start()
-
-        global _status_push_thread
-        _status_push_thread = Thread(target=self._stats_collector_thread)
-        _status_push_thread.start()
 
     # thread workers
 
@@ -289,26 +277,6 @@ class OTAClientStatsCollector:
                 continue
             load_report(self._stats, report)
 
-    def _status_msg_push_thread(self) -> None:
-        _last_time_pushed = 0
-        _last_time_snapshot = copy(self._stats)
-
-        while not _otaclient_shutdown:
-            _now = int(time.time())
-            _time_delta = _now - _last_time_pushed
-
-            if _last_time_pushed == 0 or (
-                _last_time_snapshot != self._stats
-                and _time_delta > self.min_push_interval
-            ):
-                _new_copy = copy(self._stats)
-                self._push_queue.append(_new_copy)
-                _last_time_pushed = _now
-                _last_time_snapshot = _new_copy
-            elif _time_delta > self.force_push_interval:
-                self._push_queue.append(_last_time_snapshot)
-                _last_time_pushed = _now
-            else:
-                # 1. stat is not updated, but interval doesn't reach force_push_interval
-                # 2. stat is updated, but interval doesn't reach min_push_interval
-                time.sleep(self.min_push_interval)
+    @property
+    def otaclient_status(self) -> OTAClientStatus:
+        return copy(self._stats)

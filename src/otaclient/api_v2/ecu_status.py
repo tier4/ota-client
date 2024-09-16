@@ -20,7 +20,6 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections import deque
 from itertools import chain
 from typing import Dict, Iterable, TypeVar
 
@@ -28,7 +27,7 @@ from otaclient.api_v2._types import convert_status
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
-from otaclient.stats_monitor import OTAClientStatus
+from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
@@ -434,9 +433,10 @@ class ECUTracker:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        stats_push_queue: deque[OTAClientStatus],
+        stats_monitor: OTAClientStatsCollector,
     ) -> None:
-        self._stats_push_queue = stats_push_queue  # for local ECU status polling
+        # for local ECU status polling
+        self._local_otaclient_stats_monitor = stats_monitor
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -471,9 +471,9 @@ class ECUTracker:
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
             with contextlib.suppress(IndexError):
-                status_report = self._stats_push_queue.pop()
                 await self._ecu_status_storage.update_from_local_ecu(
-                    convert_status(status_report)
+                    ecu_status=convert_status(
+                        _in=self._local_otaclient_stats_monitor.otaclient_status
+                    )
                 )
-
             await self._polling_waiter()
