@@ -43,7 +43,7 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient._types import OTAStatus
-from otaclient.app import errors as ota_errors
+from otaclient import errors as ota_errors
 from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,

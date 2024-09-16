@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient._types import OTAStatus
-from otaclient.app import errors as ota_errors
+from otaclient import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,

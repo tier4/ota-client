@@ -66,7 +66,7 @@ from otaclient_common.downloader import (
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
-from .app import errors as ota_errors
+from . import errors as ota_errors
 from .app.configs import config as cfg
 from .app.configs import ecu_info
 
