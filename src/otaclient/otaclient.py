@@ -461,6 +461,7 @@ class _OTAUpdater:
                     payload=SetUpdateMetaReport(
                         image_file_entries=otameta.total_files_num,
                         image_size_uncompressed=otameta.total_files_size_uncompressed,
+                        metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
                     ),
                     session_id=self.session_id,
                 )
