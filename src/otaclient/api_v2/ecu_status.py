@@ -476,4 +476,4 @@ class ECUTracker:
                         _in=self._local_otaclient_stats_monitor.otaclient_status
                     )
                 )
-            await self._polling_waiter()
+            await asyncio.sleep(cfg.ACTIVE_INTERVAL)

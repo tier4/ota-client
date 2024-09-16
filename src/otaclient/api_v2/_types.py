@@ -74,9 +74,9 @@ def _calculate_elapsed_time(
 def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
     base_res = api_types.StatusResponseEcuV2(
         ecu_id=_in.ecu_id,
-        failure_type=_in.failure_type,
-        failure_reason=_in.failure_reason,
-        ota_status=_in.ota_status,
+        failure_type=_in.failure_type or api_types.FailureType.NO_FAILURE,
+        failure_reason=_in.failure_reason or "",
+        ota_status=api_types.StatusOta[_in.ota_status],
         otaclient_version=__version__,
         firmware_version=_in.firmware_version,
     )
@@ -94,6 +94,10 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
 
     _now = int(time.time())
     update_started_timestamp = _in.update_timing.update_start_timestamp
+    if update_started_timestamp <= 0:
+        update_elapsed_time = 0
+    else:
+        update_elapsed_time = _now - update_started_timestamp
 
     # update_progress
     _update_progress = _in.update_progress
@@ -105,7 +109,7 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
     _update_meta = _in.update_meta
     update_status.total_download_files_num = _update_meta.total_download_files_num
     update_status.total_download_files_size = _update_meta.total_download_files_size
-    update_status.total_elapsed_time = Duration(seconds=_now - update_started_timestamp)
+    update_status.total_elapsed_time = Duration(seconds=update_elapsed_time)
     update_status.update_firmware_version = _update_meta.update_firmware_version
     update_status.total_files_num = _update_meta.image_file_entries
     update_status.total_files_size_uncompressed = _update_meta.image_size_uncompressed

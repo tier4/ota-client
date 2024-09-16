@@ -176,7 +176,7 @@ class OTAClientAPIServicer:
     ) -> api_types.UpdateResponseEcu:
         if self._ota_event.is_set():
             logger.warning(
-                "local otaclient indicates we should not receive a rollback now, "
+                "local otaclient indicates we should not receive an update now, "
                 f"current ongoing operation: {self._ongoing_ota}"
             )
             return api_types.UpdateResponseEcu(

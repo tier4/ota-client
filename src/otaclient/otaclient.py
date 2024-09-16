@@ -244,6 +244,7 @@ class _OTAUpdater:
                     new_update_phase=UpdatePhase.INITIALIZING,
                     trigger_timestamp=self.update_start_timestamp,
                 ),
+                session_id=self.session_id,
             )
         )
         stats_report_queue.put_nowait(
