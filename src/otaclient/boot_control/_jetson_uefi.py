@@ -32,6 +32,7 @@ from typing import Any, ClassVar, Generator, Literal
 from pydantic import BaseModel
 from typing_extensions import Self
 
+from otaclient._types import OTAStatus
 from otaclient.app import errors as ota_errors
 from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
@@ -40,7 +41,6 @@ from otaclient.boot_control._firmware_package import (
     PayloadType,
     load_firmware_package,
 )
-from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
 from otaclient_common.common import (
     file_digest,
@@ -1108,5 +1108,5 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> api_types.StatusOta:  # pragma: no cover
+    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status

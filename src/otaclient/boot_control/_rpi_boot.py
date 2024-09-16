@@ -27,7 +27,7 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
-from otaclient_api.v2 import types as api_types
+from otaclient._types import OTAStatus
 from otaclient_common.common import replace_atomic
 from otaclient_common.linux import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
@@ -560,5 +560,5 @@ class RPIBootController(BootControllerProtocol):
     def load_version(self) -> str:
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> api_types.StatusOta:
+    def get_booted_ota_status(self) -> OTAStatus:
         return self._ota_status_control.booted_ota_status
