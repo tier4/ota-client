@@ -85,10 +85,8 @@ class OTAClientAPIServicer:
         )
 
         # start local OTA session manager
-        self._update_event = asyncio.Event()
-        self._rollback_event = asyncio.Event()
-        asyncio.create_task(self._update_event_manager())
-        asyncio.create_task(self._rollback_event_manager())
+        self._ota_event = asyncio.Event()
+        self._ongoing_ota = None
 
         # start ecu status tracking
         self._ecu_status_storage = ECUStatusStorage()
@@ -172,56 +170,27 @@ class OTAClientAPIServicer:
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await self._polling_waiter()
 
-    async def _update_event_manager(self) -> None:
-        _previously_set = False
-        while not _otaclient_shutdown:
-            await asyncio.sleep(OTA_SESSION_LOCK_CHECK_INTERVAL)
-
-            live_ota_status = self._otaclient.live_ota_status
-            if live_ota_status.request_update():
-                self._update_event.clear()
-                _previously_set = False
-                continue
-
-            self._update_event.set()
-            if not _previously_set:
-                _previously_set = True
-                # on new session, hold the event to make sure local otaclient updates
-                #   its own status and entering the OTA.
-                await asyncio.sleep(OTA_SESSION_LOCK_MINIMUM_OTA_TIME)
-
-    async def _rollback_event_manager(self) -> None:
-        _previously_set = False
-        while not _otaclient_shutdown:
-            await asyncio.sleep(OTA_SESSION_LOCK_CHECK_INTERVAL)
-
-            live_ota_status = self._otaclient.live_ota_status
-            if live_ota_status.request_rollback():
-                self._rollback_event.clear()
-                _previously_set = False
-                continue
-
-            self._rollback_event.set()
-            if not _previously_set:
-                _previously_set = True
-                # on new session, hold the event to make sure local otaclient updates
-                #   its own status and entering the OTA.
-                await asyncio.sleep(OTA_SESSION_LOCK_MINIMUM_OTA_TIME)
+    def _on_ota_finished(self, _: asyncio.Future[None]):
+        logger.info(f"OTA operation finished: {self._ongoing_ota}")
+        self._ongoing_ota = ""
+        self._ota_event.clear()
 
     async def _local_update(
         self, request: api_types.UpdateRequestEcu
     ) -> api_types.UpdateResponseEcu:
-        if self._update_event.is_set():
+        if self._ota_event.is_set():
             logger.warning(
-                "local otaclient indicates we should not receive an update now, "
-                "local OTA update is ongoing"
+                "local otaclient indicates we should not receive a rollback now, "
+                f"current ongoing operation: {self._ongoing_ota}"
             )
             return api_types.UpdateResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        self._run_in_executor(
+        self._ota_event.set()
+        self._ongoing_ota = f"OTA update to {request.version}"
+        update_task = self._run_in_executor(
             partial(
                 self._otaclient.update,
                 version=request.version,
@@ -229,6 +198,7 @@ class OTAClientAPIServicer:
                 cookies_json=request.cookies,
             )
         )
+        update_task.add_done_callback(self._on_ota_finished)
         logger.info("local OTA update dispatched")
         return api_types.UpdateResponseEcu(
             ecu_id=self.my_ecu_id,
@@ -238,17 +208,20 @@ class OTAClientAPIServicer:
     async def _local_rollback(
         self, _: api_types.RollbackRequestEcu
     ) -> api_types.RollbackResponseEcu:
-        if self._rollback_event.is_set():
+        if self._ota_event.is_set():
             logger.warning(
                 "local otaclient indicates we should not receive a rollback now, "
-                "local OTA rollback is ongoing"
+                f"current ongoing operation: {self._ongoing_ota}"
             )
             return api_types.RollbackResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        self._run_in_executor(self._otaclient.rollback)
+        self._ota_event.set()
+        self._ongoing_ota = "OTA rollback"
+        rollback_task = self._run_in_executor(self._otaclient.rollback)
+        rollback_task.add_done_callback(self._on_ota_finished)
         logger.info("local OTA rollback dispatched")
         return api_types.RollbackResponseEcu(
             ecu_id=self.my_ecu_id,
