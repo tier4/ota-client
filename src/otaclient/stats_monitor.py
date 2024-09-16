@@ -122,10 +122,10 @@ def _on_session_finished(
     status_storage: OTAClientStatus, payload: OTAStatusChangeReport
 ):
     status_storage.session_id = ""
-    status_storage.update_phase = None
-    status_storage.update_meta = None
-    status_storage.update_progress = None
-    status_storage.update_timing = None
+    status_storage.update_phase = UpdatePhase.INITIALIZING
+    status_storage.update_meta = UpdateMeta()
+    status_storage.update_progress = UpdateProgress()
+    status_storage.update_timing = UpdateTiming()
     status_storage.ota_status = payload.new_ota_status
 
     if payload.new_ota_status in [OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE]:
@@ -143,7 +143,7 @@ def _on_new_ota_session(
     status_storage.update_phase = UpdatePhase.INITIALIZING
     status_storage.update_meta = UpdateMeta()
     status_storage.update_progress = UpdateProgress()
-    status_storage.update_timing = UpdateTiming()
+    status_storage.update_timing = UpdateTiming(update_start_timestamp=int(time.time()))
     status_storage.failure_type = FailureType.NO_FAILURE
     status_storage.failure_reason = ""
 
@@ -152,10 +152,7 @@ def _on_update_phase_changed(
     status_storage: OTAClientStatus, payload: OTAUpdatePhaseChangeReport
 ):
     phase, trigger_timestamp = payload.new_update_phase, payload.trigger_timestamp
-
     update_timing = status_storage.update_timing
-    if update_timing is None:
-        status_storage.update_timing = update_timing = UpdateTiming()
 
     if phase == UpdatePhase.PROCESSING_POSTUPDATE:
         update_timing.post_update_start_timestamp = trigger_timestamp
@@ -165,17 +162,12 @@ def _on_update_phase_changed(
         update_timing.delta_generate_start_timestamp = trigger_timestamp
     elif phase == UpdatePhase.APPLYING_UPDATE:
         update_timing.update_apply_start_timestamp = trigger_timestamp
-    elif phase == UpdatePhase.INITIALIZING:
-        update_timing.update_start_timestamp = trigger_timestamp
 
     status_storage.update_phase = phase
 
 
 def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgressReport):
     update_progress = status_storage.update_progress
-    if update_progress is None:
-        status_storage.update_progress = update_progress = UpdateProgress()
-
     op = payload.operation
     if (
         op == UpdateProgressReport.Type.PREPARE_LOCAL_COPY
