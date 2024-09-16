@@ -29,31 +29,44 @@ def _calculate_elapsed_time(
 ) -> api_types.UpdateStatus:
     _now = int(time.time())
     if (update_started_timestamp := _in.update_start_timestamp) <= 0:
+        # update not yet started
         return _res
     _res.update_start_timestamp = update_started_timestamp
 
     if (delta_calculated_started_timestamp := _in.delta_generate_start_timestamp) <= 0:
+        # delta calculation not yet started
         return _res
 
     if (downloaded_started_timestamp := _in.download_start_timestamp) <= 0:
+        # download not yet started
         _res.delta_generating_elapsed_time = Duration(
             seconds=min(1, _now - delta_calculated_started_timestamp)
         )
         return _res
-
     _res.delta_generating_elapsed_time = Duration(
         seconds=min(
             1, delta_calculated_started_timestamp - downloaded_started_timestamp
         )
     )
+
     if (update_apply_started_timestamp := _in.update_apply_start_timestamp) <= 0:
+        # apply update not yet started
         _res.downloading_elapsed_time = Duration(
             seconds=min(1, _now - downloaded_started_timestamp)
         )
         return _res
+    _res.downloading_elapsed_time = Duration(
+        seconds=min(1, update_apply_started_timestamp - downloaded_started_timestamp)
+    )
 
+    if (post_update_started_timestamp := _in.post_update_start_timestamp) <= 0:
+        # post update not yet started
+        _res.downloading_elapsed_time = Duration(
+            seconds=min(1, _now - update_apply_started_timestamp)
+        )
+        return _res
     _res.update_applying_elapsed_time = Duration(
-        seconds=min(1, _now - update_apply_started_timestamp)
+        seconds=min(1, post_update_started_timestamp - _in.update_apply_start_timestamp)
     )
     return _res
 
