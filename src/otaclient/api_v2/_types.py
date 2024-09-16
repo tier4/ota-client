@@ -44,7 +44,7 @@ def _calculate_elapsed_time(
         return _res
     _res.delta_generating_elapsed_time = Duration(
         seconds=max(
-            1, delta_calculated_started_timestamp - downloaded_started_timestamp
+            1, downloaded_started_timestamp - delta_calculated_started_timestamp
         )
     )
 
@@ -65,7 +65,7 @@ def _calculate_elapsed_time(
         )
         return _res
     _res.update_applying_elapsed_time = Duration(
-        seconds=max(1, post_update_started_timestamp - _in.update_apply_start_timestamp)
+        seconds=max(1, post_update_started_timestamp - update_apply_started_timestamp)
     )
     return _res
 
