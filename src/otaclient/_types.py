@@ -96,7 +96,7 @@ class UpdateTiming:
 class OTAClientStatus:
     """otaclient internal status definition."""
 
-    ecu_id: str
+    ecu_id: str = ""
     firmware_version: str = ""
 
     ota_status: OTAStatus = OTAStatus.INITIALIZED
