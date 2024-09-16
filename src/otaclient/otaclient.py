@@ -574,6 +574,17 @@ class _OTAUpdater:
         next(_postupdate_gen := self._boot_controller.post_update())
 
         logger.info("local update finished, wait on all subecs...")
+        self._stats_report_queue.put_nowait(
+            StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PHASE,
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.FINALIZING_UPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
         self._control_flags.wait_can_reboot_flag()
         next(_postupdate_gen, None)  # reboot
 
