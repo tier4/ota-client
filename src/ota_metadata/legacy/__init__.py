@@ -14,21 +14,4 @@
 """OTA image metadata, legacy version."""
 
 
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-from otaclient_common import import_from_file
-
 SUPORTED_COMPRESSION_TYPES = ("zst", "zstd")
-
-# ------ dynamically import pb2 generated code ------ #
-
-_PROTO_DIR = Path(__file__).parent
-_PB2_FPATH = _PROTO_DIR / "ota_metafiles_pb2.py"
-_PACKAGE_PREFIX = ".".join(__name__.split(".")[:-1])
-
-_module_name, _module = import_from_file(_PB2_FPATH)
-sys.modules[_module_name] = _module
-sys.modules[f"{_PACKAGE_PREFIX}.{_module_name}"] = _module
