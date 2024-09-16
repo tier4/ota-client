@@ -105,10 +105,10 @@ class OTAClientStatus:
     firmware_version: str = ""
 
     ota_status: OTAStatus = OTAStatus.INITIALIZED
-    session_id: Optional[str] = None
-    update_phase: Optional[UpdatePhase] = None
-    update_meta: Optional[UpdateMeta] = None
-    update_progress: Optional[UpdateProgress] = None
-    update_timing: Optional[UpdateTiming] = None
-    failure_type: Optional[FailureType] = None
-    failure_reason: Optional[str] = None
+    session_id: str = ""
+    update_phase: UpdatePhase = UpdatePhase.INITIALIZING
+    update_meta: UpdateMeta = UpdateMeta()
+    update_progress: UpdateProgress = UpdateProgress()
+    update_timing: UpdateTiming = UpdateTiming()
+    failure_type: FailureType = FailureType.NO_FAILURE
+    failure_reason: str = ""
