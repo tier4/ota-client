@@ -678,7 +678,6 @@ class OTAClient:
             StatsReport(
                 type=StatsReportType.SET_OTACLIENT_META,
                 payload=SetOTAClientMetaReport(
-                    ecu_id=self.my_ecu_id,
                     firmware_version=self.current_version,
                 ),
             )

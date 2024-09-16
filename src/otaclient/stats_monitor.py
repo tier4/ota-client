@@ -59,8 +59,7 @@ atexit.register(_global_shutdown)
 
 @dataclass
 class SetOTAClientMetaReport:
-    ecu_id: str
-    firmware_version: str
+    firmware_version: str = ""
 
 
 @dataclass
@@ -208,7 +207,6 @@ def load_report(status_storage: OTAClientStatus, report: StatsReport):
     if report.type == StatsReportType.SET_OTACLIENT_META and isinstance(
         payload, SetOTAClientMetaReport
     ):
-        status_storage.ecu_id = payload.ecu_id
         status_storage.firmware_version = payload.firmware_version
 
     # ------ on session start/end ------ #

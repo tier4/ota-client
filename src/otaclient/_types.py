@@ -18,7 +18,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import ClassVar, Optional
+
+from _otaclient_version import __version__
+from otaclient.configs.ecu_info import ecu_info
 
 #
 # ------ enum definitions ------ #
@@ -97,7 +100,8 @@ class UpdateTiming:
 class OTAClientStatus:
     """otaclient internal status definition."""
 
-    ecu_id: str = ""
+    ecu_id: ClassVar[str] = ecu_info.ecu_id
+    otaclient_version: ClassVar[str] = __version__
     firmware_version: str = ""
 
     ota_status: OTAStatus = OTAStatus.INITIALIZED

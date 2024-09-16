@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import time
 
-from _otaclient_version import __version__
 from otaclient._types import OTAClientStatus, OTAStatus, UpdateTiming
 from otaclient_api.v2 import types as api_types
 from otaclient_common.proto_wrapper import Duration
@@ -74,11 +73,11 @@ def _calculate_elapsed_time(
 def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
     base_res = api_types.StatusResponseEcuV2(
         ecu_id=_in.ecu_id,
+        otaclient_version=_in.otaclient_version,
+        firmware_version=_in.firmware_version,
         failure_type=_in.failure_type or api_types.FailureType.NO_FAILURE,
         failure_reason=_in.failure_reason or "",
         ota_status=api_types.StatusOta[_in.ota_status],
-        otaclient_version=__version__,
-        firmware_version=_in.firmware_version,
     )
 
     if _in.ota_status != OTAStatus.UPDATING or not (
