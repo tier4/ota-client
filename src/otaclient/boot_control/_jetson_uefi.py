@@ -32,8 +32,8 @@ from typing import Any, ClassVar, Generator, Literal
 from pydantic import BaseModel
 from typing_extensions import Self
 
-from otaclient._types import OTAStatus
 from otaclient import errors as ota_errors
+from otaclient._types import OTAStatus
 from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,

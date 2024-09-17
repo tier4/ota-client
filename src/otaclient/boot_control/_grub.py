@@ -42,8 +42,8 @@ from pprint import pformat
 from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
-from otaclient._types import OTAStatus
 from otaclient import errors as ota_errors
+from otaclient._types import OTAStatus
 from otaclient_common.common import (
     re_symlink_atomic,
     read_str_from_file,

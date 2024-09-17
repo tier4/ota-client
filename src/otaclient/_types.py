@@ -21,6 +21,7 @@ from enum import Enum
 from typing import ClassVar
 
 from _otaclient_version import __version__
+
 from otaclient.configs.ecu_info import ecu_info
 
 #
