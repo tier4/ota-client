@@ -18,13 +18,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from _otaclient_version import __version__
 from otaclient.configs.ecu_info import ecu_info
 
 #
-# ------ enum definitions ------ #
+# ------ OTA status enums definitions ------ #
 #
 
 
@@ -47,14 +47,6 @@ class OTAStatus(str, Enum):
     ROLLBACK_FAILURE = "ROLLBACK_FAILURE"
 
 
-class StatsReportType(str, Enum):
-    SET_OTACLIENT_META = "SET_OTACLIENT_META"
-    SET_OTA_UPDATE_PHASE = "SET_OTA_UPDATE_PHASE"
-    SET_OTA_STATUS = "SET_OTA_STATUS"
-    SET_OTA_UPDATE_PROGRESS = "SET_OTA_UPDATE_PROGRESS"
-    SET_OTA_UPDATE_META = "SET_OTA_UPDATE_META"
-
-
 class FailureType(str, Enum):
     NO_FAILURE = "NO_FAILURE"
     RECOVERABLE = "RECOVERABLE"
@@ -64,6 +56,14 @@ class FailureType(str, Enum):
 #
 # ------ otaclient internal status report ------ #
 #
+
+
+class StatsReportType(str, Enum):
+    SET_OTACLIENT_META = "SET_OTACLIENT_META"
+    SET_OTA_UPDATE_PHASE = "SET_OTA_UPDATE_PHASE"
+    SET_OTA_STATUS = "SET_OTA_STATUS"
+    SET_OTA_UPDATE_PROGRESS = "SET_OTA_UPDATE_PROGRESS"
+    SET_OTA_UPDATE_META = "SET_OTA_UPDATE_META"
 
 
 @dataclass

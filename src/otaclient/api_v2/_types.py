@@ -26,46 +26,24 @@ from otaclient_common.proto_wrapper import Duration
 def _calculate_elapsed_time(
     _in: UpdateTiming, _res: api_types.UpdateStatus
 ) -> api_types.UpdateStatus:
+    """
+    Phases switch:
+    start -> delta_calculation -> download -> apply_update
+    """
     _now = int(time.time())
-    if (update_started_timestamp := _in.update_start_timestamp) <= 0:
-        # update not yet started
-        return _res
-    _res.update_start_timestamp = update_started_timestamp
+    _delta_calculate_started = _in.delta_generate_start_timestamp or float("inf")
+    _download_started = _in.download_start_timestamp or float("inf")
+    _update_apply_started = _in.update_apply_start_timestamp or float("inf")
+    _post_update_started = _in.post_update_start_timestamp or float("inf")
 
-    if (delta_calculated_started_timestamp := _in.delta_generate_start_timestamp) <= 0:
-        # delta calculation not yet started
-        return _res
-
-    if (downloaded_started_timestamp := _in.download_start_timestamp) <= 0:
-        # download not yet started
-        _res.delta_generating_elapsed_time = Duration(
-            seconds=max(1, _now - delta_calculated_started_timestamp)
-        )
-        return _res
     _res.delta_generating_elapsed_time = Duration(
-        seconds=max(
-            1, downloaded_started_timestamp - delta_calculated_started_timestamp
-        )
+        seconds=int(max(min(_now, _download_started) - _delta_calculate_started, 0))
     )
-
-    if (update_apply_started_timestamp := _in.update_apply_start_timestamp) <= 0:
-        # apply update not yet started
-        _res.downloading_elapsed_time = Duration(
-            seconds=max(1, _now - downloaded_started_timestamp)
-        )
-        return _res
     _res.downloading_elapsed_time = Duration(
-        seconds=max(1, update_apply_started_timestamp - downloaded_started_timestamp)
+        seconds=int(max(min(_now, _update_apply_started) - _download_started, 0))
     )
-
-    if (post_update_started_timestamp := _in.post_update_start_timestamp) <= 0:
-        # post update not yet started
-        _res.downloading_elapsed_time = Duration(
-            seconds=max(1, _now - update_apply_started_timestamp)
-        )
-        return _res
     _res.update_applying_elapsed_time = Duration(
-        seconds=max(1, post_update_started_timestamp - update_apply_started_timestamp)
+        seconds=int(max(min(_now, _post_update_started) - _update_apply_started, 0))
     )
     return _res
 
@@ -90,8 +68,7 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
 
     # for UPDATING OTAStatus, convert api_types' update_status attr
     update_status = api_types.UpdateStatus()
-    if _in.update_phase:
-        update_status.phase = api_types.UpdatePhase[_in.update_phase]
+    update_status.phase = api_types.UpdatePhase[_in.update_phase]
 
     _now = int(time.time())
     update_started_timestamp = _in.update_timing.update_start_timestamp
@@ -99,6 +76,7 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
         update_elapsed_time = 0
     else:
         update_elapsed_time = _now - update_started_timestamp
+        update_status.update_start_timestamp = update_started_timestamp
 
     # update_progress
     _update_progress = _in.update_progress
