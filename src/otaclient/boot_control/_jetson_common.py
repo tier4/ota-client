@@ -380,7 +380,7 @@ def update_extlinux_cfg(_input: str, partuuid: str) -> str:
         append_l: str = ma.group(0)
         if append_l.startswith("#"):
             return append_l
-        res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
+        res, n = re.compile(r"root=[^\s]*").subn(repl, append_l)
         if not n:  # this APPEND line doesn't contain root= placeholder
             res = f"{append_l} {repl}"
 
