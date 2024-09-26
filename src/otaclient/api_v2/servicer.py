@@ -24,13 +24,15 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
+import otaclient_api.v2.otaclient_v2_pb2 as pb2
+import otaclient_api.v2.otaclient_v2_pb2_grpc as pb2_grpc
+import otaclient_api.v2.types as api_types
 from otaclient._types import OTAClientStatus, OTAStatus, UpdatePhase
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
 from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, proxy_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
-from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,7 @@ OTA_SESSION_LOCK_CHECK_INTERVAL = 6
 OTA_SESSION_LOCK_MINIMUM_OTA_TIME = 60
 
 
-class OTAClientAPIServicer:
+class _OTAClientAPIServicer:
     """Handlers for otaclient service API.
 
     This class also handles otaproxy lifecyle and dependence managing.
@@ -343,3 +345,24 @@ class OTAClientAPIServicer:
 
     async def status(self, _=None) -> api_types.StatusResponse:
         return await self._ecu_status_storage.export()
+
+
+class OTAClientAPIServer(_OTAClientAPIServicer, pb2_grpc.OtaClientServiceServicer):
+
+    async def Update(
+        self, request: pb2.UpdateRequest, context
+    ) -> pb2.UpdateResponse:  # pragma: no cover
+        response = await self.update(api_types.UpdateRequest.convert(request))
+        return response.export_pb()
+
+    async def Rollback(
+        self, request: pb2.RollbackRequest, context
+    ) -> pb2.RollbackResponse:  # pragma: no cover
+        response = await self.rollback(api_types.RollbackRequest.convert(request))
+        return response.export_pb()
+
+    async def Status(
+        self, request: pb2.StatusRequest, context
+    ) -> pb2.StatusResponse:  # pragma: no cover
+        response = await self.status(api_types.StatusRequest.convert(request))
+        return response.export_pb()
