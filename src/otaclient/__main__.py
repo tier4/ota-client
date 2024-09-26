@@ -15,20 +15,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
+import multiprocessing.synchronize as mp_sync
 import os
 import sys
 from pathlib import Path
 
 from otaclient import __version__
-from otaclient.api_v2.server import app_server_main
 from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info
+from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.log_setting import configure_logging
-from otaclient.ota_app import ota_app_main
 from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 # configure logging before any code being executed
@@ -39,7 +39,7 @@ _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 
 
-def _global_shutdown():
+def _global_shutdown():  # pragma: no cover
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
@@ -68,7 +68,61 @@ def _check_other_otaclient():
     write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 
 
-def main() -> None:
+def app_server_main(
+    *,
+    status_report_queue: mp.Queue,
+    operation_queue: mp.Queue,
+    control_flags: mp_sync.Event,
+):  # pragma: no cover
+    """OTA API server process main.
+
+    NOTE that the imports within this function have side-effect, so we don't
+        import them globally.
+    """
+    import grpc.aio as grpc_aio
+
+    from otaclient.api_v2.servicer import OTAClientAPIServicer
+    from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+    from otaclient_api.v2.api_stub import OtaClientServiceV2
+
+    service_stub = OTAClientAPIServicer(
+        status_report_queue=status_report_queue,
+        operation_queue=operation_queue,
+        otaclient_control_flags=control_flags,
+    )
+    ota_client_service_v2 = OtaClientServiceV2(service_stub)
+
+    server = grpc_aio.server()
+    v2_grpc.add_OtaClientServiceServicer_to_server(
+        server=server, servicer=ota_client_service_v2
+    )
+    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+
+    async def _main():
+        await server.start()
+        await server.wait_for_termination()
+
+    asyncio.run(_main())
+
+
+def ota_app_main(
+    *,
+    status_report_queue: mp.Queue,
+    opeartion_queue: mp.Queue,
+    control_flag: mp_sync.Event,
+):  # pragma: no cover
+    """Main entry of otaclient app process."""
+    from otaclient.ota_app import OTAClientAPP
+
+    otaclient_app = OTAClientAPP(
+        status_report_queue=status_report_queue,
+        opeartion_queue=opeartion_queue,
+        control_flag=control_flag,
+    )
+    otaclient_app.main()
+
+
+def main() -> None:  # pragma: no cover
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
@@ -109,5 +163,5 @@ def main() -> None:
     _ota_server_p.join()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

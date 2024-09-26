@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import atexit
 import multiprocessing as mp
+import multiprocessing.synchronize as mp_sync
 import threading
 import time
 from queue import Empty, Queue
 
 from otaclient._types import OTAClientStatus
 from otaclient.configs.proxy_info import proxy_info
-from otaclient.ota_core import OTAClient, OTAClientControlFlags
+from otaclient.ota_core import OTAClient
 from otaclient.stats_monitor import OTAClientStatsCollector
 
 _otaclient_shutdown = False
@@ -56,7 +57,7 @@ class OTAClientAPP:
         *,
         status_report_queue: mp.Queue[OTAClientStatus],
         opeartion_queue: mp.Queue,
-        control_flag: OTAClientControlFlags,
+        control_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""
         self._status_report_queue = status_report_queue
