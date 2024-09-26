@@ -28,6 +28,11 @@ from otaclient.configs.ecu_info import ecu_info
 #
 
 
+class OTAOperation(str, Enum):
+    UPDATE = "UPDATE"
+    ROLLBACK = "ROLLBACK"
+
+
 class OTAOperationResp(str, Enum):
     ACCEPTED = "ACCEPTED"
     BUSY = "BUSY"

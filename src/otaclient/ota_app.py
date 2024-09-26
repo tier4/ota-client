@@ -17,16 +17,25 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import multiprocessing as mp
 import multiprocessing.synchronize as mp_sync
 import threading
 import time
 from queue import Empty, Queue
 
-from otaclient._types import OTAClientStatus
+from otaclient._types import (
+    OTAClientStatus,
+    OTAOperation,
+    OTAOperationResp,
+    RollbackRequestV2,
+    UpdateRequestV2,
+)
 from otaclient.configs.proxy_info import proxy_info
 from otaclient.ota_core import OTAClient
 from otaclient.stats_monitor import OTAClientStatsCollector
+
+logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
 _status_report_thread: threading.Thread | None = None
@@ -97,11 +106,18 @@ class OTAClientAPP:
     def _ota_operation_main(self, request) -> None:
         """Main entry for OTA operation thread."""
         try:
-            if request.op == "UPDATE":
-                return self._otaclient.update(request)
-            if request.op == "Rollback":
-                return self._otaclient.rollback(request)
-            raise ValueError(f"unknown operation: {operation}")
+            if isinstance(request, UpdateRequestV2):
+                self._last_op = OTAOperation.UPDATE
+                self._report_interval = ACTIVE_REPORT_INTERVAL
+                return self._otaclient.update(
+                    version=request.version,
+                    url_base=request.url_base,
+                    cookies_json=request.cookies_json,
+                )
+            if isinstance(request, RollbackRequestV2):
+                self._last_op = OTAOperation.ROLLBACK
+                self._report_interval = ACTIVE_REPORT_INTERVAL
+                return self._otaclient.rollback()
         finally:
             self._last_op = None
             self._report_interval = IDLE_REPORT_INTERVAL
@@ -113,10 +129,12 @@ class OTAClientAPP:
                 req = self._operation_queue.get_nowait()
             except Empty:
                 time.sleep(REQ_PULL_INTERVAL)
+                continue
 
             if self._last_op:
-                # TODO:
-                self._operation_queue.put_nowait("failed!")
+                logger.warning(f"ignore {type(req)} as {self._last_op} is ongoing")
+                self._operation_queue.put_nowait(OTAOperationResp.BUSY)
+                continue
 
             global _ota_op_thread
             _ota_op_thread = threading.Thread(
@@ -126,4 +144,4 @@ class OTAClientAPP:
                 daemon=True,
             )
             _ota_op_thread.start()
-            self._operation_queue.put_nowait("accepted!")
+            self._operation_queue.put_nowait(OTAOperationResp.ACCEPTED)
