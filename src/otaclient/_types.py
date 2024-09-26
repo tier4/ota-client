@@ -21,12 +21,16 @@ from enum import Enum
 from typing import ClassVar
 
 from _otaclient_version import __version__
-
 from otaclient.configs.ecu_info import ecu_info
 
 #
 # ------ OTA status enums definitions ------ #
 #
+
+
+class OTAOperationResp(str, Enum):
+    ACCEPTED = "ACCEPTED"
+    BUSY = "BUSY"
 
 
 class UpdatePhase(str, Enum):
@@ -97,6 +101,11 @@ class UpdateTiming:
     post_update_start_timestamp: int = 0  # in second
 
 
+#
+# ------ otaclient internal IPC messages ------ #
+#
+
+
 @dataclass
 class OTAClientStatus:
     """otaclient internal status definition."""
@@ -113,3 +122,16 @@ class OTAClientStatus:
     update_timing: UpdateTiming = UpdateTiming()
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
+
+
+@dataclass
+class UpdateRequestV2:
+    """Compatible with OTA API version 2."""
+
+    version: str
+    url_base: str
+    cookies_json: str
+
+
+class RollbackRequestV2:
+    """Compatbile with OTA API version 2."""
