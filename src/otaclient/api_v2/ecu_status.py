@@ -480,7 +480,7 @@ class ECUTracker:
             try:
                 status_report = self._local_status_report_queue.get_nowait()
             except Empty:
-                await asyncio.sleep(cfg.ACTIVE_INTERVAL)
+                await self._polling_waiter()
                 continue
 
             await self._ecu_status_storage.update_from_local_ecu(

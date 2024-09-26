@@ -154,6 +154,7 @@ class _OTAClientAPIServicer:
 
             local_ota_status = self._ecu_status_storage.get_self_status()
             if local_ota_status is None:
+                await self._polling_waiter()
                 continue
 
             _sub_ecus_ok = not self._ecu_status_storage.in_update_child_ecus_id
