@@ -98,6 +98,7 @@ def api_server_main(
             ),
         )
 
+        logger.info("OTA API server started")
         await server.start()
         await server.wait_for_termination()
 
@@ -118,6 +119,7 @@ def ota_app_main(
         operation_queue=operation_queue,
         reboot_flag=reboot_flag,
     )
+    logger.info("otaclient app started")
     otaclient_app.main()
 
 

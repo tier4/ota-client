@@ -125,7 +125,6 @@ class OTAClientAPP:
 
     def main(self):
         """Main entry for OTAClient APP process."""
-        logger.info("otaclient app started")
         while not _otaclient_shutdown:
             try:
                 req = self._operation_queue.get_nowait()
