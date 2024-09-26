@@ -163,7 +163,7 @@ class _OTAUpdater:
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        control_flags: mp_sync.Event,
+        reboot_flags: mp_sync.Event,
         stats_report_queue: Queue[StatsReport],
         session_id: str,
     ) -> None:
@@ -206,7 +206,7 @@ class _OTAUpdater:
             proxies["http"] = upper_otaproxy
 
         # ------ init updater implementation ------ #
-        self._control_flags = control_flags
+        self._reboot_flags = reboot_flags
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
@@ -566,7 +566,7 @@ class _OTAUpdater:
 
         logger.info("wait for permit reboot flag set ...")
         for seconds in itertools.count(start=1):
-            if self._control_flags.is_set():
+            if self._reboot_flags.is_set():
                 break
 
             if seconds // 30 == 0:
@@ -621,7 +621,7 @@ class OTAClient:
         boot_controller: boot control instance
         create_standby_cls: type of create standby slot mechanism to use
         my_ecu_id: ECU id of the device running this otaclient instance
-        control_flag: flags used by otaclient and ota_service stub for synchronization
+        reboot_flag: flags used by otaclient and ota_service stub for synchronization
         proxy: upper otaproxy URL
     """
 
@@ -630,7 +630,7 @@ class OTAClient:
     def __init__(
         self,
         *,
-        control_flag: mp_sync.Event,
+        reboot_flag: mp_sync.Event,
         proxy: Optional[str] = None,
         stats_report_queue: Queue[StatsReport],
     ):
@@ -684,7 +684,7 @@ class OTAClient:
             )
 
             self.proxy = proxy
-            self.control_flags = control_flag
+            self.reboot_flags = reboot_flag
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
@@ -763,7 +763,7 @@ class OTAClient:
                 cookies_json=cookies_json,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
-                control_flags=self.control_flags,
+                reboot_flags=self.reboot_flags,
                 upper_otaproxy=self.proxy,
                 stats_report_queue=self._stats_report_queue,
                 session_id=new_session_id,

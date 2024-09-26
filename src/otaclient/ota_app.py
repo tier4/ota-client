@@ -66,7 +66,7 @@ class OTAClientAPP:
         *,
         status_report_queue: mp.Queue[OTAClientStatus],
         opeartion_queue: mp.Queue,
-        control_flag: mp_sync.Event,
+        reboot_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""
         self._status_report_queue = status_report_queue
@@ -78,7 +78,7 @@ class OTAClientAPP:
         )
 
         self._otaclient = OTAClient(
-            control_flag=control_flag,
+            reboot_flag=reboot_flag,
             proxy=proxy_info.get_proxy_for_local_ota(),
             stats_report_queue=local_stats_collect_queue,
         )

@@ -72,7 +72,7 @@ def api_server_main(
     *,
     status_report_queue: mp.Queue,
     operation_queue: mp.Queue,
-    control_flags: mp_sync.Event,
+    reboot_flag: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
 
@@ -93,7 +93,7 @@ def api_server_main(
         servicer=APIv2Servicer(
             status_report_queue=status_report_queue,
             operation_queue=operation_queue,
-            control_flag=control_flags,
+            reboot_flag=reboot_flag,
         ),
     )
 
@@ -108,7 +108,7 @@ def ota_app_main(
     *,
     status_report_queue: mp.Queue,
     opeartion_queue: mp.Queue,
-    control_flag: mp_sync.Event,
+    reboot_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
     from otaclient.ota_app import OTAClientAPP
@@ -116,7 +116,7 @@ def ota_app_main(
     otaclient_app = OTAClientAPP(
         status_report_queue=status_report_queue,
         opeartion_queue=opeartion_queue,
-        control_flag=control_flag,
+        reboot_flag=reboot_flag,
     )
     otaclient_app.main()
 
@@ -131,28 +131,16 @@ def main() -> None:  # pragma: no cover
 
     ctx = mp.get_context("spawn")
 
-    permit_reboot_flag = ctx.Event()
-    ipc_status_report_queue = ctx.Queue()
-    ipc_ota_op_queue = ctx.Queue()
+    ipc_primitives = {
+        "status_report_queue": ctx.Queue(),
+        "opeartion_queue": ctx.Queue(),
+        "reboot_flag": ctx.Event(),
+    }
 
     global _ota_core_p, _ota_server_p
-    _ota_core_p = ctx.Process(
-        target=ota_app_main,
-        kwargs={
-            "status_report_queue": ipc_status_report_queue,
-            "opeartion_queue": ipc_ota_op_queue,
-            "control_flag": permit_reboot_flag,
-        },
-        daemon=True,
-    )
+    _ota_core_p = ctx.Process(target=ota_app_main, kwargs=ipc_primitives, daemon=True)
     _ota_server_p = ctx.Process(
-        target=api_server_main,
-        kwargs={
-            "status_report_queue": ipc_status_report_queue,
-            "opeartion_queue": ipc_ota_op_queue,
-            "control_flag": permit_reboot_flag,
-        },
-        daemon=True,
+        target=api_server_main, kwargs=ipc_primitives, daemon=True
     )
 
     _ota_core_p.start()
