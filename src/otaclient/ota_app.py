@@ -22,7 +22,7 @@ import multiprocessing as mp
 import multiprocessing.synchronize as mp_sync
 import threading
 import time
-from queue import Empty, Queue
+from queue import Queue
 
 from otaclient._types import (
     OTAClientStatus,
@@ -128,11 +128,9 @@ class OTAClientAPP:
     def main(self):
         """Main entry for OTAClient APP process."""
         while not _otaclient_shutdown:
-            try:
-                req = self._operation_push_queue.get_nowait()
-            except Empty:
-                time.sleep(REQ_PULL_INTERVAL)
-                continue
+            req = self._operation_push_queue.get()
+            if req is None:
+                break  # termination signal
 
             if self._last_op:
                 logger.warning(f"ignore {type(req)} as {self._last_op} is ongoing")
