@@ -19,10 +19,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import multiprocessing as mp
+from queue import Empty
 import time
 from itertools import chain
 from typing import Dict, Iterable, TypeVar
 
+from otaclient._types import OTAClientStatus
 from otaclient.api_v2._types import convert_status
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
@@ -433,10 +436,10 @@ class ECUTracker:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        stats_monitor: OTAClientStatsCollector,
+        status_report_queue: mp.Queue[OTAClientStatus],
     ) -> None:
         # for local ECU status polling
-        self._local_otaclient_stats_monitor = stats_monitor
+        self._local_status_report_queue = status_report_queue
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -470,10 +473,13 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            with contextlib.suppress(IndexError):
-                await self._ecu_status_storage.update_from_local_ecu(
-                    ecu_status=convert_status(
-                        _in=self._local_otaclient_stats_monitor.otaclient_status
-                    )
-                )
-            await asyncio.sleep(cfg.ACTIVE_INTERVAL)
+            # NOTE: otaclient_core controls the frequency of status report pushing
+            try:
+                status_report = self._local_status_report_queue.get_nowait()
+            except Empty:
+                await asyncio.sleep(cfg.ACTIVE_INTERVAL)
+                continue
+
+            await self._ecu_status_storage.update_from_local_ecu(
+                ecu_status=convert_status(_in=status_report)
+            )
