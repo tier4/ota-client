@@ -92,8 +92,7 @@ class _OTAClientAPIServicer:
         self._ecu_status_storage = ECUStatusStorage()
         self._ecu_status_tracker = ECUTracker(
             ecu_status_storage=self._ecu_status_storage,
-            # TODO: monitor the status from the queue
-            stats_monitor=status_report_queue,
+            status_report_queue=status_report_queue,
         )
 
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -105,7 +104,7 @@ class _OTAClientAPIServicer:
                 subprocess_ctx=OTAProxyContext(),
             )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
-            asyncio.create_task(self._otaclient_control_flags_managing())
+            asyncio.create_task(self._otaclient_control_flag_managing())
         else:
             # if otaproxy is not enabled, no dependency relationship will be formed,
             # always allow local otaclient to reboot
@@ -144,7 +143,7 @@ class _OTAClientAPIServicer:
                     self._otaproxy_launcher.cleanup_cache_dir()
             await self._polling_waiter()
 
-    async def _otaclient_control_flags_managing(self):
+    async def _otaclient_control_flag_managing(self):
         """Task entry for set/clear otaclient control flags.
 
         Prevent self ECU from rebooting when their is at least one ECU
@@ -153,15 +152,16 @@ class _OTAClientAPIServicer:
         while not _otaclient_shutdown:
             can_reboot_flag = self._control_flag.is_set()
 
-            # TODO: get local ECU's status from the storage
-            local_ota_status = self._local_otaclient_monitor.otaclient_status.ota_status
-            update_phase = self._local_otaclient_monitor.otaclient_status.update_phase
+            local_ota_status = self._ecu_status_storage.get_self_status()
+            if local_ota_status is None:
+                continue
 
             _sub_ecus_ok = not self._ecu_status_storage.in_update_child_ecus_id
             # wait for all stats being collected by the collector
             _local_ecu_ok = not (
-                local_ota_status == OTAStatus.UPDATING
-                and update_phase != UpdatePhase.FINALIZING_UPDATE
+                local_ota_status.ota_status == api_types.StatusOta.UPDATING
+                and local_ota_status.update_status.phase
+                != api_types.UpdatePhase.FINALIZING_UPDATE
             )
 
             if _sub_ecus_ok and _local_ecu_ok:
@@ -244,7 +244,7 @@ class _OTAClientAPIServicer:
 
     # API implementation
 
-    async def update(
+    async def update_handler(
         self, request: api_types.UpdateRequest
     ) -> api_types.UpdateResponse:
         logger.info(f"receive update request: {request}")
@@ -306,7 +306,7 @@ class _OTAClientAPIServicer:
 
         return response
 
-    async def rollback(
+    async def rollback_handler(
         self, request: api_types.RollbackRequest
     ) -> api_types.RollbackResponse:
         logger.info(f"receive rollback request: {request}")
@@ -356,7 +356,7 @@ class _OTAClientAPIServicer:
             response.add_ecu(_resp_ecu)
         return response
 
-    async def status(self, _=None) -> api_types.StatusResponse:
+    async def status_handler(self, _=None) -> api_types.StatusResponse:
         return await self._ecu_status_storage.export()
 
 
@@ -365,17 +365,19 @@ class OTAClientAPIServicer(_OTAClientAPIServicer, pb2_grpc.OtaClientServiceServi
     async def Update(
         self, request: pb2.UpdateRequest, context
     ) -> pb2.UpdateResponse:  # pragma: no cover
-        response = await self.update(api_types.UpdateRequest.convert(request))
+        response = await self.update_handler(api_types.UpdateRequest.convert(request))
         return response.export_pb()
 
     async def Rollback(
         self, request: pb2.RollbackRequest, context
     ) -> pb2.RollbackResponse:  # pragma: no cover
-        response = await self.rollback(api_types.RollbackRequest.convert(request))
+        response = await self.rollback_handler(
+            api_types.RollbackRequest.convert(request)
+        )
         return response.export_pb()
 
     async def Status(
         self, request: pb2.StatusRequest, context
     ) -> pb2.StatusResponse:  # pragma: no cover
-        response = await self.status(api_types.StatusRequest.convert(request))
+        response = await self.status_handler(api_types.StatusRequest.convert(request))
         return response.export_pb()
