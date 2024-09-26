@@ -54,9 +54,7 @@ def _global_shutdown():
 
 atexit.register(_global_shutdown)
 
-REQ_PULL_INTERVAL = 3
-IDLE_REPORT_INTERVAL = 6
-ACTIVE_REPORT_INTERVAL = 1
+REPORT_INTERVAL = 1
 
 
 class OTAClientAPP:
@@ -75,7 +73,6 @@ class OTAClientAPP:
         self._operation_ack_queue = operation_ack_queue
 
         self._last_op = None
-        self._report_interval = IDLE_REPORT_INTERVAL
 
         local_stats_collect_queue = Queue()
         self._local_otaclient_monitor = local_stats_collector = OTAClientStatsCollector(
@@ -103,14 +100,13 @@ class OTAClientAPP:
             self._status_report_queue.put_nowait(
                 self._local_otaclient_monitor.otaclient_status
             )
-            time.sleep(self._report_interval)
+            time.sleep(REPORT_INTERVAL)
 
     def _ota_operation_main(self, request) -> None:
         """Main entry for OTA operation thread."""
         try:
             if isinstance(request, UpdateRequestV2):
                 self._last_op = OTAOperation.UPDATE
-                self._report_interval = ACTIVE_REPORT_INTERVAL
                 return self._otaclient.update(
                     version=request.version,
                     url_base=request.url_base,
@@ -118,12 +114,10 @@ class OTAClientAPP:
                 )
             if isinstance(request, RollbackRequestV2):
                 self._last_op = OTAOperation.ROLLBACK
-                self._report_interval = ACTIVE_REPORT_INTERVAL
                 return self._otaclient.rollback()
             logger.warning(f"ignore unknown request with type {type(request)}")
         finally:
             self._last_op = None
-            self._report_interval = IDLE_REPORT_INTERVAL
 
     def main(self):
         """Main entry for OTAClient APP process."""
