@@ -95,7 +95,7 @@ def api_server_main(
             servicer=APIv2Servicer(
                 status_report_queue=status_report_queue,
                 operation_push_queue=operation_push_queue,
-                operation_ask_queue=operation_ack_queue,
+                operation_ack_queue=operation_ack_queue,
                 reboot_flag=reboot_flag,
             ),
         )
@@ -120,7 +120,7 @@ def ota_app_main(
     otaclient_app = OTAClientAPP(
         status_report_queue=status_report_queue,
         operation_push_queue=operation_push_queue,
-        operation_ask_queue=operation_ack_queue,
+        operation_ack_queue=operation_ack_queue,
         reboot_flag=reboot_flag,
     )
     logger.info("otaclient app started")

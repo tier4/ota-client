@@ -30,9 +30,7 @@ import otaclient_api.v2.types as api_types
 from otaclient._types import (
     OTAClientStatus,
     OTAOperationResp,
-    OTAStatus,
     RollbackRequestV2,
-    UpdatePhase,
     UpdateRequestV2,
 )
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
@@ -72,14 +70,16 @@ class _OTAClientAPIServicer:
         self,
         *,
         status_report_queue: mp.Queue[OTAClientStatus],
-        operation_queue: mp.Queue,
+        operation_push_queue: mp.Queue,
+        operation_ack_queue: mp.Queue,
         reboot_flag: mp_sync.Event,
     ):
         self._executor = ThreadPoolExecutor(thread_name_prefix="local_ota_executor")
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )
-        self._operation_queue = operation_queue
+        self._operation_push_queue = operation_push_queue
+        self._operation_ack_queue = operation_ack_queue
 
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
@@ -189,11 +189,11 @@ class _OTAClientAPIServicer:
             url_base=request.url,
             cookies_json=request.cookies,
         )
-        self._operation_queue.put_nowait(internal_req)
+        self._operation_push_queue.put_nowait(internal_req)
 
         try:
             resp = await self._run_in_executor(
-                self._operation_queue.get, True, _MAX_WAIT_RESP_TIME
+                self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
@@ -218,10 +218,10 @@ class _OTAClientAPIServicer:
     async def _local_rollback(
         self, _: api_types.RollbackRequestEcu
     ) -> api_types.RollbackResponseEcu:
-        self._operation_queue.put_nowait(RollbackRequestV2())
+        self._operation_push_queue.put_nowait(RollbackRequestV2())
         try:
             resp = await self._run_in_executor(
-                self._operation_queue.get, True, _MAX_WAIT_RESP_TIME
+                self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")

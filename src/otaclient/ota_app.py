@@ -65,12 +65,14 @@ class OTAClientAPP:
         self,
         *,
         status_report_queue: mp.Queue[OTAClientStatus],
-        operation_queue: mp.Queue,
+        operation_push_queue: mp.Queue,
+        operation_ack_queue: mp.Queue,
         reboot_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""
         self._status_report_queue = status_report_queue
-        self._operation_queue = operation_queue
+        self._operation_push_queue = operation_push_queue
+        self._operation_ack_queue = operation_ack_queue
 
         local_stats_collect_queue = Queue()
         self._local_otaclient_monitor = OTAClientStatsCollector(
@@ -127,14 +129,14 @@ class OTAClientAPP:
         """Main entry for OTAClient APP process."""
         while not _otaclient_shutdown:
             try:
-                req = self._operation_queue.get_nowait()
+                req = self._operation_push_queue.get_nowait()
             except Empty:
                 time.sleep(REQ_PULL_INTERVAL)
                 continue
 
             if self._last_op:
                 logger.warning(f"ignore {type(req)} as {self._last_op} is ongoing")
-                self._operation_queue.put_nowait(OTAOperationResp.BUSY)
+                self._operation_ack_queue.put_nowait(OTAOperationResp.BUSY)
                 continue
 
             global _ota_op_thread
@@ -145,4 +147,4 @@ class OTAClientAPP:
                 daemon=True,
             )
             _ota_op_thread.start()
-            self._operation_queue.put_nowait(OTAOperationResp.ACCEPTED)
+            self._operation_ack_queue.put_nowait(OTAOperationResp.ACCEPTED)
