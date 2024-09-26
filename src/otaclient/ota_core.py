@@ -770,7 +770,7 @@ class OTAClient:
 
         try:
             logger.info("[update] entering local update...")
-            _update_executor = _OTAUpdater(
+            _OTAUpdater(
                 version=version,
                 raw_url_base=url_base,
                 cookies_json=cookies_json,
@@ -780,12 +780,10 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 stats_report_queue=self._stats_report_queue,
                 session_id=new_session_id,
-            )
-            _update_executor.execute()
+            ).execute()
         except ota_errors.OTAError as e:
             self._on_failure(e, OTAStatus.FAILURE, session_id=new_session_id)
         finally:
-            _update_executor = None
             gc.collect()  # trigger a forced gc
 
     def rollback(self):
