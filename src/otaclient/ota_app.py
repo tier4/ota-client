@@ -118,6 +118,7 @@ class OTAClientAPP:
                 self._last_op = OTAOperation.ROLLBACK
                 self._report_interval = ACTIVE_REPORT_INTERVAL
                 return self._otaclient.rollback()
+            logger.warning(f"ignore unknown request with type {type(request)}")
         finally:
             self._last_op = None
             self._report_interval = IDLE_REPORT_INTERVAL

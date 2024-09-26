@@ -68,7 +68,7 @@ def _check_other_otaclient():
     write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 
 
-def app_server_main(
+def api_server_main(
     *,
     status_report_queue: mp.Queue,
     operation_queue: mp.Queue,
@@ -81,22 +81,21 @@ def app_server_main(
     """
     import grpc.aio as grpc_aio
 
-    from otaclient.api_v2.servicer import OTAClientAPIServicer
+    from otaclient.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
     from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
-    from otaclient_api.v2.api_stub import OtaClientServiceV2
-
-    service_stub = OTAClientAPIServicer(
-        status_report_queue=status_report_queue,
-        operation_queue=operation_queue,
-        control_flag=control_flags,
-    )
-    ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
     server = grpc_aio.server()
-    v2_grpc.add_OtaClientServiceServicer_to_server(
-        server=server, servicer=ota_client_service_v2
-    )
     server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+
+    # mount API v2 servicer
+    v2_grpc.add_OtaClientServiceServicer_to_server(
+        server=server,
+        servicer=APIv2Servicer(
+            status_report_queue=status_report_queue,
+            operation_queue=operation_queue,
+            control_flag=control_flags,
+        ),
+    )
 
     async def _main():
         await server.start()
@@ -147,7 +146,7 @@ def main() -> None:  # pragma: no cover
         daemon=True,
     )
     _ota_server_p = ctx.Process(
-        target=app_server_main,
+        target=api_server_main,
         kwargs={
             "status_report_queue": ipc_status_report_queue,
             "opeartion_queue": ipc_ota_op_queue,

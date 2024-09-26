@@ -360,7 +360,7 @@ class _OTAClientAPIServicer:
         return await self._ecu_status_storage.export()
 
 
-class OTAClientAPIServer(_OTAClientAPIServicer, pb2_grpc.OtaClientServiceServicer):
+class OTAClientAPIServicer(_OTAClientAPIServicer, pb2_grpc.OtaClientServiceServicer):
 
     async def Update(
         self, request: pb2.UpdateRequest, context
