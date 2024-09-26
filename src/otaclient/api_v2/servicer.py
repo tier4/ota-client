@@ -18,19 +18,18 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import multiprocessing as mp
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from queue import Queue
-from typing import Dict
 
-from otaclient._types import OTAStatus, UpdatePhase
+from otaclient._types import OTAClientStatus, OTAStatus, UpdatePhase
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
 from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, proxy_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
-from otaclient.otaclient import OTAClient, OTAClientControlFlags
+from otaclient.ota_core import OTAClient, OTAClientControlFlags
 from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
@@ -60,40 +59,32 @@ class OTAClientAPIServicer:
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        status_report_queue: mp.Queue[OTAClientStatus],
+        operation_queue: mp.Queue,
+        otaclient_control_flags: OTAClientControlFlags,
+    ):
         self._executor = ThreadPoolExecutor(thread_name_prefix="local_ota_executor")
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )
+        self._operation_queue = operation_queue
 
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        # init stats collector
-        stats_report_queue = Queue()
-        self._local_otaclient_monitor = OTAClientStatsCollector(
-            msg_queue=stats_report_queue
-        )
-
-        # start otaclient
-        self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient = OTAClient(
-            control_flags=self._otaclient_control_flags,
-            proxy=proxy_info.get_proxy_for_local_ota(),
-            stats_report_queue=stats_report_queue,
-        )
-
-        # start local OTA session manager
-        self._ota_event = asyncio.Event()
-        self._ongoing_ota = None
+        self._otaclient_control_flags = otaclient_control_flags
 
         # start ecu status tracking
         self._ecu_status_storage = ECUStatusStorage()
         self._ecu_status_tracker = ECUTracker(
             ecu_status_storage=self._ecu_status_storage,
-            stats_monitor=self._local_otaclient_monitor,
+            # TODO: monitor the status from the queue
+            stats_monitor=status_report_queue,
         )
 
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -153,6 +144,7 @@ class OTAClientAPIServicer:
         while not _otaclient_shutdown:
             can_reboot_flag = self._otaclient_control_flags.is_can_reboot_flag_set()
 
+            # TODO: get local ECU's status from the storage
             local_ota_status = self._local_otaclient_monitor.otaclient_status.ota_status
             update_phase = self._local_otaclient_monitor.otaclient_status.update_phase
 
@@ -178,35 +170,30 @@ class OTAClientAPIServicer:
                 self._otaclient_control_flags.clear_can_reboot_flag()
             await self._polling_waiter()
 
-    def _on_ota_finished(self, _: asyncio.Future[None]):
-        logger.info(f"OTA operation finished: {self._ongoing_ota}")
-        self._ongoing_ota = ""
-        self._ota_event.clear()
-
     async def _local_update(
         self, request: api_types.UpdateRequestEcu
     ) -> api_types.UpdateResponseEcu:
-        if self._ota_event.is_set():
+        # TODO: API request to internal request
+        # TODO: timeout
+        try:
+            resp = self._operation_queue.put(request, timeout=10)
+        except Exception:
+            logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
+            return api_types.UpdateResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
+
+        # TODO: internal request response
+        if resp.res == "busy":
             logger.warning(
-                "local otaclient indicates we should not receive an update now, "
-                f"current ongoing operation: {self._ongoing_ota}"
+                f"local otaclient indicates we should not receive an update now: {resp.reason}"
             )
             return api_types.UpdateResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        self._ota_event.set()
-        self._ongoing_ota = f"OTA update to {request.version}"
-        update_task = self._run_in_executor(
-            partial(
-                self._otaclient.update,
-                version=request.version,
-                url_base=request.url,
-                cookies_json=request.cookies,
-            )
-        )
-        update_task.add_done_callback(self._on_ota_finished)
         logger.info("local OTA update dispatched")
         return api_types.UpdateResponseEcu(
             ecu_id=self.my_ecu_id,
@@ -216,20 +203,25 @@ class OTAClientAPIServicer:
     async def _local_rollback(
         self, _: api_types.RollbackRequestEcu
     ) -> api_types.RollbackResponseEcu:
-        if self._ota_event.is_set():
+        try:
+            resp = self._operation_queue.put(request, timeout=10)
+        except Exception:
+            logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
+            return api_types.RollbackResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
+
+        # TODO: TODO
+        if resp.res == "busy":
             logger.warning(
-                "local otaclient indicates we should not receive a rollback now, "
-                f"current ongoing operation: {self._ongoing_ota}"
+                f"local otaclient indicates we should not receive a rollback now: {resp.reasone}"
             )
             return api_types.RollbackResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
 
-        self._ota_event.set()
-        self._ongoing_ota = "OTA rollback"
-        rollback_task = self._run_in_executor(self._otaclient.rollback)
-        rollback_task.add_done_callback(self._on_ota_finished)
         logger.info("local OTA rollback dispatched")
         return api_types.RollbackResponseEcu(
             ecu_id=self.my_ecu_id,
@@ -246,7 +238,7 @@ class OTAClientAPIServicer:
         response = api_types.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
-        tasks: Dict[asyncio.Task, ECUContact] = {}
+        tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
@@ -307,7 +299,7 @@ class OTAClientAPIServicer:
         response = api_types.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
-        tasks: Dict[asyncio.Task, ECUContact] = {}
+        tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
