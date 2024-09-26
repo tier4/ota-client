@@ -258,10 +258,6 @@ class OTAClientStatsCollector:
         self._input_queue = msg_queue
         self._stats = OTAClientStatus()
 
-        global _status_collector_thread
-        _status_collector_thread = Thread(target=self._stats_collector_thread)
-        _status_collector_thread.start()
-
     # thread workers
 
     def _stats_collector_thread(self):
@@ -272,6 +268,12 @@ class OTAClientStatsCollector:
                 time.sleep(self.min_collect_interval)
                 continue
             load_report(self._stats, report)
+
+    def start(self) -> None:
+        global _status_collector_thread
+        if _status_collector_thread is None:
+            _status_collector_thread = Thread(target=self._stats_collector_thread)
+            _status_collector_thread.start()
 
     @property
     def otaclient_status(self) -> OTAClientStatus:

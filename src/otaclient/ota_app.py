@@ -74,10 +74,14 @@ class OTAClientAPP:
         self._operation_push_queue = operation_push_queue
         self._operation_ack_queue = operation_ack_queue
 
+        self._last_op = None
+        self._report_interval = IDLE_REPORT_INTERVAL
+
         local_stats_collect_queue = Queue()
-        self._local_otaclient_monitor = OTAClientStatsCollector(
+        self._local_otaclient_monitor = local_stats_collector = OTAClientStatsCollector(
             msg_queue=local_stats_collect_queue
         )
+        local_stats_collector.start()
 
         self._otaclient = OTAClient(
             reboot_flag=reboot_flag,
@@ -92,9 +96,6 @@ class OTAClientAPP:
             daemon=True,
         )
         _status_report_thread.start()
-
-        self._last_op = None
-        self._report_interval = IDLE_REPORT_INTERVAL
 
     def _stats_report_main(self) -> None:
         """Main entry for the status report thread."""
