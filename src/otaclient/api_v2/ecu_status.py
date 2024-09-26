@@ -289,6 +289,9 @@ class ECUStatusStorage:
 
     # API
 
+    def get_self_status(self) -> api_types.StatusResponseEcuV2 | None:
+        return self._all_ecus_status_v2.get(self.my_ecu_id)
+
     async def update_from_child_ecu(self, status_resp: api_types.StatusResponse):
         """Update the ECU status storage with child ECU's status report(StatusResponse)."""
         async with self._writer_lock:
