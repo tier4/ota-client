@@ -69,7 +69,7 @@ class OTAClientAPP:
         )
 
         self._otaclient = OTAClient(
-            control_flags=control_flag,
+            control_flag=control_flag,
             proxy=proxy_info.get_proxy_for_local_ota(),
             stats_report_queue=local_stats_collect_queue,
         )

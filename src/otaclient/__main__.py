@@ -88,7 +88,7 @@ def app_server_main(
     service_stub = OTAClientAPIServicer(
         status_report_queue=status_report_queue,
         operation_queue=operation_queue,
-        otaclient_control_flags=control_flags,
+        control_flag=control_flags,
     )
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
