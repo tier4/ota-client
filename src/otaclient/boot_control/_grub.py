@@ -113,11 +113,11 @@ class GrubHelper:
     )
     linux_pa: ClassVar[re.Pattern] = re.compile(
         r"(?P<load_linux>^\s+linux\s+(?P<kernel_path>.*vmlinuz-(?P<ver>[\.\w\-]*)))"
-        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*)).*)\s*$",
+        r"\s+(?P<cmdline>.*(?P<rootfs>root=(?P<rootfs_uuid_str>[^\s]*)).*)\s*$",
         re.MULTILINE,
     )
     rootfs_pa: ClassVar[re.Pattern] = re.compile(
-        r"(?P<rootfs>root=(?P<rootfs_uuid_str>[\w\-=]*))"
+        r"(?P<rootfs>root=(?P<rootfs_uuid_str>[^\s]*))"
     )
 
     initrd_pa: ClassVar[re.Pattern] = re.compile(

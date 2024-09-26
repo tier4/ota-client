@@ -138,3 +138,16 @@ class TestRetryTaskMap:
                     count += 1
         assert all(self._succeeded_tasks)
         assert TASKS_COUNT == count
+
+
+def test_input_yield_no_task():
+    count = 0
+    with retry_task_map.ThreadPoolExecutorWithRetry(
+        max_concurrent=MAX_CONCURRENT,
+    ) as executor:
+        for _ in executor.ensure_tasks(
+            func=lambda _: _,
+            iterable=[],
+        ):
+            count += 1
+    assert count == 0
