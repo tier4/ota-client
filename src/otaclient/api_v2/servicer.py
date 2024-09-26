@@ -74,7 +74,9 @@ class _OTAClientAPIServicer:
         operation_ack_queue: mp.Queue,
         reboot_flag: mp_sync.Event,
     ):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="local_ota_executor")
+        self._executor = ThreadPoolExecutor(
+            max_workers=3, thread_name_prefix="local_ota_executor"
+        )
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
         )

@@ -20,7 +20,6 @@ import atexit
 import queue
 import threading
 import time
-from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
@@ -277,4 +276,4 @@ class OTAClientStatsCollector:
 
     @property
     def otaclient_status(self) -> OTAClientStatus:
-        return copy(self._stats)
+        return self._stats
