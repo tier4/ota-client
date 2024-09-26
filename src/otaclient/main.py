@@ -145,10 +145,8 @@ def main() -> None:  # pragma: no cover
     }
 
     global _ota_core_p, _ota_server_p
-    _ota_core_p = ctx.Process(target=ota_app_main, kwargs=ipc_primitives, daemon=True)
-    _ota_server_p = ctx.Process(
-        target=api_server_main, kwargs=ipc_primitives, daemon=True
-    )
+    _ota_core_p = ctx.Process(target=ota_app_main, kwargs=ipc_primitives)
+    _ota_server_p = ctx.Process(target=api_server_main, kwargs=ipc_primitives)
 
     _ota_core_p.start()
     _ota_server_p.start()
