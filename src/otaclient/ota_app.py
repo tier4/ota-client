@@ -65,12 +65,12 @@ class OTAClientAPP:
         self,
         *,
         status_report_queue: mp.Queue[OTAClientStatus],
-        opeartion_queue: mp.Queue,
+        operation_queue: mp.Queue,
         reboot_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""
         self._status_report_queue = status_report_queue
-        self._operation_queue = opeartion_queue
+        self._operation_queue = operation_queue
 
         local_stats_collect_queue = Queue()
         self._local_otaclient_monitor = OTAClientStatsCollector(
@@ -125,6 +125,7 @@ class OTAClientAPP:
 
     def main(self):
         """Main entry for OTAClient APP process."""
+        logger.info("otaclient app started")
         while not _otaclient_shutdown:
             try:
                 req = self._operation_queue.get_nowait()
