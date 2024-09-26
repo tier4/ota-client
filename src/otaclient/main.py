@@ -71,7 +71,8 @@ def _check_other_otaclient():
 def api_server_main(
     *,
     status_report_queue: mp.Queue,
-    operation_queue: mp.Queue,
+    operation_push_queue: mp.Queue,
+    operation_ack_queue: mp.Queue,
     reboot_flag: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
@@ -93,7 +94,8 @@ def api_server_main(
             server=server,
             servicer=APIv2Servicer(
                 status_report_queue=status_report_queue,
-                operation_queue=operation_queue,
+                operation_push_queue=operation_push_queue,
+                operation_ask_queue=operation_ack_queue,
                 reboot_flag=reboot_flag,
             ),
         )
@@ -108,7 +110,8 @@ def api_server_main(
 def ota_app_main(
     *,
     status_report_queue: mp.Queue,
-    operation_queue: mp.Queue,
+    operation_push_queue: mp.Queue,
+    operation_ack_queue: mp.Queue,
     reboot_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
@@ -116,7 +119,8 @@ def ota_app_main(
 
     otaclient_app = OTAClientAPP(
         status_report_queue=status_report_queue,
-        operation_queue=operation_queue,
+        operation_push_queue=operation_push_queue,
+        operation_ask_queue=operation_ack_queue,
         reboot_flag=reboot_flag,
     )
     logger.info("otaclient app started")
@@ -135,7 +139,8 @@ def main() -> None:  # pragma: no cover
 
     ipc_primitives = {
         "status_report_queue": ctx.Queue(),
-        "operation_queue": ctx.Queue(),
+        "operation_push_queue": ctx.Queue(),
+        "operation_ack_queue": ctx.Queue(),
         "reboot_flag": ctx.Event(),
     }
 
