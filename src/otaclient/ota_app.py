@@ -91,6 +91,7 @@ class OTAClientAPP:
             name="otaclient_status_collect",
             daemon=True,
         )
+        _status_report_thread.start()
 
         self._last_op = None
         self._report_interval = IDLE_REPORT_INTERVAL
