@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import errno
 import gc
+import itertools
 import json
 import logging
+import multiprocessing.synchronize as mp_sync
 import os
 import threading
 import time
@@ -100,30 +102,6 @@ class LiveOTAStatus:
         ]
 
 
-class OTAClientControlFlags:
-    """
-    When self ECU's otaproxy is enabled, all the child ECUs of this ECU
-        and self ECU OTA update will depend on its otaproxy, we need to
-        control when otaclient can start its downloading/reboot with considering
-        whether local otaproxy is started/required.
-    """
-
-    def __init__(self) -> None:
-        self._can_reboot = threading.Event()
-
-    def is_can_reboot_flag_set(self) -> bool:
-        return self._can_reboot.is_set()
-
-    def wait_can_reboot_flag(self):
-        self._can_reboot.wait()
-
-    def set_can_reboot_flag(self):
-        self._can_reboot.set()
-
-    def clear_can_reboot_flag(self):
-        self._can_reboot.clear()
-
-
 def _download_exception_handler(_fut: Future[Any]) -> bool:
     """Parse the exception raised by a downloading task.
 
@@ -185,7 +163,7 @@ class _OTAUpdater:
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        control_flags: OTAClientControlFlags,
+        control_flags: mp_sync.Event,
         stats_report_queue: Queue[StatsReport],
         session_id: str,
     ) -> None:
@@ -586,7 +564,16 @@ class _OTAUpdater:
             )
         )
 
-        self._control_flags.wait_can_reboot_flag()
+        logger.info("wait for permit reboot flag set ...")
+        for seconds in itertools.count(start=1):
+            if self._control_flags.is_set():
+                break
+
+            if seconds // 30 == 0:
+                logger.info(f"wait for reboot flag set: {seconds}s passed ...")
+            time.sleep(1)
+
+        logger.info("device will reboot now")
         next(_postupdate_gen, None)  # reboot
 
     # API
@@ -634,7 +621,7 @@ class OTAClient:
         boot_controller: boot control instance
         create_standby_cls: type of create standby slot mechanism to use
         my_ecu_id: ECU id of the device running this otaclient instance
-        control_flags: flags used by otaclient and ota_service stub for synchronization
+        control_flag: flags used by otaclient and ota_service stub for synchronization
         proxy: upper otaproxy URL
     """
 
@@ -643,7 +630,7 @@ class OTAClient:
     def __init__(
         self,
         *,
-        control_flags: OTAClientControlFlags,
+        control_flag: mp_sync.Event,
         proxy: Optional[str] = None,
         stats_report_queue: Queue[StatsReport],
     ):
@@ -670,34 +657,34 @@ class OTAClient:
             )
             return
 
-        # load and report booted OTA status
-        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
-        stats_report_queue.put_nowait(
-            StatsReport(
-                type=StatsReportType.SET_OTA_STATUS,
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-        self._live_ota_status = LiveOTAStatus(
-            self.boot_controller.get_booted_ota_status()
-        )
-
-        # load and report current running system image version
-        self.current_version = self.boot_controller.load_version()
-        stats_report_queue.put_nowait(
-            StatsReport(
-                type=StatsReportType.SET_OTACLIENT_META,
-                payload=SetOTAClientMetaReport(
-                    firmware_version=self.current_version,
-                ),
-            )
-        )
-
         try:
+            # load and report booted OTA status
+            _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
+            stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTA_STATUS,
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=_boot_ctrl_loaded_ota_status,
+                    ),
+                )
+            )
+            self._live_ota_status = LiveOTAStatus(
+                self.boot_controller.get_booted_ota_status()
+            )
+
+            # load and report current running system image version
+            self.current_version = self.boot_controller.load_version()
+            stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTACLIENT_META,
+                    payload=SetOTAClientMetaReport(
+                        firmware_version=self.current_version,
+                    ),
+                )
+            )
+
             self.proxy = proxy
-            self.control_flags = control_flags
+            self.control_flags = control_flag
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
