@@ -27,7 +27,14 @@ from functools import partial
 import otaclient_api.v2.otaclient_v2_pb2 as pb2
 import otaclient_api.v2.otaclient_v2_pb2_grpc as pb2_grpc
 import otaclient_api.v2.types as api_types
-from otaclient._types import OTAClientStatus, OTAStatus, UpdatePhase
+from otaclient._types import (
+    OTAClientStatus,
+    OTAOperationResp,
+    OTAStatus,
+    RollbackRequestV2,
+    UpdatePhase,
+    UpdateRequestV2,
+)
 from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
 from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
@@ -50,6 +57,7 @@ atexit.register(_global_shutdown)
 
 OTA_SESSION_LOCK_CHECK_INTERVAL = 6
 OTA_SESSION_LOCK_MINIMUM_OTA_TIME = 60
+_MAX_WAIT_RESP_TIME = 10
 
 
 class _OTAClientAPIServicer:
@@ -174,10 +182,18 @@ class _OTAClientAPIServicer:
     async def _local_update(
         self, request: api_types.UpdateRequestEcu
     ) -> api_types.UpdateResponseEcu:
-        # TODO: API request to internal request
-        # TODO: timeout
+        # compose request
+        internal_req = UpdateRequestV2(
+            version=request.version,
+            url_base=request.url,
+            cookies_json=request.cookies,
+        )
+        self._operation_queue.put_nowait(internal_req)
+
         try:
-            resp = self._operation_queue.put(request, timeout=10)
+            resp = await self._run_in_executor(
+                self._operation_queue.get, True, _MAX_WAIT_RESP_TIME
+            )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.UpdateResponseEcu(
@@ -185,11 +201,8 @@ class _OTAClientAPIServicer:
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
-        # TODO: internal request response
-        if resp.res == "busy":
-            logger.warning(
-                f"local otaclient indicates we should not receive an update now: {resp.reason}"
-            )
+        if resp == OTAOperationResp.BUSY:
+            logger.warning("local otaclient is busy, ignore request")
             return api_types.UpdateResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
@@ -204,8 +217,11 @@ class _OTAClientAPIServicer:
     async def _local_rollback(
         self, _: api_types.RollbackRequestEcu
     ) -> api_types.RollbackResponseEcu:
+        self._operation_queue.put_nowait(RollbackRequestV2())
         try:
-            resp = self._operation_queue.put(request, timeout=10)
+            resp = await self._run_in_executor(
+                self._operation_queue.get, True, _MAX_WAIT_RESP_TIME
+            )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.RollbackResponseEcu(
@@ -213,11 +229,8 @@ class _OTAClientAPIServicer:
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
-        # TODO: TODO
-        if resp.res == "busy":
-            logger.warning(
-                f"local otaclient indicates we should not receive a rollback now: {resp.reasone}"
-            )
+        if resp == OTAOperationResp.BUSY:
+            logger.warning("local otaclient is busy, ignore request")
             return api_types.RollbackResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
