@@ -200,6 +200,8 @@ class _OTAClientAPIServicer:
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
             if resp is None:
+                # also unblock other pending tasks if any
+                self._operation_ack_queue.put_nowait(None)
                 raise ValueError  # termination signal
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
@@ -230,6 +232,8 @@ class _OTAClientAPIServicer:
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
             if resp is None:
+                # also unblock other pending tasks if any
+                self._operation_ack_queue.put_nowait(None)
                 raise ValueError  # termination signal
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")

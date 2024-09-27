@@ -16,11 +16,9 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from math import ceil
 from pathlib import Path
-from types import ModuleType
 from typing import Optional
 
 from typing_extensions import Literal

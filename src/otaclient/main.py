@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 from otaclient import __version__
+from otaclient._types import OTAOperationResp
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.log_setting import configure_logging
@@ -37,6 +38,7 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
+_operation_ack_q: mp.Queue[OTAOperationResp] | None = None
 
 
 def _global_shutdown():  # pragma: no cover
@@ -44,6 +46,8 @@ def _global_shutdown():  # pragma: no cover
         _ota_server_p.join()
     if _ota_core_p:
         _ota_core_p.join()
+    if _operation_ack_q:  # to unblock the API handler
+        _operation_ack_q.put_nowait(None)  # type: ignore
 
 
 atexit.register(_global_shutdown)
@@ -137,10 +141,11 @@ def main() -> None:  # pragma: no cover
 
     ctx = mp.get_context("spawn")
 
+    global _operation_ack_q
     ipc_primitives = {
         "status_report_queue": ctx.Queue(),
         "operation_push_queue": ctx.Queue(),
-        "operation_ack_queue": ctx.Queue(),
+        "operation_ack_queue": (_operation_ack_q := ctx.Queue()),
         "reboot_flag": ctx.Event(),
     }
 
