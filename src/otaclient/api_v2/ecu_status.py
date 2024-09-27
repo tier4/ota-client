@@ -342,8 +342,6 @@ class ECUStatusStorage:
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
         async with self._properties_update_lock:
-            self._tracked_active_ecus = _OrderedSet(ecus_accept_update)
-
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
             self.failed_ecus_id -= ecus_accept_update
