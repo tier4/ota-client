@@ -168,12 +168,16 @@ def cleanup_cache_dir():
         shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def start_otaproxy_server(subprocess_ctx: OTAProxyContext, *, init_cache: bool) -> None:
+def otaproxy_running() -> bool:
+    return _otaproxy_p is not None and _otaproxy_p.is_alive()
+
+
+def start_otaproxy_server(*, init_cache: bool) -> None:
     if _otaproxy_p:
         logger.warning("otaproxy is already running, abort")
         return
 
-    _subprocess_entry = subprocess_otaproxy_launcher(subprocess_ctx)
+    _subprocess_entry = subprocess_otaproxy_launcher(OTAProxyContext())
     host, port = (
         str(proxy_info.local_ota_proxy_listen_addr),
         proxy_info.local_ota_proxy_listen_port,

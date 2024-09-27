@@ -23,6 +23,7 @@ import multiprocessing.context as mp_ctx
 import multiprocessing.synchronize as mp_sync
 import os
 import sys
+import time
 from pathlib import Path
 
 from otaclient import __version__
@@ -30,18 +31,25 @@ from otaclient._types import OTAOperationResp
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.log_setting import configure_logging
+from otaclient.otaproxy import (
+    otaproxy_running,
+    shutdown_otaproxy_server,
+    start_otaproxy_server,
+)
 from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 # configure logging before any code being executed
 configure_logging()
 logger = logging.getLogger("otaclient")
 
+_otaclient_shutdown = False
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 _operation_ack_q: mp.Queue[OTAOperationResp] | None = None
 
 
 def _global_shutdown():  # pragma: no cover
+    _otaclient_shutdown = True
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
@@ -129,6 +137,22 @@ def ota_app_main(
     )
     logger.info("otaclient app started")
     otaclient_app.main()
+
+
+def otaproxy_control_thread(
+    *,
+    otaproxy_start_flag: mp_sync.Event,
+    cache_init_flag: mp_sync.Event,
+):
+    while not _otaclient_shutdown:
+        time.sleep(3)
+        _otaproxy_running = otaproxy_running()
+        _otaproxy_should_run = otaproxy_start_flag.is_set()
+
+        if _otaproxy_should_run and not _otaproxy_running:
+            start_otaproxy_server(init_cache=cache_init_flag.is_set())
+        elif _otaproxy_running and not _otaproxy_should_run:
+            shutdown_otaproxy_server()
 
 
 def main() -> None:  # pragma: no cover
