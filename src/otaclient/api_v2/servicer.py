@@ -74,8 +74,10 @@ class _OTAClientAPIServicer:
         operation_ack_queue: mp.Queue,
         reboot_flag: mp_sync.Event,
     ):
+        # NOTE: normally we should handle one OTA request at a time, and
+        #   serializing the request dispatching.
         self._executor = ThreadPoolExecutor(
-            max_workers=3, thread_name_prefix="api_servicer_threadpool"
+            max_workers=1, thread_name_prefix="api_servicer_threadpool"
         )
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
@@ -197,6 +199,8 @@ class _OTAClientAPIServicer:
             resp = await self._run_in_executor(
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
+            if resp is None:
+                raise ValueError  # termination signal
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.UpdateResponseEcu(
@@ -225,6 +229,8 @@ class _OTAClientAPIServicer:
             resp = await self._run_in_executor(
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
+            if resp is None:
+                raise ValueError  # termination signal
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.RollbackResponseEcu(
