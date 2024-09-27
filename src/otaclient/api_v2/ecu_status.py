@@ -476,13 +476,17 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            # NOTE: otaclient_core controls the frequency of status report pushing
-            try:
-                status_report = self._local_status_report_queue.get_nowait()
-            except Empty:
-                await self._polling_waiter()
-                continue
+            await self._polling_waiter()
 
-            await self._ecu_status_storage.update_from_local_ecu(
-                ecu_status=convert_status(_in=status_report)
-            )
+            # NOTE: otaclient_core controls the frequency of status report pushing
+            status_report = None
+            try:
+                for _ in range(3):  # try at most 3 times for draining the queue
+                    status_report = self._local_status_report_queue.get_nowait()
+            except Empty:
+                pass  # drain the queue and only get the latest one
+
+            if status_report is not None:
+                await self._ecu_status_storage.update_from_local_ecu(
+                    ecu_status=convert_status(_in=status_report)
+                )
