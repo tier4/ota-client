@@ -75,7 +75,7 @@ class _OTAClientAPIServicer:
         reboot_flag: mp_sync.Event,
     ):
         self._executor = ThreadPoolExecutor(
-            max_workers=3, thread_name_prefix="local_ota_executor"
+            max_workers=3, thread_name_prefix="api_servicer_threadpool"
         )
         self._run_in_executor = partial(
             asyncio.get_running_loop().run_in_executor, self._executor
@@ -297,6 +297,9 @@ class _OTAClientAPIServicer:
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             _resp_ecu = await self._local_update(update_req_ecu)
             response.add_ecu(_resp_ecu)
+
+            if _resp_ecu.result == api_types.FailureType.NO_FAILURE:
+                update_acked_ecus.add(self.my_ecu_id)
 
         # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
