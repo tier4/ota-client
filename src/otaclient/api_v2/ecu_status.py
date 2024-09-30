@@ -98,11 +98,9 @@ class ECUStatusStorage:
     def __init__(
         self,
         *,
-        any_in_update_flag: mp_sync.Event,
+        any_requires_network: mp_sync.Event,
     ) -> None:
-        # NOTE(20240930): the allow reboot condition is set to any_in_update
-        # IPC flags for controlling otaclient and otaproxy behavior
-        self._ipc_any_in_update_flag = any_in_update_flag
+        self._ipc_any_requires_network = any_requires_network
 
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
@@ -213,10 +211,8 @@ class ECUStatusStorage:
             )
         if in_update_ecus_id:
             self.active_ota_update_present.set()
-            self._ipc_any_in_update_flag.set()
         else:
             self.active_ota_update_present.clear()
-            self._ipc_any_in_update_flag.clear()
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
@@ -245,6 +241,10 @@ class ECUStatusStorage:
                 and status.ecu_id not in lost_ecus
             )
         )
+        if self.any_requires_network:
+            self._ipc_any_requires_network.set()
+        else:
+            self._ipc_any_requires_network.clear()
 
         # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
@@ -353,7 +353,7 @@ class ECUStatusStorage:
         if not ecus_accept_update:
             return
 
-        self._ipc_any_in_update_flag.set()
+        self._ipc_any_requires_network.set()
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
