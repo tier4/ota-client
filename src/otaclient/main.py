@@ -23,6 +23,7 @@ import multiprocessing.context as mp_ctx
 import multiprocessing.synchronize as mp_sync
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -45,17 +46,24 @@ logger = logging.getLogger("otaclient")
 _otaclient_shutdown = False
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
+_otaproxy_control_t: threading.Thread | None = None
 _operation_ack_q: mp.Queue[OTAOperationResp] | None = None
 
 
 def _global_shutdown():  # pragma: no cover
+    global _otaclient_shutdown
     _otaclient_shutdown = True
+    if _operation_ack_q:  # to unblock the API servicer API handler
+        _operation_ack_q.put_nowait(None)  # type: ignore
+
+    time.sleep(1)  # wait for exit
+
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
         _ota_core_p.join()
-    if _operation_ack_q:  # to unblock the API handler
-        _operation_ack_q.put_nowait(None)  # type: ignore
+    if _otaproxy_control_t:
+        _otaproxy_control_t.join()
 
 
 atexit.register(_global_shutdown)
@@ -139,18 +147,26 @@ def ota_app_main(
     otaclient_app.main()
 
 
+OTAPROXY_CHECK_INTERVAL = 3
+OTAPROXY_MIN_STARTUP_TIME = 60
+"""Keep otaproxy running at least 60 seconds after startup."""
+
+
 def otaproxy_control_thread(
     *,
     otaproxy_start_flag: mp_sync.Event,
     cache_init_flag: mp_sync.Event,
-):
+):  # pragma: no cover
     while not _otaclient_shutdown:
-        time.sleep(3)
+        time.sleep(OTAPROXY_CHECK_INTERVAL)
+
         _otaproxy_running = otaproxy_running()
         _otaproxy_should_run = otaproxy_start_flag.is_set()
 
         if _otaproxy_should_run and not _otaproxy_running:
             start_otaproxy_server(init_cache=cache_init_flag.is_set())
+            time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
+
         elif _otaproxy_running and not _otaproxy_should_run:
             shutdown_otaproxy_server()
 
@@ -176,9 +192,12 @@ def main() -> None:  # pragma: no cover
     global _ota_core_p, _ota_server_p
     _ota_core_p = ctx.Process(target=ota_app_main, kwargs=ipc_primitives)
     _ota_server_p = ctx.Process(target=api_server_main, kwargs=ipc_primitives)
+    _otaproxy_control_t = threading.Thread(target=otaproxy_control_thread, daemon=True)
 
     _ota_core_p.start()
     _ota_server_p.start()
+    _otaproxy_control_t.start()
 
     _ota_core_p.join()
     _ota_server_p.join()
+    _otaproxy_control_t.join()

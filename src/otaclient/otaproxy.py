@@ -11,7 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Control of the otaproxy server startup/shutdown."""
+"""Control of the otaproxy server startup/shutdown.
+
+The API exposed by this module is meant to be controlled by otaproxy managing thread only.
+See otaclient.main.otaproxy_control_thread for more details.
+"""
 
 
 from __future__ import annotations
@@ -172,17 +176,24 @@ def otaproxy_running() -> bool:
     return _otaproxy_p is not None and _otaproxy_p.is_alive()
 
 
-def start_otaproxy_server(*, init_cache: bool) -> None:
+def start_otaproxy_server(
+    *, init_cache: bool, enable_external_cache: bool = True
+) -> None:
     if _otaproxy_p:
         logger.warning("otaproxy is already running, abort")
         return
 
-    _subprocess_entry = subprocess_otaproxy_launcher(OTAProxyContext())
+    _subprocess_entry = subprocess_otaproxy_launcher(
+        OTAProxyContext(
+            external_cache_enabled=enable_external_cache,
+        )
+    )
     host, port = (
         str(proxy_info.local_ota_proxy_listen_addr),
         proxy_info.local_ota_proxy_listen_port,
     )
     upper_proxy = str(proxy_info.upper_ota_proxy or "")
+    logger.info(f"will launch otaproxy at http://{host}:{port}, with {upper_proxy=}")
 
     global _otaproxy_p
     _otaproxy_p = _subprocess_entry(
@@ -196,7 +207,7 @@ def start_otaproxy_server(*, init_cache: bool) -> None:
         enable_https=proxy_info.gateway_otaproxy,
     )
     _otaproxy_p.start()
-    logger.info(f"otaproxy started at http://{host}:{port}, with {upper_proxy=}")
+    logger.info("otaproxy started")
 
 
 def shutdown_otaproxy_server() -> None:
