@@ -94,7 +94,7 @@ def apiv2_server_main(
     status_report_queue: mp.Queue,
     operation_push_queue: mp.Queue,
     operation_ack_queue: mp.Queue,
-    any_in_update_flag: mp_sync.Event,
+    any_requires_network: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
 
@@ -112,7 +112,7 @@ def apiv2_server_main(
         server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
 
         ecu_status_storage = ECUStatusStorage(
-            any_in_update_flag=any_in_update_flag,
+            any_requires_network=any_requires_network,
         )
         ecu_tracker = ECUTracker(
             ecu_status_storage=ecu_status_storage,
@@ -164,14 +164,14 @@ OTAPROXY_MIN_STARTUP_TIME = 60
 
 def otaproxy_control_thread(
     *,
-    any_in_update_flag: mp_sync.Event,
+    any_requires_network: mp_sync.Event,
     reboot_flag: mp_sync.Event,
 ) -> None:  # pragma: no cover
     while not _otaclient_shutdown:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
-        _otaproxy_should_run = any_in_update_flag.is_set()
+        _otaproxy_should_run = any_requires_network.is_set()
 
         if _otaproxy_should_run:
             reboot_flag.clear()
@@ -200,7 +200,7 @@ def main() -> None:  # pragma: no cover
     ctx = mp.get_context("spawn")
 
     # flags
-    any_in_update_flag = ctx.Event()
+    any_requires_network = ctx.Event()
     reboot_flag = ctx.Event()
     status_report_q = ctx.Queue()
     operation_push_q = ctx.Queue()
@@ -224,13 +224,13 @@ def main() -> None:  # pragma: no cover
             status_report_queue=status_report_q,
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
-            any_in_update_flag=any_in_update_flag,
+            any_requires_network=any_requires_network,
         )
     )
     _otaproxy_control_t = threading.Thread(
         target=partial(
             otaproxy_control_thread,
-            any_in_update_flag=any_in_update_flag,
+            any_requires_network=any_requires_network,
             reboot_flag=reboot_flag,
         ),
         daemon=True,
