@@ -179,6 +179,7 @@ def otaproxy_running() -> bool:
 def start_otaproxy_server(
     *, init_cache: bool, enable_external_cache: bool = True
 ) -> None:
+    global _otaproxy_p
     if _otaproxy_p:
         logger.warning("otaproxy is already running, abort")
         return
@@ -195,7 +196,6 @@ def start_otaproxy_server(
     upper_proxy = str(proxy_info.upper_ota_proxy or "")
     logger.info(f"will launch otaproxy at http://{host}:{port}, with {upper_proxy=}")
 
-    global _otaproxy_p
     _otaproxy_p = _subprocess_entry(
         host=host,
         port=port,
