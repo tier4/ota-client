@@ -36,7 +36,7 @@ from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)
 
-PROCESS_FILES_BATCH = 800
+PROCESS_FILES_BATCH = 1000
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 

@@ -151,7 +151,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
-DOWNLOAD_STATS_REPORT_BATCH = 500
+DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
