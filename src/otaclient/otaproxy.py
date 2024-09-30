@@ -180,7 +180,7 @@ def start_otaproxy_server(
     *, init_cache: bool, enable_external_cache: bool = True
 ) -> None:
     global _otaproxy_p
-    if _otaproxy_p:
+    if _otaproxy_p and _otaproxy_p.is_alive():
         logger.warning("otaproxy is already running, abort")
         return
 
@@ -206,7 +206,6 @@ def start_otaproxy_server(
         enable_cache=proxy_info.enable_local_ota_proxy_cache,
         enable_https=proxy_info.gateway_otaproxy,
     )
-    _otaproxy_p.start()
     logger.info("otaproxy started")
 
 

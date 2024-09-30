@@ -350,6 +350,10 @@ class ECUStatusStorage:
         their ota_status to UPDATING on-time due to status polling interval mismatch),
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
+        if not ecus_accept_update:
+            return
+
+        self._ipc_any_in_update_flag.set()
         async with self._properties_update_lock:
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
