@@ -57,6 +57,7 @@ class _OrderedSet(Dict[T, None]):
 
 IDLE_POLLING_INTERVAL = 3
 ACTIVE_POLLING_INTERVAL = 1
+SELF_ECU_POLLING_INTERVAL = 1
 STARTUP_ACTIVE_POLL = 30  # seconds
 PROPERTY_REFRESH_INTERVAL = 3
 
@@ -491,7 +492,7 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            await self._polling_waiter()
+            await asyncio.sleep(SELF_ECU_POLLING_INTERVAL)
 
             # NOTE: otaclient_core controls the frequency of status report pushing
             status_report = None
