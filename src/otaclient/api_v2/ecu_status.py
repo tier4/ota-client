@@ -98,13 +98,11 @@ class ECUStatusStorage:
     def __init__(
         self,
         *,
-        all_success_flag: mp_sync.Event,
         any_in_update_flag: mp_sync.Event,
     ) -> None:
         # NOTE(20240930): the allow reboot condition is set to any_in_update
         # IPC flags for controlling otaclient and otaproxy behavior
         self._ipc_any_in_update_flag = any_in_update_flag
-        self._ipc_all_success_flag = all_success_flag
 
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
@@ -265,10 +263,6 @@ class ECUStatusStorage:
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
                 logger.info("all ECUs in the cluster are in SUCCESS ota_status")
-        if self.all_success:
-            self._ipc_all_success_flag.set()
-        else:
-            self._ipc_all_success_flag.clear()
 
         logger.debug(
             "overall ECU status reporrt updated:"
