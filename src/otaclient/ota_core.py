@@ -151,6 +151,10 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
+DOWNLOAD_STATS_REPORT_BATCH = 1000
+DOWNLOAD_REPORT_INTERVAL = 1  # second
+
+
 class _OTAUpdater:
     """The implementation of OTA update logic."""
 
@@ -334,34 +338,46 @@ class _OTAUpdater:
                 max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
             ),
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(_download_file, download_list):
+            _next_commit_before = 0
+            _merged = StatsReport(
+                type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                payload=UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+                ),
+                session_id=self.session_id,
+            )
+
+            for _done_count, _fut in enumerate(
+                _mapper.ensure_tasks(_download_file, download_list), start=1
+            ):
+                _now = int(time.time())
+                _payload: UpdateProgressReport = _merged.payload  # type: ignore
+
                 if _download_exception_handler(_fut):  # donwload succeeded
                     err_count, file_size, downloaded_bytes = _fut.result()
 
-                    self._stats_report_queue.put_nowait(
-                        StatsReport(
-                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                                processed_file_num=1,
-                                processed_file_size=file_size,
-                                errors=err_count,
-                                downloaded_bytes=downloaded_bytes,
-                            ),
-                            session_id=self.session_id,
-                        )
+                    _payload.processed_file_num += 1
+                    _payload.processed_file_size += file_size
+                    _payload.errors += err_count
+                    _payload.downloaded_bytes += downloaded_bytes
+                else:
+                    _payload.errors += 1
+
+                if (
+                    _done_count % DOWNLOAD_STATS_REPORT_BATCH == 0
+                    or _now > _next_commit_before
+                ):
+                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
+                    self._stats_report_queue.put_nowait(_merged)
+                    _merged = StatsReport(
+                        type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+                        ),
+                        session_id=self.session_id,
                     )
-                else:  # download failed, but exceptions can be handled
-                    self._stats_report_queue.put_nowait(
-                        StatsReport(
-                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                                errors=1,
-                            ),
-                            session_id=self.session_id,
-                        )
-                    )
+            # for left-over items that cannot fill up the batch
+            self._stats_report_queue.put_nowait(_merged)
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
