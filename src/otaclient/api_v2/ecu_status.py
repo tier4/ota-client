@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import multiprocessing as mp
+import multiprocessing.synchronize as mp_sync
 import time
 from itertools import chain
 from queue import Empty
@@ -94,7 +95,17 @@ class ECUStatusStorage:
     #   disconnected ECU will be excluded from status API response.
     DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        all_success_flag: mp_sync.Event,
+        any_in_update_flag: mp_sync.Event,
+    ) -> None:
+        # NOTE(20240930): the allow reboot condition is set to any_in_update
+        # IPC flags for controlling otaclient and otaproxy behavior
+        self._ipc_any_in_update_flag = any_in_update_flag
+        self._ipc_all_success_flag = all_success_flag
+
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
         # ECU status storage
@@ -204,8 +215,10 @@ class ECUStatusStorage:
             )
         if in_update_ecus_id:
             self.active_ota_update_present.set()
+            self._ipc_any_in_update_flag.set()
         else:
             self.active_ota_update_present.clear()
+            self._ipc_any_in_update_flag.clear()
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
@@ -252,6 +265,10 @@ class ECUStatusStorage:
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
                 logger.info("all ECUs in the cluster are in SUCCESS ota_status")
+        if self.all_success:
+            self._ipc_all_success_flag.set()
+        else:
+            self._ipc_all_success_flag.clear()
 
         logger.debug(
             "overall ECU status reporrt updated:"
@@ -447,9 +464,6 @@ class ECUTracker:
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
         self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._polling_local_ecu_status())
-        for ecu_contact in ecu_info.secondaries:
-            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
@@ -486,3 +500,8 @@ class ECUTracker:
                 await self._ecu_status_storage.update_from_local_ecu(
                     ecu_status=convert_status(_in=status_report)
                 )
+
+    def start_tracking(self) -> None:
+        asyncio.create_task(self._polling_local_ecu_status())
+        for ecu_contact in ecu_info.secondaries:
+            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
