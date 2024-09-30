@@ -97,9 +97,9 @@ class OTAClientAPP:
     def _stats_report_main(self) -> None:
         """Main entry for the status report thread."""
         while not _otaclient_shutdown:
-            self._status_report_queue.put_nowait(
-                self._local_otaclient_monitor.otaclient_status
-            )
+            _status_report = self._local_otaclient_monitor.otaclient_status
+            if _status_report:
+                self._status_report_queue.put_nowait(_status_report)
             time.sleep(REPORT_INTERVAL)
 
     def _ota_operation_main(self, request) -> None:
