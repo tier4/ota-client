@@ -60,8 +60,6 @@ class _OTAClientAPIServicer:
     This class also handles otaproxy lifecyle and dependence managing.
     """
 
-    OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
-
     def __init__(
         self,
         *,

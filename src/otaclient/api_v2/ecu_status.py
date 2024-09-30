@@ -55,6 +55,12 @@ class _OrderedSet(Dict[T, None]):
         super().pop(value, None)
 
 
+IDLE_POLLING_INTERVAL = 3
+ACTIVE_POLLING_INTERVAL = 1
+STARTUP_ACTIVE_POLL = 30  # seconds
+PROPERTY_REFRESH_INTERVAL = 3
+
+
 class ECUStatusStorage:
     """Storage for holding ECU status reports from all ECUs in the cluster.
 
@@ -85,9 +91,6 @@ class ECUStatusStorage:
         cfg.KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED
     )
     UNREACHABLE_ECU_TIMEOUT = cfg.ECU_UNREACHABLE_TIMEOUT
-    PROPERTY_REFRESH_INTERVAL = cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
-    IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
-    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
 
     # NOTE(20230522):
     #   ECU will be treated as disconnected if we cannot get in touch with it
@@ -279,6 +282,8 @@ class ECUStatusStorage:
             for <DELAY> seconds to prevent pre-mature status change.
             check on_receive_update_request method below for more details.
         """
+        _startup_active_poll_count = 0
+
         last_storage_update = self.storage_last_updated_timestamp
         while not self._debug_properties_update_shutdown_event.is_set():
             async with self._properties_update_lock:
@@ -290,11 +295,13 @@ class ECUStatusStorage:
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._generate_overall_status_report()
-            # if properties are not initialized, use active_interval for update
-            if self.properties_last_update_timestamp == 0:
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
-            else:
-                await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
+
+            # at startup, we actively polling the status
+            if _startup_active_poll_count < STARTUP_ACTIVE_POLL:
+                await asyncio.sleep(1)
+                _startup_active_poll_count += 1
+                continue
+            await asyncio.sleep(PROPERTY_REFRESH_INTERVAL)
 
     # API
 
@@ -376,9 +383,9 @@ class ECUStatusStorage:
             if one only wants to get the polling interval value.
         """
         return (
-            self.ACTIVE_POLLING_INTERVAL
+            ACTIVE_POLLING_INTERVAL
             if self.active_ota_update_present.is_set()
-            else self.IDLE_POLLING_INTERVAL
+            else IDLE_POLLING_INTERVAL
         )
 
     def get_polling_waiter(self):
@@ -394,13 +401,13 @@ class ECUStatusStorage:
 
         async def _waiter():
             if self.active_ota_update_present.is_set():
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
                 return
 
             try:
                 await asyncio.wait_for(
                     self.active_ota_update_present.wait(),
-                    timeout=self.IDLE_POLLING_INTERVAL,
+                    timeout=IDLE_POLLING_INTERVAL,
                 )
             except asyncio.TimeoutError:
                 return
