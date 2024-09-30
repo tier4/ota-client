@@ -25,6 +25,7 @@ import os
 import sys
 import threading
 import time
+from functools import partial
 from pathlib import Path
 
 from otaclient import __version__
@@ -93,7 +94,7 @@ def apiv2_server_main(
     status_report_queue: mp.Queue,
     operation_push_queue: mp.Queue,
     operation_ack_queue: mp.Queue,
-    reboot_flag: mp_sync.Event,
+    any_in_update_flag: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
 
@@ -110,21 +111,22 @@ def apiv2_server_main(
         server = grpc_aio.server()
         server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
 
-        ecu_status_storage = ECUStatusStorage()
+        ecu_status_storage = ECUStatusStorage(
+            any_in_update_flag=any_in_update_flag,
+        )
         ecu_tracker = ECUTracker(
             ecu_status_storage=ecu_status_storage,
             status_report_queue=status_report_queue,
         )
+        ecu_tracker.start_tracking()
 
         # mount API v2 servicer
         v2_grpc.add_OtaClientServiceServicer_to_server(
             server=server,
             servicer=APIv2Servicer(
                 ecu_status_storage=ecu_status_storage,
-                ecu_tracker=ecu_tracker,
                 operation_push_queue=operation_push_queue,
                 operation_ack_queue=operation_ack_queue,
-                reboot_flag=reboot_flag,
             ),
         )
 
@@ -162,17 +164,25 @@ OTAPROXY_MIN_STARTUP_TIME = 60
 
 def otaproxy_control_thread(
     *,
-    otaproxy_start_flag: mp_sync.Event,
-    cache_init_flag: mp_sync.Event,
-):  # pragma: no cover
+    any_in_update_flag: mp_sync.Event,
+    reboot_flag: mp_sync.Event,
+) -> None:  # pragma: no cover
     while not _otaclient_shutdown:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
-        _otaproxy_should_run = otaproxy_start_flag.is_set()
+        _otaproxy_should_run = any_in_update_flag.is_set()
 
+        if _otaproxy_should_run:
+            reboot_flag.clear()
+        else:
+            reboot_flag.set()
+
+        # NOTE(20240930): always try to re-use already presented ota-cache dir,
+        #   as if the ota-cache dir is not empty, it means that there is high possiblity of
+        #   previous failed OTA(s) of this ECU(or its sub ECU(s)).
         if _otaproxy_should_run and not _otaproxy_running:
-            start_otaproxy_server(init_cache=cache_init_flag.is_set())
+            start_otaproxy_server(init_cache=False)
             time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
 
         elif _otaproxy_running and not _otaproxy_should_run:
@@ -189,18 +199,42 @@ def main() -> None:  # pragma: no cover
 
     ctx = mp.get_context("spawn")
 
-    global _operation_ack_q
-    ipc_primitives = {
-        "status_report_queue": ctx.Queue(),
-        "operation_push_queue": ctx.Queue(),
-        "operation_ack_queue": (_operation_ack_q := ctx.Queue()),
-        "reboot_flag": ctx.Event(),
-    }
+    # flags
+    any_in_update_flag = ctx.Event()
+    reboot_flag = ctx.Event()
+    status_report_q = ctx.Queue()
+    operation_push_q = ctx.Queue()
+    operation_ack_q = ctx.Queue()
 
-    global _ota_core_p, _ota_server_p
-    _ota_core_p = ctx.Process(target=ota_app_main, kwargs=ipc_primitives)
-    _ota_server_p = ctx.Process(target=apiv2_server_main, kwargs=ipc_primitives)
-    _otaproxy_control_t = threading.Thread(target=otaproxy_control_thread, daemon=True)
+    global _operation_ack_q, _ota_core_p, _ota_server_p
+    _operation_ack_q = operation_ack_q
+
+    _ota_core_p = ctx.Process(
+        target=partial(
+            ota_app_main,
+            status_report_queue=status_report_q,
+            operation_push_queue=operation_push_q,
+            operation_ack_queue=operation_ack_q,
+            reboot_flag=reboot_flag,
+        )
+    )
+    _ota_server_p = ctx.Process(
+        target=partial(
+            apiv2_server_main,
+            status_report_queue=status_report_q,
+            operation_push_queue=operation_push_q,
+            operation_ack_queue=operation_ack_q,
+            any_in_update_flag=any_in_update_flag,
+        )
+    )
+    _otaproxy_control_t = threading.Thread(
+        target=partial(
+            otaproxy_control_thread,
+            any_in_update_flag=any_in_update_flag,
+            reboot_flag=reboot_flag,
+        ),
+        daemon=True,
+    )
 
     _ota_core_p.start()
     _ota_server_p.start()
