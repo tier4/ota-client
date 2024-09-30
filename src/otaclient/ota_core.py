@@ -153,6 +153,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
 
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
+WAIT_BEFORE_REBOOT = 3  # seconds
 
 
 class _OTAUpdater:
@@ -594,7 +595,8 @@ class _OTAUpdater:
                 logger.info(f"wait for reboot flag set: {seconds}s passed ...")
             time.sleep(1)
 
-        logger.info("device will reboot now")
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
         next(_postupdate_gen, None)  # reboot
 
     # API
