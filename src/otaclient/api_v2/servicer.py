@@ -19,8 +19,6 @@ import asyncio
 import atexit
 import logging
 import multiprocessing as mp
-import multiprocessing.synchronize as mp_sync
-import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
@@ -28,15 +26,13 @@ import otaclient_api.v2.otaclient_v2_pb2 as pb2
 import otaclient_api.v2.otaclient_v2_pb2_grpc as pb2_grpc
 import otaclient_api.v2.types as api_types
 from otaclient._types import (
-    OTAClientStatus,
     OTAOperationResp,
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
-from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
+from otaclient.api_v2.ecu_status import ECUStatusStorage
 from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info, proxy_info, server_cfg
+from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
@@ -69,10 +65,9 @@ class _OTAClientAPIServicer:
     def __init__(
         self,
         *,
-        status_report_queue: mp.Queue[OTAClientStatus],
+        ecu_status_storage: ECUStatusStorage,
         operation_push_queue: mp.Queue,
         operation_ack_queue: mp.Queue,
-        reboot_flag: mp_sync.Event,
     ):
         # NOTE: normally we should handle one OTA request at a time, and
         #   serializing the request dispatching.
@@ -90,99 +85,10 @@ class _OTAClientAPIServicer:
         self.listen_port = server_cfg.SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        self._reboot_flag = reboot_flag
-
         # start ecu status tracking
-        self._ecu_status_storage = ECUStatusStorage()
-        self._ecu_status_tracker = ECUTracker(
-            ecu_status_storage=self._ecu_status_storage,
-            status_report_queue=status_report_queue,
-        )
-
-        self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
-
-        # otaproxy lifecycle and dependency managing
-        if proxy_info.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(
-                executor=self._executor,
-                subprocess_ctx=OTAProxyContext(),
-            )
-            asyncio.create_task(self._otaproxy_lifecycle_managing())
-            asyncio.create_task(self._otaclient_reboot_flag_managing())
-        else:
-            # if otaproxy is not enabled, no dependency relationship will be formed,
-            # always allow local otaclient to reboot
-            reboot_flag.set()
+        self._ecu_status_storage = ecu_status_storage
 
     # internal
-
-    async def _otaproxy_lifecycle_managing(self):
-        """Task entry for managing otaproxy's launching/shutdown.
-
-        NOTE: cache_dir cleanup is handled here, when all ECUs are in SUCCESS ota_status,
-              cache_dir will be removed.
-        """
-        otaproxy_last_launched_timestamp = 0
-        while not _otaclient_shutdown:
-            cur_timestamp = int(time.time())
-            any_requires_network = self._ecu_status_storage.any_requires_network
-            if self._otaproxy_launcher.is_running:
-                # NOTE: do not shutdown otaproxy too quick after it just starts!
-                #       If otaproxy just starts less than <OTAPROXY_SHUTDOWN_DELAY> seconds,
-                #       skip the shutdown this time.
-                if (
-                    not any_requires_network
-                    and cur_timestamp
-                    > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
-                ):
-                    await self._otaproxy_launcher.stop()
-                    otaproxy_last_launched_timestamp = 0
-            else:  # otaproxy is not running
-                if any_requires_network:
-                    await self._otaproxy_launcher.start(init_cache=False)
-                    otaproxy_last_launched_timestamp = cur_timestamp
-                # when otaproxy is not running and any_requires_network is False,
-                # cleanup the cache dir when all ECUs are in SUCCESS ota_status
-                elif self._ecu_status_storage.all_success:
-                    self._otaproxy_launcher.cleanup_cache_dir()
-            await self._polling_waiter()
-
-    async def _otaclient_reboot_flag_managing(self):
-        """Task entry for set/clear otaclient permit reboot flag.
-
-        Prevent self ECU from rebooting when their is at least one ECU
-        under UPDATING ota_status.
-        """
-        while not _otaclient_shutdown:
-            can_reboot_flag = self._reboot_flag.is_set()
-
-            local_ota_status = self._ecu_status_storage.get_self_status()
-            if local_ota_status is None:
-                await self._polling_waiter()
-                continue
-
-            _sub_ecus_ok = not self._ecu_status_storage.in_update_child_ecus_id
-            # wait for all stats being collected by the collector
-            _local_ecu_ok = not (
-                local_ota_status.ota_status == api_types.StatusOta.UPDATING
-                and local_ota_status.update_status.phase
-                != api_types.UpdatePhase.FINALIZING_UPDATE
-            )
-
-            if _sub_ecus_ok and _local_ecu_ok:
-                if not can_reboot_flag:
-                    logger.info(
-                        "local otaclient can reboot as no child ECU and/or local ECU is in UPDATING ota_status"
-                    )
-                self._reboot_flag.set()
-            else:
-                if can_reboot_flag:
-                    logger.info(
-                        f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_child_ecus_id}"
-                        " are in UPDATING ota_status and/or local OTA is not yet finished"
-                    )
-                self._reboot_flag.clear()
-            await self._polling_waiter()
 
     async def _local_update(
         self, request: api_types.UpdateRequestEcu
