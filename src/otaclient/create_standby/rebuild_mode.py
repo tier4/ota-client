@@ -36,7 +36,7 @@ from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)
 
-PROCESS_FILES_BATCH = 200
+PROCESS_FILES_BATCH = 800
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 
@@ -114,7 +114,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                         self.delta_bundle.new_delta.items(),
                     )
                 ):
-                    _now = int(time.time())
+                    _now = time.time()
                     if _done.exception():
                         continue
 

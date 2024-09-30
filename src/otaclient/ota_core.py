@@ -151,7 +151,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
-DOWNLOAD_STATS_REPORT_BATCH = 1000
+DOWNLOAD_STATS_REPORT_BATCH = 500
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
@@ -346,7 +346,7 @@ class _OTAUpdater:
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(_download_file, download_list), start=1
             ):
-                _now = int(time.time())
+                _now = time.time()
 
                 if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
