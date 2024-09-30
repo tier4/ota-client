@@ -339,45 +339,50 @@ class _OTAUpdater:
             ),
         ) as _mapper:
             _next_commit_before = 0
-            _merged = StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                payload=UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-                ),
-                session_id=self.session_id,
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
 
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(_download_file, download_list), start=1
             ):
                 _now = int(time.time())
-                _payload: UpdateProgressReport = _merged.payload  # type: ignore
 
-                if _download_exception_handler(_fut):  # donwload succeeded
+                if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
 
-                    _payload.processed_file_num += 1
-                    _payload.processed_file_size += file_size
-                    _payload.errors += err_count
-                    _payload.downloaded_bytes += downloaded_bytes
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += file_size
+                    _merged_payload.errors += err_count
+                    _merged_payload.downloaded_bytes += downloaded_bytes
                 else:
-                    _payload.errors += 1
+                    _merged_payload.errors += 1
 
                 if (
                     _done_count % DOWNLOAD_STATS_REPORT_BATCH == 0
                     or _now > _next_commit_before
                 ):
                     _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
-                    self._stats_report_queue.put_nowait(_merged)
-                    _merged = StatsReport(
-                        type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-                        ),
-                        session_id=self.session_id,
+                    self._stats_report_queue.put_nowait(
+                        StatsReport(
+                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                            payload=_merged_payload,
+                            session_id=self.session_id,
+                        )
                     )
+
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+                    )
+
             # for left-over items that cannot fill up the batch
-            self._stats_report_queue.put_nowait(_merged)
+            self._stats_report_queue.put_nowait(
+                StatsReport(
+                    type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
+            )
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
