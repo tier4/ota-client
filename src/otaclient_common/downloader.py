@@ -25,7 +25,6 @@ import threading
 import time
 from abc import abstractmethod
 from functools import wraps
-from io import IOBase
 from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol, TypedDict
 from urllib.parse import urlsplit
 
@@ -87,9 +86,7 @@ class DecompressionAdapter(Protocol):
     """DecompressionAdapter protocol for Downloader."""
 
     @abstractmethod
-    def iter_chunk(
-        self, src_stream: IO[bytes] | IOBase | ByteString
-    ) -> Iterator[bytes]:
+    def iter_chunk(self, src_stream: IO[bytes] | ByteString) -> Iterator[bytes]:
         """Decompresses the source stream.
 
         This method takes a src_stream of compressed file and
@@ -404,7 +401,8 @@ class Downloader:
                 err_count = len(_retries.history)
 
             if decompressor := self._get_decompressor(compression_alg):
-                for _chunk in decompressor.iter_chunk(raw_resp):
+                # NOTE: raw_resp(HTTPResponse) here is configured to be an IO[bytes]
+                for _chunk in decompressor.iter_chunk(raw_resp):  # type: ignore
                     digestobj.update(_chunk)
                     dst_fp.write(_chunk)
                     downloaded_file_size += len(_chunk)

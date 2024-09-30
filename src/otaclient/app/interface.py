@@ -13,20 +13,23 @@
 # limitations under the License.
 
 
-from abc import abstractmethod
-from typing import Protocol, Type
+from __future__ import annotations
 
-from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.create_standby.interface import StandbySlotCreatorProtocol
-from otaclient_api.v2 import otaclient_v2_pb2 as pb2
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from otaclient.boot_control.protocol import BootControllerProtocol
+    from otaclient.create_standby.interface import StandbySlotCreatorProtocol
+    from otaclient_api.v2 import types as api_types
 
 
 class OTAClientProtocol(Protocol):
     def __init__(
         self,
         *,
-        boot_control_cls: Type[BootControllerProtocol],
-        create_standby_cls: Type[StandbySlotCreatorProtocol],
+        boot_control_cls: type[BootControllerProtocol],
+        create_standby_cls: type[StandbySlotCreatorProtocol],
         my_ecu_id: str = "",
     ) -> None: ...
 
@@ -42,4 +45,4 @@ class OTAClientProtocol(Protocol):
     def rollback(self) -> None: ...
 
     @abstractmethod
-    def status(self) -> pb2.StatusResponseEcu: ...
+    def status(self) -> api_types.StatusResponseEcuV2: ...
