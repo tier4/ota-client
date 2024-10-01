@@ -47,7 +47,6 @@ logger = logging.getLogger("otaclient")
 _otaclient_shutdown = False
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
-_otaproxy_control_t: threading.Thread | None = None
 _operation_ack_q: mp.Queue[OTAOperationResp] | None = None
 _operation_push_q: mp.Queue | None = None
 
@@ -66,8 +65,6 @@ def _global_shutdown():  # pragma: no cover
         _ota_server_p.join()
     if _ota_core_p:
         _ota_core_p.join()
-    if _otaproxy_control_t:
-        _otaproxy_control_t.join()
 
 
 atexit.register(_global_shutdown)
@@ -224,7 +221,6 @@ def main() -> None:  # pragma: no cover
             operation_ack_queue=operation_ack_q,
             reboot_flag=reboot_flag,
         ),
-        daemon=True,
     )
     _ota_server_p = ctx.Process(
         target=partial(
@@ -234,7 +230,6 @@ def main() -> None:  # pragma: no cover
             operation_ack_queue=operation_ack_q,
             any_requires_network=any_requires_network,
         ),
-        daemon=True,
     )
     _otaproxy_control_t = threading.Thread(
         target=partial(
@@ -251,4 +246,3 @@ def main() -> None:  # pragma: no cover
 
     _ota_core_p.join()
     _ota_server_p.join()
-    _otaproxy_control_t.join()
