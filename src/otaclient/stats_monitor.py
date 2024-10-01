@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import atexit
 import queue
-import threading
 import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
@@ -36,15 +35,11 @@ from otaclient._types import (
 )
 
 _otaclient_shutdown = False
-_status_collector_thread: threading.Thread | None = None
 
 
 def _global_shutdown():
     global _otaclient_shutdown
     _otaclient_shutdown = True
-
-    if _status_collector_thread:
-        _status_collector_thread.join()
 
 
 atexit.register(_global_shutdown)
@@ -260,10 +255,11 @@ class OTAClientStatsCollector:
                 time.sleep(self.min_collect_interval)
 
     def start(self) -> None:
-        global _status_collector_thread
-        if _status_collector_thread is None:
-            _status_collector_thread = Thread(target=self._stats_collector_thread)
-            _status_collector_thread.start()
+        Thread(
+            target=self._stats_collector_thread,
+            daemon=True,
+            name="otaclient_stats_monitor",
+        ).start()
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
