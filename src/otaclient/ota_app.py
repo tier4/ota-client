@@ -22,6 +22,7 @@ import multiprocessing as mp
 import multiprocessing.synchronize as mp_sync
 import threading
 import time
+from multiprocessing.queues import Queue as mp_Queue
 from queue import Queue
 
 from otaclient._types import (
@@ -38,11 +39,15 @@ from otaclient.stats_monitor import OTAClientStatsCollector
 logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
+_ota_operation_push_q: mp_Queue | None = None
 
 
-def _global_shutdown():
+def _global_shutdown():  # pragma: no cover
     global _otaclient_shutdown
     _otaclient_shutdown = True
+
+    if _ota_operation_push_q:  # terminate signal
+        _ota_operation_push_q.put_nowait(None)
 
 
 atexit.register(_global_shutdown)
@@ -64,6 +69,9 @@ class OTAClientAPP:
         self._status_report_queue = status_report_queue
         self._operation_push_queue = operation_push_queue
         self._operation_ack_queue = operation_ack_queue
+
+        global _ota_operation_push_q
+        _ota_operation_push_q = operation_push_queue
 
         self._last_op = None
 
@@ -129,3 +137,4 @@ class OTAClientAPP:
                 daemon=True,
             ).start()
             self._operation_ack_queue.put_nowait(OTAOperationResp.ACCEPTED)
+        logger.info("shutdown otaclient APP ...")
