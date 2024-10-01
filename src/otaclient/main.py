@@ -43,15 +43,11 @@ from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 configure_logging()
 logger = logging.getLogger("otaclient")
 
-_otaclient_shutdown = False
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 
 
 def _global_shutdown():  # pragma: no cover
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
@@ -148,7 +144,7 @@ def ota_app_main(
         reboot_flag=reboot_flag,
     )
     logger.info("otaclient app started")
-    otaclient_app.main()
+    otaclient_app.start()
 
 
 OTAPROXY_CHECK_INTERVAL = 3
@@ -161,7 +157,7 @@ def otaproxy_control_thread(
     any_requires_network: mp_sync.Event,
     reboot_flag: mp_sync.Event,
 ) -> None:  # pragma: no cover
-    while not _otaclient_shutdown:
+    while True:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
@@ -226,6 +222,7 @@ def main() -> None:  # pragma: no cover
             reboot_flag=reboot_flag,
         ),
         daemon=True,
+        name="otaclient_otaproxy_control_t",
     )
 
     _ota_core_p.start()
