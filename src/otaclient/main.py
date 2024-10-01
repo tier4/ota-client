@@ -217,6 +217,8 @@ def main() -> None:  # pragma: no cover
             reboot_flag=reboot_flag,
         ),
     )
+    _ota_core_p.start()
+
     _ota_server_p = ctx.Process(
         target=partial(
             apiv2_server_main,
@@ -226,6 +228,8 @@ def main() -> None:  # pragma: no cover
             any_requires_network=any_requires_network,
         ),
     )
+    _ota_server_p.start()
+
     _otaproxy_control_t = threading.Thread(
         target=partial(
             otaproxy_control_thread,
@@ -235,11 +239,6 @@ def main() -> None:  # pragma: no cover
         daemon=True,
         name="otaclient_otaproxy_control_t",
     )
-
-    _ota_core_p.start()
-    time.sleep(2)  # wait for core fully startup
-
-    _ota_server_p.start()
     _otaproxy_control_t.start()
 
     _ota_core_p.join()
