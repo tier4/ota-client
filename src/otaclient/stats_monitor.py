@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import atexit
 import queue
 import time
 from dataclasses import asdict, dataclass
@@ -33,17 +32,6 @@ from otaclient._types import (
     UpdateProgress,
     UpdateTiming,
 )
-
-_otaclient_shutdown = False
-
-
-def _global_shutdown():
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
-
-atexit.register(_global_shutdown)
-
 
 #
 # ------ report message types for otaclient internal ------ #
@@ -234,27 +222,26 @@ class OTAClientStatsCollector:
         report_session_id = report.session_id
         if report_session_id != status_storage.session_id:
             return  # drop invalid report
-
         if isinstance(payload, OTAUpdatePhaseChangeReport):
             return _on_update_phase_changed(status_storage, payload)
-
         if isinstance(payload, UpdateProgressReport):
             return _on_update_progress(status_storage, payload)
-
         if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
 
-    # thread workers
-
-    def _stats_collector_thread(self):
-        while not _otaclient_shutdown:
+    def _stats_collector_thread(self) -> None:
+        """Main entry of stats monitor working thread."""
+        while True:
             try:
                 report = self._input_queue.get_nowait()
                 self.load_report(report)
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
+    # API
+
     def start(self) -> None:
+        """Start the stats_monitor thread."""
         Thread(
             target=self._stats_collector_thread,
             daemon=True,
