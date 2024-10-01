@@ -57,20 +57,11 @@ atexit.register(_global_shutdown)
 
 @dataclass
 class SetOTAClientMetaReport:
-    __slots__ = ["firmware_version"]
     firmware_version: str = ""
 
 
 @dataclass
 class UpdateProgressReport:
-    __slots__ = [
-        "operation",
-        "processed_file_num",
-        "processed_file_size",
-        "downloaded_bytes",
-        "errors",
-    ]
-
     class Type(Enum):
         # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
         #       counted as <processed_files_*>
@@ -91,8 +82,6 @@ class UpdateProgressReport:
 
 @dataclass
 class OTAStatusChangeReport:
-    __slots__ = ["new_ota_status", "failure_type", "failure_reason"]
-
     new_ota_status: OTAStatus
     # only used when new_ota_status is failure
     failure_type: FailureType = FailureType.NO_FAILURE
@@ -101,20 +90,17 @@ class OTAStatusChangeReport:
 
 @dataclass
 class OTAUpdatePhaseChangeReport:
-    __slots__ = ["new_update_phase", "trigger_timestamp"]
     new_update_phase: UpdatePhase
     trigger_timestamp: int  # in second
 
 
 @dataclass
 class SetUpdateMetaReport(UpdateMeta):
-    __slots__ = ["metadata_downloaded_bytes"]
     metadata_downloaded_bytes: int = 0
 
 
 @dataclass
 class StatsReport:
-    __slots__ = ["payload", "session_id"]
     payload: Union[
         SetOTAClientMetaReport,
         UpdateProgressReport,

@@ -70,14 +70,6 @@ class FailureType(str, Enum):
 
 @dataclass
 class UpdateMeta:
-    __slots__ = [
-        "update_firmware_version",
-        "image_size_uncompressed",
-        "image_file_entries",
-        "total_download_files_num",
-        "total_download_files_size",
-        "total_remove_files_num",
-    ]
     update_firmware_version: str = ""
     image_size_uncompressed: int = 0
     image_file_entries: int = 0
@@ -88,15 +80,6 @@ class UpdateMeta:
 
 @dataclass
 class UpdateProgress:
-    __slots__ = [
-        "downloaded_files_num",
-        "downloaded_bytes",
-        "downloaded_files_size",
-        "downloading_errors",
-        "removed_files_num",
-        "processed_files_num",
-        "processed_files_size",
-    ]
     downloaded_files_num: int = 0
     downloaded_bytes: int = 0
     downloaded_files_size: int = 0
@@ -108,13 +91,6 @@ class UpdateProgress:
 
 @dataclass
 class UpdateTiming:
-    __slots__ = [
-        "update_start_timestamp",
-        "delta_generate_start_timestamp",
-        "download_start_timestamp",
-        "update_apply_start_timestamp",
-        "post_update_start_timestamp",
-    ]
     update_start_timestamp: int = 0  # in second
     delta_generate_start_timestamp: int = 0  # in second
     download_start_timestamp: int = 0  # in second
@@ -130,20 +106,6 @@ class UpdateTiming:
 @dataclass
 class OTAClientStatus:
     """otaclient internal status definition."""
-
-    __slots__ = [
-        "ecu_id",
-        "otaclient_version",
-        "firmware_version",
-        "ota_status",
-        "session_id",
-        "update_phase",
-        "update_meta",
-        "update_progress",
-        "update_timing",
-        "failure_type",
-        "failure_reason",
-    ]
 
     ecu_id: ClassVar[str] = ecu_info.ecu_id
     otaclient_version: ClassVar[str] = __version__
@@ -163,8 +125,6 @@ class OTAClientStatus:
 class UpdateRequestV2:
     """Compatible with OTA API version 2."""
 
-    __slots__ = ["version", "url_base", "cookies_json"]
-
     version: str
     url_base: str
     cookies_json: str
@@ -172,5 +132,3 @@ class UpdateRequestV2:
 
 class RollbackRequestV2:
     """Compatbile with OTA API version 2."""
-
-    __slots__ = []
