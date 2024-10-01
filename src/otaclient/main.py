@@ -49,6 +49,7 @@ _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 _otaproxy_control_t: threading.Thread | None = None
 _operation_ack_q: mp.Queue[OTAOperationResp] | None = None
+_operation_push_q: mp.Queue | None = None
 
 
 def _global_shutdown():  # pragma: no cover
@@ -56,6 +57,8 @@ def _global_shutdown():  # pragma: no cover
     _otaclient_shutdown = True
     if _operation_ack_q:  # to unblock the API servicer API handler
         _operation_ack_q.put_nowait(None)  # type: ignore
+    if _operation_push_q:
+        _operation_push_q.put_nowait(None)
 
     time.sleep(1)  # wait for exit
 
@@ -132,7 +135,10 @@ def apiv2_server_main(
 
         logger.info("OTA API server started")
         await server.start()
-        await server.wait_for_termination()
+        try:
+            await server.wait_for_termination()
+        finally:
+            await server.stop(1)
 
     asyncio.run(_main())
 
@@ -206,8 +212,9 @@ def main() -> None:  # pragma: no cover
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
 
-    global _operation_ack_q, _ota_core_p, _ota_server_p
+    global _operation_ack_q, _ota_core_p, _ota_server_p, _operation_push_q
     _operation_ack_q = operation_ack_q
+    _operation_push_q = operation_push_q
 
     _ota_core_p = ctx.Process(
         target=partial(
@@ -216,7 +223,8 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             reboot_flag=reboot_flag,
-        )
+        ),
+        daemon=True,
     )
     _ota_server_p = ctx.Process(
         target=partial(
@@ -225,7 +233,8 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             any_requires_network=any_requires_network,
-        )
+        ),
+        daemon=True,
     )
     _otaproxy_control_t = threading.Thread(
         target=partial(
