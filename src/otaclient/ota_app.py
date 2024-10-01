@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import atexit
 import logging
 import multiprocessing.synchronize as mp_sync
 import threading
@@ -37,20 +36,6 @@ from otaclient.stats_monitor import OTAClientStatsCollector
 
 logger = logging.getLogger(__name__)
 
-_otaclient_shutdown = False
-_ota_operation_push_q: mp_Queue | None = None
-
-
-def _global_shutdown():  # pragma: no cover
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
-    if _ota_operation_push_q:  # terminate signal
-        _ota_operation_push_q.put_nowait(None)
-
-
-atexit.register(_global_shutdown)
-
 REPORT_INTERVAL = 1
 
 
@@ -69,16 +54,12 @@ class OTAClientAPP:
         self._operation_push_queue = operation_push_queue
         self._operation_ack_queue = operation_ack_queue
 
-        global _ota_operation_push_q
-        _ota_operation_push_q = operation_push_queue
-
         self._last_op = None
 
         local_stats_collect_queue = Queue()
-        self._local_otaclient_monitor = local_stats_collector = OTAClientStatsCollector(
+        self._local_otaclient_monitor = OTAClientStatsCollector(
             msg_queue=local_stats_collect_queue
         )
-        local_stats_collector.start()
 
         self._otaclient = OTAClient(
             reboot_flag=reboot_flag,
@@ -86,21 +67,15 @@ class OTAClientAPP:
             stats_report_queue=local_stats_collect_queue,
         )
 
-        threading.Thread(
-            target=self._stats_report_main,
-            name="otaclient_status_collect",
-            daemon=True,
-        ).start()
-
-    def _stats_report_main(self) -> None:
+    def _stats_report_thread(self) -> None:
         """Main entry for the status report thread."""
-        while not _otaclient_shutdown:
+        while True:
             _status_report = self._local_otaclient_monitor.otaclient_status
             if _status_report:
                 self._status_report_queue.put_nowait(_status_report)
             time.sleep(REPORT_INTERVAL)
 
-    def _ota_operation_main(self, request) -> None:
+    def _ota_operation_thread(self, request) -> None:
         """Main entry for OTA operation thread."""
         try:
             if isinstance(request, UpdateRequestV2):
@@ -117,9 +92,19 @@ class OTAClientAPP:
         finally:
             self._last_op = None
 
-    def main(self):
+    def start(self):
         """Main entry for OTAClient APP process."""
-        while not _otaclient_shutdown:
+        # start ota_core internal stats collector thread
+        self._local_otaclient_monitor.start()
+
+        # start status report thread
+        threading.Thread(
+            target=self._stats_report_thread,
+            name="otaclient_status_collect",
+            daemon=True,
+        ).start()
+
+        while True:
             req = self._operation_push_queue.get()
             if req is None:
                 break  # termination signal
@@ -130,10 +115,9 @@ class OTAClientAPP:
                 continue
 
             threading.Thread(
-                target=self._ota_operation_main,
+                target=self._ota_operation_thread,
                 args=[req],
                 name="otaclient_ota_thread",
                 daemon=True,
             ).start()
             self._operation_ack_queue.put_nowait(OTAOperationResp.ACCEPTED)
-        logger.info("shutdown otaclient APP ...")
