@@ -38,18 +38,11 @@ from otaclient.stats_monitor import OTAClientStatsCollector
 logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
-_status_report_thread: threading.Thread | None = None
-_ota_op_thread: threading.Thread | None = None
 
 
 def _global_shutdown():
     global _otaclient_shutdown
     _otaclient_shutdown = True
-
-    if _status_report_thread:
-        _status_report_thread.join()
-    if _ota_op_thread:
-        _ota_op_thread.join()
 
 
 atexit.register(_global_shutdown)
@@ -86,13 +79,11 @@ class OTAClientAPP:
             stats_report_queue=local_stats_collect_queue,
         )
 
-        global _status_report_thread
-        _status_report_thread = threading.Thread(
+        threading.Thread(
             target=self._stats_report_main,
             name="otaclient_status_collect",
             daemon=True,
-        )
-        _status_report_thread.start()
+        ).start()
 
     def _stats_report_main(self) -> None:
         """Main entry for the status report thread."""
@@ -131,12 +122,10 @@ class OTAClientAPP:
                 self._operation_ack_queue.put_nowait(OTAOperationResp.BUSY)
                 continue
 
-            global _ota_op_thread
-            _ota_op_thread = threading.Thread(
+            threading.Thread(
                 target=self._ota_operation_main,
                 args=[req],
                 name="otaclient_ota_thread",
                 daemon=True,
-            )
-            _ota_op_thread.start()
+            ).start()
             self._operation_ack_queue.put_nowait(OTAOperationResp.ACCEPTED)
