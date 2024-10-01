@@ -25,7 +25,7 @@ from queue import Queue
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
 from otaclient.app.configs import config as cfg
-from otaclient.stats_monitor import StatsReport, StatsReportType, UpdateProgressReport
+from otaclient.stats_monitor import StatsReport, UpdateProgressReport
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
@@ -131,7 +131,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                         _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
                         self._stats_report_queue.put_nowait(
                             StatsReport(
-                                type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
                                 payload=_merged_payload,
                                 session_id=self.session_id,
                             )
@@ -143,7 +142,6 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 # commit left-over items that cannot fill the batch
                 self._stats_report_queue.put_nowait(
                     StatsReport(
-                        type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
                         payload=_merged_payload,
                         session_id=self.session_id,
                     )

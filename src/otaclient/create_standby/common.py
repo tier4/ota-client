@@ -34,7 +34,7 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from otaclient.app.configs import config as cfg
-from otaclient.stats_monitor import StatsReport, StatsReportType, UpdateProgressReport
+from otaclient.stats_monitor import StatsReport, UpdateProgressReport
 from otaclient_common.common import create_tmp_fname
 
 logger = logging.getLogger(__name__)
@@ -310,7 +310,6 @@ class DeltaGenerator:
         # report to the ota update stats collector
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
                 payload=UpdateProgressReport(
                     operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
                     processed_file_size=fpath.stat().st_size,
