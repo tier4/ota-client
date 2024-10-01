@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import atexit
 import logging
-import multiprocessing as mp
 import multiprocessing.synchronize as mp_sync
 import threading
 import time
@@ -60,9 +59,9 @@ class OTAClientAPP:
     def __init__(
         self,
         *,
-        status_report_queue: mp.Queue[OTAClientStatus],
-        operation_push_queue: mp.Queue,
-        operation_ack_queue: mp.Queue,
+        status_report_queue: mp_Queue[OTAClientStatus],
+        operation_push_queue: mp_Queue,
+        operation_ack_queue: mp_Queue,
         reboot_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""

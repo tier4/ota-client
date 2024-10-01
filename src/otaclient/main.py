@@ -29,7 +29,6 @@ from functools import partial
 from pathlib import Path
 
 from otaclient import __version__
-from otaclient._types import OTAOperationResp
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.log_setting import configure_logging
@@ -47,19 +46,11 @@ logger = logging.getLogger("otaclient")
 _otaclient_shutdown = False
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
-_operation_ack_q: mp.Queue[OTAOperationResp] | None = None
-_operation_push_q: mp.Queue | None = None
 
 
 def _global_shutdown():  # pragma: no cover
     global _otaclient_shutdown
     _otaclient_shutdown = True
-    if _operation_ack_q:  # to unblock the API servicer API handler
-        _operation_ack_q.put_nowait(None)  # type: ignore
-    if _operation_push_q:
-        _operation_push_q.put_nowait(None)
-
-    time.sleep(1)  # wait for exit
 
     if _ota_server_p:
         _ota_server_p.join()
@@ -209,10 +200,7 @@ def main() -> None:  # pragma: no cover
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
 
-    global _operation_ack_q, _ota_core_p, _ota_server_p, _operation_push_q
-    _operation_ack_q = operation_ack_q
-    _operation_push_q = operation_push_q
-
+    global _ota_core_p, _ota_server_p
     _ota_core_p = ctx.Process(
         target=partial(
             ota_app_main,
@@ -241,6 +229,8 @@ def main() -> None:  # pragma: no cover
     )
 
     _ota_core_p.start()
+    time.sleep(2)  # wait for core fully startup
+
     _ota_server_p.start()
     _otaproxy_control_t.start()
 
