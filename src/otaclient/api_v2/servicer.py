@@ -18,9 +18,9 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
-import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from multiprocessing.queues import Queue as mp_Queue
 
 import otaclient_api.v2.otaclient_v2_pb2 as pb2
 import otaclient_api.v2.otaclient_v2_pb2_grpc as pb2_grpc
@@ -31,7 +31,6 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient.api_v2.ecu_status import ECUStatusStorage
-from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.configs.ecu_info import ECUContact
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
@@ -39,11 +38,15 @@ from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
+_ota_operation_ack_q: mp_Queue | None = None
 
 
-def _global_shutdown():
+def _global_shutdown():  # pragma: no cover
     global _otaclient_shutdown
     _otaclient_shutdown = True
+
+    if _ota_operation_ack_q:
+        _ota_operation_ack_q.put_nowait(None)
 
 
 atexit.register(_global_shutdown)
@@ -64,8 +67,8 @@ class _OTAClientAPIServicer:
         self,
         *,
         ecu_status_storage: ECUStatusStorage,
-        operation_push_queue: mp.Queue,
-        operation_ack_queue: mp.Queue,
+        operation_push_queue: mp_Queue,
+        operation_ack_queue: mp_Queue,
     ):
         # NOTE: normally we should handle one OTA request at a time, and
         #   serializing the request dispatching.
@@ -77,6 +80,9 @@ class _OTAClientAPIServicer:
         )
         self._operation_push_queue = operation_push_queue
         self._operation_ack_queue = operation_ack_queue
+
+        global _ota_operation_ack_q
+        _ota_operation_ack_q = operation_ack_queue
 
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
