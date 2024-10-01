@@ -112,7 +112,10 @@ class _OTAClientAPIServicer:
             if resp is None:
                 # also unblock other pending tasks if any
                 self._operation_ack_queue.put_nowait(None)
-                raise ValueError  # termination signal
+                return api_types.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.UpdateResponseEcu(
@@ -144,7 +147,10 @@ class _OTAClientAPIServicer:
             if resp is None:
                 # also unblock other pending tasks if any
                 self._operation_ack_queue.put_nowait(None)
-                raise ValueError  # termination signal
+                return api_types.RollbackResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
         except Exception:
             logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
             return api_types.RollbackResponseEcu(

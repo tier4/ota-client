@@ -26,6 +26,7 @@ import sys
 import threading
 import time
 from functools import partial
+from multiprocessing.queues import Queue as mp_Queue
 from pathlib import Path
 
 from otaclient import __version__
@@ -45,9 +46,16 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
+_ota_operation_q: mp_Queue | None = None
+_ota_ack_q: mp_Queue | None = None
 
 
 def _global_shutdown():  # pragma: no cover
+    if _ota_operation_q:
+        _ota_operation_q.put_nowait(None)
+    if _ota_ack_q:
+        _ota_ack_q.put_nowait(None)
+
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
@@ -78,9 +86,9 @@ def _check_other_otaclient():
 
 def apiv2_server_main(
     *,
-    status_report_queue: mp.Queue,
-    operation_push_queue: mp.Queue,
-    operation_ack_queue: mp.Queue,
+    status_report_queue: mp_Queue,
+    operation_push_queue: mp_Queue,
+    operation_ack_queue: mp_Queue,
     any_requires_network: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
@@ -129,9 +137,9 @@ def apiv2_server_main(
 
 def ota_app_main(
     *,
-    status_report_queue: mp.Queue,
-    operation_push_queue: mp.Queue,
-    operation_ack_queue: mp.Queue,
+    status_report_queue: mp_Queue,
+    operation_push_queue: mp_Queue,
+    operation_ack_queue: mp_Queue,
     reboot_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
@@ -196,7 +204,10 @@ def main() -> None:  # pragma: no cover
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
 
-    global _ota_core_p, _ota_server_p
+    global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q
+    _ota_operation_q = operation_push_q
+    _ota_ack_q = operation_ack_q
+
     _ota_core_p = ctx.Process(
         target=partial(
             ota_app_main,
