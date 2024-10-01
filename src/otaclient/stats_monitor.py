@@ -29,7 +29,6 @@ from otaclient._types import (
     FailureType,
     OTAClientStatus,
     OTAStatus,
-    StatsReportType,
     UpdateMeta,
     UpdatePhase,
     UpdateProgress,
@@ -58,11 +57,19 @@ atexit.register(_global_shutdown)
 
 @dataclass
 class SetOTAClientMetaReport:
+    __slots__ = ["firmware_version"]
     firmware_version: str = ""
 
 
 @dataclass
 class UpdateProgressReport:
+    __slots__ = [
+        "operation",
+        "processed_file_num",
+        "processed_file_size",
+        "downloaded_bytes",
+        "errors",
+    ]
 
     class Type(Enum):
         # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
@@ -84,6 +91,8 @@ class UpdateProgressReport:
 
 @dataclass
 class OTAStatusChangeReport:
+    __slots__ = ["new_ota_status", "failure_type", "failure_reason"]
+
     new_ota_status: OTAStatus
     # only used when new_ota_status is failure
     failure_type: FailureType = FailureType.NO_FAILURE
@@ -92,18 +101,20 @@ class OTAStatusChangeReport:
 
 @dataclass
 class OTAUpdatePhaseChangeReport:
+    __slots__ = ["new_update_phase", "trigger_timestamp"]
     new_update_phase: UpdatePhase
     trigger_timestamp: int  # in second
 
 
 @dataclass
 class SetUpdateMetaReport(UpdateMeta):
+    __slots__ = ["metadata_downloaded_bytes"]
     metadata_downloaded_bytes: int = 0
 
 
 @dataclass
 class StatsReport:
-    type: StatsReportType
+    __slots__ = ["payload", "session_id"]
     payload: Union[
         SetOTAClientMetaReport,
         UpdateProgressReport,
@@ -117,6 +128,8 @@ class StatsReport:
 #
 # ------ helper functions ------ #
 #
+
+
 def _on_session_finished(
     status_storage: OTAClientStatus, payload: OTAStatusChangeReport
 ):
@@ -223,15 +236,11 @@ class OTAClientStatsCollector:
 
         payload = report.payload
         # ------ update otaclient meta ------ #
-        if report.type == StatsReportType.SET_OTACLIENT_META and isinstance(
-            payload, SetOTAClientMetaReport
-        ):
+        if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
 
         # ------ on session start/end ------ #
-        if report.type == StatsReportType.SET_OTA_STATUS and isinstance(
-            payload, OTAStatusChangeReport
-        ):
+        if isinstance(payload, OTAStatusChangeReport):
             new_ota_status = payload.new_ota_status
             if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
                 status_storage.session_id = report.session_id
@@ -245,19 +254,13 @@ class OTAClientStatsCollector:
         if report_session_id != status_storage.session_id:
             return  # drop invalid report
 
-        if report.type == StatsReportType.SET_OTA_UPDATE_PHASE and isinstance(
-            payload, OTAUpdatePhaseChangeReport
-        ):
+        if isinstance(payload, OTAUpdatePhaseChangeReport):
             return _on_update_phase_changed(status_storage, payload)
 
-        if report.type == StatsReportType.SET_OTA_UPDATE_PROGRESS and isinstance(
-            payload, UpdateProgressReport
-        ):
+        if isinstance(payload, UpdateProgressReport):
             return _on_update_progress(status_storage, payload)
 
-        if report.type == StatsReportType.SET_OTA_UPDATE_META and isinstance(
-            payload, SetUpdateMetaReport
-        ):
+        if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
 
     # thread workers
