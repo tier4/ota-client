@@ -48,16 +48,15 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
-_ota_operation_q: mp_Queue | None = None
-_ota_ack_q: mp_Queue | None = None
+_otaclient_global_shutdown: mp_sync.Event | None = None
 
 
 def _global_shutdown():  # pragma: no cover
-    if _ota_operation_q:
-        _ota_operation_q.put_nowait(None)
-    if _ota_ack_q:
-        _ota_ack_q.put_nowait(None)
+    global _otaclient_global_shutdown
+    if _otaclient_global_shutdown:
+        _otaclient_global_shutdown.set()
 
+    # ensure the subprocesses are joined
     if _ota_server_p:
         _ota_server_p.join()
     if _ota_core_p:
@@ -68,6 +67,10 @@ atexit.register(_global_shutdown)
 
 
 def _mainp_signterm_handler(signame, frame) -> NoReturn:
+    global _otaclient_global_shutdown
+    if _otaclient_global_shutdown:
+        _otaclient_global_shutdown.set()
+
     if _ota_core_p:
         _ota_core_p.terminate()
     if _ota_server_p:
@@ -186,8 +189,9 @@ def otaproxy_control_thread(
     *,
     any_requires_network: mp_sync.Event,
     reboot_flag: mp_sync.Event,
+    global_shutdown_flag: mp_sync.Event,
 ) -> None:  # pragma: no cover
-    while True:
+    while not global_shutdown_flag.is_set():
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
@@ -227,8 +231,10 @@ def main() -> None:  # pragma: no cover
     status_report_q = ctx.Queue()
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
+    otaclient_global_shutdown = ctx.Event()
 
-    global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q
+    global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q, _otaclient_global_shutdown
+    _otaclient_global_shutdown = otaclient_global_shutdown
     _ota_operation_q = operation_push_q
     _ota_ack_q = operation_ack_q
 
@@ -259,6 +265,7 @@ def main() -> None:  # pragma: no cover
             otaproxy_control_thread,
             any_requires_network=any_requires_network,
             reboot_flag=reboot_flag,
+            global_shutdown_flag=otaclient_global_shutdown,
         ),
         daemon=True,
         name="otaclient_otaproxy_control_t",
