@@ -49,12 +49,12 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
-_global_shutdown_flag: mp_sync.Event | None = None
+_main_global_shutdown_flag: mp_sync.Event | None = None
 
 
 def _global_shutdown():  # pragma: no cover
-    if _global_shutdown_flag:
-        _global_shutdown_flag.set()
+    if _main_global_shutdown_flag:
+        _main_global_shutdown_flag.set()
 
     # ensure the subprocesses are joined
     if _ota_server_p:
@@ -69,8 +69,8 @@ atexit.register(_global_shutdown)
 def _mainp_signterm_handler(signame, frame) -> NoReturn:
     """Terminate all the subprocess and then raise KeyboardInterrupt."""
 
-    if _global_shutdown_flag:
-        _global_shutdown_flag.set()
+    if _main_global_shutdown_flag:
+        _main_global_shutdown_flag.set()
 
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -127,6 +127,9 @@ def apiv2_server_main(
     from otaclient.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
     from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 
+    global _main_global_shutdown_flag
+    _main_global_shutdown_flag = global_shutdown_flag
+
     otaclient._global_shutdown_flag = global_shutdown_flag
     # NOTE: spawn will not let the child process inherits the signal handler
     signal.signal(signal.SIGTERM, _subp_signterm_handler)
@@ -176,6 +179,9 @@ def ota_app_main(
     import otaclient
     from otaclient.ota_app import OTAClientAPP
 
+    global _main_global_shutdown_flag
+    _main_global_shutdown_flag = global_shutdown_flag
+
     otaclient._global_shutdown_flag = global_shutdown_flag
     signal.signal(signal.SIGTERM, _subp_signterm_handler)
 
@@ -221,8 +227,8 @@ def otaproxy_control_thread(
             shutdown_otaproxy_server()
 
 
-SHUTDOWN_AFTER_CORE_EXIT = 30
-"""Shutdown the whole otaclient after 60 seconds when ota_core process exits.
+SHUTDOWN_AFTER_CORE_EXIT = 45
+"""Shutdown the whole otaclient after 45 seconds when ota_core process exits.
 
 This gives the API server chance to report failure info via status API.
 """
@@ -231,13 +237,14 @@ HEALTH_CHECK_INTERAVL = 6
 
 
 def main() -> None:  # pragma: no cover
+    """The main entry of otaclient."""
     signal.signal(signal.SIGTERM, _mainp_signterm_handler)
 
     ctx = mp.get_context("spawn")
     global_shutdown_flag = ctx.Event()
+    global _main_global_shutdown_flag
+    _main_global_shutdown_flag = global_shutdown_flag
     otaclient._global_shutdown_flag = global_shutdown_flag
-    global _global_shutdown_flag
-    _global_shutdown_flag = global_shutdown_flag
 
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
@@ -292,7 +299,7 @@ def main() -> None:  # pragma: no cover
     )
     _otaproxy_control_t.start()
 
-    while not _global_shutdown_flag.is_set():
+    while not _main_global_shutdown_flag.is_set():
         time.sleep(HEALTH_CHECK_INTERAVL)
 
         if not _ota_core_p.is_alive():
