@@ -123,9 +123,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
         try:
-            # always release se first to wake up the dispatcher
-            self._concurrent_semaphore.release()
             if self._shutdown:
+                self._concurrent_semaphore.release()
                 return  # on shutdown, no need to put done fut into fut_queue
             self._fut_queue.put_nowait(fut)
 
@@ -136,6 +135,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     self.submit(func, item).add_done_callback(
                         partial(self._task_done_cb, item=item, func=func)
                     )
+            else:  # only release semaphore when succeeded
+                self._concurrent_semaphore.release()
         finally:
             del fut, item, func  # clear refs
 
