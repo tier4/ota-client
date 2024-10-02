@@ -108,7 +108,14 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 try:
                     watchdog_func()
                 except Exception as e:
-                    logger.warning(f"custom watchdog func failed: {e!r}, abort")
+                    logger.warning(
+                        f"custom watchdog func failed: {e!r}, shutdown the pool"
+                    )
+                    logger.warning("draining the workitem queue ...")
+                    # drain the worker queues to cancel all the futs
+                    with contextlib.suppress(Empty):
+                        _workitem = self._work_queue.get_nowait()
+                        _workitem.future.cancel()
                     return self.shutdown(wait=True)
             time.sleep(interval)
 
@@ -202,10 +209,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
-                # drain the worker queues to cancel all the futs
-                with contextlib.suppress(Empty):
-                    _workitem = self._work_queue.get_nowait()
-                    _workitem.future.cancel()
                 self.shutdown(wait=True)
                 return
 
