@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 try:
     from _otaclient_version import __version__, version
 except ImportError:
@@ -19,3 +24,8 @@ except ImportError:
     version = __version__ = "0.0.0"
 
 __all__ = ["version", "__version__"]
+
+if TYPE_CHECKING:
+    import multiprocessing.synchronize as mp_sync
+
+otaclient_global_shutdown: mp_sync.Event | None = None
