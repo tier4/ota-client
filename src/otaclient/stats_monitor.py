@@ -21,8 +21,9 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import TYPE_CHECKING, Union
+from typing import Union
 
+import otaclient
 from otaclient._types import (
     FailureType,
     OTAClientStatus,
@@ -32,9 +33,6 @@ from otaclient._types import (
     UpdateProgress,
     UpdateTiming,
 )
-
-if TYPE_CHECKING:
-    import multiprocessing.synchronize as mp_sync
 
 #
 # ------ report message types for otaclient internal ------ #
@@ -232,9 +230,9 @@ class OTAClientStatsCollector:
         if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
 
-    def _stats_collector_thread(self, global_shutdown_flag: mp_sync.Event) -> None:
+    def _stats_collector_thread(self) -> None:
         """Main entry of stats monitor working thread."""
-        while not global_shutdown_flag.is_set():
+        while not otaclient.global_shutdown():
             try:
                 report = self._input_queue.get_nowait()
                 self.load_report(report)
@@ -243,12 +241,11 @@ class OTAClientStatsCollector:
 
     # API
 
-    def start(self, global_shutdown_flag: mp_sync.Event) -> None:
+    def start(self) -> None:
         """Start the stats_monitor thread."""
         Thread(
             target=self._stats_collector_thread,
             daemon=True,
-            args=[global_shutdown_flag],
             name="otaclient_stats_monitor",
         ).start()
 

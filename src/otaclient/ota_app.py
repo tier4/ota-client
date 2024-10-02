@@ -23,6 +23,7 @@ import time
 from multiprocessing.queues import Queue as mp_Queue
 from queue import Empty, Queue
 
+import otaclient
 from otaclient._types import (
     OTAClientStatus,
     OTAOperation,
@@ -39,8 +40,6 @@ logger = logging.getLogger(__name__)
 REPORT_INTERVAL = 1
 OTA_OP_POLL_INTERVAL = 1
 
-_otaclient_global_shutdown_flag: mp_sync.Event
-
 
 class OTAClientAPP:
 
@@ -51,15 +50,11 @@ class OTAClientAPP:
         operation_push_queue: mp_Queue,
         operation_ack_queue: mp_Queue,
         reboot_flag: mp_sync.Event,
-        global_shutdown_flag: mp_sync.Event,
     ) -> None:
         """Main entry for otaclient process."""
         self._status_report_queue = status_report_queue
         self._operation_push_queue = operation_push_queue
         self._operation_ack_queue = operation_ack_queue
-
-        global _otaclient_global_shutdown_flag
-        _otaclient_global_shutdown_flag = global_shutdown_flag
 
         self._last_op = None
 
@@ -76,7 +71,7 @@ class OTAClientAPP:
 
     def _stats_report_thread(self) -> None:
         """Main entry for the status report thread."""
-        while not _otaclient_global_shutdown_flag.is_set():
+        while not otaclient.global_shutdown():
             _status_report = self._local_otaclient_monitor.otaclient_status
             if _status_report:
                 self._status_report_queue.put_nowait(_status_report)
@@ -102,7 +97,7 @@ class OTAClientAPP:
     def start(self):
         """Main entry for OTAClient APP process."""
         # start ota_core internal stats collector thread
-        self._local_otaclient_monitor.start(_otaclient_global_shutdown_flag)
+        self._local_otaclient_monitor.start()
 
         # start status report thread
         threading.Thread(
@@ -111,7 +106,7 @@ class OTAClientAPP:
             daemon=True,
         ).start()
 
-        while not _otaclient_global_shutdown_flag.is_set():
+        while not otaclient.global_shutdown():
             try:
                 req = self._operation_push_queue.get(timeout=OTA_OP_POLL_INTERVAL)
             except Empty:
