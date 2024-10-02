@@ -198,11 +198,13 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             _tasks_count = -1  # means no task is scheduled
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
-                    if self._shutdown:
-                        logger.warning("threadpool is closing, exit")
-                        return  # directly exit on shutdown
+                    while not self._concurrent_semaphore.acquire(
+                        timeout=SE_ACQUIRE_TIMEOUT
+                    ):
+                        if self._shutdown:
+                            logger.warning("threadpool is closing, exit")
+                            return  # directly exit on shutdown
 
-                    if self._concurrent_semaphore.acquire(timeout=SE_ACQUIRE_TIMEOUT):
                         fut = self.submit(func, item)
                         fut.add_done_callback(
                             partial(self._task_done_cb, item=item, func=func)
