@@ -21,7 +21,7 @@ import multiprocessing.synchronize as mp_sync
 import threading
 import time
 from multiprocessing.queues import Queue as mp_Queue
-from queue import Queue
+from queue import Empty, Queue
 
 from otaclient._types import (
     OTAClientStatus,
@@ -37,6 +37,7 @@ from otaclient.stats_monitor import OTAClientStatsCollector
 logger = logging.getLogger(__name__)
 
 REPORT_INTERVAL = 1
+OTA_OP_POLL_INTERVAL = 1
 
 
 class OTAClientAPP:
@@ -105,9 +106,10 @@ class OTAClientAPP:
         ).start()
 
         while True:
-            req = self._operation_push_queue.get()
-            if req is None:
-                break  # termination signal
+            try:
+                req = self._operation_push_queue.get(timeout=OTA_OP_POLL_INTERVAL)
+            except Empty:
+                continue
 
             if self._last_op:
                 logger.warning(f"ignore {type(req)} as {self._last_op} is ongoing")
