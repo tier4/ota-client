@@ -29,3 +29,8 @@ if TYPE_CHECKING:
     import multiprocessing.synchronize as mp_sync
 
 otaclient_global_shutdown: mp_sync.Event | None = None
+"""Global shutdown flag, maintained and set by main module."""
+
+
+def global_shutdown() -> bool:
+    return otaclient_global_shutdown is not None and otaclient_global_shutdown.is_set()

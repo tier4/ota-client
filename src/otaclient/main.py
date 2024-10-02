@@ -31,6 +31,7 @@ from multiprocessing.queues import Queue as mp_Queue
 from pathlib import Path
 from typing import NoReturn
 
+import otaclient
 from otaclient import __version__
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
@@ -48,13 +49,11 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
-_otaclient_global_shutdown: mp_sync.Event | None = None
 
 
 def _global_shutdown():  # pragma: no cover
-    global _otaclient_global_shutdown
-    if _otaclient_global_shutdown:
-        _otaclient_global_shutdown.set()
+    if otaclient.otaclient_global_shutdown:
+        otaclient.otaclient_global_shutdown.set()
 
     # ensure the subprocesses are joined
     if _ota_server_p:
@@ -67,9 +66,8 @@ atexit.register(_global_shutdown)
 
 
 def _mainp_signterm_handler(signame, frame) -> NoReturn:
-    global _otaclient_global_shutdown
-    if _otaclient_global_shutdown:
-        _otaclient_global_shutdown.set()
+    if otaclient.otaclient_global_shutdown:
+        otaclient.otaclient_global_shutdown.set()
 
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -164,7 +162,6 @@ def ota_app_main(
     operation_push_queue: mp_Queue,
     operation_ack_queue: mp_Queue,
     reboot_flag: mp_sync.Event,
-    global_shutdown_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
     from otaclient.ota_app import OTAClientAPP
@@ -176,7 +173,6 @@ def ota_app_main(
         operation_push_queue=operation_push_queue,
         operation_ack_queue=operation_ack_queue,
         reboot_flag=reboot_flag,
-        global_shutdown_flag=global_shutdown_flag,
     )
     logger.info("otaclient app started")
     otaclient_app.start()
@@ -191,9 +187,8 @@ def otaproxy_control_thread(
     *,
     any_requires_network: mp_sync.Event,
     reboot_flag: mp_sync.Event,
-    global_shutdown_flag: mp_sync.Event,
 ) -> None:  # pragma: no cover
-    while not global_shutdown_flag.is_set():
+    while not otaclient.global_shutdown():
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
@@ -218,6 +213,10 @@ def otaproxy_control_thread(
 def main() -> None:  # pragma: no cover
     signal.signal(signal.SIGTERM, _mainp_signterm_handler)
 
+    ctx = mp.get_context("spawn")
+    otaclient_global_shutdown = ctx.Event()
+    otaclient.otaclient_global_shutdown = otaclient_global_shutdown
+
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
@@ -225,18 +224,14 @@ def main() -> None:  # pragma: no cover
     # start the otaclient grpc server
     _check_other_otaclient()
 
-    ctx = mp.get_context("spawn")
-
     # flags
     any_requires_network = ctx.Event()
     reboot_flag = ctx.Event()
     status_report_q = ctx.Queue()
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
-    otaclient_global_shutdown = ctx.Event()
 
-    global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q, _otaclient_global_shutdown
-    _otaclient_global_shutdown = otaclient_global_shutdown
+    global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q
     _ota_operation_q = operation_push_q
     _ota_ack_q = operation_ack_q
 
@@ -247,7 +242,6 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             reboot_flag=reboot_flag,
-            global_shutdown_flag=otaclient_global_shutdown,
         ),
     )
     _ota_core_p.start()
@@ -268,7 +262,6 @@ def main() -> None:  # pragma: no cover
             otaproxy_control_thread,
             any_requires_network=any_requires_network,
             reboot_flag=reboot_flag,
-            global_shutdown_flag=otaclient_global_shutdown,
         ),
         daemon=True,
         name="otaclient_otaproxy_control_t",
