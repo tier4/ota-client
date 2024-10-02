@@ -116,6 +116,9 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
         self._concurrent_semaphore.release()  # always release se first
+
+        if self._shutdown:
+            return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
 
         # ------ on task failed ------ #
@@ -136,7 +139,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 logger.warning(
                     f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
                 )
-                raise TasksEnsureFailed
+                raise TasksEnsureFailed  # raise exc to upper caller
 
             try:
                 done_fut = self._fut_queue.get_nowait()
@@ -180,6 +183,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             _tasks_count = -1  # means no task is scheduled
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
+                    if self._shutdown:
+                        logger.warning("threadpool is closing, exit")
+                        return  # directly exit on shutdown
+
                     self._concurrent_semaphore.acquire()
                     fut = self.submit(func, item)
                     fut.add_done_callback(
