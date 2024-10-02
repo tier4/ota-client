@@ -22,12 +22,14 @@ import multiprocessing as mp
 import multiprocessing.context as mp_ctx
 import multiprocessing.synchronize as mp_sync
 import os
+import signal
 import sys
 import threading
 import time
 from functools import partial
 from multiprocessing.queues import Queue as mp_Queue
 from pathlib import Path
+from typing import NoReturn
 
 from otaclient import __version__
 from otaclient.app.configs import config as cfg
@@ -63,6 +65,21 @@ def _global_shutdown():  # pragma: no cover
 
 
 atexit.register(_global_shutdown)
+
+
+def _mainp_signterm_handler(signame, frame) -> NoReturn:
+    if _ota_core_p:
+        _ota_core_p.terminate()
+    if _ota_server_p:
+        _ota_server_p.terminate()
+
+    raise KeyboardInterrupt(
+        "main receives SIGTERM, terminate subprocesses and exits ..."
+    )
+
+
+def _subp_signterm_handler(signame, frame) -> NoReturn:
+    raise KeyboardInterrupt("receives SIGTERM, exits ...")
 
 
 def _check_other_otaclient():
@@ -101,6 +118,9 @@ def apiv2_server_main(
     from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
     from otaclient.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
     from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+
+    # NOTE: spawn will not let the child process inherits the signal handler
+    signal.signal(signal.SIGTERM, _subp_signterm_handler)
 
     async def _main():
         server = grpc_aio.server()
@@ -145,6 +165,8 @@ def ota_app_main(
     """Main entry of otaclient app process."""
     from otaclient.ota_app import OTAClientAPP
 
+    signal.signal(signal.SIGTERM, _subp_signterm_handler)
+
     otaclient_app = OTAClientAPP(
         status_report_queue=status_report_queue,
         operation_push_queue=operation_push_queue,
@@ -188,6 +210,8 @@ def otaproxy_control_thread(
 
 
 def main() -> None:  # pragma: no cover
+    signal.signal(signal.SIGTERM, _mainp_signterm_handler)
+
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
