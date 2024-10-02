@@ -217,10 +217,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 return
 
             self._total_task_num = _tasks_count
-            if _tasks_count > 0:
-                logger.info(f"finish dispatch {_tasks_count} tasks")
-            else:
-                logger.warning("no task is scheduled!")
 
         threading.Thread(target=_dispatcher, daemon=True).start()
 
