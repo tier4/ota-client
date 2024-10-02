@@ -115,8 +115,8 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
-        self._concurrent_semaphore.release()  # always release se first
-
+        # always release se first to wake up the dispatcher
+        self._concurrent_semaphore.release()
         if self._shutdown:
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
@@ -198,6 +198,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
+                # drain the worker queues to cancel all the futs
+                with contextlib.suppress(Empty):
+                    _workitem = self._work_queue.get_nowait()
+                    _workitem.future.cancel()
                 self.shutdown(wait=True)
                 return
 
