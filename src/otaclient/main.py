@@ -164,6 +164,7 @@ def ota_app_main(
     operation_push_queue: mp_Queue,
     operation_ack_queue: mp_Queue,
     reboot_flag: mp_sync.Event,
+    global_shutdown_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
     from otaclient.ota_app import OTAClientAPP
@@ -175,6 +176,7 @@ def ota_app_main(
         operation_push_queue=operation_push_queue,
         operation_ack_queue=operation_ack_queue,
         reboot_flag=reboot_flag,
+        global_shutdown_flag=global_shutdown_flag,
     )
     logger.info("otaclient app started")
     otaclient_app.start()
@@ -245,6 +247,7 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             reboot_flag=reboot_flag,
+            global_shutdown_flag=otaclient_global_shutdown,
         ),
     )
     _ota_core_p.start()
