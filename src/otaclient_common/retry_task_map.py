@@ -114,8 +114,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     logger.warning("draining the workitem queue ...")
                     # drain the worker queues to cancel all the futs
                     with contextlib.suppress(Empty):
-                        _workitem = self._work_queue.get_nowait()
-                        _workitem.future.cancel()
+                        self._work_queue.get_nowait()
                     return self.shutdown(wait=True)
             time.sleep(interval)
 
