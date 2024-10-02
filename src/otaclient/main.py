@@ -67,13 +67,17 @@ atexit.register(_global_shutdown)
 
 
 def _mainp_signterm_handler(signame, frame) -> NoReturn:
+    """Terminate all the subprocess and then raise KeyboardInterrupt."""
+
     if _global_shutdown_flag:
         _global_shutdown_flag.set()
 
     if _ota_core_p:
         _ota_core_p.terminate()
+        _ota_core_p.join()
     if _ota_server_p:
         _ota_server_p.terminate()
+        _ota_server_p.join()
 
     raise KeyboardInterrupt(
         "main receives SIGTERM, terminate subprocesses and exits ..."
@@ -217,6 +221,15 @@ def otaproxy_control_thread(
             shutdown_otaproxy_server()
 
 
+SHUTDOWN_AFTER_CORE_EXIT = 30
+"""Shutdown the whole otaclient after 60 seconds when ota_core process exits.
+
+This gives the API server chance to report failure info via status API.
+"""
+SHUTDOWN_AFTER_API_SERVER_EXIT = 6
+HEALTH_CHECK_INTERAVL = 6
+
+
 def main() -> None:  # pragma: no cover
     signal.signal(signal.SIGTERM, _mainp_signterm_handler)
 
@@ -279,5 +292,19 @@ def main() -> None:  # pragma: no cover
     )
     _otaproxy_control_t.start()
 
-    _ota_core_p.join()
-    _ota_server_p.join()
+    while not _global_shutdown_flag.is_set():
+        time.sleep(HEALTH_CHECK_INTERAVL)
+
+        if not _ota_core_p.is_alive():
+            logger.error(
+                f"ota_core process is dead, otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT}seconds ..."
+            )
+            time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+            _mainp_signterm_handler(None, None)  # directly use the signterm handler
+
+        if not _ota_server_p.is_alive():
+            logger.error(
+                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}"
+            )
+            time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
+            _mainp_signterm_handler(None, None)  # directly use the signterm handler
