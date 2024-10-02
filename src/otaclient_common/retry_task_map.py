@@ -117,13 +117,14 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     with contextlib.suppress(Empty):
                         while True:
                             self._work_queue.get_nowait()
+                    self.shutdown(wait=True)
                     return
             time.sleep(interval)
 
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
-        if self._shutdown:
+        if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
             self._concurrent_semaphore.release()
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
@@ -199,7 +200,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             _tasks_count = -1  # means no task is scheduled
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
-                    if self._shutdown:
+                    if (
+                        self._shutdown
+                        or self._broken
+                        or concurrent_fut_thread._shutdown
+                    ):
                         logger.warning("threadpool is closing, exit")
                         return  # directly exit on shutdown
 
