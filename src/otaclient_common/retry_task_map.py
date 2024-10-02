@@ -124,23 +124,20 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
-        try:
-            if self._shutdown:
-                self._concurrent_semaphore.release()
-                return  # on shutdown, no need to put done fut into fut_queue
-            self._fut_queue.put_nowait(fut)
+        if self._shutdown:
+            self._concurrent_semaphore.release()
+            return  # on shutdown, no need to put done fut into fut_queue
+        self._fut_queue.put_nowait(fut)
 
-            # ------ on task failed ------ #
-            if fut.exception():
-                self._retry_count = next(self._retry_counter)
-                with contextlib.suppress(Exception):  # on threadpool shutdown
-                    self.submit(func, item).add_done_callback(
-                        partial(self._task_done_cb, item=item, func=func)
-                    )
-            else:  # only release semaphore when succeeded
-                self._concurrent_semaphore.release()
-        finally:
-            del fut, item, func  # clear refs
+        # ------ on task failed ------ #
+        if fut.exception():
+            self._retry_count = next(self._retry_counter)
+            with contextlib.suppress(Exception):  # on threadpool shutdown
+                self.submit(func, item).add_done_callback(
+                    partial(self._task_done_cb, item=item, func=func)
+                )
+        else:  # only release semaphore when succeeded
+            self._concurrent_semaphore.release()
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
         """Generator which yields the done future, controlled by the caller."""
