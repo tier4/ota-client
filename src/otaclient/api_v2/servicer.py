@@ -109,15 +109,8 @@ class _OTAClientAPIServicer:
             resp = await self._run_in_executor(
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
-            if resp is None:
-                # also unblock other pending tasks if any
-                self._operation_ack_queue.put_nowait(None)
-                return api_types.UpdateResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                )
         except Exception:
-            logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
+            logger.warning("timeout wait for the resp from the local otaclient!")
             return api_types.UpdateResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.UNRECOVERABLE,
@@ -144,15 +137,8 @@ class _OTAClientAPIServicer:
             resp = await self._run_in_executor(
                 self._operation_ack_queue.get, True, _MAX_WAIT_RESP_TIME
             )
-            if resp is None:
-                # also unblock other pending tasks if any
-                self._operation_ack_queue.put_nowait(None)
-                return api_types.RollbackResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                )
         except Exception:
-            logger.error("timeout wait for the resp, THIS SHOULD NOT HAPPEND!")
+            logger.warning("timeout wait for the resp from the local otaclient!")
             return api_types.RollbackResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.UNRECOVERABLE,
