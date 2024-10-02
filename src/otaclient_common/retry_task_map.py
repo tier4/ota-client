@@ -112,10 +112,12 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         f"custom watchdog func failed: {e!r}, shutdown the pool"
                     )
                     logger.warning("draining the workitem queue ...")
+                    self.shutdown(wait=False)
                     # drain the worker queues to cancel all the futs
                     with contextlib.suppress(Empty):
-                        self._work_queue.get_nowait()
-                    return self.shutdown(wait=True)
+                        while True:
+                            self._work_queue.get_nowait()
+                    return
             time.sleep(interval)
 
     def _task_done_cb(
