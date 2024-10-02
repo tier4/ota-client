@@ -139,6 +139,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 logger.warning(
                     f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
                 )
+                # drain the _fut_queue
+                with contextlib.suppress(Empty):
+                    while True:
+                        self._fut_queue.get_nowait()
                 raise TasksEnsureFailed  # raise exc to upper caller
 
             try:
