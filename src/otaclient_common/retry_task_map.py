@@ -100,7 +100,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     ) -> None:
         """Watchdog will shutdown the threadpool on certain conditions being met."""
         while not self._shutdown and not concurrent_fut_thread._shutdown:
-            if max_retry and self._retry_count > max_retry:
+            if (
+                max_retry is not None
+                and max_retry > 0
+                and self._retry_count > max_retry
+            ):
                 logger.warning(f"exceed {max_retry=}, abort")
                 return self.shutdown(wait=True)
 
