@@ -30,8 +30,6 @@ from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
 
-SE_ACQUIRE_TIMEOUT = 3
-
 
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
@@ -132,10 +130,12 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         # ------ on task failed ------ #
         if fut.exception():
             self._retry_count = next(self._retry_counter)
-            with contextlib.suppress(Exception):  # on threadpool shutdown
+            try:  # on threadpool shutdown
                 self.submit(func, item).add_done_callback(
                     partial(self._task_done_cb, item=item, func=func)
                 )
+            except Exception:
+                self._concurrent_semaphore.release()
         else:  # only release semaphore when succeeded
             self._concurrent_semaphore.release()
 
@@ -198,19 +198,15 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             _tasks_count = -1  # means no task is scheduled
             try:
                 for _tasks_count, item in enumerate(iterable, start=1):
-                    while True:
-                        if self._shutdown:
-                            logger.warning("threadpool is closing, exit")
-                            return  # directly exit on shutdown
+                    if self._shutdown:
+                        logger.warning("threadpool is closing, exit")
+                        return  # directly exit on shutdown
 
-                        if self._concurrent_semaphore.acquire(
-                            timeout=SE_ACQUIRE_TIMEOUT
-                        ):
-                            fut = self.submit(func, item)
-                            fut.add_done_callback(
-                                partial(self._task_done_cb, item=item, func=func)
-                            )
-                            break
+                    self._concurrent_semaphore.acquire()
+                    fut = self.submit(func, item)
+                    fut.add_done_callback(
+                        partial(self._task_done_cb, item=item, func=func)
+                    )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
                 self.shutdown(wait=True)
