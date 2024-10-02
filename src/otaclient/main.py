@@ -49,11 +49,12 @@ logger = logging.getLogger("otaclient")
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
+_global_shutdown_flag: mp_sync.Event | None = None
 
 
 def _global_shutdown():  # pragma: no cover
-    if otaclient.otaclient_global_shutdown:
-        otaclient.otaclient_global_shutdown.set()
+    if _global_shutdown_flag:
+        _global_shutdown_flag.set()
 
     # ensure the subprocesses are joined
     if _ota_server_p:
@@ -66,8 +67,8 @@ atexit.register(_global_shutdown)
 
 
 def _mainp_signterm_handler(signame, frame) -> NoReturn:
-    if otaclient.otaclient_global_shutdown:
-        otaclient.otaclient_global_shutdown.set()
+    if _global_shutdown_flag:
+        _global_shutdown_flag.set()
 
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -108,6 +109,7 @@ def apiv2_server_main(
     operation_push_queue: mp_Queue,
     operation_ack_queue: mp_Queue,
     any_requires_network: mp_sync.Event,
+    global_shutdown_flag: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
 
@@ -116,10 +118,12 @@ def apiv2_server_main(
     """
     import grpc.aio as grpc_aio
 
+    import otaclient
     from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
     from otaclient.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
     from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 
+    otaclient._global_shutdown_flag = global_shutdown_flag
     # NOTE: spawn will not let the child process inherits the signal handler
     signal.signal(signal.SIGTERM, _subp_signterm_handler)
 
@@ -162,10 +166,13 @@ def ota_app_main(
     operation_push_queue: mp_Queue,
     operation_ack_queue: mp_Queue,
     reboot_flag: mp_sync.Event,
+    global_shutdown_flag: mp_sync.Event,
 ):  # pragma: no cover
     """Main entry of otaclient app process."""
+    import otaclient
     from otaclient.ota_app import OTAClientAPP
 
+    otaclient._global_shutdown_flag = global_shutdown_flag
     signal.signal(signal.SIGTERM, _subp_signterm_handler)
 
     otaclient_app = OTAClientAPP(
@@ -214,8 +221,10 @@ def main() -> None:  # pragma: no cover
     signal.signal(signal.SIGTERM, _mainp_signterm_handler)
 
     ctx = mp.get_context("spawn")
-    otaclient_global_shutdown = ctx.Event()
-    otaclient.otaclient_global_shutdown = otaclient_global_shutdown
+    global_shutdown_flag = ctx.Event()
+    otaclient._global_shutdown_flag = global_shutdown_flag
+    global _global_shutdown_flag
+    _global_shutdown_flag = global_shutdown_flag
 
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
@@ -242,6 +251,7 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             reboot_flag=reboot_flag,
+            global_shutdown_flag=global_shutdown_flag,
         ),
     )
     _ota_core_p.start()
@@ -253,6 +263,7 @@ def main() -> None:  # pragma: no cover
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
             any_requires_network=any_requires_network,
+            global_shutdown_flag=global_shutdown_flag,
         ),
     )
     _ota_server_p.start()
