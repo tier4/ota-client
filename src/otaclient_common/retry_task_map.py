@@ -30,6 +30,8 @@ from otaclient_common.typing import RT, T
 
 logger = logging.getLogger(__name__)
 
+SE_ACQUIRE_TIMEOUT = 3
+
 
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
@@ -203,11 +205,11 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         logger.warning("threadpool is closing, exit")
                         return  # directly exit on shutdown
 
-                    self._concurrent_semaphore.acquire()
-                    fut = self.submit(func, item)
-                    fut.add_done_callback(
-                        partial(self._task_done_cb, item=item, func=func)
-                    )
+                    if self._concurrent_semaphore.acquire(timeout=SE_ACQUIRE_TIMEOUT):
+                        fut = self.submit(func, item)
+                        fut.add_done_callback(
+                            partial(self._task_done_cb, item=item, func=func)
+                        )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
                 self.shutdown(wait=True)
