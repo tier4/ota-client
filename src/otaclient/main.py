@@ -310,7 +310,7 @@ def main() -> None:  # pragma: no cover
 
         if not _ota_server_p.is_alive():
             logger.error(
-                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}"
+                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             _mainp_signterm_handler(None, None)  # directly use the signterm handler
