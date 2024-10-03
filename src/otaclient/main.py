@@ -212,9 +212,6 @@ def otaproxy_control_thread(
         _otaproxy_running = otaproxy_running()
         _otaproxy_should_run = any_requires_network.is_set()
 
-        # NOTE(20240930): always try to re-use already presented ota-cache dir,
-        #   as if the ota-cache dir is not empty, it means that there is high possiblity of
-        #   previous failed OTA(s) of this ECU(or its sub ECU(s)).
         if _otaproxy_should_run and not _otaproxy_running:
             start_otaproxy_server(init_cache=False)
             time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
@@ -249,12 +246,14 @@ def main() -> None:  # pragma: no cover
     # start the otaclient grpc server
     _check_other_otaclient()
 
-    # flags
-    any_requires_network = ctx.Event()
+    # ota_core <-> ota API server
     no_child_ecus_in_update = ctx.Event()
     status_report_q = ctx.Queue()
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
+
+    # otaproxy_control <-> ota API server
+    any_requires_network = ctx.Event()
 
     global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q
     _ota_operation_q = operation_push_q
