@@ -78,6 +78,13 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
+        self._watchdog_check_interval = watchdog_check_interval
+        self._checker_funcs: list[Callable[[], Any]] = []
+        if isinstance(max_total_retry, int) and max_total_retry > 0:
+            self._checker_funcs.append(partial(self._max_retry_check, max_total_retry))
+        if callable(watchdog_func):
+            self._checker_funcs.append(watchdog_func)
+
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
@@ -85,49 +92,30 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             initargs=initargs,
         )
 
-        if max_total_retry or callable(watchdog_func):
-            threading.Thread(
-                target=self._watchdog,
-                args=(max_total_retry, watchdog_func, watchdog_check_interval),
-                daemon=True,
-            ).start()
+    def _max_retry_check(self, max_total_retry: int) -> None:
+        if self._retry_count > max_total_retry:
+            raise TasksEnsureFailed("exceed max retry count, abort")
 
     def _watchdog(
         self,
-        max_retry: int | None,
-        watchdog_func: Callable[..., Any] | None,
+        _checker_funcs: list[Callable[[], Any]],
         interval: int,
     ) -> None:
         """Watchdog will shutdown the threadpool on certain conditions being met."""
-        _checker_funcs = []
-        if isinstance(max_retry, int) and max_retry > 0:
-
-            def _max_retry_check():
-                if self._retry_count > max_retry:
-                    raise ValueError("exceed max retry count")
-
-            _checker_funcs.append(_max_retry_check)
-
-        if callable(watchdog_func):
-            _checker_funcs.append(watchdog_func)
-
-        if not _checker_funcs:
-            return
-
-        while not self._shutdown:
+        while not (self._shutdown or self._broken or concurrent_fut_thread._shutdown):
             time.sleep(interval)
             try:
                 for _func in _checker_funcs:
                     _func()
             except Exception as e:
-                logger.warning(f"watchdog failed: {e!r}, shutdown the pool")
-                logger.warning("draining the workitem queue ...")
+                logger.warning(
+                    f"watchdog failed: {e!r}, shutdown the pool and draining the workitem queue on shutdown.."
+                )
                 self.shutdown(wait=False)
                 # drain the worker queues to cancel all the futs
                 with contextlib.suppress(Empty):
                     while True:
                         self._work_queue.get_nowait()
-                self.shutdown(wait=True)
 
     def _task_done_cb(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
@@ -202,6 +190,13 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 finally:  # do not hold refs to input params
                     del self, func, iterable
             self._started = True
+
+        if self._checker_funcs:
+            threading.Thread(
+                target=self._watchdog,
+                args=(self._checker_funcs, self._watchdog_check_interval),
+                daemon=True,
+            ).start()
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher() -> None:
