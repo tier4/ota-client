@@ -103,8 +103,10 @@ class ECUStatusStorage:
         self,
         *,
         any_requires_network: mp_sync.Event,
+        no_child_ecus_in_update: mp_sync.Event,
     ) -> None:
         self._ipc_any_requires_network = any_requires_network
+        self._ipc_no_child_ecus_in_update = no_child_ecus_in_update
 
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
@@ -217,6 +219,11 @@ class ECUStatusStorage:
             self.active_ota_update_present.set()
         else:
             self.active_ota_update_present.clear()
+
+        if self.in_update_child_ecus_id:
+            self._ipc_no_child_ecus_in_update.clear()
+        else:
+            self._ipc_no_child_ecus_in_update.set()
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
@@ -361,14 +368,18 @@ class ECUStatusStorage:
         if not ecus_accept_update:
             return
 
-        self._ipc_any_requires_network.set()
         async with self._properties_update_lock:
-            self.last_update_request_received_timestamp = int(time.time())
-            self.lost_ecus_id -= ecus_accept_update
-            self.failed_ecus_id -= ecus_accept_update
+            self._ipc_any_requires_network.set()
 
             self.in_update_ecus_id.update(ecus_accept_update)
             self.in_update_child_ecus_id = self.in_update_ecus_id - {self.my_ecu_id}
+
+            if self.in_update_child_ecus_id:
+                self._ipc_no_child_ecus_in_update.clear()
+
+            self.last_update_request_received_timestamp = int(time.time())
+            self.lost_ecus_id -= ecus_accept_update
+            self.failed_ecus_id -= ecus_accept_update
 
             self.any_requires_network = True
             self.all_success = False
