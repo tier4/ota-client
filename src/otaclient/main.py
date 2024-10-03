@@ -22,6 +22,7 @@ import multiprocessing as mp
 import multiprocessing.context as mp_ctx
 import multiprocessing.synchronize as mp_sync
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -116,6 +117,7 @@ def apiv2_server_main(
     any_requires_network: mp_sync.Event,
     no_child_ecus_in_update: mp_sync.Event,
     global_shutdown_flag: mp_sync.Event,
+    all_ecus_succeeded: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
 
@@ -143,6 +145,7 @@ def apiv2_server_main(
         ecu_status_storage = ECUStatusStorage(
             any_requires_network=any_requires_network,
             no_child_ecus_in_update=no_child_ecus_in_update,
+            all_ecus_succeeded=all_ecus_succeeded,
         )
         ecu_tracker = ECUTracker(
             ecu_status_storage=ecu_status_storage,
@@ -201,22 +204,43 @@ def ota_app_main(
 OTAPROXY_CHECK_INTERVAL = 3
 OTAPROXY_MIN_STARTUP_TIME = 60
 """Keep otaproxy running at least 60 seconds after startup."""
+OTA_CACHE_DIR_CHECK_INTERVAL = 60
 
 
 def otaproxy_control_thread(
-    *, any_requires_network: mp_sync.Event
+    *,
+    any_requires_network: mp_sync.Event,
+    all_ecus_succeeded: mp_sync.Event,
 ) -> None:  # pragma: no cover
+    from ota_proxy.config import config
+
+    # TODO: use the otaproxy base_dir config from app.config
+    ota_cache_dir = Path(config.BASE_DIR)
+    next_ota_cache_dir_checkpoint = 0
     while not otaclient.global_shutdown():
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
         _otaproxy_should_run = any_requires_network.is_set()
 
-        if _otaproxy_should_run and not _otaproxy_running:
+        if not _otaproxy_should_run and not _otaproxy_running:
+            _now = time.time()
+            if (
+                _now > next_ota_cache_dir_checkpoint
+                and all_ecus_succeeded.is_set()
+                and ota_cache_dir.is_dir()
+            ):
+                logger.info(
+                    "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
+                )
+                next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
+                shutil.rmtree(ota_cache_dir)
+
+        elif _otaproxy_should_run and not _otaproxy_running:
             start_otaproxy_server(init_cache=False)
             time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
 
-        elif _otaproxy_running and not _otaproxy_should_run:
+        elif not _otaproxy_should_run and _otaproxy_running:
             shutdown_otaproxy_server()
 
 
@@ -253,6 +277,7 @@ def main() -> None:  # pragma: no cover
     operation_ack_q = ctx.Queue()
 
     # otaproxy_control <-> ota API server
+    all_ecus_succeeded = ctx.Event()
     any_requires_network = ctx.Event()
 
     global _ota_core_p, _ota_server_p, _ota_operation_q, _ota_ack_q
@@ -283,6 +308,7 @@ def main() -> None:  # pragma: no cover
             any_requires_network=any_requires_network,
             global_shutdown_flag=global_shutdown_flag,
             no_child_ecus_in_update=no_child_ecus_in_update,
+            all_ecus_succeeded=all_ecus_succeeded,
         ),
     )
     _ota_server_p.start()
@@ -290,7 +316,9 @@ def main() -> None:  # pragma: no cover
     if proxy_info.enable_local_ota_proxy:
         _otaproxy_control_t = threading.Thread(
             target=partial(
-                otaproxy_control_thread, any_requires_network=any_requires_network
+                otaproxy_control_thread,
+                any_requires_network=any_requires_network,
+                all_ecus_succeeded=all_ecus_succeeded,
             ),
             daemon=True,
             name="otaclient_otaproxy_control_t",

@@ -104,9 +104,11 @@ class ECUStatusStorage:
         *,
         any_requires_network: mp_sync.Event,
         no_child_ecus_in_update: mp_sync.Event,
+        all_ecus_succeeded: mp_sync.Event,
     ) -> None:
         self._ipc_any_requires_network = any_requires_network
         self._ipc_no_child_ecus_in_update = no_child_ecus_in_update
+        self._ipc_all_ecus_succeeded = all_ecus_succeeded
 
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
@@ -274,6 +276,11 @@ class ECUStatusStorage:
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
                 logger.info("all ECUs in the cluster are in SUCCESS ota_status")
+
+        if self.all_success:
+            self._ipc_all_ecus_succeeded.set()
+        else:
+            self._ipc_all_ecus_succeeded.clear()
 
         logger.debug(
             "overall ECU status reporrt updated:"
