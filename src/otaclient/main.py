@@ -35,6 +35,7 @@ import otaclient
 from otaclient import __version__
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
+from otaclient.configs.proxy_info import proxy_info
 from otaclient.log_setting import configure_logging
 from otaclient.otaproxy import (
     otaproxy_running,
@@ -287,14 +288,15 @@ def main() -> None:  # pragma: no cover
     )
     _ota_server_p.start()
 
-    _otaproxy_control_t = threading.Thread(
-        target=partial(
-            otaproxy_control_thread, any_requires_network=any_requires_network
-        ),
-        daemon=True,
-        name="otaclient_otaproxy_control_t",
-    )
-    _otaproxy_control_t.start()
+    if proxy_info.enable_local_ota_proxy:
+        _otaproxy_control_t = threading.Thread(
+            target=partial(
+                otaproxy_control_thread, any_requires_network=any_requires_network
+            ),
+            daemon=True,
+            name="otaclient_otaproxy_control_t",
+        )
+        _otaproxy_control_t.start()
 
     while not _main_global_shutdown_flag.is_set():
         time.sleep(HEALTH_CHECK_INTERAVL)
