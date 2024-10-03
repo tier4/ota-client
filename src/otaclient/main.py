@@ -113,6 +113,7 @@ def apiv2_server_main(
     operation_push_queue: mp_Queue,
     operation_ack_queue: mp_Queue,
     any_requires_network: mp_sync.Event,
+    no_child_ecus_in_update: mp_sync.Event,
     global_shutdown_flag: mp_sync.Event,
 ):  # pragma: no cover
     """OTA API server process main.
@@ -140,6 +141,7 @@ def apiv2_server_main(
 
         ecu_status_storage = ECUStatusStorage(
             any_requires_network=any_requires_network,
+            no_child_ecus_in_update=no_child_ecus_in_update,
         )
         ecu_tracker = ECUTracker(
             ecu_status_storage=ecu_status_storage,
@@ -201,20 +203,13 @@ OTAPROXY_MIN_STARTUP_TIME = 60
 
 
 def otaproxy_control_thread(
-    *,
-    any_requires_network: mp_sync.Event,
-    reboot_flag: mp_sync.Event,
+    *, any_requires_network: mp_sync.Event
 ) -> None:  # pragma: no cover
     while not otaclient.global_shutdown():
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = otaproxy_running()
         _otaproxy_should_run = any_requires_network.is_set()
-
-        if _otaproxy_should_run:
-            reboot_flag.clear()
-        else:
-            reboot_flag.set()
 
         # NOTE(20240930): always try to re-use already presented ota-cache dir,
         #   as if the ota-cache dir is not empty, it means that there is high possiblity of
@@ -255,7 +250,7 @@ def main() -> None:  # pragma: no cover
 
     # flags
     any_requires_network = ctx.Event()
-    reboot_flag = ctx.Event()
+    no_child_ecus_in_update = ctx.Event()
     status_report_q = ctx.Queue()
     operation_push_q = ctx.Queue()
     operation_ack_q = ctx.Queue()
@@ -270,7 +265,10 @@ def main() -> None:  # pragma: no cover
             status_report_queue=status_report_q,
             operation_push_queue=operation_push_q,
             operation_ack_queue=operation_ack_q,
-            reboot_flag=reboot_flag,
+            # NOTE(20241003): currently the allow reboot condition is there is
+            #   no ECU in update. In the future consider to release the condition
+            #   to no ECU requires otaproxy.
+            reboot_flag=no_child_ecus_in_update,
             global_shutdown_flag=global_shutdown_flag,
         ),
     )
@@ -284,15 +282,14 @@ def main() -> None:  # pragma: no cover
             operation_ack_queue=operation_ack_q,
             any_requires_network=any_requires_network,
             global_shutdown_flag=global_shutdown_flag,
+            no_child_ecus_in_update=no_child_ecus_in_update,
         ),
     )
     _ota_server_p.start()
 
     _otaproxy_control_t = threading.Thread(
         target=partial(
-            otaproxy_control_thread,
-            any_requires_network=any_requires_network,
-            reboot_flag=reboot_flag,
+            otaproxy_control_thread, any_requires_network=any_requires_network
         ),
         daemon=True,
         name="otaclient_otaproxy_control_t",
