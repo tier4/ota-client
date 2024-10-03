@@ -24,7 +24,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from queue import Empty, SimpleQueue
-from typing import Any, Callable, Generator, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
 
 from otaclient_common.typing import RT, T
 
@@ -35,7 +35,7 @@ class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
 
 
-class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
+class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def __init__(
         self,
@@ -48,21 +48,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
     ) -> None:
-        """Initialize a ThreadPoolExecutorWithRetry instance.
-
-        Args:
-            max_concurrent (int): Limit the number pending scheduled tasks.
-            max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
-            max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
-            thread_name_prefix (str, optional): Defaults to "".
-            watchdog_func (Optional[Callable]): A custom func to be called on watchdog thread, when
-                this func raises exception, the watchdog will interrupt the tasks execution. Defaults to None.
-            watchdog_check_interval (int): Defaults to 3(seconds).
-            initializer (Callable[..., Any] | None): The same <initializer> param passed through to ThreadPoolExecutor.
-                Defaults to None.
-            initargs (tuple): The same <initargs> param passed through to ThreadPoolExecutor.
-                Defaults to ().
-        """
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
         """
@@ -168,20 +153,6 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         *,
         ensure_tasks_pull_interval: int = 1,
     ) -> Generator[Future[RT], None, None]:
-        """Ensure all the items in <iterable> are processed by <func> in the pool.
-
-        Args:
-            func (Callable[[T], RT]): The function to take the item from <iterable>.
-            iterable (Iterable[T]): The iterable of items to be processed by <func>.
-
-        Raises:
-            ValueError: If the pool is shutdown or broken, or this method has already
-                being called once.
-            TasksEnsureFailed: If failed to ensure all the tasks are finished.
-
-        Yields:
-            The Future instance of each processed tasks.
-        """
         with self._start_lock:
             if self._started:
                 try:
@@ -233,3 +204,69 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         #   a generator so that the first fut will be dispatched before
         #   we start to get from fut_queue.
         return self._fut_gen(ensure_tasks_pull_interval)
+
+
+# only expose APIs we want to exposed
+if TYPE_CHECKING:
+
+    class ThreadPoolExecutorWithRetry:
+
+        def __init__(
+            self,
+            max_concurrent: int,
+            max_workers: Optional[int] = None,
+            max_total_retry: Optional[int] = None,
+            thread_name_prefix: str = "",
+            watchdog_func: Optional[Callable] = None,
+            watchdog_check_interval: int = 3,  # seconds
+            initializer: Callable[..., Any] | None = None,
+            initargs: tuple = (),
+        ) -> None:
+            """Initialize a ThreadPoolExecutorWithRetry instance.
+
+            Args:
+                max_concurrent (int): Limit the number pending scheduled tasks.
+                max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
+                max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
+                thread_name_prefix (str, optional): Defaults to "".
+                watchdog_func (Optional[Callable]): A custom func to be called on watchdog thread, when
+                    this func raises exception, the watchdog will interrupt the tasks execution. Defaults to None.
+                watchdog_check_interval (int): Defaults to 3(seconds).
+                initializer (Callable[..., Any] | None): The same <initializer> param passed through to ThreadPoolExecutor.
+                    Defaults to None.
+                initargs (tuple): The same <initargs> param passed through to ThreadPoolExecutor.
+                    Defaults to ().
+            """
+            raise NotImplementedError
+
+        def ensure_tasks(
+            self,
+            func: Callable[[T], RT],
+            iterable: Iterable[T],
+            *,
+            ensure_tasks_pull_interval: int = 1,
+        ) -> Generator[Future[RT], None, None]:
+            """Ensure all the items in <iterable> are processed by <func> in the pool.
+
+            Args:
+                func (Callable[[T], RT]): The function to take the item from <iterable>.
+                iterable (Iterable[T]): The iterable of items to be processed by <func>.
+
+            Raises:
+                ValueError: If the pool is shutdown or broken, or this method has already
+                    being called once.
+                TasksEnsureFailed: If failed to ensure all the tasks are finished.
+
+            Yields:
+                The Future instance of each processed tasks.
+            """
+            raise NotImplementedError
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            raise NotImplementedError
+
+else:
+    ThreadPoolExecutorWithRetry = _ThreadPoolExecutorWithRetry
