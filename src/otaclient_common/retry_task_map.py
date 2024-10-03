@@ -121,20 +121,20 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
     ) -> None:
         if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
-            self._concurrent_semaphore.release()
+            self._concurrent_semaphore.release()  # on shutdown, always release a se
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
 
         # ------ on task failed ------ #
         if fut.exception():
             self._retry_count = next(self._retry_counter)
-            try:  # on threadpool shutdown
+            try:  # try to re-schedule the failed task
                 self.submit(func, item).add_done_callback(
                     partial(self._task_done_cb, item=item, func=func)
                 )
-            except Exception:
+            except Exception:  # if re-schedule doesn't happen, release se
                 self._concurrent_semaphore.release()
-        else:  # only release semaphore when succeeded
+        else:  # release semaphore when succeeded
             self._concurrent_semaphore.release()
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
@@ -146,11 +146,10 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
             if self._shutdown or self._broken or concurrent_fut_thread._shutdown:
                 logger.warning(
-                    f"failed to ensure all tasks, {finished_tasks=}, {self._total_task_num=}"
+                    f"dispatcher exits on threadpool shutdown, {finished_tasks=}, {self._total_task_num=}"
                 )
-                # drain the _fut_queue
                 with contextlib.suppress(Empty):
-                    while True:
+                    while True:  # drain the _fut_queue
                         self._fut_queue.get_nowait()
                 raise TasksEnsureFailed  # raise exc to upper caller
 
@@ -218,7 +217,7 @@ class ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     )
             except Exception as e:
                 logger.error(f"tasks dispatcher failed: {e!r}, abort")
-                self.shutdown(wait=True)
+                self.shutdown(wait=False)
                 return
 
             self._total_task_num = _tasks_count
