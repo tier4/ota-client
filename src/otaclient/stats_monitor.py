@@ -20,7 +20,6 @@ import atexit
 import queue
 import threading
 import time
-from copy import copy
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
@@ -30,7 +29,6 @@ from otaclient._types import (
     FailureType,
     OTAClientStatus,
     OTAStatus,
-    StatsReportType,
     UpdateMeta,
     UpdatePhase,
     UpdateProgress,
@@ -104,7 +102,6 @@ class SetUpdateMetaReport(UpdateMeta):
 
 @dataclass
 class StatsReport:
-    type: StatsReportType
     payload: Union[
         SetOTAClientMetaReport,
         UpdateProgressReport,
@@ -197,47 +194,6 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
             setattr(update_meta, k, v)
 
 
-def load_report(status_storage: OTAClientStatus, report: StatsReport):
-    payload = report.payload
-    # ------ update otaclient meta ------ #
-    if report.type == StatsReportType.SET_OTACLIENT_META and isinstance(
-        payload, SetOTAClientMetaReport
-    ):
-        status_storage.firmware_version = payload.firmware_version
-
-    # ------ on session start/end ------ #
-    if report.type == StatsReportType.SET_OTA_STATUS and isinstance(
-        payload, OTAStatusChangeReport
-    ):
-        new_ota_status = payload.new_ota_status
-        if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
-            status_storage.session_id = report.session_id
-            return _on_new_ota_session(status_storage, payload)
-
-        status_storage.session_id = ""  # clear session if we are not in an OTA
-        return _on_session_finished(status_storage, payload)
-
-    # ------ during OTA session ------ #
-    report_session_id = report.session_id
-    if report_session_id != status_storage.session_id:
-        return  # drop invalid report
-
-    if report.type == StatsReportType.SET_OTA_UPDATE_PHASE and isinstance(
-        payload, OTAUpdatePhaseChangeReport
-    ):
-        return _on_update_phase_changed(status_storage, payload)
-
-    if report.type == StatsReportType.SET_OTA_UPDATE_PROGRESS and isinstance(
-        payload, UpdateProgressReport
-    ):
-        return _on_update_progress(status_storage, payload)
-
-    if report.type == StatsReportType.SET_OTA_UPDATE_META and isinstance(
-        payload, SetUpdateMetaReport
-    ):
-        return _on_update_meta(status_storage, payload)
-
-
 #
 # ------ stats monitor implementation ------ #
 #
@@ -256,23 +212,58 @@ class OTAClientStatsCollector:
         self.min_push_interval = min_push_interval
 
         self._input_queue = msg_queue
-        self._stats = OTAClientStatus()
+        self._stats = None
 
-        global _status_collector_thread
-        _status_collector_thread = Thread(target=self._stats_collector_thread)
-        _status_collector_thread.start()
+    def load_report(self, report: StatsReport):
+        if self._stats is None:
+            self._stats = OTAClientStatus()
+        status_storage = self._stats
 
-    # thread workers
+        payload = report.payload
+        # ------ update otaclient meta ------ #
+        if isinstance(payload, SetOTAClientMetaReport):
+            status_storage.firmware_version = payload.firmware_version
 
-    def _stats_collector_thread(self):
+        # ------ on session start/end ------ #
+        if isinstance(payload, OTAStatusChangeReport):
+            new_ota_status = payload.new_ota_status
+            if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
+                status_storage.session_id = report.session_id
+                return _on_new_ota_session(status_storage, payload)
+
+            status_storage.session_id = ""  # clear session if we are not in an OTA
+            return _on_session_finished(status_storage, payload)
+
+        # ------ during OTA session ------ #
+        report_session_id = report.session_id
+        if report_session_id != status_storage.session_id:
+            return  # drop invalid report
+        if isinstance(payload, OTAUpdatePhaseChangeReport):
+            return _on_update_phase_changed(status_storage, payload)
+        if isinstance(payload, UpdateProgressReport):
+            return _on_update_progress(status_storage, payload)
+        if isinstance(payload, SetUpdateMetaReport):
+            return _on_update_meta(status_storage, payload)
+
+    def _stats_collector_thread(self) -> None:
+        """Main entry of stats monitor working thread."""
         while not _otaclient_shutdown:
             try:
                 report = self._input_queue.get_nowait()
+                self.load_report(report)
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
-                continue
-            load_report(self._stats, report)
+
+    # API
+
+    def start(self) -> None:
+        """Start the stats_monitor thread."""
+        Thread(
+            target=self._stats_collector_thread,
+            daemon=True,
+            name="otaclient_stats_monitor",
+        ).start()
 
     @property
-    def otaclient_status(self) -> OTAClientStatus:
-        return copy(self._stats)
+    def otaclient_status(self) -> OTAClientStatus | None:
+        return self._stats
