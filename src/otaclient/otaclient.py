@@ -52,7 +52,6 @@ from otaclient.stats_monitor import (
     SetOTAClientMetaReport,
     SetUpdateMetaReport,
     StatsReport,
-    StatsReportType,
     UpdatePhase,
     UpdateProgressReport,
 )
@@ -173,6 +172,10 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
+DOWNLOAD_STATS_REPORT_BATCH = 300
+DOWNLOAD_REPORT_INTERVAL = 1  # second
+
+
 class _OTAUpdater:
     """The implementation of OTA update logic."""
 
@@ -239,7 +242,6 @@ class _OTAUpdater:
         self.session_id = session_id
         stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.INITIALIZING,
                     trigger_timestamp=self.update_start_timestamp,
@@ -249,7 +251,6 @@ class _OTAUpdater:
         )
         stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_META,
                 payload=SetUpdateMetaReport(
                     update_firmware_version=version,
                 ),
@@ -288,7 +289,6 @@ class _OTAUpdater:
 
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_META,
                 payload=SetUpdateMetaReport(
                     total_download_files_num=len(delta_bundle.download_list),
                     total_download_files_size=delta_bundle.total_download_files_size,
@@ -356,34 +356,49 @@ class _OTAUpdater:
                 max_idle_timeout=cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT,
             ),
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(_download_file, download_list):
-                if _download_exception_handler(_fut):  # donwload succeeded
+            _next_commit_before = 0
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+            )
+
+            for _done_count, _fut in enumerate(
+                _mapper.ensure_tasks(_download_file, download_list), start=1
+            ):
+                _now = time.time()
+
+                if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
 
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += file_size
+                    _merged_payload.errors += err_count
+                    _merged_payload.downloaded_bytes += downloaded_bytes
+                else:
+                    _merged_payload.errors += 1
+
+                if (
+                    _done_count % DOWNLOAD_STATS_REPORT_BATCH == 0
+                    or _now > _next_commit_before
+                ):
+                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
                     self._stats_report_queue.put_nowait(
                         StatsReport(
-                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                                processed_file_num=1,
-                                processed_file_size=file_size,
-                                errors=err_count,
-                                downloaded_bytes=downloaded_bytes,
-                            ),
+                            payload=_merged_payload,
                             session_id=self.session_id,
                         )
                     )
-                else:  # download failed, but exceptions can be handled
-                    self._stats_report_queue.put_nowait(
-                        StatsReport(
-                            type=StatsReportType.SET_OTA_UPDATE_PROGRESS,
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                                errors=1,
-                            ),
-                            session_id=self.session_id,
-                        )
+
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
                     )
+
+            # for left-over items that cannot fill up the batch
+            self._stats_report_queue.put_nowait(
+                StatsReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
+            )
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
@@ -436,7 +451,6 @@ class _OTAUpdater:
         logger.debug("process metadata.jwt...")
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.PROCESSING_METADATA,
                     trigger_timestamp=int(time.time()),
@@ -457,7 +471,6 @@ class _OTAUpdater:
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
             self._stats_report_queue.put_nowait(
                 StatsReport(
-                    type=StatsReportType.SET_OTA_UPDATE_META,
                     payload=SetUpdateMetaReport(
                         image_file_entries=otameta.total_files_num,
                         image_size_uncompressed=otameta.total_files_size_uncompressed,
@@ -507,7 +520,6 @@ class _OTAUpdater:
 
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.CALCULATING_DELTA,
                     trigger_timestamp=int(time.time()),
@@ -527,7 +539,6 @@ class _OTAUpdater:
 
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
                     trigger_timestamp=int(time.time()),
@@ -545,7 +556,6 @@ class _OTAUpdater:
 
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.APPLYING_UPDATE,
                     trigger_timestamp=int(time.time()),
@@ -560,7 +570,6 @@ class _OTAUpdater:
         logger.info("enter post update phase...")
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
                     trigger_timestamp=int(time.time()),
@@ -577,7 +586,6 @@ class _OTAUpdater:
         logger.info("local update finished, wait on all subecs...")
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_UPDATE_PHASE,
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.FINALIZING_UPDATE,
                     trigger_timestamp=int(time.time()),
@@ -660,7 +668,6 @@ class OTAClient:
 
             stats_report_queue.put_nowait(
                 StatsReport(
-                    type=StatsReportType.SET_OTA_STATUS,
                     payload=OTAStatusChangeReport(
                         new_ota_status=OTAStatus.FAILURE,
                         failure_type=FailureType.UNRECOVERABLE,
@@ -674,7 +681,6 @@ class OTAClient:
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
                     new_ota_status=_boot_ctrl_loaded_ota_status,
                 ),
@@ -688,7 +694,6 @@ class OTAClient:
         self.current_version = self.boot_controller.load_version()
         stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTACLIENT_META,
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
                 ),
@@ -719,7 +724,6 @@ class OTAClient:
 
             self._stats_report_queue.put_nowait(
                 StatsReport(
-                    type=StatsReportType.SET_OTA_STATUS,
                     payload=OTAStatusChangeReport(
                         new_ota_status=(
                             OTAStatus.FAILURE
@@ -760,7 +764,6 @@ class OTAClient:
         new_session_id = self._gen_session_id(version)
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.UPDATING,
                 ),
@@ -793,7 +796,6 @@ class OTAClient:
         new_session_id = self._gen_session_id("<rollback>")
         self._stats_report_queue.put_nowait(
             StatsReport(
-                type=StatsReportType.SET_OTA_STATUS,
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.ROLLBACKING,
                 ),
