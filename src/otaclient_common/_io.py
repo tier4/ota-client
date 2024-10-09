@@ -74,21 +74,25 @@ file_sha256 = partial(gen_file_digest, algorithm="sha256")
 file_sha256.__doc__ = "Generate file digest with sha256."
 
 
-def write_str_to_file_atomic(fpath: StrOrPath, _input: str) -> None:
-    """Overwrite the <fpath> with <fpath>.
+def write_str_to_file_atomic(
+    fpath: StrOrPath, _input: str, *, follow_symlink: bool = True
+) -> None:
+    """Overwrite the <fpath> with <_input> atomically.
 
     This function should be used to write small but critical files,
         like boot configuration files, etc.
 
-    If fpath is a symlink, this helper function will follow the symlink.
+    If <follow_symlink> is True and <fpath> is symlink, this method
+        will get the realpath of the <fpath>, and then directly write to the realpath.
 
     NOTE: rename syscall is atomic when src and dst are on
     the same filesystem under linux.
     """
-    fpath = Path(os.path.realpath(fpath))
-    fpath_parent = fpath.parent
-    tmp_f = fpath_parent / f".tmp_f_{os.urandom(6).hex()}"
+    if follow_symlink:
+        fpath = Path(os.path.realpath(fpath))
 
+    fpath_parent = Path(fpath).parent
+    tmp_f = fpath_parent / f".tmp_f_{os.urandom(6).hex()}"
     try:
         # ensure the new file is written
         with open(tmp_f, "w") as f:
@@ -96,9 +100,8 @@ def write_str_to_file_atomic(fpath: StrOrPath, _input: str) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.rename(tmp_f, fpath)  # atomically override
-    except Exception:
+    finally:
         tmp_f.unlink(missing_ok=True)
-        raise
 
 
 def read_str_from_file(path: StrOrPath, _default: str | None = None) -> str:
