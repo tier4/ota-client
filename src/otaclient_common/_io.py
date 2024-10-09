@@ -30,6 +30,12 @@ from otaclient_common.typing import StrOrPath
 logger = logging.getLogger(__name__)
 
 DEFAULT_FILE_CHUNK_SIZE = 1024**2  # 1MiB
+TMP_FILE_PREFIX = ".ota_io_tmp_"
+
+
+def _gen_tmp_fname() -> str:
+    return f"{TMP_FILE_PREFIX}{os.urandom(6).hex()}"
+
 
 if sys.version_info >= (3, 11):
     from hashlib import file_digest as _file_digest
@@ -92,7 +98,7 @@ def write_str_to_file_atomic(
         fpath = Path(os.path.realpath(fpath))
 
     fpath_parent = Path(fpath).parent
-    tmp_f = fpath_parent / f".tmp_f_{os.urandom(6).hex()}"
+    tmp_f = fpath_parent / _gen_tmp_fname()
     try:
         # ensure the new file is written
         with open(tmp_f, "w") as f:
@@ -146,7 +152,7 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
     if src.is_symlink() and str(os.readlink(src)) != str(target):
         return  # the symlink is already correct
 
-    tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6).hex()}"
+    tmp_link = Path(src).parent / _gen_tmp_fname()
     try:
         tmp_link.symlink_to(target)
         os.rename(tmp_link, src)  # unconditionally replaced
@@ -178,7 +184,7 @@ def copyfile_atomic(
     # get the file size of the <src>
     src_stat = src.stat()
 
-    _tmp_file = dst.parent / f".tmp_{os.urandom(6).hex()}"
+    _tmp_file = dst.parent / _gen_tmp_fname()
     try:
         # prepare a copy of src file under dst's parent folder
         shutil.copy(src, _tmp_file, follow_symlinks=follow_symlink)
