@@ -59,8 +59,8 @@ else:
         return digestobj
 
 
-def file_digest(
-    fpath: StrOrPath, *, algorithm: str, chunk_size: int = DEFAULT_FILE_CHUNK_SIZE
+def gen_file_digest(
+    fpath: StrOrPath, algorithm: str, chunk_size: int = DEFAULT_FILE_CHUNK_SIZE
 ) -> str:
     """Generate file digest with <algorithm>.
 
@@ -70,7 +70,7 @@ def file_digest(
         return _file_digest(f, algorithm, _bufsize=chunk_size).hexdigest()
 
 
-file_sha256 = partial(file_digest, algorithm="sha256")
+file_sha256 = partial(gen_file_digest, algorithm="sha256")
 file_sha256.__doc__ = "Generate file digest with sha256."
 
 
