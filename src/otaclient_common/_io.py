@@ -17,9 +17,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import shutil
+import sys
 from functools import partial
 from pathlib import Path
 
@@ -27,17 +29,45 @@ from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_FILE_CHUNK_SIZE = 1024**2  # 1MiB
 
-# file verification
+if sys.version_info >= (3, 11):
+    from hashlib import file_digest as _file_digest
+
+else:
+
+    def _file_digest(
+        fileobj: io.BufferedReader,
+        digest,
+        /,
+        *,
+        _bufsize: int = DEFAULT_FILE_CHUNK_SIZE,
+    ) -> hashlib._Hash:
+        """
+        Basically a simpified copy from 3.11's hashlib.file_digest.
+        """
+        digestobj = hashlib.new(digest)
+
+        buf = bytearray(_bufsize)  # Reusable buffer to reduce allocations.
+        view = memoryview(buf)
+        while True:
+            size = fileobj.readinto(buf)
+            if size == 0:
+                break  # EOF
+            digestobj.update(view[:size])
+
+        return digestobj
+
+
 def file_digest(
-    fpath: StrOrPath, *, algorithm: str, chunk_size: int = 1 * 1024 * 1024
+    fpath: StrOrPath, *, algorithm: str, chunk_size: int = DEFAULT_FILE_CHUNK_SIZE
 ) -> str:
-    """Generate file digest with <algorithm>."""
+    """Generate file digest with <algorithm>.
+
+    A wrapper for the _file_digest method.
+    """
     with open(fpath, "rb") as f:
-        hasher = hashlib.new(algorithm)
-        while d := f.read(chunk_size):
-            hasher.update(d)
-        return hasher.hexdigest()
+        return _file_digest(f, algorithm, _bufsize=chunk_size).hexdigest()
 
 
 file_sha256 = partial(file_digest, algorithm="sha256")
