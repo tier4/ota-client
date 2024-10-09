@@ -1,0 +1,169 @@
+# Copyright 2022 TIER IV, INC. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Common shared helper functions for IO."""
+
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import os
+import shutil
+from functools import partial
+from pathlib import Path
+
+from otaclient_common.typing import StrOrPath
+
+logger = logging.getLogger(__name__)
+
+
+# file verification
+def file_digest(
+    fpath: StrOrPath, *, algorithm: str, chunk_size: int = 1 * 1024 * 1024
+) -> str:
+    """Generate file digest with <algorithm>."""
+    with open(fpath, "rb") as f:
+        hasher = hashlib.new(algorithm)
+        while d := f.read(chunk_size):
+            hasher.update(d)
+        return hasher.hexdigest()
+
+
+file_sha256 = partial(file_digest, algorithm="sha256")
+file_sha256.__doc__ = "Generate file digest with sha256."
+
+
+def write_str_to_file_atomic(fpath: StrOrPath, _input: str) -> None:
+    """Overwrite the <fpath> with <fpath>.
+
+    This function should be used to write small but critical files,
+        like boot configuration files, etc.
+
+    If fpath is a symlink, this helper function will follow the symlink.
+
+    NOTE: rename syscall is atomic when src and dst are on
+    the same filesystem under linux.
+    """
+    fpath = Path(os.path.realpath(fpath))
+    fpath_parent = fpath.parent
+    tmp_f = fpath_parent / f".tmp_f_{os.urandom(6).hex()}"
+
+    try:
+        # ensure the new file is written
+        with open(tmp_f, "w") as f:
+            f.write(_input)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp_f, fpath)  # atomically override
+    except Exception:
+        tmp_f.unlink(missing_ok=True)
+        raise
+
+
+def read_str_from_file(path: StrOrPath, _default: str | None = None) -> str:
+    """Read contents as string from <path>.
+
+    Args:
+        _default: the default value to return when file is not found.
+
+    Returns:
+        The content of <path> in text, or <_default> if file is not found and <_default> is set.
+
+    Raises:
+        FileNotFoundError if <path> doesn't exist and <default> is None.
+    """
+    try:
+        return Path(path).read_text().strip()
+    except FileNotFoundError:
+        if _default:
+            return _default
+        raise
+
+
+def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
+    """Make the <src> a symlink to <target> atomically.
+
+    If the src doesn't exist, create the symlink.
+    If the src is already existed as a file/symlink,
+    the src will be replaced by the newly created symlink unconditionally.
+
+    NOTE: os.rename is atomic when src and dst are on
+        the same filesystem under linux.
+
+    Raises:
+        IsADirectoryError if <src> exists and it is a directory.
+        Any exceptions raised by Pathlib.symlink_to or os.rename.
+    """
+    src = Path(src)
+    if not src.exists():
+        return src.symlink_to(target)
+    if src.is_dir():
+        raise IsADirectoryError(f"{src} exists and it is a directory")
+    if src.is_symlink() and str(os.readlink(src)) != str(target):
+        return  # the symlink is already correct
+
+    tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6).hex()}"
+    try:
+        tmp_link.symlink_to(target)
+        os.rename(tmp_link, src)  # unconditionally replaced
+    except Exception:
+        tmp_link.unlink(missing_ok=True)
+        raise
+
+
+def copyfile_atomic(
+    src: StrOrPath,
+    dst: StrOrPath,
+    *,
+    backup_suffix: str | None = None,
+    follow_symlink: bool = True,
+) -> None:
+    """Atomically copy the <src> file to <dst> file.
+
+    This method will perform a basic check before replace by checking the file size.
+
+    <src> must be presented and point to a file.
+    <dst> should be absent or not a directory. If <backup_suffix> is set, the original <dst>
+        will be copied and a backup file with <backup_suffix> will be generated.
+
+    Raises:
+        ValueError if the shutil.copy failed to correctly copy the file(failed the size check).
+        Any exception raised by shutil.copy or os.replace.
+
+    NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
+    """
+    src, dst = Path(src), Path(dst)
+    if backup_suffix and dst.exists():
+        shutil.copy(str(dst), f"{dst}{backup_suffix}", follow_symlinks=follow_symlink)
+
+    # get the file size of the <src>
+    src_stat = src.stat()
+
+    _tmp_file = dst.parent / f".tmp_{os.urandom(6).hex()}"
+    try:
+        # prepare a copy of src file under dst's parent folder
+        shutil.copy(src, _tmp_file, follow_symlinks=follow_symlink)
+
+        # perform a basic check with file size
+        tmp_stat = _tmp_file.stat()
+        if tmp_stat.st_size != src_stat.st_size:
+            _err_msg = f"{tmp_stat.st_size=} != {src_stat.st_size=}, shutil.copy failed"
+            logger.warning(_err_msg)
+            raise ValueError(_err_msg)
+
+        # atomically rename/replace the dst file with the copy
+        os.replace(_tmp_file, dst)
+    except Exception:
+        _tmp_file.unlink(missing_ok=True)
+        raise
