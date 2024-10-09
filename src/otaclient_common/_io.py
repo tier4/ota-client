@@ -184,6 +184,7 @@ def copyfile_atomic(
         shutil.copy(src, _tmp_file, follow_symlinks=follow_symlink)
 
         # perform a basic check with file size
+        # NOTE(20241009): if the copy failed, at least not to override the dst file.
         tmp_stat = _tmp_file.stat()
         if tmp_stat.st_size != src_stat.st_size:
             _err_msg = f"{tmp_stat.st_size=} != {src_stat.st_size=}, shutil.copy failed"
