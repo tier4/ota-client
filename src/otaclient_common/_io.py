@@ -147,8 +147,6 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
     src = Path(src)
     if not src.exists():
         return src.symlink_to(target)
-    if src.is_dir():
-        raise IsADirectoryError(f"{src} exists and it is a directory")
     if src.is_symlink() and str(os.readlink(src)) != str(target):
         return  # the symlink is already correct
 
