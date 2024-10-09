@@ -159,7 +159,6 @@ def copyfile_atomic(
     src: StrOrPath,
     dst: StrOrPath,
     *,
-    backup_suffix: str | None = None,
     follow_symlink: bool = True,
 ) -> None:
     """Atomically copy the <src> file to <dst> file.
@@ -167,8 +166,7 @@ def copyfile_atomic(
     This method will perform a basic check before replace by checking the file size.
 
     <src> must be presented and point to a file.
-    <dst> should be absent or not a directory. If <backup_suffix> is set, the original <dst>
-        will be copied and a backup file with <backup_suffix> will be generated.
+    <dst> should be absent or not a directory.
 
     Raises:
         ValueError if the shutil.copy failed to correctly copy the file(failed the size check).
@@ -177,9 +175,6 @@ def copyfile_atomic(
     NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
     """
     src, dst = Path(src), Path(dst)
-    if backup_suffix and dst.exists():
-        shutil.copy(str(dst), f"{dst}{backup_suffix}", follow_symlinks=follow_symlink)
-
     # get the file size of the <src>
     src_stat = src.stat()
 
@@ -197,6 +192,5 @@ def copyfile_atomic(
 
         # atomically rename/replace the dst file with the copy
         os.replace(_tmp_file, dst)
-    except Exception:
+    finally:
         _tmp_file.unlink(missing_ok=True)
-        raise
