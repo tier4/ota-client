@@ -225,9 +225,7 @@ class TestRPIBootControl:
         )
 
         # ------ patch slot mount helper ------ #
-        self.mp_control_mock = mp_control_mock = typing.cast(
-            SlotMountHelper, mocker.MagicMock()
-        )
+        self.mp_control_mock = mp_control_mock = mocker.MagicMock()
 
         def _get_active_slot_mount_point(*args, **kwargs):
             if fsm.active_slot == SLOT_A:
