@@ -30,7 +30,8 @@ from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
 from otaclient_common import replace_root
-from otaclient_common.common import copytree_identical, write_str_to_file_sync
+from otaclient_common._io import write_str_to_file_atomic
+from otaclient_common.common import copytree_identical
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs
@@ -299,7 +300,7 @@ class FirmwareBSPVersionControl:
 
     def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
+        write_str_to_file_atomic(fw_bsp_fpath, self._version.model_dump_json())
 
     @property
     def current_slot_bsp_ver(self) -> BSPVersion:
@@ -459,7 +460,7 @@ def update_standby_slot_extlinux_cfg(
         )
         src = active_slot_extlinux_fpath
 
-    write_str_to_file_sync(
+    write_str_to_file_atomic(
         standby_slot_extlinux_fpath,
         update_extlinux_cfg(
             src.read_text(),

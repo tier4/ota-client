@@ -33,7 +33,7 @@ from otaclient.app.ota_client_stub import OTAClientServiceStub
 from otaclient.log_setting import configure_logging
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
-from otaclient_common.common import read_str_from_file, write_str_to_file_sync
+from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
 # configure logging before any code being executed
 configure_logging()
@@ -56,7 +56,7 @@ def _check_other_otaclient():
     _run_dir.mkdir(parents=True, exist_ok=True)
     os.chmod(_run_dir, 0o550)
     # write our pid to the lock file
-    write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
+    write_str_to_file_atomic(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
 
 
 def create_otaclient_grpc_server():

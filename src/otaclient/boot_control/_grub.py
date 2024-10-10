@@ -44,13 +44,12 @@ from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient.app import errors as ota_errors
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import (
-    re_symlink_atomic,
+from otaclient_common._io import (
     read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    write_str_to_file_sync,
+    symlink_atomic,
+    write_str_to_file_atomic,
 )
+from otaclient_common.common import subprocess_call, subprocess_check_output
 
 from ._common import (
     CMDHelperFuncs,
@@ -558,8 +557,8 @@ class _GrubControl:
         if not (kernel and initrd):
             raise ValueError(f"vmlinuz and/or initrd.img not found at {target_folder}")
 
-        re_symlink_atomic(target_folder / GrubHelper.KERNEL_OTA, kernel)
-        re_symlink_atomic(target_folder / GrubHelper.INITRD_OTA, initrd)
+        symlink_atomic(target_folder / GrubHelper.KERNEL_OTA, kernel)
+        symlink_atomic(target_folder / GrubHelper.INITRD_OTA, initrd)
         logger.info(f"finished generate ota symlinks under {target_folder}")
 
     def _grub_update_on_booted_slot(self, *, abort_on_standby_missed=True):
@@ -588,7 +587,7 @@ class _GrubControl:
         # step1: update grub_default file
         _in = grub_default_file.read_text()
         _out = GrubHelper.update_grub_default(_in)
-        write_str_to_file_sync(grub_default_file, _out)
+        write_str_to_file_atomic(grub_default_file, _out)
 
         # step2: generate grub_cfg by grub-mkconfig
         # parse the output and find the active slot boot entry idx
@@ -612,7 +611,7 @@ class _GrubControl:
             default_entry_idx=active_slot_entry_idx,
         )
         logger.debug(f"generated grub_default: {pformat(_out)}")
-        write_str_to_file_sync(grub_default_file, _out)
+        write_str_to_file_atomic(grub_default_file, _out)
 
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
@@ -635,7 +634,7 @@ class _GrubControl:
             kernel_ver=GrubHelper.SUFFIX_OTA_STANDBY,
             rootfs_str=f"root={standby_uuid_str}",
         ):
-            write_str_to_file_sync(active_slot_grub_file, grub_cfg_updated)
+            write_str_to_file_atomic(active_slot_grub_file, grub_cfg_updated)
             logger.info(f"standby rootfs: {standby_uuid_str}")
             logger.debug(f"generated grub_cfg: {pformat(grub_cfg_updated)}")
         else:
@@ -649,10 +648,10 @@ class _GrubControl:
 
             logger.warning(msg)
             logger.info(f"generated grub_cfg: {pformat(grub_cfg_content)}")
-            write_str_to_file_sync(active_slot_grub_file, grub_cfg_content)
+            write_str_to_file_atomic(active_slot_grub_file, grub_cfg_content)
 
         # finally, point grub.cfg to active slot's grub.cfg
-        re_symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
+        symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             self.grub_file,
             Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
         )
@@ -662,15 +661,15 @@ class _GrubControl:
         """Ensure /boot/{ota_partition,vmlinuz-ota,initrd.img-ota} symlinks from
         specified <active_slot> point's of view."""
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
-        re_symlink_atomic(  # /boot/ota-partition -> ota-partition.<active_slot>
+        symlink_atomic(  # /boot/ota-partition -> ota-partition.<active_slot>
             self.boot_dir / ota_partition_folder,
             ota_partition_folder.with_suffix(f".{active_slot}"),
         )
-        re_symlink_atomic(  # /boot/vmlinuz-ota -> ota-partition/vmlinuz-ota
+        symlink_atomic(  # /boot/vmlinuz-ota -> ota-partition/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA,
             ota_partition_folder / GrubHelper.KERNEL_OTA,
         )
-        re_symlink_atomic(  # /boot/initrd.img-ota -> ota-partition/initrd.img-ota
+        symlink_atomic(  # /boot/initrd.img-ota -> ota-partition/initrd.img-ota
             self.boot_dir / GrubHelper.INITRD_OTA,
             ota_partition_folder / GrubHelper.INITRD_OTA,
         )
@@ -678,12 +677,12 @@ class _GrubControl:
     def _ensure_standby_slot_boot_files_symlinks(self, standby_slot: str):
         """Ensure boot files symlinks for specified <standby_slot>."""
         ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
-        re_symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz-ota
+        symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA_STANDBY,
             ota_partition_folder.with_suffix(f".{standby_slot}")
             / GrubHelper.KERNEL_OTA,
         )
-        re_symlink_atomic(  # /boot/initrd.img-ota.standby -> ota-partition.<standby_slot>/initrd.img-ota
+        symlink_atomic(  # /boot/initrd.img-ota.standby -> ota-partition.<standby_slot>/initrd.img-ota
             self.boot_dir / GrubHelper.INITRD_OTA_STANDBY,
             ota_partition_folder.with_suffix(f".{standby_slot}")
             / GrubHelper.INITRD_OTA,
@@ -795,7 +794,7 @@ class GrubController(BootControllerProtocol):
         )
 
         # standby partition fstab (to be merged)
-        fstab_standby = read_str_from_file(standby_slot_fstab, missing_ok=False)
+        fstab_standby = read_str_from_file(standby_slot_fstab)
         fstab_standby_dict: Dict[str, re.Match] = {}
 
         for line in fstab_standby.splitlines():
@@ -805,7 +804,7 @@ class GrubController(BootControllerProtocol):
 
         # merge entries
         merged: List[str] = []
-        fstab_active = read_str_from_file(active_slot_fstab, missing_ok=False)
+        fstab_active = read_str_from_file(active_slot_fstab)
         for line in fstab_active.splitlines():
             if ma := fstab_entry_pa.match(line):
                 mp = ma.group("mount_point")
@@ -827,7 +826,7 @@ class GrubController(BootControllerProtocol):
         merged.append("")  # add a new line at the end of file
 
         # write to standby fstab
-        write_str_to_file_sync(standby_slot_fstab, "\n".join(merged))
+        write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
 
     def _cleanup_standby_ota_partition_folder(self):
         """Cleanup old files under the standby ota-partition folder."""
