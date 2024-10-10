@@ -162,3 +162,4 @@ def test_copyfile_atomic(tmp_path: Path):
 
     copyfile_atomic(_src, _dst)
     assert file_sha256(_dst) == file_sha256(_src) == _data_hash
+    assert subprocess.check_output(["cat", str(_dst)]) == _data
