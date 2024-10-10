@@ -147,10 +147,11 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
         Any exceptions raised by Pathlib.symlink_to or os.rename.
     """
     src = Path(src)
-    if not src.exists():
+    if src.is_symlink():
+        if str(os.readlink(src)) == str(target):
+            return  # the symlink is already correct
+    elif not src.exists():  # NOTE: exists follow the symlink!
         return src.symlink_to(target)
-    if src.is_symlink() and str(os.readlink(src)) == str(target):
-        return  # the symlink is already correct
 
     tmp_link = Path(src).parent / _gen_tmp_fname()
     try:
