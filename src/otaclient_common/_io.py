@@ -149,7 +149,7 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
     src = Path(src)
     if not src.exists():
         return src.symlink_to(target)
-    if src.is_symlink() and str(os.readlink(src)) != str(target):
+    if src.is_symlink() and str(os.readlink(src)) == str(target):
         return  # the symlink is already correct
 
     tmp_link = Path(src).parent / _gen_tmp_fname()
