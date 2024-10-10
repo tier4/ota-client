@@ -23,7 +23,7 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Union
+from typing import Union, cast
 
 from otaclient._types import (
     FailureType,
@@ -198,6 +198,8 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 # ------ stats monitor implementation ------ #
 #
 
+TERMINATE_SENTINEL = cast(StatsReport, object())
+
 
 class OTAClientStatsCollector:
 
@@ -250,6 +252,8 @@ class OTAClientStatsCollector:
         while not _otaclient_shutdown:
             try:
                 report = self._input_queue.get_nowait()
+                if report is TERMINATE_SENTINEL:
+                    break
                 self.load_report(report)
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
