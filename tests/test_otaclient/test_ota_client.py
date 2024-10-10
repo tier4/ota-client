@@ -15,12 +15,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
-import threading
 import typing
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict
 
@@ -30,24 +27,21 @@ import pytest_mock
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.errors import OTAErrorRecoverable
-from otaclient.app.ota_client import (
-    OTAClient,
-    OTAClientControlFlags,
-    OTAServicer,
-    _OTAUpdater,
-)
 from otaclient.boot_control import BootControllerProtocol
-from otaclient.boot_control.configs import BootloaderType
-from otaclient.configs.ecu_info import ECUInfo
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
+from otaclient.errors import OTAErrorRecoverable
+from otaclient.otaclient import (
+    OTAClient,
+    OTAClientControlFlags,
+    _OTAUpdater,
+)
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
 
-class Test_OTAUpdater:
+class TestOTAUpdater:
     """
     NOTE: the boot_control and create_standby are mocked, only testing
           the logics directly implemented by OTAUpdater
@@ -156,7 +150,7 @@ class Test_OTAUpdater:
             f"{cfg.OTACLIENT_MODULE_PATH}.OTAUpdateStatsCollector", mocker.MagicMock()
         )
 
-    def test_OTAUpdater(self, mocker: pytest_mock.MockerFixture):
+    def test_ota_update(self, mocker: pytest_mock.MockerFixture):
         from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 
         # ------ execution ------ #
@@ -194,7 +188,7 @@ class Test_OTAUpdater:
         process_persists_handler.assert_called_once()
 
 
-class Test_OTAClient:
+class TestOTAClient:
     """Testing on OTAClient workflow."""
 
     OTACLIENT_VERSION = "otaclient_version"
@@ -333,137 +327,3 @@ class Test_OTAClient:
             firmware_version=self.CURRENT_FIRMWARE_VERSION,
             update_status=self.MOCKED_STATUS_PROGRESS,
         )
-
-
-class TestOTAServicer:
-    ECU_INFO = ECUInfo(
-        format_version=1,
-        ecu_id="my_ecu_id",
-        bootloader=BootloaderType.GRUB,
-        available_ecu_ids=["my_ecu_id"],
-        secondaries=[],
-    )
-
-    @pytest.fixture(autouse=True)
-    async def mock_setup(self, mocker: pytest_mock.MockerFixture):
-        self._executor = ThreadPoolExecutor()
-        self.otaclient = mocker.MagicMock(spec=OTAClient)
-        self.otaclient_cls = mocker.MagicMock(return_value=self.otaclient)
-        self.standby_slot_creator_cls = mocker.MagicMock()
-        self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
-        self.control_flags = mocker.MagicMock(spec=OTAClientControlFlags)
-
-        #
-        # ------ patching ------
-        #
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.OTAClient", self.otaclient_cls)
-        mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_boot_controller",
-            return_value=mocker.MagicMock(return_value=self.boot_controller),
-        )
-        mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
-            return_value=self.standby_slot_creator_cls,
-        )
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.ecu_info", self.ECU_INFO)
-
-        #
-        # ------ start OTAServicer instance ------
-        #
-        self.local_use_proxy = ""
-        self.otaclient_stub = OTAServicer(
-            executor=self._executor,
-            control_flags=self.control_flags,
-            otaclient_version="otaclient test version",
-            proxy=self.local_use_proxy,
-        )
-
-        try:
-            yield
-        finally:
-            self._executor.shutdown(wait=False)
-
-    def test_stub_initializing(self):
-        #
-        # ------ assertion ------
-        #
-
-        # ensure the OTAServicer properly compose otaclient core
-        self.otaclient_cls.assert_called_once_with(
-            boot_controller=self.boot_controller,
-            create_standby_cls=self.standby_slot_creator_cls,
-            my_ecu_id=self.ECU_INFO.ecu_id,
-            control_flags=self.control_flags,
-            proxy=self.local_use_proxy,
-        )
-
-        assert self.otaclient_stub.last_operation is None
-        assert self.otaclient_stub.local_used_proxy_url is self.local_use_proxy
-
-    async def test_dispatch_update(self):
-        update_request_ecu = api_types.UpdateRequestEcu(
-            ecu_id=self.ECU_INFO.ecu_id,
-            version="version",
-            url="url",
-            cookies="cookies",
-        )
-        # patch otaclient's update method
-        _updating_event = threading.Event()
-
-        def _updating(*args, **kwargs):
-            """Simulating update progress."""
-            _updating_event.wait()
-
-        self.otaclient.update.side_effect = _updating
-
-        # dispatch update
-        await self.otaclient_stub.dispatch_update(update_request_ecu)
-        await asyncio.sleep(0.1)  # wait for inner async closure to run
-
-        assert self.otaclient_stub.last_operation is api_types.StatusOta.UPDATING
-        assert self.otaclient_stub.is_busy
-        # test ota update/rollback exclusive lock,
-        resp = await self.otaclient_stub.dispatch_update(update_request_ecu)
-        assert resp.result == api_types.FailureType.RECOVERABLE
-
-        # finish up update
-        _updating_event.set()
-        await asyncio.sleep(0.1)  # wait for update task return
-        assert self.otaclient_stub.last_operation is None
-        self.otaclient.update.assert_called_once_with(
-            update_request_ecu.version,
-            update_request_ecu.url,
-            update_request_ecu.cookies,
-        )
-
-    async def test_dispatch_rollback(self):
-        # patch otaclient's rollback method
-        _rollbacking_event = threading.Event()
-
-        def _rollbacking(*args, **kwargs):
-            """Simulating rollback progress."""
-            _rollbacking_event.wait()
-
-        self.otaclient.rollback.side_effect = _rollbacking
-
-        # dispatch rollback
-        await self.otaclient_stub.dispatch_rollback(api_types.RollbackRequestEcu())
-        await asyncio.sleep(0.1)  # wait for inner async closure to run
-
-        assert self.otaclient_stub.last_operation is api_types.StatusOta.ROLLBACKING
-        assert self.otaclient_stub.is_busy
-        # test ota update/rollback exclusive lock,
-        resp = await self.otaclient_stub.dispatch_rollback(
-            api_types.RollbackRequestEcu()
-        )
-        assert resp.result == api_types.FailureType.RECOVERABLE
-
-        # finish up rollback
-        _rollbacking_event.set()
-        await asyncio.sleep(0.1)  # wait for rollback task return
-        assert self.otaclient_stub.last_operation is None
-        self.otaclient.rollback.assert_called_once()
-
-    async def test_get_status(self):
-        await self.otaclient_stub.get_status()
-        self.otaclient.status.assert_called_once()
