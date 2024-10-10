@@ -33,8 +33,8 @@ DEFAULT_FILE_CHUNK_SIZE = 1024**2  # 1MiB
 TMP_FILE_PREFIX = ".ota_io_tmp_"
 
 
-def _gen_tmp_fname() -> str:
-    return f"{TMP_FILE_PREFIX}{os.urandom(6).hex()}"
+def _gen_tmp_fname(_prefix: str = TMP_FILE_PREFIX, _suffix_bytes: int = 6) -> str:
+    return f"{_prefix}{os.urandom(_suffix_bytes).hex()}"
 
 
 if sys.version_info >= (3, 11):
@@ -65,7 +65,7 @@ else:
         return digestobj
 
 
-def gen_file_digest(
+def cal_file_digest(
     fpath: StrOrPath, algorithm: str, chunk_size: int = DEFAULT_FILE_CHUNK_SIZE
 ) -> str:
     """Generate file digest with <algorithm>.
@@ -76,7 +76,7 @@ def gen_file_digest(
         return _file_digest(f, algorithm, _bufsize=chunk_size).hexdigest()
 
 
-file_sha256 = partial(gen_file_digest, algorithm="sha256")
+file_sha256 = partial(cal_file_digest, algorithm="sha256")
 file_sha256.__doc__ = "Generate file digest with sha256."
 
 
@@ -110,7 +110,9 @@ def write_str_to_file_atomic(
         tmp_f.unlink(missing_ok=True)
 
 
-def read_str_from_file(path: StrOrPath, _default: str | None = None) -> str:
+def read_str_from_file(
+    path: StrOrPath, _default: str | None = None
+) -> str:  # pragma: no cover
     """Read contents as string from <path>.
 
     Args:
@@ -137,7 +139,7 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
     If the src is already existed as a file/symlink,
     the src will be replaced by the newly created symlink unconditionally.
 
-    NOTE: os.rename is atomic when src and dst are on
+    NOTE: os.rename/os.replace is atomic when src and dst are on
         the same filesystem under linux.
 
     Raises:
@@ -153,7 +155,7 @@ def symlink_atomic(src: StrOrPath, target: StrOrPath) -> None:
     tmp_link = Path(src).parent / _gen_tmp_fname()
     try:
         tmp_link.symlink_to(target)
-        os.rename(tmp_link, src)  # unconditionally replaced
+        os.replace(tmp_link, src)  # unconditionally replaced
     except Exception:
         tmp_link.unlink(missing_ok=True)
         raise
@@ -165,36 +167,20 @@ def copyfile_atomic(
     *,
     follow_symlink: bool = True,
 ) -> None:
-    """Atomically copy the <src> file to <dst> file.
-
-    This method will perform a basic check before replace by checking the file size.
+    """Atomically overwrite the <dst> file with <src> file.
 
     <src> must be presented and point to a file.
     <dst> should be absent or not a directory.
 
     Raises:
-        ValueError if the shutil.copy failed to correctly copy the file(failed the size check).
         Any exception raised by shutil.copy or os.replace.
 
     NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
     """
-    src, dst = Path(src), Path(dst)
-    # get the file size of the <src>
-    src_stat = src.stat()
-
-    _tmp_file = dst.parent / _gen_tmp_fname()
+    _tmp_file = Path(dst).parent / _gen_tmp_fname()
     try:
         # prepare a copy of src file under dst's parent folder
         shutil.copy(src, _tmp_file, follow_symlinks=follow_symlink)
-
-        # perform a basic check with file size
-        # NOTE(20241009): if the copy failed, at least not to override the dst file.
-        tmp_stat = _tmp_file.stat()
-        if tmp_stat.st_size != src_stat.st_size:
-            _err_msg = f"{tmp_stat.st_size=} != {src_stat.st_size=}, shutil.copy failed"
-            logger.warning(_err_msg)
-            raise ValueError(_err_msg)
-
         # atomically rename/replace the dst file with the copy
         os.replace(_tmp_file, dst)
     finally:
