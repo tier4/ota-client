@@ -24,7 +24,7 @@ import pytest
 import pytest_mock
 
 from otaclient.boot_control import _rpi_boot
-from otaclient.boot_control._common import CMDHelperFuncs, SlotMountHelper
+from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.boot_control.configs import rpi_boot_cfg
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
