@@ -470,10 +470,14 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
+            await asyncio.sleep(cfg.ACTIVE_INTERVAL)
+
+            if self._local_otaclient_stats_monitor.otaclient_status is None:
+                continue
+
             with contextlib.suppress(IndexError):
                 await self._ecu_status_storage.update_from_local_ecu(
                     ecu_status=convert_status(
                         _in=self._local_otaclient_stats_monitor.otaclient_status
                     )
                 )
-            await asyncio.sleep(cfg.ACTIVE_INTERVAL)

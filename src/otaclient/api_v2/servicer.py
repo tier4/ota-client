@@ -111,6 +111,8 @@ class OTAClientAPIServicer:
             # always allow local otaclient to reboot
             self._otaclient_control_flags.set_can_reboot_flag()
 
+        self._local_otaclient_monitor.start()
+
     # internal
 
     async def _otaproxy_lifecycle_managing(self):
@@ -151,7 +153,12 @@ class OTAClientAPIServicer:
         under UPDATING ota_status.
         """
         while not _otaclient_shutdown:
+            await self._polling_waiter()
+
             can_reboot_flag = self._otaclient_control_flags.is_can_reboot_flag_set()
+
+            if self._local_otaclient_monitor.otaclient_status is None:
+                continue
 
             local_ota_status = self._local_otaclient_monitor.otaclient_status.ota_status
             update_phase = self._local_otaclient_monitor.otaclient_status.update_phase
@@ -176,7 +183,6 @@ class OTAClientAPIServicer:
                         " are in UPDATING ota_status and/or local OTA is not yet finished"
                     )
                 self._otaclient_control_flags.clear_can_reboot_flag()
-            await self._polling_waiter()
 
     def _on_ota_finished(self, _: asyncio.Future[None]):
         logger.info(f"OTA operation finished: {self._ongoing_ota}")
