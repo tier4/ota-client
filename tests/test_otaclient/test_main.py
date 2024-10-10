@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import os
 import time
 from multiprocessing import Process
@@ -50,14 +52,14 @@ class TestMain:
             _p.kill()
 
     def test_main(self, caplog: LogCaptureFixture):
-        from otaclient.app.main import main
+        from otaclient.main import main
 
         main()
         assert caplog.records[0].msg == "started"
         assert Path(otaclient_cfg.OTACLIENT_PID_FILE).read_text() == f"{os.getpid()}"
 
     def test_with_other_otaclient_started(self, background_process):
-        from otaclient.app.main import main
+        from otaclient.main import main
 
         _other_pid = f"{background_process}"
         with pytest.raises(ValueError):
