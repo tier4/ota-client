@@ -24,8 +24,8 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
+from otaclient._types import OTAStatus
 from otaclient.app.configs import config as cfg
-from otaclient_api.v2 import types as api_types
 from otaclient_common.common import (
     read_str_from_file,
     subprocess_call,
@@ -493,7 +493,7 @@ class OTAStatusFilesControl:
         self._load_slot_in_use_file()
         self._load_status_file()
         logger.info(
-            f"ota_status files parsing completed, ota_status is {self._ota_status.name}"
+            f"ota_status files parsing completed, ota_status is {self._ota_status}"
         )
 
     def _load_status_file(self):
@@ -506,18 +506,18 @@ class OTAStatusFilesControl:
         if _loaded_ota_status is None:
             logger.info(
                 "ota_status files incompleted/not presented, "
-                f"initializing and set/store status to {api_types.StatusOta.INITIALIZED.name}..."
+                f"initializing and set/store status to {OTAStatus.INITIALIZED}..."
             )
-            self._store_current_status(api_types.StatusOta.INITIALIZED)
-            self._ota_status = api_types.StatusOta.INITIALIZED
+            self._store_current_status(OTAStatus.INITIALIZED)
+            self._ota_status = OTAStatus.INITIALIZED
             return
-        logger.info(f"status loaded from file: {_loaded_ota_status.name}")
+        logger.info(f"status loaded from file: {_loaded_ota_status}")
 
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
         if _loaded_ota_status not in [
-            api_types.StatusOta.UPDATING,
-            api_types.StatusOta.ROLLBACKING,
+            OTAStatus.UPDATING,
+            OTAStatus.ROLLBACKING,
         ]:
             self._ota_status = _loaded_ota_status
             return
@@ -533,13 +533,13 @@ class OTAStatusFilesControl:
         #                 in such case, otaclient will terminate and ota_status will not be updated.
         if self._is_switching_boot(self.active_slot):
             if self.finalize_switching_boot():
-                self._ota_status = api_types.StatusOta.SUCCESS
-                self._store_current_status(api_types.StatusOta.SUCCESS)
+                self._ota_status = OTAStatus.SUCCESS
+                self._store_current_status(OTAStatus.SUCCESS)
             else:
                 self._ota_status = (
-                    api_types.StatusOta.ROLLBACK_FAILURE
-                    if _loaded_ota_status == api_types.StatusOta.ROLLBACKING
-                    else api_types.StatusOta.FAILURE
+                    OTAStatus.ROLLBACK_FAILURE
+                    if _loaded_ota_status == OTAStatus.ROLLBACKING
+                    else OTAStatus.FAILURE
                 )
                 self._store_current_status(self._ota_status)
                 logger.error(
@@ -548,14 +548,14 @@ class OTAStatusFilesControl:
 
         else:
             logger.error(
-                f"we are in {_loaded_ota_status.name} ota_status, "
+                f"we are in {_loaded_ota_status} ota_status, "
                 "but ota_status files indicate that we are not in switching boot mode, "
                 "this indicates a failed first reboot"
             )
             self._ota_status = (
-                api_types.StatusOta.ROLLBACK_FAILURE
-                if _loaded_ota_status == api_types.StatusOta.ROLLBACKING
-                else api_types.StatusOta.FAILURE
+                OTAStatus.ROLLBACK_FAILURE
+                if _loaded_ota_status == OTAStatus.ROLLBACKING
+                else OTAStatus.FAILURE
             )
             self._store_current_status(self._ota_status)
 
@@ -600,23 +600,23 @@ class OTAStatusFilesControl:
 
     # status control
 
-    def _store_current_status(self, _status: api_types.StatusOta):
+    def _store_current_status(self, _status: OTAStatus):
         write_str_to_file_sync(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status
         )
 
-    def _store_standby_status(self, _status: api_types.StatusOta):
+    def _store_standby_status(self, _status: OTAStatus):
         write_str_to_file_sync(
-            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
+            self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status
         )
 
-    def _load_current_status(self) -> Optional[api_types.StatusOta]:
+    def _load_current_status(self) -> Optional[OTAStatus]:
         if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
         ).upper():
             with contextlib.suppress(KeyError):
                 # invalid status string
-                return api_types.StatusOta[_status_str]
+                return OTAStatus[_status_str]
 
     # version control
 
@@ -632,8 +632,8 @@ class OTAStatusFilesControl:
         """Detect whether we should switch boot or not with ota_status files."""
         # evidence: ota_status
         _is_updating_or_rollbacking = self._load_current_status() in [
-            api_types.StatusOta.UPDATING,
-            api_types.StatusOta.ROLLBACKING,
+            OTAStatus.UPDATING,
+            OTAStatus.ROLLBACKING,
         ]
 
         # evidence: slot_in_use
@@ -653,7 +653,7 @@ class OTAStatusFilesControl:
     def pre_update_current(self):
         """On pre_update stage, set current slot's status to FAILURE
         and set slot_in_use to standby slot."""
-        self._store_current_status(api_types.StatusOta.FAILURE)
+        self._store_current_status(OTAStatus.FAILURE)
         self._store_current_slot_in_use(self.standby_slot)
 
     def pre_update_standby(self, *, version: str):
@@ -665,17 +665,17 @@ class OTAStatusFilesControl:
         # create the ota-status folder unconditionally
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
         # store status to standby slot
-        self._store_standby_status(api_types.StatusOta.UPDATING)
+        self._store_standby_status(OTAStatus.UPDATING)
         self._store_standby_version(version)
         self._store_standby_slot_in_use(self.standby_slot)
 
     def pre_rollback_current(self):
-        self._store_current_status(api_types.StatusOta.FAILURE)
+        self._store_current_status(OTAStatus.FAILURE)
 
     def pre_rollback_standby(self):
         # store ROLLBACKING status to standby
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
-        self._store_standby_status(api_types.StatusOta.ROLLBACKING)
+        self._store_standby_status(OTAStatus.ROLLBACKING)
 
     def load_active_slot_version(self) -> str:
         return read_str_from_file(
@@ -686,13 +686,13 @@ class OTAStatusFilesControl:
 
     def on_failure(self):
         """Store FAILURE to status file on failure."""
-        self._store_current_status(api_types.StatusOta.FAILURE)
+        self._store_current_status(OTAStatus.FAILURE)
         # when standby slot is not created, otastatus is not needed to be set
         if self.standby_ota_status_dir.is_dir():
-            self._store_standby_status(api_types.StatusOta.FAILURE)
+            self._store_standby_status(OTAStatus.FAILURE)
 
     @property
-    def booted_ota_status(self) -> api_types.StatusOta:
+    def booted_ota_status(self) -> OTAStatus:
         """Loaded current slot's ota_status during boot control starts.
 
         NOTE: distinguish between the live ota_status maintained by otaclient.

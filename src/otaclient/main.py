@@ -23,13 +23,10 @@ from pathlib import Path
 
 import grpc.aio
 
-# NOTE: as ota_metadata are using dynamic module import,
-#   we need to import them before any other otaclient modules.
-import ota_metadata.legacy  # noqa: F401
 from otaclient import __version__
+from otaclient.api_v2.servicer import OTAClientAPIServicer
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
-from otaclient.app.ota_client_stub import OTAClientServiceStub
 from otaclient.log_setting import configure_logging
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
@@ -37,7 +34,7 @@ from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 # configure logging before any code being executed
 configure_logging()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("otaclient")
 
 
 def _check_other_otaclient():
@@ -60,7 +57,7 @@ def _check_other_otaclient():
 
 
 def create_otaclient_grpc_server():
-    service_stub = OTAClientServiceStub()
+    service_stub = OTAClientAPIServicer()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
     server = grpc.aio.server()
