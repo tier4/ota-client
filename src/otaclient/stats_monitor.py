@@ -260,13 +260,15 @@ class OTAClientStatsCollector:
 
     # API
 
-    def start(self) -> None:
+    def start(self) -> Thread:
         """Start the stats_monitor thread."""
-        Thread(
+        t = Thread(
             target=self._stats_collector_thread,
             daemon=True,
             name="otaclient_stats_monitor",
-        ).start()
+        )
+        t.start()
+        return t
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
