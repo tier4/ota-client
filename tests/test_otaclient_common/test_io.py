@@ -61,40 +61,48 @@ def test_gen_file_digest(tmp_path: Path):
 
 class TestWriteStrToFileAtomic:
 
-    @pytest.fixture(scope="class", autouse=True)
-    def setup_test(self):
-        self.data_lens = [100, 500, 1000, 9000]  # bytes
-        self.data = [
+    @pytest.fixture(scope="class")
+    def data(self):
+        data_lens = [100, 500, 1000, 9000]  # bytes
+        data = [
             "".join([random.choice(string.printable) for _ in range(_len)])
-            for _len in self.data_lens
+            for _len in data_lens
         ]
 
-    def test_write_str_to_file_atomic(self, tmp_path: Path):
-        for data in self.data:
+        return data
+
+    def test_write_str_to_file_atomic(self, data, tmp_path: Path):
+        for _data in data:
             _tmp_dst = tmp_path / _gen_tmp_fname("_test_file")
-            write_str_to_file_atomic(_tmp_dst, data, follow_symlink=False)
+            write_str_to_file_atomic(_tmp_dst, _data, follow_symlink=False)
 
             # intensionally use external subprocess call to ensure the changes
             #   are written to the disk properly.
-            assert subprocess.check_output(["cat", str(_tmp_dst)]) == data
+            assert subprocess.check_output(["cat", str(_tmp_dst)]).decode() == _data
 
-    def test_write_str_to_file_atomic_follow_symlink(self, tmp_path: Path):
-        for data in self.data:
+    def test_write_str_to_file_atomic_follow_symlink(self, data, tmp_path: Path):
+        for _data in data:
             _tmp_real_dst = tmp_path / _gen_tmp_fname("_test_file")
             _tmp_dst_symlink = tmp_path / _gen_tmp_fname("_test_file_symlink")
             _tmp_dst_symlink.symlink_to(_tmp_real_dst)
 
-            write_str_to_file_atomic(_tmp_real_dst, data, follow_symlink=True)
-            assert subprocess.check_output(["cat", str(_tmp_dst_symlink)]) == data
+            write_str_to_file_atomic(_tmp_real_dst, _data, follow_symlink=True)
+            assert (
+                subprocess.check_output(["cat", str(_tmp_dst_symlink)]).decode()
+                == _data
+            )
 
-    def test_write_str_to_file_atomic_not_follow_symlink(self, tmp_path: Path):
-        for data in self.data:
+    def test_write_str_to_file_atomic_not_follow_symlink(self, data, tmp_path: Path):
+        for _data in data:
             _tmp_real_dst = tmp_path / _gen_tmp_fname("_test_file")
             _tmp_dst_symlink = tmp_path / _gen_tmp_fname("_test_file_symlink")
             _tmp_dst_symlink.symlink_to(_tmp_real_dst)
 
-            write_str_to_file_atomic(_tmp_real_dst, data, follow_symlink=False)
-            assert subprocess.check_output(["cat", str(_tmp_dst_symlink)]) == data
+            write_str_to_file_atomic(_tmp_real_dst, _data, follow_symlink=False)
+            assert (
+                subprocess.check_output(["cat", str(_tmp_dst_symlink)]).decode()
+                == _data
+            )
             assert (
                 _tmp_dst_symlink.is_symlink()
                 and _tmp_dst_symlink.resolve() == _tmp_real_dst
@@ -135,7 +143,7 @@ def test_symlink_atomic(target: str, symlink_contents: str, exc, tmp_path: Path)
 
     else:
         symlink_atomic(_symlink, target)
-        assert _symlink.resolve() == target  # ensure symlink is updated
+        assert str(_symlink.resolve()) == target  # ensure symlink is updated
 
     assert not list(_workdir.glob(f"{TMP_FILE_PREFIX}*"))  # ensure no tmp file leftover
 
