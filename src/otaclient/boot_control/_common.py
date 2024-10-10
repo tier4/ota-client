@@ -26,12 +26,8 @@ from typing import Callable, Literal, NoReturn, Optional, Union
 
 from otaclient.app.configs import config as cfg
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import (
-    read_str_from_file,
-    subprocess_call,
-    subprocess_check_output,
-    write_str_to_file_sync,
-)
+from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -583,30 +579,30 @@ class OTAStatusFilesControl:
     # slot_in_use control
 
     def _store_current_slot_in_use(self, _slot: str):
-        write_str_to_file_sync(
+        write_str_to_file_atomic(
             self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
         )
 
     def _store_standby_slot_in_use(self, _slot: str):
-        write_str_to_file_sync(
+        write_str_to_file_atomic(
             self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
         )
 
     def _load_current_slot_in_use(self) -> Optional[str]:
         if res := read_str_from_file(
-            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, default=""
+            self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _default=""
         ):
             return res
 
     # status control
 
     def _store_current_status(self, _status: api_types.StatusOta):
-        write_str_to_file_sync(
+        write_str_to_file_atomic(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
     def _store_standby_status(self, _status: api_types.StatusOta):
-        write_str_to_file_sync(
+        write_str_to_file_atomic(
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
@@ -621,7 +617,7 @@ class OTAStatusFilesControl:
     # version control
 
     def _store_standby_version(self, _version: str):
-        write_str_to_file_sync(
+        write_str_to_file_atomic(
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
         )
@@ -680,8 +676,7 @@ class OTAStatusFilesControl:
     def load_active_slot_version(self) -> str:
         return read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            missing_ok=True,
-            default=cfg.DEFAULT_VERSION_STR,
+            _default=cfg.DEFAULT_VERSION_STR,
         )
 
     def on_failure(self):
@@ -794,4 +789,4 @@ class SlotMountHelper:
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
-    return read_str_from_file(target, missing_ok=False)
+    return read_str_from_file(target)
