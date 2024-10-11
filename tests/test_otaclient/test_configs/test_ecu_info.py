@@ -79,6 +79,7 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
                 'ip_addr: "192.168.1.1"\n'
+                "bootloader: grub\n"
                 'available_ecu_ids: ["autoware", "p1", "p2"]\n'
                 "secondaries: \n"
                 '- ecu_id: "p1"\n'
