@@ -27,7 +27,7 @@ from otaclient.configs import ENV_PREFIX, set_configs
         ("DEFAULT_LOG_LEVEL", "CRITICAL", "CRITICAL"),
         (
             "LOG_LEVEL_TABLE",
-            r"""{"ota_metadata": "DEBUG",}""",
+            r"""{"ota_metadata": "DEBUG"}""",
             {"ota_metadata": "DEBUG"},
         ),
         ("DEBUG_DISABLE_OTAPROXY_HTTPS_VERIFY", "true", True),
