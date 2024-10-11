@@ -109,4 +109,4 @@ class Consts:
         """For future updating the ACTIVE_ROOT."""
 
 
-consts = Consts()
+cfg_consts = Consts()
