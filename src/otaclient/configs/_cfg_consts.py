@@ -65,6 +65,8 @@ class Consts:
 
     BOOT_DPATH = "/boot"
     OTA_DPATH = "/boot/ota"
+    ECU_INFO_FPATH = "/boot/ota/ecu_info.yaml"
+    PROXY_INFO_FPATH = "/boot/ota/proxy_info.yaml"
 
     ETC_DPATH = "/etc"
     PASSWD_FPATH = "/etc/passwd"
@@ -78,6 +80,8 @@ class Consts:
         "IMAGE_META_DPATH",
         "BOOT_DPATH",
         "OTA_DPATH",
+        "ECU_INFO_FPATH",
+        "PROXY_INFO_FPATH",
         "ETC_DPATH",
         "PASSWD_FPATH",
         "GROUP_FPATH",
@@ -87,10 +91,6 @@ class Consts:
     #
     # ------ consts ------ #
     #
-    # otaclient configuration files
-    ECU_INFO_FNAME = "ecu_info.yaml"
-    PROXY_INFO_FNAME = "proxy_info.yaml"
-
     # ota status files
     OTA_STATUS_FNAME = "status"
     OTA_VERSION_FNAME = "version"

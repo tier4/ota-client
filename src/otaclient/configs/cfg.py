@@ -57,11 +57,5 @@ else:
 
 
 cfg = _OTAClientConfigs()
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.ECU_INFO_FPATH
-ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.PROXY_INFO_FPATH
-proxy_info = parse_proxy_info("/boot/ota/proxy_info.yaml")
+ecu_info = parse_ecu_info(ecu_info_file=cfg.ECU_INFO_FPATH)
+proxy_info = parse_proxy_info(proxy_info_file=cfg.PROXY_INFO_FPATH)
