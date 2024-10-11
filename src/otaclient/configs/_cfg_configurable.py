@@ -27,16 +27,16 @@ from otaclient.configs._cfg_consts import cfg_consts
 logger = logging.getLogger(__name__)
 
 ENV_PREFIX = "OTACLIENT_"
-LOG_LEVEL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-CREATE_STANDBY_METHOD = Literal["REBUILD", "IN_PLACE"]
+LOG_LEVEL_LITERAL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+CREATE_STANDBY_METHOD_LTIERAL = Literal["REBUILD", "IN_PLACE"]
 
 
 class _OTAClientSettings(BaseModel):
     #
     # ------ logging settings ------ #
     #
-    DEFAULT_LOG_LEVEL: LOG_LEVEL = "INFO"
-    LOG_LEVEL_TABLE: Dict[str, LOG_LEVEL] = {
+    DEFAULT_LOG_LEVEL: LOG_LEVEL_LITERAL = "INFO"
+    LOG_LEVEL_TABLE: Dict[str, LOG_LEVEL_LITERAL] = {
         "ota_metadata": "INFO",
         "otaclient": "INFO",
         "otaclient_api": "INFO",
@@ -56,12 +56,12 @@ class _OTAClientSettings(BaseModel):
 
     DOWNLOAD_THREADS: int = 6
     MAX_CONCURRENT_DOWNLOAD_TASKS: int = 128
-    DOWNLOAD_INACTIVE_TIMEOUT = 5 * 60  # seconds
+    DOWNLOAD_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
 
     #
     # ------ create standby settings ------ #
     #
-    CREATE_STANDBY_METHOD: CREATE_STANDBY_METHOD = "REBUILD"
+    CREATE_STANDBY_METHOD: CREATE_STANDBY_METHOD_LTIERAL = "REBUILD"
     MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 512
     MAX_PROCESS_FILE_THREAD: int = 6
     CREATE_STANDBY_RETRY_MAX: int = 1024
