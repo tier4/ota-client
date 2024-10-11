@@ -13,16 +13,22 @@
 # limitations under the License.
 """otaclient configs package."""
 
-from otaclient.configs._cfg_configurable import ConfigurableSettings
+from otaclient.configs._cfg_configurable import (
+    ENV_PREFIX,
+    ConfigurableSettings,
+    set_configs,
+)
 from otaclient.configs._cfg_consts import Consts
 from otaclient.configs._ecu_info import BootloaderType, ECUContact, ECUInfo
 from otaclient.configs._proxy_info import ProxyInfo
 
 __all__ = [
+    "ENV_PREFIX",
     "ConfigurableSettings",
     "Consts",
     "BootloaderType",
     "ECUContact",
     "ECUInfo",
     "ProxyInfo",
+    "set_configs",
 ]

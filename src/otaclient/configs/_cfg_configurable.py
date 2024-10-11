@@ -26,7 +26,7 @@ from otaclient.configs._cfg_consts import cfg_consts
 
 logger = logging.getLogger(__name__)
 
-_ENV_PREFIX = "OTACLIENT_"
+ENV_PREFIX = "OTACLIENT_"
 LOG_LEVEL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 CREATE_STANDBY_METHOD = Literal["REBUILD", "IN_PLACE"]
 
@@ -123,7 +123,7 @@ def set_configs() -> ConfigurableSettings:
         class _SettingParser(ConfigurableSettings, BaseSettings):
             model_config = SettingsConfigDict(
                 validate_default=True,
-                env_prefix=_ENV_PREFIX,
+                env_prefix=ENV_PREFIX,
             )
 
         _parsed_setting = _SettingParser()
