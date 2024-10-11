@@ -11,13 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""otaclient internal uses consts."""
+"""otaclient internal uses consts, should not be changed from external."""
 
 
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
 
 from otaclient_common import replace_root
 
@@ -30,24 +29,6 @@ class CreateStandbyMechanism(str, Enum):
     IN_PLACE = "IN_PLACE"  # not yet implemented
 
 
-_dynamic_loaded_paths = set(
-    [
-        "OPT_OTA_DPATH",
-        "OTACLIENT_INSTALLATION",
-        "CERT_DPATH",
-        "IMAGE_META_DPATH",
-        "BOOT_DPATH",
-        "OTA_DPATH",
-        "ECU_INFO_FPATH",
-        "PROXY_INFO_FPATH",
-        "ETC_DPATH",
-        "PASSWD_FPATH",
-        "GROUP_FPATH",
-        "FSTAB_FPATH",
-    ]
-)
-
-
 class Consts:
 
     @property
@@ -55,10 +36,8 @@ class Consts:
         return self._ACTIVE_ROOT
 
     #
-    # ------ fixed paths ------ #
+    # ------ paths ------ #
     #
-    """Paths that is fixed with dynamic root."""
-
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
 
@@ -72,9 +51,6 @@ class Consts:
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
 
-    #
-    # ------ dynamic paths ------ #
-    #
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
     CERT_DPATH = "/opt/ota/client/certs"
@@ -101,20 +77,18 @@ class Consts:
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
 
-    def __getattribute__(self, name: str) -> Any:
-        try:
-            attr = object.__getattribute__(self, name)
-        except KeyError:
-            raise AttributeError(f"{name} not found in {__name__}") from None
-
-        if name == "ACTIVE_ROOT" or name not in _dynamic_loaded_paths:
-            return attr
-        return replace_root(attr, CANONICAL_ROOT, self.ACTIVE_ROOT)
-
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
 
+        # TODO: detect rootfs here
         self._ACTIVE_ROOT = CANONICAL_ROOT
 
 
 cfg_consts = Consts()
+
+
+def dynamic_root(canonical_path: str) -> str:
+    """Re-root the input path with the actual ACTIVE_ROOT."""
+    if cfg_consts.ACTIVE_ROOT == CANONICAL_ROOT:
+        return canonical_path
+    return replace_root(canonical_path, CANONICAL_ROOT, cfg_consts.ACTIVE_ROOT)
