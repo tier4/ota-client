@@ -17,13 +17,14 @@ from __future__ import annotations
 
 from pytest_mock import MockerFixture
 
-from otaclient.configs import Consts, dynamic_root
+from otaclient.configs import Consts, _cfg_consts, dynamic_root
 
 
 def test_cfg_consts_dynamic_root(mocker: MockerFixture):
     _real_root = "/host_root"
     mocked_consts = Consts()
     mocker.patch.object(mocked_consts, "_ACTIVE_ROOT", _real_root)
+    mocker.patch.object(_cfg_consts, "cfg_consts", mocked_consts)
 
     assert mocked_consts.ACTIVE_ROOT == _real_root
     assert dynamic_root(mocked_consts.BOOT_DPATH) == "/host_root/boot"
