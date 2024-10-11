@@ -20,13 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from otaclient.configs.ecu_info import (
-    DEFAULT_ECU_INFO,
-    BootloaderType,
-    ECUContact,
-    ECUInfo,
-    parse_ecu_info,
-)
+from otaclient.configs import BootloaderType, ECUContact, ECUInfo
+from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
 
 
 @pytest.mark.parametrize(

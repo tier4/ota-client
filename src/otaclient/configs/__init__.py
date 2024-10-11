@@ -12,3 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """otaclient configs package."""
+
+
+from otaclient.configs._ecu_info import BootloaderType, ECUContact, ECUInfo, ecu_info
+from otaclient.configs._proxy_info import ProxyInfo, proxy_info
+
+__all__ = [
+    "BootloaderType",
+    "ECUContact",
+    "ECUInfo",
+    "ecu_info",
+    "ProxyInfo",
+    "proxy_info",
+]
