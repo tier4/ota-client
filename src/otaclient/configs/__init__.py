@@ -13,7 +13,10 @@
 # limitations under the License.
 """otaclient configs package."""
 
+from typing import TYPE_CHECKING, Any
 
+from otaclient.configs._cfg_configurable import ConfigurableSettings, cfg_configurable
+from otaclient.configs._cfg_consts import Consts, cfg_consts
 from otaclient.configs._ecu_info import BootloaderType, ECUContact, ECUInfo, ecu_info
 from otaclient.configs._proxy_info import ProxyInfo, proxy_info
 
@@ -24,4 +27,25 @@ __all__ = [
     "ecu_info",
     "ProxyInfo",
     "proxy_info",
+    "cfg",
 ]
+
+if TYPE_CHECKING:
+
+    class _OTAClientConfigs(ConfigurableSettings, Consts):
+        """OTAClient configs."""
+
+else:
+
+    class _OTAClientConfigs:
+
+        def __getattribute__(self, name: str) -> Any:
+            for _cfg in [cfg_consts, cfg_configurable]:
+                try:
+                    return getattr(_cfg, name)
+                except AttributeError:
+                    continue
+            raise AttributeError(f"no such config field: {name=}")
+
+
+cfg = _OTAClientConfigs()

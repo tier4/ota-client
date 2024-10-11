@@ -113,25 +113,25 @@ class _OTAProxySettings(BaseModel):
     EXTERNAL_CACHE_SRC_PATH: str = f"{EXTERNAL_CACHE_DEV_MOUNTPOINT}/data"
 
 
-class OTAClientSettings(_OTAClientSettings, _MultipleECUSettings, _OTAProxySettings):
+class ConfigurableSettings(_OTAClientSettings, _MultipleECUSettings, _OTAProxySettings):
     """otaclient runtime configuration settings."""
 
 
-def _set_configs() -> OTAClientSettings:
+def _set_configs() -> ConfigurableSettings:
     try:
 
-        class _SettingParser(OTAClientSettings, BaseSettings):
+        class _SettingParser(ConfigurableSettings, BaseSettings):
             model_config = SettingsConfigDict(
                 validate_default=True,
                 env_prefix=_ENV_PREFIX,
             )
 
         _parsed_setting = _SettingParser()
-        return OTAClientSettings.model_construct(**_parsed_setting.model_dump())
+        return ConfigurableSettings.model_construct(**_parsed_setting.model_dump())
     except Exception as e:
         logger.error(f"failed to parse otaclient configurable settings: {e!r}")
         logger.warning("use default settings ...")
-        return OTAClientSettings()
+        return ConfigurableSettings()
 
 
-configurable_cfg = _set_configs()
+cfg_configurable = _set_configs()
