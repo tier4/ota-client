@@ -42,11 +42,11 @@ class Consts:
     CANONICAL_ROOT = "/"
 
     # runtime folder for holding ota related files
-    RUNTIME_OTA_SESSION = f"{RUN_DIR}/ota"
+    RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
-    MOUNT_SPACE = f"{RUN_DIR}/mnt"
-    ACTIVE_SLOT_MNT = f"{MOUNT_SPACE}/active_slot"
-    STANDBY_SLOT_MNT = f"{MOUNT_SPACE}/standby_slot"
+    MOUNT_SPACE = "/run/otaclient/mnt"
+    ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
+    STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
@@ -55,9 +55,9 @@ class Consts:
     # ------ dynamic paths ------ #
     #
     OPT_OTA_DPATH = "/opt/ota"
-    OTACLIENT_INSTALLATION = f"{OPT_OTA_DPATH}/client"
-    CERT_DPATH = f"{OTACLIENT_INSTALLATION}/certs"
-    IMAGE_META_DPATH = f"{OPT_OTA_DPATH}/image-meta"
+    OTACLIENT_INSTALLATION = "/opt/ota/client"
+    CERT_DPATH = "/opt/ota/client/certs"
+    IMAGE_META_DPATH = "/opt/ota/image-meta"
 
     BOOT_DPATH = "/boot"
     OTA_DPATH = "/boot/ota"
@@ -106,8 +106,7 @@ class Consts:
         return attr
 
     def __init__(self) -> None:
-        """For updating the ACTIVE_ROOT."""
-        # TODO: dynamically detect active root here.
+        """For future updating the ACTIVE_ROOT."""
 
 
 consts = Consts()
