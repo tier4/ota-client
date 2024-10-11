@@ -117,7 +117,7 @@ class ConfigurableSettings(_OTAClientSettings, _MultipleECUSettings, _OTAProxySe
     """otaclient runtime configuration settings."""
 
 
-def _set_configs() -> ConfigurableSettings:
+def set_configs() -> ConfigurableSettings:
     try:
 
         class _SettingParser(ConfigurableSettings, BaseSettings):
@@ -132,6 +132,3 @@ def _set_configs() -> ConfigurableSettings:
         logger.error(f"failed to parse otaclient configurable settings: {e!r}")
         logger.warning("use default settings ...")
         return ConfigurableSettings()
-
-
-cfg_configurable = _set_configs()
