@@ -17,12 +17,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from otaclient_common import replace_root
-
-ACTIVE_ROOT = "/"
-"""Will be dynmaically detected in the future."""
 
 
 class CreateStandbyMechanism(str, Enum):
@@ -31,7 +28,13 @@ class CreateStandbyMechanism(str, Enum):
     IN_PLACE = "IN_PLACE"  # not yet implemented
 
 
-class _FixedPaths:
+class Consts:
+    ACTIVE_ROOT = "/"
+    # will be dynamically detected in the future.
+
+    #
+    # ------ fixed paths ------ #
+    #
     """Paths that is fixed with dynamic root."""
 
     RUN_DIR = "/run/otaclient"
@@ -48,18 +51,9 @@ class _FixedPaths:
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
 
-
-class _DynamicPaths:
-    """Paths that dynamically rooted."""
-
-    if not TYPE_CHECKING:
-
-        def __getattribute__(self, name: str) -> Any:
-            attr = super().__getattribute__(name)
-            if name.startswith("_") or not isinstance(attr, str):
-                return attr
-            return replace_root(attr, _FixedPaths.CANONICAL_ROOT, ACTIVE_ROOT)
-
+    #
+    # ------ dynamic paths ------ #
+    #
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = f"{OPT_OTA_DPATH}/client"
     CERT_DPATH = f"{OTACLIENT_INSTALLATION}/certs"
@@ -73,11 +67,22 @@ class _DynamicPaths:
     GROUP_FPATH = "/etc/group"
     FSTAB_FPATH = "/etc/fstab"
 
+    _dynamic_paths = [
+        "OPT_OTA_DPATH",
+        "OTACLIENT_INSTALLATION",
+        "CERT_DPATH",
+        "IMAGE_META_DPATH",
+        "BOOT_DPATH",
+        "OTA_DPATH",
+        "ETC_DPATH",
+        "PASSWD_FPATH",
+        "GROUP_FPATH",
+        "FSTAB_FPATH",
+    ]
 
-_dynamic_paths = _DynamicPaths()
-
-
-class _Consts:
+    #
+    # ------ consts ------ #
+    #
     # otaclient configuration files
     ECU_INFO_FNAME = "ecu_info.yaml"
     PROXY_INFO_FNAME = "proxy_info.yaml"
@@ -87,17 +92,22 @@ class _Consts:
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
 
+    OTA_API_SERVER_PORT = 50051
+    OTAPROXY_LISTEN_PORT = 8082
 
-# use the whole cfg_consts module like a single class
-def __getattr__(name: str) -> Any:
-    try:
-        return globals()[name]
-    except KeyError:
-        pass
-
-    for _target in [_FixedPaths, _dynamic_paths, _Consts]:
+    def __getattribute__(self, name: str) -> Any:
         try:
-            return getattr(_target, name)
-        except AttributeError:
-            continue
-    raise AttributeError(f"{name} not found in {__name__}")
+            attr = super().__getattribute__(name)
+        except KeyError:
+            raise AttributeError(f"{name} not found in {__name__}") from None
+
+        if name in self._dynamic_paths:
+            return replace_root(attr, self.CANONICAL_ROOT, self.ACTIVE_ROOT)
+        return attr
+
+    def __init__(self) -> None:
+        """For updating the ACTIVE_ROOT."""
+        # TODO: dynamically detect active root here.
+
+
+consts = Consts()
