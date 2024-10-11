@@ -17,7 +17,7 @@ from enum import Enum, auto
 from logging import INFO
 from typing import Dict, Tuple
 
-from otaclient.configs import (
+from otaclient.configs.cfg import (
     ecu_info,  # noqa
     proxy_info,  # noqa
 )
