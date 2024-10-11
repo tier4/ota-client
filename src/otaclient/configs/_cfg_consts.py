@@ -29,8 +29,10 @@ class CreateStandbyMechanism(str, Enum):
 
 
 class Consts:
-    ACTIVE_ROOT = "/"
-    # will be dynamically detected in the future.
+
+    @property
+    def ACTIVE_ROOT(self) -> str:  # NOSONAR
+        return self._ACTIVE_ROOT
 
     #
     # ------ fixed paths ------ #
@@ -107,6 +109,8 @@ class Consts:
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
+
+        self._ACTIVE_ROOT = "/"
 
 
 cfg_consts = Consts()
