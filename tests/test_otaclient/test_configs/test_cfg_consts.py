@@ -17,16 +17,14 @@ from __future__ import annotations
 
 from pytest_mock import MockerFixture
 
-from otaclient.configs import Consts
+from otaclient.configs import Consts, dynamic_root
 
 
 def test_cfg_consts_dynamic_root(mocker: MockerFixture):
     _real_root = "/host_root"
     mocked_consts = Consts()
-
     mocker.patch.object(mocked_consts, "_ACTIVE_ROOT", _real_root)
 
     assert mocked_consts.ACTIVE_ROOT == _real_root
-    assert mocked_consts.RUN_DIR == "/run/otaclient"
-    assert mocked_consts.BOOT_DPATH == "/host_root/boot"
+    assert dynamic_root(mocked_consts.BOOT_DPATH) == "/host_root/boot"
     assert mocked_consts.OTA_API_SERVER_PORT == 50051
