@@ -21,6 +21,8 @@ from typing import Any
 
 from otaclient_common import replace_root
 
+CANONICAL_ROOT = "/"
+
 
 class CreateStandbyMechanism(str, Enum):
     LEGACY = "LEGACY"  # deprecated and removed
@@ -41,7 +43,7 @@ class Consts:
 
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
-    CANONICAL_ROOT = "/"
+    CANONICAL_ROOT = CANONICAL_ROOT
 
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
@@ -110,7 +112,7 @@ class Consts:
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
 
-        self._ACTIVE_ROOT = "/"
+        self._ACTIVE_ROOT = self.CANONICAL_ROOT
 
 
 cfg_consts = Consts()
