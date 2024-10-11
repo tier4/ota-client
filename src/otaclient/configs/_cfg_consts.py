@@ -30,6 +30,24 @@ class CreateStandbyMechanism(str, Enum):
     IN_PLACE = "IN_PLACE"  # not yet implemented
 
 
+_dynamic_loaded_paths = set(
+    [
+        "OPT_OTA_DPATH",
+        "OTACLIENT_INSTALLATION",
+        "CERT_DPATH",
+        "IMAGE_META_DPATH",
+        "BOOT_DPATH",
+        "OTA_DPATH",
+        "ECU_INFO_FPATH",
+        "PROXY_INFO_FPATH",
+        "ETC_DPATH",
+        "PASSWD_FPATH",
+        "GROUP_FPATH",
+        "FSTAB_FPATH",
+    ]
+)
+
+
 class Consts:
 
     @property
@@ -43,7 +61,6 @@ class Consts:
 
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
-    CANONICAL_ROOT = CANONICAL_ROOT
 
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
@@ -73,21 +90,6 @@ class Consts:
     GROUP_FPATH = "/etc/group"
     FSTAB_FPATH = "/etc/fstab"
 
-    _dynamic_paths = [
-        "OPT_OTA_DPATH",
-        "OTACLIENT_INSTALLATION",
-        "CERT_DPATH",
-        "IMAGE_META_DPATH",
-        "BOOT_DPATH",
-        "OTA_DPATH",
-        "ECU_INFO_FPATH",
-        "PROXY_INFO_FPATH",
-        "ETC_DPATH",
-        "PASSWD_FPATH",
-        "GROUP_FPATH",
-        "FSTAB_FPATH",
-    ]
-
     #
     # ------ consts ------ #
     #
@@ -101,18 +103,18 @@ class Consts:
 
     def __getattribute__(self, name: str) -> Any:
         try:
-            attr = super().__getattribute__(name)
+            attr = object.__getattribute__(self, name)
         except KeyError:
             raise AttributeError(f"{name} not found in {__name__}") from None
 
-        if name in self._dynamic_paths:
-            return replace_root(attr, self.CANONICAL_ROOT, self.ACTIVE_ROOT)
-        return attr
+        if name == "ACTIVE_ROOT" or name not in _dynamic_loaded_paths:
+            return attr
+        return replace_root(attr, CANONICAL_ROOT, self.ACTIVE_ROOT)
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
 
-        self._ACTIVE_ROOT = self.CANONICAL_ROOT
+        self._ACTIVE_ROOT = CANONICAL_ROOT
 
 
 cfg_consts = Consts()
