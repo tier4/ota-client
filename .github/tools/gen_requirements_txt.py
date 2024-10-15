@@ -15,6 +15,7 @@ def gen_requirements_txt(pyproject_cfg: dict[str, Any]) -> str:
         _res.extend(pyproject_cfg["project"]["dependencies"])
     except KeyError:
         print("WARNING: no deps are defined in pyproject.toml")
+    _res.append("")
     return "\n".join(_res)
 
 

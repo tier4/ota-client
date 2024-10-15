@@ -1,4 +1,5 @@
-# Generated from pyproject.toml, ONLY for reference use!
+# Automatically generated from pyproject.toml by gen_requirements_txt.py script.
+# DO NOT EDIT! Only for reference use.
 aiofiles<25,>=24.1
 aiohttp>=3.9.5,<3.11
 cryptography>=42.0.4,<44
