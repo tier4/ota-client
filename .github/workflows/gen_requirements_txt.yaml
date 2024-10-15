@@ -1,0 +1,47 @@
+name: gen requirements.txt on pyproject.toml file changed
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pyproject.toml'
+  # allow manual dispatch of this workflow
+  workflow_dispatch:
+
+jobs:
+  gen-requirements-txt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: generate requirements.txt
+        run: |
+          chmod +x .github/tools/gen_requirements_txt.py
+          .github/tools/gen_requirements_txt.py pyproject.toml requirements.txt
+
+      - name: commit change if needed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if git diff --exit-code requirements.txt; then
+            echo "skip commit as requirements.txt is not changed"
+          else
+            echo "detect requirements.txt updated, commit change ..."
+            git add requirements.txt
+            git commit -m "Update requirements.txt on pyproject.toml changed"
+            git push
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
