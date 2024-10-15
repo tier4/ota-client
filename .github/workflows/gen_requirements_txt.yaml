@@ -28,7 +28,7 @@ jobs:
 
       - name: generate requirements.txt
         run: |
-          .github/tools/gen_requirements_txt.py \
+          python .github/tools/gen_requirements_txt.py \
             pyproject.toml requirements.txt
 
       - name: commit change if needed
