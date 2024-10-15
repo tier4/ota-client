@@ -7,11 +7,15 @@ from typing import Any
 
 
 def gen_requirements_txt(pyproject_cfg: dict[str, Any]) -> str:
+    _res: list[str] = [
+        "# Automatically generated from pyproject.toml by gen_requirements_txt.py script.",
+        "# DO NOT EDIT! Only for reference use.",
+    ]
     try:
-        _res: list[str] = pyproject_cfg["project"]["dependencies"]
-        return "\n".join(_res)
+        _res.extend(pyproject_cfg["project"]["dependencies"])
     except KeyError:
-        return ""
+        print("WARNING: no deps are defined in pyproject.toml")
+    return "\n".join(_res)
 
 
 if __name__ == "__main__":
