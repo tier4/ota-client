@@ -35,13 +35,13 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           if git diff --exit-code requirements.txt; then
             echo "skip commit as requirements.txt is not changed"
           else
             echo "detect requirements.txt updated, commit change ..."
             git add requirements.txt
-            git commit -m "Update requirements.txt on pyproject.toml changed"
+            git commit -m "[GHA] Update requirements.txt on pyproject.toml changed"
             git push
           fi
         env:
