@@ -19,7 +19,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # use repo scope deploy key for the later git operations, so that the pushed commit can trigger the
+          #   workflow as expected. The default action token GITHUB_TOKEN cannot trigger new workflows.
+          # For more details about this restriction, please refer to:
+          #   https://github.com/peter-evans/create-pull-request/issues/48 and
+          #   https://github.com/peter-evans/create-pull-request/blob/main/docs/concepts-guidelines.md#triggering-further-workflow-runs
+          ssh_key: ${{ secrets.DEPLOY_KEY }}
+          persist-credentials: true
 
       - name: setup python
         uses: actions/setup-python@v4
@@ -44,5 +50,3 @@ jobs:
             git commit -m "[GHA] Update requirements.txt on pyproject.toml changed"
             git push
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
