@@ -25,7 +25,7 @@ dynamic = [
 ]
 dependencies = [
   "aiofiles<25,>=24.1",
-  "aiohttp>=3.9.5,<3.11",
+  "aiohttp>=3.10.2,<3.11",
   "cryptography>=42.0.4,<44",
   "grpcio>=1.53.2,<1.67",
   "protobuf<4.22,>=4.21.12",
