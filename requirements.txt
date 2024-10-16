@@ -1,7 +1,7 @@
 # Automatically generated from pyproject.toml by gen_requirements_txt.py script.
 # DO NOT EDIT! Only for reference use.
 aiofiles<25,>=24.1
-aiohttp>=3.9.5,<3.11
+aiohttp>=3.10.2,<3.11
 cryptography>=43.0.1,<44
 grpcio>=1.53.2,<1.67
 protobuf<4.22,>=4.21.12
