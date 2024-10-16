@@ -8,6 +8,8 @@ on:
       - opened
       - synchronize
       - reopened
+      # NOTE(20241016): this is a workaround for PR with head
+      #   updated by gen_requirements_txt workflow
       - review_requested
   push:
     branches:
