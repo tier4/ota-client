@@ -6,13 +6,6 @@ on:
       - main
     paths:
       - 'pyproject.toml'
-  push:
-    branches-ignore:
-      - main
-      - old_main
-      - v*
-    paths:
-      - 'pyproject.toml'
   # allow manual dispatch of this workflow
   workflow_dispatch:
 
