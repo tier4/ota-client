@@ -48,7 +48,6 @@ import shutil
 import time
 from dataclasses import dataclass, fields
 from enum import Enum
-from functools import partial
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -69,7 +68,9 @@ from typing import (
 )
 from urllib.parse import quote
 
-from OpenSSL import crypto
+from cryptography import x509
+from cryptography.x509 import verification as x509_verification
+from jwt import algorithms as jwt_alg
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
@@ -89,6 +90,8 @@ from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 
 logger = logging.getLogger(__name__)
+
+pyjwt_implemented_algorithms = jwt_alg.get_default_algorithms()
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 
@@ -243,8 +246,6 @@ class _MetadataJWTParser:
         will be skipped! This SHOULD ONLY happen at non-production environment!
     """
 
-    HASH_ALG = "sha256"
-
     def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
         self.cert_dir = Path(certs_dir)
 
@@ -263,11 +264,27 @@ class _MetadataJWTParser:
             f"JWT signature: {self.metadata_signature}"
         )
 
+        # parse header to get the algorithm
+        header = json.loads(self.header_bytes)
+        try:
+            self.sign_algorithm = str(header["alg"]).capitalize()
+        except KeyError:
+            _err_msg = "invalid JWT, JWT signature algorithm is not defined"
+            logger.error(_err_msg)
+            raise MetadataJWTPayloadInvalid(_err_msg) from None
+
+        try:
+            self._verifier = pyjwt_implemented_algorithms[self.sign_algorithm]
+        except KeyError:
+            _err_msg = f"algorithm not supported by pyjwt: {self.sign_algorithm}"
+            logger.error(_err_msg)
+            raise MetadataJWTPayloadInvalid(_err_msg) from None
+
         # parse metadata payload into OTAMetadata
         self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
         logger.info(f"metadata={self.ota_metadata!r}")
 
-    def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
+    def _verify_metadata_cert(self, cert_to_verify: x509.Certificate) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
@@ -285,56 +302,49 @@ class _MetadataJWTParser:
             return
         logger.info(f"certs prefixes {ca_set_prefix}")
 
-        load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
-
-        try:
-            cert_to_verify = load_pem(metadata_cert)
-        except crypto.Error as e:
-            _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
-            logger.exception(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg) from e
-
         for ca_prefix in sorted(ca_set_prefix):
             certs_list = [
                 self.cert_dir / c.name for c in self.cert_dir.glob(f"{ca_prefix}.*.pem")
             ]
 
-            store = crypto.X509Store()
+            # load all the CA certificates
+            _ca_certs: list[x509.Certificate] = []
             for c in certs_list:
                 logger.info(f"cert {c}")
-                store.add_cert(load_pem(c.read_bytes()))
+                _ca_certs.append(x509.load_pem_x509_certificate(c.read_bytes()))
+
+            # see https://cryptography.io/en/43.0.1/x509/verification/
+            store = x509_verification.Store(_ca_certs)
+            builder = x509_verification.PolicyBuilder().store(store)
+            verifier = builder.build_client_verifier()
 
             try:
-                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
-                store_ctx.verify_certificate()
-                logger.info(f"verfication succeeded against: {ca_prefix}")
+                chain = verifier.verify(cert_to_verify, [])
+                logger.info(f"verfication succeeded against chain: {chain}")
                 return
-            except crypto.X509StoreContextError as e:
+            except x509_verification.VerificationError as e:
                 logger.info(f"verify against {ca_prefix} failed: {e}")
 
-        _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"
+        _err_msg = "metadata sign certificate could not be verified"
         logger.error(_err_msg)
         raise MetadataJWTVerificationFailed(_err_msg)
 
-    def _verify_metadata(self, metadata_cert: bytes):
+    def _verify_metadata(self, metadata_cert: x509.Certificate):
         """Verify metadata against sign certificate.
 
         Raises:
             Raise MetadataJWTVerificationFailed on validation failed.
         """
-        try:
-            cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
-            logger.debug(f"verify data: {self.metadata_bytes=}")
-            crypto.verify(
-                cert,
-                self.metadata_signature,
-                self.metadata_bytes,
-                self.HASH_ALG,
-            )
-        except crypto.Error as e:
-            msg = f"failed to verify metadata against sign cert: {e!r}"
+        _verification_result = self._verifier.verify(
+            msg=self.metadata_bytes,
+            key=metadata_cert.public_key(),
+            sig=self.metadata_signature,
+        )
+
+        if not _verification_result:
+            msg = "failed to verify metadata against sign cert"
             logger.error(msg)
-            raise MetadataJWTVerificationFailed(msg) from e
+            raise MetadataJWTVerificationFailed(msg)
 
     def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
         """Get parsed OTAMetaData.
@@ -350,10 +360,17 @@ class _MetadataJWTParser:
         Raises:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
+        try:
+            loaded_cert = x509.load_pem_x509_certificate(metadata_cert)
+        except Exception as e:
+            _err_msg = f"failed to load certificate: {e!r}"
+            logger.exception(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg) from e
+
         # step1: verify the cert itself against local pinned CA cert
-        self._verify_metadata_cert(metadata_cert)
+        self._verify_metadata_cert(loaded_cert)
         # step2: verify the metadata against input metadata_cert
-        self._verify_metadata(metadata_cert)
+        self._verify_metadata(loaded_cert)
 
 
 # place holder for unset must field in _MetadataJWTClaimsLayout
