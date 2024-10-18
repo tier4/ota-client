@@ -25,7 +25,6 @@ from ota_metadata._file_table.tables import (
 )
 from ota_metadata.legacy.orm import ResourceTable
 
-BATCH_SIZE = 128
 DIGEST_ALG = b"sha256"
 
 # CSV format OTA image metadata files regex pattern
