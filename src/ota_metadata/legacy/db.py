@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import shutil
 import sqlite3
 from functools import partial
 from pathlib import Path
@@ -34,8 +33,13 @@ from simple_sqlite3_orm.utils import (
     lookup_table,
 )
 
-from ota_metadata._file_table.db import init_filetable_db
-from ota_metadata._file_table.orm import RegularFilesORM
+from ota_metadata._file_table.db import (
+    DIR_TABLE_NAME,
+    REGULARFILE_TABLE_NAME,
+    SYMLINK_TABLE_NAME,
+    init_filetable_db,
+)
+from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
 from ota_metadata._file_table.tables import RegularFileTable
 from ota_metadata.legacy.metafile_parser import (
     parse_dir_line,
@@ -120,19 +124,19 @@ def import_regulars_txt(
             resinf_orm.orm_insert_entries(_resinf_batch, or_option="ignore")
 
 
-RESOURCE_TABLE_NAME = "resource_table"
+RESOURCETABLE_NAME = "resource_table"
 
 
 def init_resourcetable_db(
     conn: sqlite3.Connection, *, schema_name: str | None = None
 ) -> None:
-    res_orm = ResourceTableORM(conn, RESOURCE_TABLE_NAME, schema_name=schema_name)
+    res_orm = ResourceTableORM(conn, RESOURCETABLE_NAME, schema_name=schema_name)
     res_orm.orm_create_table()
     res_orm.orm_create_index(index_name="path_idx", index_keys=("path",))
 
 
 def check_resourcetable_db(conn: sqlite3.Connection) -> bool:
-    return check_db_integrity(conn) and lookup_table(conn, RESOURCE_TABLE_NAME)
+    return check_db_integrity(conn) and lookup_table(conn, RESOURCETABLE_NAME)
 
 
 FILETABLE_DB_FNAME = "file-table.sqlite3"
@@ -255,3 +259,32 @@ class OTAImageMetaDB:
             self._conn.close()
             self._conn = None
         self._connected = False
+
+
+class OTAImageMetaORM:
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+        self.dir_orm = DirectoriesORM(conn, table_name=DIR_TABLE_NAME)
+        self.symlink_orm = SymlinksORM(conn, table_name=SYMLINK_TABLE_NAME)
+        self.regularfile_orm = RegularFilesORM(conn, table_name=REGULARFILE_TABLE_NAME)
+
+        self.resource_orm = ResourceTableORM(
+            conn,
+            table_name=RESOURCETABLE_NAME,
+            schema_name=RESOURCE_DB_SCHEMA_NAME,
+        )
+
+    def import_dir_list(self, csv: StrOrPath):
+        import_dirs_txt(self.dir_orm, csv)
+
+    def import_symlink_list(self, csv: StrOrPath):
+        import_symlinks_txt(self.symlink_orm, csv)
+
+    def import_regularfile_list(self, csv: StrOrPath):
+        import_regulars_txt(
+            reginf_orm=self.regularfile_orm,
+            resinf_orm=self.resource_orm,
+            csv_txt=csv,
+        )
