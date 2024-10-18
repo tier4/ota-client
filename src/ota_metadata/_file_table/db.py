@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from simple_sqlite3_orm.utils import check_db_integrity, enable_wal_mode, lookup_table
+from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
 from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
 
@@ -26,16 +26,18 @@ SYMLINK_TABLE_NAME = "symlink_table"
 REGULARFILE_TABLE_NAME = "regular_file_table"
 
 
-def init_filetable_db(conn: sqlite3.Connection) -> None:
-    enable_wal_mode(conn)
-
-    dir_orm = DirectoriesORM(conn, DIR_TABLE_NAME)
+def init_filetable_db(
+    conn: sqlite3.Connection, *, schema_name: str | None = None
+) -> None:
+    dir_orm = DirectoriesORM(conn, DIR_TABLE_NAME, schema_name=schema_name)
     dir_orm.orm_create_table()
 
-    symlink_orm = SymlinksORM(conn, SYMLINK_TABLE_NAME)
+    symlink_orm = SymlinksORM(conn, SYMLINK_TABLE_NAME, schema_name=schema_name)
     symlink_orm.orm_create_table()
 
-    regularfile_orm = RegularFilesORM(conn, REGULARFILE_TABLE_NAME)
+    regularfile_orm = RegularFilesORM(
+        conn, REGULARFILE_TABLE_NAME, schema_name=schema_name
+    )
     regularfile_orm.orm_create_table()
     regularfile_orm.orm_create_index(index_name="digest_idx", index_keys=("digest",))
 
