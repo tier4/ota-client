@@ -22,7 +22,7 @@ from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
 
-class DirectoriesTable(TableSpec):
+class DirectoryTable(TableSpec):
     path: Annotated[
         str,
         TypeAffinityRepr(str),
@@ -49,7 +49,7 @@ class DirectoriesTable(TableSpec):
     ]
 
 
-class SymlinksTable(TableSpec):
+class SymlinkTable(TableSpec):
     path: Annotated[
         str,
         TypeAffinityRepr(str),
@@ -76,7 +76,7 @@ class SymlinksTable(TableSpec):
     ]
 
 
-class RegularFilesTable(TableSpec):
+class RegularFileTable(TableSpec):
     path: Annotated[
         str,
         TypeAffinityRepr(str),

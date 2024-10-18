@@ -18,16 +18,16 @@ from __future__ import annotations
 from simple_sqlite3_orm import ORMBase
 
 from ota_metadata._file_table.tables import (
-    DirectoriesTable,
-    RegularFilesTable,
-    SymlinksTable,
+    DirectoryTable,
+    RegularFileTable,
+    SymlinkTable,
 )
 
 
-class DirectoriesORM(ORMBase[DirectoriesTable]): ...
+class DirectoriesORM(ORMBase[DirectoryTable]): ...
 
 
-class SymlinksORM(ORMBase[SymlinksTable]): ...
+class SymlinksORM(ORMBase[SymlinkTable]): ...
 
 
-class RegularFilesORM(ORMBase[RegularFilesTable]): ...
+class RegularFilesORM(ORMBase[RegularFileTable]): ...
