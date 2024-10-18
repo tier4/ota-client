@@ -19,7 +19,7 @@ import sqlite3
 
 from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
-from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
+from ota_metadata.metadata_store.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
 
 DIR_TABLE_NAME = "dir_table"
 SYMLINK_TABLE_NAME = "symlink_table"

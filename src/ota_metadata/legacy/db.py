@@ -33,20 +33,20 @@ from simple_sqlite3_orm.utils import (
     lookup_table,
 )
 
-from ota_metadata._file_table.db import (
-    DIR_TABLE_NAME,
-    REGULARFILE_TABLE_NAME,
-    SYMLINK_TABLE_NAME,
-    init_filetable_db,
-)
-from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
-from ota_metadata._file_table.tables import RegularFileTable
 from ota_metadata.legacy.metafile_parser import (
     parse_dir_line,
     parse_regular_line,
     parse_symlink_line,
 )
 from ota_metadata.legacy.orm import ResourceTable, ResourceTableORM
+from ota_metadata.metadata_store.db import (
+    DIR_TABLE_NAME,
+    REGULARFILE_TABLE_NAME,
+    SYMLINK_TABLE_NAME,
+    init_filetable_db,
+)
+from ota_metadata.metadata_store.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
+from ota_metadata.metadata_store.tables import RegularFileTable
 from otaclient_common.typing import StrOrPath
 
 BATCH_SIZE = 128

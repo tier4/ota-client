@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from simple_sqlite3_orm import ORMBase
 
-from ota_metadata._file_table.tables import (
+from ota_metadata.metadata_store.tables import (
     DirectoryTable,
     RegularFileTable,
     SymlinkTable,
