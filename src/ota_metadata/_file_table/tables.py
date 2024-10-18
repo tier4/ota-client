@@ -21,6 +21,10 @@ from pydantic import SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
+from otaclient_common import replace_root
+from otaclient_common.common import file_digest
+from otaclient_common.typing import StrOrPath
+
 
 class DirectoryTable(TableSpec):
     path: Annotated[
@@ -110,10 +114,10 @@ class RegularFileTable(TableSpec):
 
     # schema: <algh> || ":" || <digest>
     digest: Annotated[
-        Optional[bytes],
+        bytes,
         TypeAffinityRepr(bytes),
         SkipValidation,
-    ] = None
+    ]
 
     nlink: Annotated[
         Optional[int],
@@ -131,3 +135,15 @@ class RegularFileTable(TableSpec):
         TypeAffinityRepr(bytes),
         SkipValidation,
     ] = None
+
+    def verify_file(self, target_root: StrOrPath = "/") -> bool:
+        """Verify the same file located at <target_root>."""
+        if str(target_root) != "/":
+            _target = replace_root(self.path, "/", target_root)
+        else:
+            _target = self.path
+
+        _digest_alg, _digest_value = self.digest.split(b":", 1)
+        return (
+            file_digest(_target, algorithm=_digest_alg.decode()) == _digest_value.hex()
+        )
