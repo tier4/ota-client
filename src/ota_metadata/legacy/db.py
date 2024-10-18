@@ -16,12 +16,15 @@
 
 from __future__ import annotations
 
+import os.path as os_path
 import re
 from functools import partial
-from typing import Callable
+from typing import Callable, ClassVar, Optional
+from urllib.parse import quote
 
-from simple_sqlite3_orm import ORMBase
+from simple_sqlite3_orm import ConstrainRepr, ORMBase, TableSpec, TypeAffinityRepr
 from simple_sqlite3_orm._table_spec import TableSpecType
+from typing_extensions import Annotated
 
 from ota_metadata._file_table.orm import RegularFilesORM
 from ota_metadata._file_table.tables import (
@@ -29,10 +32,61 @@ from ota_metadata._file_table.tables import (
     RegularFileTable,
     SymlinkTable,
 )
+from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.typing import StrOrPath
 
 BATCH_SIZE = 128
 DIGEST_ALG = b"sha256"
+
+# legacy OTA image specific resource table
+
+
+class ResourceTable(TableSpec):
+    sha256digest: Annotated[
+        str,
+        TypeAffinityRepr(str),
+        ConstrainRepr("PRIMARY KEY"),
+    ]
+    compression_alg: Annotated[Optional[str], TypeAffinityRepr(str)] = None
+
+    # NOTE: for backward compatible with revision 1
+    path: Annotated[
+        Optional[str],
+        TypeAffinityRepr(str),
+    ] = None
+
+    size: Annotated[int, TypeAffinityRepr(int), ConstrainRepr("NOT NULL")]
+
+    SUPPORTED_COMPRESSION_ALG: ClassVar[set[str]] = {"zst", "zstd"}
+
+    def get_download_url(self, url_base: str) -> str:
+        data_url = urljoin_ensure_base(url_base, "data")
+        data_zst_url = urljoin_ensure_base(url_base, "data.zst")
+
+        # v2 OTA image, with compression enabled
+        # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
+        if (
+            compression_alg := self.compression_alg
+        ) and compression_alg in self.SUPPORTED_COMPRESSION_ALG:
+            return urljoin_ensure_base(
+                data_zst_url,
+                # NOTE: hex alpha-digits and dot(.) are not special character
+                #       so no need to use quote here.
+                f"{self.sha256digest}.{compression_alg}",
+            )
+
+        # v1 OTA image, uncompressed and use full path as URL path
+        # example: http://example.com/base_url/data/rootfs/full/path/file
+        if not self.path:
+            raise ValueError("for uncompressed file, file path is required")
+        return urljoin_ensure_base(
+            data_url,
+            quote(str(os_path.relpath(self.path, "/"))),
+        )
+
+
+class ResourceTableORM(ORMBase[ResourceTable]): ...
+
 
 # CSV format OTA image metadata files regex pattern
 
@@ -109,7 +163,7 @@ import_symlinks_txt = partial(
 )
 
 
-def _parse_regular_line(_input: str) -> RegularFileTable:
+def _parse_regular_line(_input: str) -> tuple[RegularFileTable, ResourceTable]:
     _ma = reginf_pa.match(_input.strip())
     assert _ma is not None, f"matching reg_inf failed for {_input}"
 
@@ -126,29 +180,41 @@ def _parse_regular_line(_input: str) -> RegularFileTable:
     if (_inode := _ma.group("inode")) and (_inode := int(_inode)) > 1:
         _new.inode = _inode
 
-    # _new.compressed_alg = (
-    #     _compress_alg if (_compress_alg := _ma.group("compressed_alg")) else ""
-    # )
+    if _compress_alg := _ma.group("compressed_alg"):
+        _new_resource = ResourceTable(
+            sha256digest=_ma.group("hash"),
+            size=_new.size,
+            compression_alg=_compress_alg,
+        )
+    else:
+        _new_resource = ResourceTable(
+            sha256digest=_ma.group("hash"),
+            size=_new.size,
+            path=_new.path,
+        )
 
-    return _new
+    return _new, _new_resource
 
 
 def import_regulars_txt(
     reginf_orm: RegularFilesORM,
-    resinf_orm,
+    resinf_orm: ResourceTableORM,
     csv_txt: StrOrPath,
     *,
-    parser_func=_parse_regular_line,
+    parser_func: Callable[
+        [str], tuple[RegularFileTable, ResourceTable]
+    ] = _parse_regular_line,
 ):
     with open(csv_txt, "r") as f:
         _reginf_batch: list[RegularFileTable] = []
-        _resinf_batch = []
+        _resinf_batch: list[ResourceTable] = []
 
         for line in f:
             _reg_inf, _res_inf = parser_func(line)
             _reginf_batch.append(_reg_inf)
             _resinf_batch.append(_res_inf)
 
+            # NOTE: one file entry matches one resouce
             if len(_reginf_batch) >= BATCH_SIZE:
                 _inserted = reginf_orm.orm_insert_entries(
                     _reginf_batch, or_option="ignore"
@@ -158,6 +224,7 @@ def import_regulars_txt(
                     raise ValueError("insert to database failed")
                 _reginf_batch = []
 
+                # NOTE: for duplicated resource insert, just ignore
                 _inserted = resinf_orm.orm_insert_entries(
                     _resinf_batch, or_option="ignore"
                 )
