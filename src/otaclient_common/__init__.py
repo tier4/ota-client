@@ -44,7 +44,9 @@ def get_file_size(
         return ceil(swapfile_fpath.stat().st_size / _multiplier[units])
 
 
-def replace_root(path: str | Path, old_root: str | Path, new_root: str | Path) -> str:
+def replace_root(
+    path: str | Path, old_root: str | Path | Literal["/"], new_root: str | Path
+) -> str:
     """Replace a <path> relative to <old_root> to <new_root>.
 
     For example, if path="/abc", old_root="/", new_root="/new_root",

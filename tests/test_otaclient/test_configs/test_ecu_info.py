@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address
 from pathlib import Path
 
 import pytest
@@ -39,7 +40,7 @@ from otaclient.configs.ecu_info import (
         ),
         # case 1.2: valid yaml(array), invalid ecu_info
         (
-            ("- this is an\n" "- yaml file that\n" "- contains a array\n"),
+            ("- this is an\n- yaml file that\n- contains a array\n"),
             DEFAULT_ECU_INFO,
         ),
         # case 1.2: invalid yaml
@@ -50,11 +51,16 @@ from otaclient.configs.ecu_info import (
         # --- case 2: single ECU --- #
         # case 2.1: basic single ECU
         (
-            ("format_version: 1\n" 'ecu_id: "autoware"\n' 'ip_addr: "192.168.1.1"\n'),
+            (
+                "format_version: 1\n"
+                'ecu_id: "autoware"\n'
+                'ip_addr: "192.168.1.1"\n'
+                "bootloader: jetson-cboot\n"
+            ),
             ECUInfo(
                 ecu_id="autoware",
-                ip_addr="192.168.1.1",  # type: ignore
-                bootloader=BootloaderType.AUTO_DETECT,
+                ip_addr=IPv4Address("192.168.1.1"),
+                bootloader=BootloaderType.JETSON_CBOOT,
             ),
         ),
         # case 2.2: single ECU with bootloader type specified
@@ -67,7 +73,7 @@ from otaclient.configs.ecu_info import (
             ),
             ECUInfo(
                 ecu_id="autoware",
-                ip_addr="192.168.1.1",  # type: ignore
+                ip_addr=IPv4Address("192.168.1.1"),
                 bootloader=BootloaderType.GRUB,
             ),
         ),
@@ -87,17 +93,17 @@ from otaclient.configs.ecu_info import (
             ),
             ECUInfo(
                 ecu_id="autoware",
-                ip_addr="192.168.1.1",
+                ip_addr=IPv4Address("192.168.1.1"),
                 bootloader=BootloaderType.AUTO_DETECT,
                 available_ecu_ids=["autoware", "p1", "p2"],
                 secondaries=[
                     ECUContact(
                         ecu_id="p1",
-                        ip_addr="192.168.0.11",  # type: ignore
+                        ip_addr=IPv4Address("192.168.0.11"),
                     ),
                     ECUContact(
                         ecu_id="p2",
-                        ip_addr="192.168.0.12",  # type: ignore
+                        ip_addr=IPv4Address("192.168.0.12"),
                     ),
                 ],
             ),
@@ -108,7 +114,7 @@ from otaclient.configs.ecu_info import (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
                 'ip_addr: "192.168.1.1"\n'
-                'bootloader: "grub"\n'
+                'bootloader: "jetson-uefi"\n'
                 'available_ecu_ids: ["autoware", "p1", "p2"]\n'
                 "secondaries: \n"
                 '- ecu_id: "p1"\n'
@@ -118,17 +124,17 @@ from otaclient.configs.ecu_info import (
             ),
             ECUInfo(
                 ecu_id="autoware",
-                ip_addr="192.168.1.1",
-                bootloader=BootloaderType.GRUB,
+                ip_addr=IPv4Address("192.168.1.1"),
+                bootloader=BootloaderType.JETSON_UEFI,
                 available_ecu_ids=["autoware", "p1", "p2"],
                 secondaries=[
                     ECUContact(
                         ecu_id="p1",
-                        ip_addr="192.168.0.11",  # type: ignore
+                        ip_addr=IPv4Address("192.168.0.11"),
                     ),
                     ECUContact(
                         ecu_id="p2",
-                        ip_addr="192.168.0.12",  # type: ignore
+                        ip_addr=IPv4Address("192.168.0.12"),
                     ),
                 ],
             ),

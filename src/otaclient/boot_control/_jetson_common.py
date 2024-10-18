@@ -29,9 +29,12 @@ from typing import Any, NamedTuple, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
+from otaclient_common import replace_root
 from otaclient_common.common import copytree_identical, write_str_to_file_sync
+from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs
+from .configs import jetson_common_cfg
 
 logger = logging.getLogger(__name__)
 
@@ -39,19 +42,32 @@ logger = logging.getLogger(__name__)
 class SlotID(str):
     """slot_id for A/B slots.
 
-    On NVIDIA Jetson device, slot_a has slot_id=0, slot_b has slot_id=1.
-        For slot_a, the slot partition name suffix is "" or "_a".
-        For slot_b, the slot partition name suffix is "_b".
+    slot_a has slot_id=0, slot_b has slot_id=1.
     """
 
     VALID_SLOTS = ["0", "1"]
+    VALID_SLOTS_CHAR = ["A", "B"]
 
     def __new__(cls, _in: str | Self) -> Self:
         if isinstance(_in, cls):
             return _in
         if _in in cls.VALID_SLOTS:
             return str.__new__(cls, _in)
-        raise ValueError(f"{_in=} is not valid slot num, should be '0' or '1'.")
+        if _in in cls.VALID_SLOTS_CHAR:
+            return str.__new__(cls, "0") if _in == "A" else str.__new__(cls, "1")
+        raise ValueError(
+            f"{_in=} is not valid slot num, should be '0'('A') or '1'('B')."
+        )
+
+
+SLOT_A, SLOT_B = SlotID("0"), SlotID("1")
+SLOT_FLIP = {SLOT_A: SLOT_B, SLOT_B: SLOT_A}
+SLOT_PAR_MAP = {SLOT_A: 1, SLOT_B: 2}
+"""SLOT_A: 1, SLOT_B: 2"""
+
+BSP_VERSION_STR_PA = re.compile(
+    r"[rR]?(?P<major_ver>\d+)\.(?P<major_rev>\d+)\.(?P<minor_rev>\d+)"
+)
 
 
 class BSPVersion(NamedTuple):
@@ -66,18 +82,29 @@ class BSPVersion(NamedTuple):
 
     @classmethod
     def parse(cls, _in: str | BSPVersion | Any) -> Self:
-        """Parse "Rxx.yy.z string into BSPVersion."""
+        """Parse BSP version string into BSPVersion.
+
+        Raises:
+            ValueError on invalid input.
+        """
         if isinstance(_in, cls):
             return _in
         if isinstance(_in, str):
-            major_ver, major_rev, minor_rev = _in[1:].split(".")
+            ma = BSP_VERSION_STR_PA.match(_in)
+            if not ma:
+                raise ValueError(f"not a valid bsp version string: {_in}")
+
+            major_ver, major_rev, minor_rev = (
+                ma.group("major_ver"),
+                ma.group("major_rev"),
+                ma.group("minor_rev"),
+            )
             return cls(int(major_ver), int(major_rev), int(minor_rev))
         raise ValueError(f"expect str or BSPVersion instance, get {type(_in)}")
 
-    @staticmethod
-    def dump(to_export: BSPVersion) -> str:
+    def dump(self) -> str:
         """Dump BSPVersion to string as "Rxx.yy.z"."""
-        return f"R{to_export.major_ver}.{to_export.major_rev}.{to_export.minor_rev}"
+        return f"R{self.major_ver}.{self.major_rev}.{self.minor_rev}"
 
 
 BSPVersionStr = Annotated[
@@ -85,10 +112,10 @@ BSPVersionStr = Annotated[
     BeforeValidator(BSPVersion.parse),
     PlainSerializer(BSPVersion.dump, return_type=str),
 ]
-"""BSPVersion in string representation, used by FirmwareBSPVersion model."""
+"""BSPVersion in string representation."""
 
 
-class FirmwareBSPVersion(BaseModel):
+class SlotBSPVersion(BaseModel):
     """
     BSP version string schema: Rxx.yy.z
     """
@@ -96,8 +123,28 @@ class FirmwareBSPVersion(BaseModel):
     slot_a: Optional[BSPVersionStr] = None
     slot_b: Optional[BSPVersionStr] = None
 
+    def set_by_slot(self, slot_id: SlotID, ver: BSPVersion | None) -> None:
+        if slot_id == SLOT_A:
+            self.slot_a = ver
+        elif slot_id == SLOT_B:
+            self.slot_b = ver
+        else:
+            raise ValueError(f"invalid slot_id: {slot_id}")
+
+    def get_by_slot(self, slot_id: SlotID) -> BSPVersion | None:
+        if slot_id == SLOT_A:
+            return self.slot_a
+        elif slot_id == SLOT_B:
+            return self.slot_b
+        else:
+            raise ValueError(f"invalid slot_id: {slot_id}")
+
 
 NVBootctrlTarget = Literal["bootloader", "rootfs"]
+
+
+class NVBootctrlExecError(Exception):
+    """Raised when nvbootctrl command execution failed."""
 
 
 class NVBootctrlCommon:
@@ -124,9 +171,13 @@ class NVBootctrlCommon:
         _cmd: str,
         _slot_id: Optional[SlotID] = None,
         *,
-        check_output,
+        check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
-    ) -> Any:
+    ) -> Any:  # pragma: no cover
+        """
+        Raises:
+            CalledProcessError on return code not equal to 0.
+        """
         cmd = [cls.NVBOOTCTRL]
         if target:
             cmd.extend(["-t", target])
@@ -141,93 +192,134 @@ class NVBootctrlCommon:
         )
         if check_output:
             return res.stdout.decode()
-        return
 
     @classmethod
-    def get_current_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
-        """Prints currently running SLOT."""
+    def get_current_slot(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> SlotID:  # pragma: no cover
+        """Prints currently running SLOT.
+
+        Raises:
+            NVBootctrlExecError on failed to get current slot.
+        """
         cmd = "get-current-slot"
-        res = cls._nvbootctrl(cmd, check_output=True, target=target)
-        assert isinstance(res, str), f"invalid output from get-current-slot: {res}"
-        return SlotID(res.strip())
+        try:
+            res = cls._nvbootctrl(cmd, check_output=True, target=target)
+            return SlotID(res.strip())
+        except Exception as e:
+            raise NVBootctrlExecError from e
 
     @classmethod
-    def get_standby_slot(cls, *, target: Optional[NVBootctrlTarget] = None) -> SlotID:
+    def get_standby_slot(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> SlotID:  # pragma: no cover
         """Prints standby SLOT.
 
         NOTE: this method is implemented with nvbootctrl get-current-slot.
+
+        Raises:
+            NVBootctrlExecError on failed to get current slot.
         """
         current_slot = cls.get_current_slot(target=target)
-        return SlotID("0") if current_slot == "1" else SlotID("1")
+        return SLOT_FLIP[current_slot]
 
     @classmethod
     def set_active_boot_slot(
         cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
-    ) -> None:
-        """On next boot, load and execute SLOT."""
+    ) -> None:  # pragma: no cover
+        """On next boot, load and execute SLOT.
+
+        Raises:
+            NVBootctrlExecError on nvbootctrl call failed.
+        """
         cmd = "set-active-boot-slot"
-        return cls._nvbootctrl(cmd, SlotID(slot_id), check_output=False, target=target)
+        try:
+            return cls._nvbootctrl(
+                cmd, SlotID(slot_id), check_output=False, target=target
+            )
+        except subprocess.CalledProcessError as e:
+            raise NVBootctrlExecError from e
 
     @classmethod
-    def dump_slots_info(cls, *, target: Optional[NVBootctrlTarget] = None) -> str:
-        """Prints info for slots."""
+    def dump_slots_info(
+        cls, *, target: Optional[NVBootctrlTarget] = None
+    ) -> str:  # pragma: no cover
+        """Prints info for slots.
+
+        Raises:
+            NVBootctrlExecError on nvbootctrl call failed.
+        """
         cmd = "dump-slots-info"
-        return cls._nvbootctrl(cmd, target=target, check_output=True)
+        try:
+            return cls._nvbootctrl(cmd, target=target, check_output=True)
+        except subprocess.CalledProcessError as e:
+            raise NVBootctrlExecError from e
 
 
 class FirmwareBSPVersionControl:
-    """firmware_bsp_version ota-status file for tracking firmware version.
+    """firmware_bsp_version ota-status file for tracking BSP version.
 
-    The firmware BSP version is stored in /boot/ota-status/firmware_bsp_version json file,
+    The BSP version is stored in /boot/ota-status/firmware_bsp_version json file,
         tracking the firmware BSP version for each slot.
+    NOTE that we only cares about firmware BSP version.
+
+    Unfortunately, we don't have method to detect standby slot's firwmare vesrion,
+        when the firmware_bsp_version file is not presented(typical case when we have newly setup device),
+        we ASSUME that both slots are running the same BSP version of firmware.
 
     Each slot should keep the same firmware_bsp_version file, this file is passed to standby slot
-        during OTA update.
+        during OTA update as it.
     """
 
     def __init__(
-        self, current_firmware_bsp_vf: Path, standby_firmware_bsp_vf: Path
+        self,
+        current_slot: SlotID,
+        current_slot_bsp_ver: BSPVersion,
+        *,
+        current_bsp_version_file: Path,
     ) -> None:
-        self._current_fw_bsp_vf = current_firmware_bsp_vf
-        self._standby_fw_bsp_vf = standby_firmware_bsp_vf
+        self.current_slot, self.standby_slot = current_slot, SLOT_FLIP[current_slot]
 
-        self._version = FirmwareBSPVersion()
+        self._version = SlotBSPVersion()
         try:
-            self._version = _version = FirmwareBSPVersion.model_validate_json(
-                self._current_fw_bsp_vf.read_text()
+            self._version = SlotBSPVersion.model_validate_json(
+                current_bsp_version_file.read_text()
             )
-            logger.info(f"firmware_version: {_version}")
         except Exception as e:
+            logger.warning(f"invalid or missing bsp_verion file: {e!r}")
+            current_bsp_version_file.unlink(missing_ok=True)
             logger.warning(
-                f"invalid or missing firmware_bsp_verion file, removed: {e!r}"
+                "assume standby slot is running the same version of firmware"
             )
-            self._current_fw_bsp_vf.unlink(missing_ok=True)
+            self._version.set_by_slot(self.standby_slot, current_slot_bsp_ver)
 
-    def write_current_firmware_bsp_version(self) -> None:
+        # NOTE: only check the standby slot's firmware BSP version info from file,
+        #   for current slot, always trust the value from nvbootctrl.
+        self._version.set_by_slot(current_slot, current_slot_bsp_ver)
+
+    def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
         """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_sync(self._current_fw_bsp_vf, self._version.model_dump_json())
+        write_str_to_file_sync(fw_bsp_fpath, self._version.model_dump_json())
 
-    def write_standby_firmware_bsp_version(self) -> None:
-        """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_sync(self._standby_fw_bsp_vf, self._version.model_dump_json())
+    @property
+    def current_slot_bsp_ver(self) -> BSPVersion:
+        assert (res := self._version.get_by_slot(self.current_slot))
+        return res
 
-    def get_version_by_slot(self, slot_id: SlotID) -> Optional[BSPVersion]:
-        """Get <slot_id> slot's firmware version from memory."""
-        if slot_id == "0":
-            return self._version.slot_a
-        return self._version.slot_b
+    @current_slot_bsp_ver.setter
+    def current_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
+        self._version.set_by_slot(self.current_slot, bsp_ver)
 
-    def set_version_by_slot(
-        self, slot_id: SlotID, version: Optional[BSPVersion]
-    ) -> None:
-        """Set <slot_id> slot's firmware version into memory."""
-        if slot_id == "0":
-            self._version.slot_a = version
-        else:
-            self._version.slot_b = version
+    @property
+    def standby_slot_bsp_ver(self) -> BSPVersion | None:
+        return self._version.get_by_slot(self.standby_slot)
+
+    @standby_slot_bsp_ver.setter
+    def standby_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
+        self._version.set_by_slot(self.standby_slot, bsp_ver)
 
 
-BSP_VER_PA = re.compile(
+NV_TEGRA_RELEASE_PA = re.compile(
     (
         r"# R(?P<major_ver>\d+) \(\w+\), REVISION: (?P<major_rev>\d+)\.(?P<minor_rev>\d+), "
         r"GCID: (?P<gcid>\d+), BOARD: (?P<board>\w+), EABI: (?P<eabi>\w+)"
@@ -236,18 +328,48 @@ BSP_VER_PA = re.compile(
 """Example: # R32 (release), REVISION: 6.1, GCID: 27863751, BOARD: t186ref, EABI: aarch64, DATE: Mon Jul 26 19:36:31 UTC 2021 """
 
 
-def parse_bsp_version(nv_tegra_release: str) -> BSPVersion:
+def parse_nv_tegra_release(nv_tegra_release: str) -> BSPVersion:
     """Parse BSP version from contents of /etc/nv_tegra_release.
 
     see https://developer.nvidia.com/embedded/jetson-linux-archive for BSP version history.
     """
-    ma = BSP_VER_PA.match(nv_tegra_release)
+    ma = NV_TEGRA_RELEASE_PA.match(nv_tegra_release)
     assert ma, f"invalid nv_tegra_release content: {nv_tegra_release}"
     return BSPVersion(
         int(ma.group("major_ver")),
         int(ma.group("major_rev")),
         int(ma.group("minor_rev")),
     )
+
+
+def detect_rootfs_bsp_version(rootfs: StrOrPath) -> BSPVersion:
+    """Detect rootfs BSP version on <rootfs>.
+
+    Raises:
+        ValueError on failed detection.
+
+    Returns:
+        BSPversion of the <rootfs>.
+    """
+    nv_tegra_release_fpath = replace_root(
+        jetson_common_cfg.NV_TEGRA_RELEASE_FPATH,
+        "/",
+        rootfs,
+    )
+    try:
+        return parse_nv_tegra_release(Path(nv_tegra_release_fpath).read_text())
+    except Exception as e:
+        _err_msg = f"failed to detect rootfs BSP version at: {rootfs}: {e!r}"
+        logger.error(_err_msg)
+        raise ValueError(_err_msg) from e
+
+
+def get_nvbootctrl_conf_tnspec(nvbootctrl_conf: str) -> str | None:
+    """Get the TNSPEC field from nv_boot_control conf file."""
+    for line in nvbootctrl_conf.splitlines():
+        if line.strip().startswith("TNSPEC"):
+            _, tnspec = line.split(" ", maxsplit=1)
+            return tnspec.strip()
 
 
 def update_extlinux_cfg(_input: str, partuuid: str) -> str:
@@ -258,7 +380,7 @@ def update_extlinux_cfg(_input: str, partuuid: str) -> str:
         append_l: str = ma.group(0)
         if append_l.startswith("#"):
             return append_l
-        res, n = re.compile(r"root=[\w\-=]*").subn(repl, append_l)
+        res, n = re.compile(r"root=[^\s]*").subn(repl, append_l)
         if not n:  # this APPEND line doesn't contain root= placeholder
             res = f"{append_l} {repl}"
 
@@ -270,9 +392,9 @@ def update_extlinux_cfg(_input: str, partuuid: str) -> str:
 
 def copy_standby_slot_boot_to_internal_emmc(
     *,
-    internal_emmc_mp: Path | str,
-    internal_emmc_devpath: Path | str,
-    standby_slot_boot_dirpath: Path | str,
+    internal_emmc_mp: StrOrPath,
+    internal_emmc_devpath: StrOrPath,
+    standby_slot_boot_dirpath: StrOrPath,
 ) -> None:
     """Copy the standby slot's /boot to internal emmc dev.
 
@@ -318,7 +440,6 @@ def preserve_ota_config_files_to_standby(
             f"{active_slot_ota_dirpath} doesn't exist, skip preserve /boot/ota folder."
         )
         return
-    # TODO: (20240411) reconsidering should we preserve /boot/ota?
     copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
 
 
@@ -345,3 +466,42 @@ def update_standby_slot_extlinux_cfg(
             standby_slot_partuuid,
         ),
     )
+
+
+def detect_external_rootdev(parent_devpath: StrOrPath) -> bool:
+    """Check whether the ECU is using external device as root device or not.
+
+    Returns:
+        True if device is booted from external NVMe SSD, False if device is booted
+            from internal emmc device.
+    """
+    parent_devname = Path(parent_devpath).name
+    if parent_devname.startswith(jetson_common_cfg.INTERNAL_EMMC_DEVNAME):
+        logger.info(f"device boots from internal emmc: {parent_devpath}")
+        return False
+    logger.info(f"device boots from external device: {parent_devpath}")
+    return True
+
+
+def get_partition_devpath(parent_devpath: StrOrPath, partition_id: int) -> str:
+    """Get partition devpath from <parent_devpath> and <partition_id>.
+
+    For internal emmc like /dev/mmcblk0 with partition_id 1, we will get:
+        /dev/mmcblk0p1
+    For external NVMe SSD like /dev/nvme0n1 with partition_id 1, we will get:
+        /dev/nvme0n1p1
+    For other types of device, including USB drive, like /dev/sda with partition_id 1,
+        we will get: /dev/sda1
+    """
+    parent_devpath = str(parent_devpath).strip().rstrip("/")
+
+    parent_devname = Path(parent_devpath).name
+    if parent_devname.startswith(
+        jetson_common_cfg.MMCBLK_DEV_PREFIX
+    ) or parent_devname.startswith(jetson_common_cfg.NVMESSD_DEV_PREFIX):
+        return f"{parent_devpath}p{partition_id}"
+    if parent_devname.startswith(jetson_common_cfg.SDX_DEV_PREFIX):
+        return f"{parent_devpath}{partition_id}"
+
+    logger.warning(f"unexpected {parent_devname=}, treat it the same as sdx type")
+    return f"{parent_devpath}{partition_id}"

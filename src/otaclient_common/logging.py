@@ -37,7 +37,7 @@ class BurstSuppressFilter(logging.Filter):
         self._round_reach_burst_limit = False
         self._round_warned = False
 
-    def filter(self, _: logging.LogRecord) -> bool:
+    def filter(self, record: logging.LogRecord) -> bool:
         upper_logger = logging.getLogger(self.upper_logger_name)
         if (cur_timestamp := int(time.time())) > self._round_start + self.round_length:
             if self._round_warned:

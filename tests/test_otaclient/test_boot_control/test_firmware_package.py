@@ -25,7 +25,7 @@ from otaclient.boot_control._firmware_package import (
     FirmwareUpdateRequest,
     HardwareType,
     NVIDIAFirmwareCompat,
-    NVIDIAUEFIFirmwareSpec,
+    NVIDIAFirmwareSpec,
     PayloadFileLocation,
     PayloadType,
 )
@@ -50,8 +50,8 @@ from otaclient.boot_control._firmware_package import (
         ),
     ),
 )
-def test_digest_value_parsing(_in, _expected):
-    _parsed = DigestValue(_in)
+def test_digest_value_parsing(_in, _expected: list[str]):
+    _parsed = DigestValue.parse(_in)
     assert _parsed.algorithm == _expected[0]
     assert _parsed.digest == _expected[1]
 
@@ -67,13 +67,13 @@ def test_digest_value_parsing(_in, _expected):
             _in := "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d",
             [
                 "blob",
-                DigestValue(_in),
+                DigestValue.parse(_in),
             ],
         ),
     ),
 )
-def test_payload_file_location(_in, _expected):
-    _parsed = PayloadFileLocation(_in)
+def test_payload_file_location(_in, _expected: list[str] | list[str | DigestValue]):
+    _parsed = PayloadFileLocation.parse(_in)
     assert _parsed.location_type == _expected[0]
     assert _parsed.location_path == _expected[1]
 
@@ -133,6 +133,10 @@ firmware_packages:
     file_location: file:///opt/ota/firmware/BOOTAA64.efi
     type: UEFI-BOOT-APP
     digest: "sha256:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e"
+  - payload_name: some_payload_in_blob_storage
+    file_location: "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
+    type: UEFI-CAPSULE
+    digest: "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
 """
 
 EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
@@ -140,7 +144,7 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
     hardware_type=HardwareType("nvidia_jetson"),
     hardware_series="ADLINK RQX",
     hardware_model="rqx580",
-    firmware_spec=NVIDIAUEFIFirmwareSpec(
+    firmware_spec=NVIDIAFirmwareSpec(
         bsp_version="r35.4.1",
         firmware_compat=NVIDIAFirmwareCompat(
             board_id="2888",
@@ -153,20 +157,32 @@ EXAMPLE_FIRMWARE_MANIFEST_PARSED = FirmwareManifest(
     firmware_packages=[
         FirmwarePackage(
             payload_name="bl_only_payload.Cap",
-            file_location=PayloadFileLocation(
+            file_location=PayloadFileLocation.parse(
                 "file:///opt/ota/firmware/bl_only_payload.Cap"
             ),
             type=PayloadType("UEFI-CAPSULE"),
-            digest=DigestValue(
+            digest=DigestValue.parse(
                 "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d"
             ),
         ),
         FirmwarePackage(
             payload_name="BOOTAA64.efi",
-            file_location=PayloadFileLocation("file:///opt/ota/firmware/BOOTAA64.efi"),
+            file_location=PayloadFileLocation.parse(
+                "file:///opt/ota/firmware/BOOTAA64.efi"
+            ),
             type=PayloadType("UEFI-BOOT-APP"),
-            digest=DigestValue(
+            digest=DigestValue.parse(
                 "sha256:ac17457772666351154a5952e3b87851a6398da2afcf3a38bedfc0925760bb0e"
+            ),
+        ),
+        FirmwarePackage(
+            payload_name="some_payload_in_blob_storage",
+            file_location=PayloadFileLocation.parse(
+                "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
+            ),
+            type=PayloadType("UEFI-CAPSULE"),
+            digest=DigestValue.parse(
+                "sha256:55f91b2fc9c397cc83ca7c23e627d09b542ae02381db3ca480e0242fca14e935"
             ),
         ),
     ],

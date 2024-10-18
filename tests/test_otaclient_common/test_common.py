@@ -26,6 +26,7 @@ from typing import Tuple
 
 import pytest
 
+from otaclient_common import replace_root
 from otaclient_common.common import (
     copytree_identical,
     ensure_otaproxy_start,
@@ -347,3 +348,24 @@ class TestSubprocessCall:
 
         output = subprocess_check_output(cmd, raise_exception=True)
         assert output == self.TEST_FILE_CONTENTS
+
+
+@pytest.mark.parametrize(
+    "path, old_root, new_root, expected",
+    (
+        (
+            "/a/canonical/fpath",
+            "/",
+            "/mnt/standby_mp",
+            "/mnt/standby_mp/a/canonical/fpath",
+        ),
+        (
+            "/a/canonical/dpath/",
+            "/",
+            "/mnt/standby_mp/",
+            "/mnt/standby_mp/a/canonical/dpath/",
+        ),
+    ),
+)
+def get_replace_root(path, old_root, new_root, expected):
+    assert replace_root(path, old_root, new_root) == expected

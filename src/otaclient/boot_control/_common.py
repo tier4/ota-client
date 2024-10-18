@@ -503,7 +503,7 @@ class OTAStatusFilesControl:
             _loaded_ota_status = None
 
         # initialize ota_status files if not presented/incompleted/invalid
-        if not _loaded_ota_status:
+        if _loaded_ota_status is None:
             logger.info(
                 "ota_status files incompleted/not presented, "
                 f"initializing and set/store status to {api_types.StatusOta.INITIALIZED.name}..."
