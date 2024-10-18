@@ -16,13 +16,24 @@
 
 from __future__ import annotations
 
+import sqlite3
 from functools import partial
+from pathlib import Path
 from typing import Callable
 
 from simple_sqlite3_orm import ORMBase
 from simple_sqlite3_orm._table_spec import TableSpecType
+from simple_sqlite3_orm.utils import (
+    attach_database,
+    check_db_integrity,
+    enable_mmap,
+    enable_tmp_store_at_memory,
+    enable_wal_mode,
+    lookup_table,
+)
 
-from ota_metadata._file_table.orm import RegularFilesORM
+from ota_metadata._file_table.db import init_filetable_db
+from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
 from ota_metadata._file_table.tables import RegularFileTable
 from ota_metadata.legacy.metafile_parser import (
     parse_dir_line,
@@ -105,3 +116,89 @@ def import_regulars_txt(
             reginf_orm.orm_insert_entries(_reginf_batch, or_option="ignore")
         if _resinf_batch:
             resinf_orm.orm_insert_entries(_resinf_batch, or_option="ignore")
+
+
+RESOURCE_TABLE_NAME = "resource_table"
+
+
+def init_resourcetable_db(
+    conn: sqlite3.Connection, *, schema_name: str | None = None
+) -> None:
+    res_orm = ResourceTableORM(conn, RESOURCE_TABLE_NAME, schema_name=schema_name)
+    res_orm.orm_create_table()
+    res_orm.orm_create_index(index_name="path_idx", index_keys=("path",))
+
+
+def check_resourcetable_db(conn: sqlite3.Connection) -> bool:
+    return check_db_integrity(conn) and lookup_table(conn, RESOURCE_TABLE_NAME)
+
+
+FILE_TABLE_DB_FNAME = "file-table.sqlite3"
+RESOURCE_TABLE_DB_FNAME = "resource-table.sqlite3"
+RESOURCE_DB_SCHEMA_NAME = "resource_db"
+ZST_COMPRESSION_EXT = ".zst"
+
+
+class OTAImageMetaDB:
+
+    def __init__(self, meta_folder: StrOrPath) -> None:
+        self.meta_folder = meta_folder = Path(meta_folder)
+        self.file_table_db_f = meta_folder / FILE_TABLE_DB_FNAME
+        self.resource_table_db_f = meta_folder / RESOURCE_TABLE_DB_FNAME
+
+        self._connected: bool = False
+        self._conn: sqlite3.Connection | None = None
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    @property
+    def conn(self) -> sqlite3.Connection | None:
+        return self._conn
+
+    def _connect_db(self) -> sqlite3.Connection:
+        self._conn = conn = sqlite3.connect(self.file_table_db_f)
+        attach_database(
+            conn,
+            str(self.resource_table_db_f),
+            schema_name=RESOURCE_DB_SCHEMA_NAME,
+        )
+        enable_mmap(conn)
+        enable_wal_mode(conn)
+        enable_tmp_store_at_memory(conn)
+
+        return conn
+
+    # APIs
+
+    def init_db(self) -> sqlite3.Connection:
+        """Init and connect the database."""
+        if self._connected:
+            raise ValueError("cannot init db when db is connected")
+
+        self.file_table_db_f.unlink(missing_ok=True)
+        self.resource_table_db_f.unlink(missing_ok=True)
+
+        self._conn = conn = self._connect_db()
+        self._connected = True
+        init_filetable_db(conn)
+        init_resourcetable_db(conn, schema_name=RESOURCE_DB_SCHEMA_NAME)
+
+        return conn
+
+    def connect_db(self, *, read_only: bool = False) -> sqlite3.Connection:
+        """
+        Returns:
+            A tuple of connections to filetable and resourcetable.
+        """
+        if self._connected:
+            assert self._conn
+            return self._conn
+        return self.connect_db(read_only=read_only)
+
+    def close_db(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+        self._connected = False
