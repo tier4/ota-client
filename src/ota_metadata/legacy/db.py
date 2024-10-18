@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from functools import partial
 from pathlib import Path
 from typing import Callable
 
+import zstandard as zstd
 from simple_sqlite3_orm import ORMBase
 from simple_sqlite3_orm._table_spec import TableSpecType
 from simple_sqlite3_orm.utils import (
@@ -33,7 +35,7 @@ from simple_sqlite3_orm.utils import (
 )
 
 from ota_metadata._file_table.db import init_filetable_db
-from ota_metadata._file_table.orm import DirectoriesORM, RegularFilesORM, SymlinksORM
+from ota_metadata._file_table.orm import RegularFilesORM
 from ota_metadata._file_table.tables import RegularFileTable
 from ota_metadata.legacy.metafile_parser import (
     parse_dir_line,
@@ -133,18 +135,22 @@ def check_resourcetable_db(conn: sqlite3.Connection) -> bool:
     return check_db_integrity(conn) and lookup_table(conn, RESOURCE_TABLE_NAME)
 
 
-FILE_TABLE_DB_FNAME = "file-table.sqlite3"
-RESOURCE_TABLE_DB_FNAME = "resource-table.sqlite3"
+FILETABLE_DB_FNAME = "file-table.sqlite3"
+RESOURCETABLE_DB_FNAME = "resource-table.sqlite3"
+FILETABLE_DB_ZST_FNAME = f"{FILETABLE_DB_FNAME}.zst"
+RESOURCETABLE_DB_ZST_FNAME = f"{RESOURCETABLE_DB_FNAME}.zst"
+
 RESOURCE_DB_SCHEMA_NAME = "resource_db"
-ZST_COMPRESSION_EXT = ".zst"
+ZST_COMPRESSION_LEVEL = 19
 
 
 class OTAImageMetaDB:
+    """Helper class for operating with OTA image metadata folder."""
 
     def __init__(self, meta_folder: StrOrPath) -> None:
-        self.meta_folder = meta_folder = Path(meta_folder)
-        self.file_table_db_f = meta_folder / FILE_TABLE_DB_FNAME
-        self.resource_table_db_f = meta_folder / RESOURCE_TABLE_DB_FNAME
+        self.metadata_folder = meta_folder = Path(meta_folder)
+        self.ftable_db = meta_folder / FILETABLE_DB_FNAME
+        self.rtable_db = meta_folder / RESOURCETABLE_DB_FNAME
 
         self._connected: bool = False
         self._conn: sqlite3.Connection | None = None
@@ -158,10 +164,10 @@ class OTAImageMetaDB:
         return self._conn
 
     def _connect_db(self) -> sqlite3.Connection:
-        self._conn = conn = sqlite3.connect(self.file_table_db_f)
+        self._conn = conn = sqlite3.connect(self.ftable_db)
         attach_database(
             conn,
-            str(self.resource_table_db_f),
+            str(self.rtable_db),
             schema_name=RESOURCE_DB_SCHEMA_NAME,
         )
         enable_mmap(conn)
@@ -172,13 +178,64 @@ class OTAImageMetaDB:
 
     # APIs
 
+    def export_db_zst(
+        self,
+        metadata_folder: StrOrPath,
+        *,
+        compression_level: int = ZST_COMPRESSION_LEVEL,
+    ) -> str:
+        """Export zst compressed db archive to <metadata_folder>.
+
+        Export the db in current metadata working dir to a new location.
+        """
+        if self._connected:
+            raise ValueError("cannot export db when db is opened")
+        metadata_folder = Path(metadata_folder)
+
+        _zst_ctx = zstd.ZstdCompressor(
+            level=compression_level,
+            write_checksum=True,
+            threads=-1,
+        )
+        with open(self.ftable_db, "rb") as src, open(
+            metadata_folder / FILETABLE_DB_ZST_FNAME, "wb"
+        ) as dst:
+            _zst_ctx.copy_stream(src, dst)
+        with open(self.rtable_db, "rb") as src, open(
+            metadata_folder / RESOURCETABLE_DB_ZST_FNAME, "wb"
+        ) as dst:
+            _zst_ctx.copy_stream(src, dst)
+
+        return str(metadata_folder)
+
+    def import_db_zst(self, metadata_folder: StrOrPath) -> str:
+        """Import db from zst compressed archive at <metadata_folder>.
+
+        Use the zst db archives at <metadata_folder> to setup the current metadata working dir.
+        """
+        if self._connected:
+            raise ValueError("cannot import db when db is opened")
+        metadata_folder = Path(metadata_folder)
+
+        _zst_ctx = zstd.ZstdDecompressor()
+        with open(metadata_folder / FILETABLE_DB_ZST_FNAME, "rb") as src, open(
+            self.ftable_db, "wb"
+        ) as dst:
+            _zst_ctx.copy_stream(src, dst)
+        with open(metadata_folder / RESOURCETABLE_DB_ZST_FNAME, "rb") as src, open(
+            self.rtable_db, "wb"
+        ) as dst:
+            _zst_ctx.copy_stream(src, dst)
+
+        return str(metadata_folder)
+
     def init_db(self) -> sqlite3.Connection:
         """Init and connect the database."""
         if self._connected:
             raise ValueError("cannot init db when db is connected")
 
-        self.file_table_db_f.unlink(missing_ok=True)
-        self.resource_table_db_f.unlink(missing_ok=True)
+        self.ftable_db.unlink(missing_ok=True)
+        self.rtable_db.unlink(missing_ok=True)
 
         self._conn = conn = self._connect_db()
         self._connected = True
@@ -187,15 +244,11 @@ class OTAImageMetaDB:
 
         return conn
 
-    def connect_db(self, *, read_only: bool = False) -> sqlite3.Connection:
-        """
-        Returns:
-            A tuple of connections to filetable and resourcetable.
-        """
+    def connect_db(self) -> sqlite3.Connection:
         if self._connected:
             assert self._conn
             return self._conn
-        return self.connect_db(read_only=read_only)
+        return self._connect_db()
 
     def close_db(self) -> None:
         if self._conn:
