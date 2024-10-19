@@ -15,16 +15,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import atexit
 import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
 import multiprocessing.synchronize as mp_sync
-import os
 import shutil
 import signal
-import sys
 import threading
 import time
 from functools import partial
@@ -34,16 +31,13 @@ from typing import NoReturn
 
 import otaclient
 from otaclient import __version__
-from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info, server_cfg
-from otaclient.configs.proxy_info import proxy_info
+from otaclient.configs.cfg import proxy_info
 from otaclient.log_setting import configure_logging
 from otaclient.otaproxy import (
     otaproxy_running,
     shutdown_otaproxy_server,
     start_otaproxy_server,
 )
-from otaclient_common.common import read_str_from_file, write_str_to_file_sync
 
 # configure logging before any code being executed
 configure_logging()
@@ -88,89 +82,6 @@ def _mainp_signterm_handler(signame, frame) -> NoReturn:
 
 def _subp_signterm_handler(signame, frame) -> NoReturn:
     raise KeyboardInterrupt("receives SIGTERM, exits ...")
-
-
-def _check_other_otaclient():
-    """Check if there is another otaclient instance running."""
-    # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE):
-        # running process will have a folder under /proc
-        if Path(f"/proc/{pid}").is_dir():
-            logger.error(f"another instance of ota-client({pid=}) is running, abort")
-            sys.exit()
-        else:
-            logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
-    # create run dir
-    _run_dir = Path(cfg.RUN_DIR)
-    _run_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(_run_dir, 0o550)
-    # write our pid to the lock file
-    write_str_to_file_sync(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
-
-
-def apiv2_server_main(
-    *,
-    status_report_queue: mp_Queue,
-    operation_push_queue: mp_Queue,
-    operation_ack_queue: mp_Queue,
-    any_requires_network: mp_sync.Event,
-    no_child_ecus_in_update: mp_sync.Event,
-    global_shutdown_flag: mp_sync.Event,
-    all_ecus_succeeded: mp_sync.Event,
-):  # pragma: no cover
-    """OTA API server process main.
-
-    NOTE that the imports within this function have side-effect, so we don't
-        import them globally.
-    """
-    import grpc.aio as grpc_aio
-
-    import otaclient
-    from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
-    from otaclient.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
-    from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
-
-    global _main_global_shutdown_flag
-    _main_global_shutdown_flag = global_shutdown_flag
-
-    otaclient._global_shutdown_flag = global_shutdown_flag
-    # NOTE: spawn will not let the child process inherits the signal handler
-    signal.signal(signal.SIGTERM, _subp_signterm_handler)
-
-    async def _main():
-        server = grpc_aio.server()
-        server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
-
-        ecu_status_storage = ECUStatusStorage(
-            any_requires_network=any_requires_network,
-            no_child_ecus_in_update=no_child_ecus_in_update,
-            all_ecus_succeeded=all_ecus_succeeded,
-        )
-        ecu_tracker = ECUTracker(
-            ecu_status_storage=ecu_status_storage,
-            status_report_queue=status_report_queue,
-        )
-        ecu_tracker.start_tracking()
-
-        # mount API v2 servicer
-        v2_grpc.add_OtaClientServiceServicer_to_server(
-            server=server,
-            servicer=APIv2Servicer(
-                ecu_status_storage=ecu_status_storage,
-                operation_push_queue=operation_push_queue,
-                operation_ack_queue=operation_ack_queue,
-            ),
-        )
-
-        logger.info("OTA API server started")
-        await server.start()
-        try:
-            await server.wait_for_termination()
-        finally:
-            await server.stop(1)
-
-    asyncio.run(_main())
 
 
 def ota_app_main(

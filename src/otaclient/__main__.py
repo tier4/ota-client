@@ -18,13 +18,16 @@ import logging
 from otaclient import __version__
 from otaclient.configs.cfg import ecu_info
 from otaclient.log_setting import configure_logging
+from otaclient.main import main
+from otaclient.utils import check_other_otaclient, create_otaclient_rundir
 
 logger = logging.getLogger("otaclient")
 
 configure_logging()
 
 if __name__ == "__main__":  # pragma: no cover
-    from otaclient.grpc.main import main
+    check_other_otaclient()
+    create_otaclient_rundir()
 
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")

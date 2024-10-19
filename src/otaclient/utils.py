@@ -26,7 +26,7 @@ from otaclient_common.typing import StrOrPath
 logger = logging.getLogger(__name__)
 
 
-def check_other_otaclient(pid_fpath: StrOrPath):
+def check_other_otaclient(pid_fpath: StrOrPath = "/run/otaclient.pid"):
     """Check if there is another otaclient instance running."""
     pid_fpath = Path(pid_fpath)
 
