@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-import tomllib
+import tomllib  # type: ignore[import]
 
 
 def gen_requirements_txt(pyproject_cfg: dict[str, Any]) -> str:
