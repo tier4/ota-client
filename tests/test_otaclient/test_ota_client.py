@@ -39,7 +39,7 @@ from otaclient.app.ota_client import (
 )
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control.configs import BootloaderType
-from otaclient.configs.ecu_info import ECUInfo
+from otaclient.configs import ECUInfo
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
 from otaclient_api.v2 import types as api_types

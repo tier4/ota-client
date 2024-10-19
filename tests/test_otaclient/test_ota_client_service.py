@@ -22,7 +22,7 @@ import pytest_mock
 
 from otaclient.app.configs import server_cfg
 from otaclient.app.main import create_otaclient_grpc_server
-from otaclient.configs.ecu_info import ECUInfo
+from otaclient.configs import ECUInfo
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
 from tests.utils import compare_message
