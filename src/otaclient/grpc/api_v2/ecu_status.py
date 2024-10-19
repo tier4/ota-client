@@ -23,10 +23,10 @@ import time
 from itertools import chain
 from typing import Dict, Iterable, TypeVar
 
-from otaclient.api_v2._types import convert_status
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.configs import ECUContact
+from otaclient.grpc.api_v2._types import convert_status
 from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall

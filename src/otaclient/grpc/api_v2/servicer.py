@@ -25,11 +25,12 @@ from queue import Queue
 from typing import Dict
 
 from otaclient._types import OTAStatus, UpdatePhase
-from otaclient.api_v2.ecu_status import ECUStatusStorage, ECUTracker
-from otaclient.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info, proxy_info, server_cfg
+from otaclient.app.configs import server_cfg
 from otaclient.configs import ECUContact
+from otaclient.configs.cfg import ecu_info, proxy_info
+from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage, ECUTracker
+from otaclient.grpc.api_v2.otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.otaclient import OTAClient, OTAClientControlFlags
 from otaclient.stats_monitor import OTAClientStatsCollector
 from otaclient_api.v2 import types as api_types
