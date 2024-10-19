@@ -794,7 +794,7 @@ class GrubController(BootControllerProtocol):
         )
 
         # standby partition fstab (to be merged)
-        fstab_standby = read_str_from_file(standby_slot_fstab)
+        fstab_standby = read_str_from_file(standby_slot_fstab, _default="")
         fstab_standby_dict: Dict[str, re.Match] = {}
 
         for line in fstab_standby.splitlines():
@@ -804,7 +804,7 @@ class GrubController(BootControllerProtocol):
 
         # merge entries
         merged: List[str] = []
-        fstab_active = read_str_from_file(active_slot_fstab)
+        fstab_active = read_str_from_file(active_slot_fstab, _default="")
         for line in fstab_active.splitlines():
             if ma := fstab_entry_pa.match(line):
                 mp = ma.group("mount_point")

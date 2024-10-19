@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 def _check_other_otaclient():
     """Check if there is another otaclient instance running."""
     # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE):
+    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE, _default=""):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
