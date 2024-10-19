@@ -127,7 +127,7 @@ def read_str_from_file(
     try:
         return Path(path).read_text().strip()
     except FileNotFoundError:
-        if _default:
+        if _default is not None:
             return _default
         raise
 
