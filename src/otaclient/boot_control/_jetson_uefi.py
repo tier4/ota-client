@@ -42,12 +42,8 @@ from otaclient.boot_control._firmware_package import (
     load_firmware_package,
 )
 from otaclient_common import replace_root
-from otaclient_common.common import (
-    file_digest,
-    file_sha256,
-    subprocess_call,
-    write_str_to_file_sync,
-)
+from otaclient_common._io import cal_file_digest, file_sha256, write_str_to_file_atomic
+from otaclient_common.common import subprocess_call
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
@@ -403,7 +399,7 @@ def _l4tlauncher_version_control(
         _ver_control = L4TLauncherBSPVersionControl(
             bsp_ver=l4tlauncher_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
         )
-        write_str_to_file_sync(l4tlauncher_ver_fpath, _ver_control.dump())
+        write_str_to_file_atomic(l4tlauncher_ver_fpath, _ver_control.dump())
         return l4tlauncher_bsp_ver
 
     # NOTE(20240624): if we failed to detect the l4tlauncher's version,
@@ -418,7 +414,7 @@ def _l4tlauncher_version_control(
     _ver_control = L4TLauncherBSPVersionControl(
         bsp_ver=current_slot_bsp_ver, sha256_digest=l4tlauncher_sha256_digest
     )
-    write_str_to_file_sync(l4tlauncher_ver_fpath, _ver_control.dump())
+    write_str_to_file_atomic(l4tlauncher_ver_fpath, _ver_control.dump())
     return current_slot_bsp_ver
 
 
@@ -509,7 +505,7 @@ class UEFIFirmwareUpdater:
             )
 
             try:
-                _digest = file_digest(capsule_fpath, algorithm=capsule_digest_alg)
+                _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
                 assert (
                     _digest == capsule_digest_value
                 ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
@@ -561,7 +557,9 @@ class UEFIFirmwareUpdater:
                 sha256_digest=_payload.digest.digest,
             )
             try:
-                _digest = file_digest(ota_image_bootaa64, algorithm=payload_digest_alg)
+                _digest = cal_file_digest(
+                    ota_image_bootaa64, algorithm=payload_digest_alg
+                )
                 assert (
                     _digest == payload_digest_value
                 ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
@@ -570,7 +568,7 @@ class UEFIFirmwareUpdater:
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
                 os.sync()  # ensure the boot application is written to the disk
 
-                write_str_to_file_sync(
+                write_str_to_file_atomic(
                     self.l4tlauncher_ver_fpath,
                     new_l4tlauncher_ver_ctrl.dump(),
                 )
