@@ -31,7 +31,7 @@ from otaclient._types import (
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient.configs.proxy_info import proxy_info
+from otaclient.configs.cfg import proxy_info
 from otaclient.ota_core import OTAClient
 from otaclient.stats_monitor import OTAClientStatsCollector
 
