@@ -608,7 +608,7 @@ class OTAStatusFilesControl:
 
     def _load_current_status(self) -> Optional[api_types.StatusOta]:
         if _status_str := read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME
+            self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _default=""
         ).upper():
             with contextlib.suppress(KeyError):
                 # invalid status string
@@ -789,4 +789,4 @@ class SlotMountHelper:
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
-    return read_str_from_file(target)
+    return read_str_from_file(target, _default="")
