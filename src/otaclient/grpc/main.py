@@ -11,50 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""OTA grpc server launcher."""
+"""OTA grpc server launcher.
+
+NOTE: currently we only support OTA service API v2.
+"""
 
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import sys
-from pathlib import Path
 
 import grpc.aio
 
 from otaclient import __version__
-from otaclient.api_v2.servicer import OTAClientAPIServicer
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
-from otaclient.log_setting import configure_logging
+from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
+from otaclient.grpc.utils import check_other_otaclient, create_otaclient_rundir
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
-from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
-# configure logging before any code being executed
-configure_logging()
-logger = logging.getLogger("otaclient")
-
-
-def _check_other_otaclient():
-    """Check if there is another otaclient instance running."""
-    # create a lock file to prevent multiple ota-client instances start
-    if pid := read_str_from_file(cfg.OTACLIENT_PID_FILE, _default=""):
-        # running process will have a folder under /proc
-        if Path(f"/proc/{pid}").is_dir():
-            logger.error(f"another instance of ota-client({pid=}) is running, abort")
-            sys.exit()
-        else:
-            logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-            Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
-    # create run dir
-    _run_dir = Path(cfg.RUN_DIR)
-    _run_dir.mkdir(parents=True, exist_ok=True)
-    os.chmod(_run_dir, 0o550)
-    # write our pid to the lock file
-    write_str_to_file_atomic(cfg.OTACLIENT_PID_FILE, f"{os.getpid()}")
+logger = logging.getLogger(__name__)
 
 
 def create_otaclient_grpc_server():
@@ -80,6 +58,9 @@ def main():
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
 
+    # setup the otaclient runtime working dir
+    create_otaclient_rundir(cfg.RUN_DIR)
+
     # start the otaclient grpc server
-    _check_other_otaclient()
+    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
     asyncio.run(launch_otaclient_grpc_server())
