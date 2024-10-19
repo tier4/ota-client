@@ -30,8 +30,8 @@ from pathlib import Path
 from typing import NoReturn
 
 import otaclient
-from otaclient import __version__
 from otaclient.configs.cfg import proxy_info
+from otaclient.grpc.main import apiv2_server_main
 from otaclient.log_setting import configure_logging
 from otaclient.otaproxy import (
     otaproxy_running,
@@ -39,9 +39,7 @@ from otaclient.otaproxy import (
     start_otaproxy_server,
 )
 
-# configure logging before any code being executed
-configure_logging()
-logger = logging.getLogger("otaclient")
+logger = logging.getLogger(__name__)
 
 _ota_server_p: mp_ctx.SpawnProcess | None = None
 _ota_core_p: mp_ctx.SpawnProcess | None = None
@@ -95,6 +93,9 @@ def ota_app_main(
     """Main entry of otaclient app process."""
     import otaclient
     from otaclient.ota_app import OTAClientAPP
+
+    # logging needed to be configured again at new process
+    configure_logging()
 
     global _main_global_shutdown_flag
     _main_global_shutdown_flag = global_shutdown_flag
@@ -173,13 +174,6 @@ def main() -> None:  # pragma: no cover
     global _main_global_shutdown_flag
     _main_global_shutdown_flag = global_shutdown_flag
     otaclient._global_shutdown_flag = global_shutdown_flag
-
-    logger.info("started")
-    logger.info(f"otaclient version: {__version__}")
-    logger.info(f"ecu_info.yaml: \n{ecu_info}")
-
-    # start the otaclient grpc server
-    _check_other_otaclient()
 
     # ota_core <-> ota API server
     no_child_ecus_in_update = ctx.Event()

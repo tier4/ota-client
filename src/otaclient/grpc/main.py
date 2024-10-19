@@ -27,6 +27,7 @@ from multiprocessing.queues import Queue as mp_Queue
 from typing import NoReturn
 
 from otaclient.app.configs import ecu_info, server_cfg
+from otaclient.log_setting import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,9 @@ def apiv2_server_main(
     from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage, ECUTracker
     from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
     from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+
+    # logging needed to be configured again at new process
+    configure_logging()
 
     global _main_global_shutdown_flag
     _main_global_shutdown_flag = global_shutdown_flag
