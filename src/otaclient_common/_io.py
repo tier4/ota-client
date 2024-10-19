@@ -105,7 +105,7 @@ def write_str_to_file_atomic(
             f.write(_input)
             f.flush()
             os.fsync(f.fileno())
-        os.rename(tmp_f, fpath)  # atomically override
+        os.replace(tmp_f, fpath)  # atomically override
     finally:
         tmp_f.unlink(missing_ok=True)
 
