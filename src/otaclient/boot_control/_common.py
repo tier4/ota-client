@@ -26,8 +26,8 @@ from typing import Callable, Literal, NoReturn, Optional, Union
 
 from otaclient._types import OTAStatus
 from otaclient.app.configs import config as cfg
-from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
