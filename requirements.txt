@@ -1,0 +1,17 @@
+# Automatically generated from pyproject.toml by gen_requirements_txt.py script.
+# DO NOT EDIT! Only for reference use.
+aiofiles<25,>=24.1
+aiohttp>=3.10.2,<3.11
+cryptography>=43.0.1,<44
+grpcio>=1.53.2,<1.67
+protobuf<4.22,>=4.21.12
+pydantic<3,>=2.6
+pydantic-settings<3,>=2.3
+pyopenssl<25,>=24.1
+pyyaml<7,>=6.0.1
+requests<2.33,>=2.32
+simple-sqlite3-orm<0.3,>=0.2
+typing-extensions>=4.6.3
+urllib3<2.3,>=2.2.2
+uvicorn[standard]>=0.30,<0.32
+zstandard<0.24,>=0.22

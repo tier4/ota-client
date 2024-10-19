@@ -17,8 +17,10 @@ from enum import Enum, auto
 from logging import INFO
 from typing import Dict, Tuple
 
-from otaclient.configs.ecu_info import ecu_info  # noqa
-from otaclient.configs.proxy_info import proxy_info  # noqa
+from otaclient.configs.cfg import (
+    ecu_info,  # noqa
+    proxy_info,  # noqa
+)
 
 
 class CreateStandbyMechanism(Enum):

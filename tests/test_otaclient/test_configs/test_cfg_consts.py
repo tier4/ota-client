@@ -11,26 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""otaclient configs package."""
 
-from otaclient.configs._cfg_configurable import (
-    ENV_PREFIX,
-    ConfigurableSettings,
-    set_configs,
-)
-from otaclient.configs._cfg_consts import Consts, CreateStandbyMechanism, dynamic_root
-from otaclient.configs._ecu_info import BootloaderType, ECUContact, ECUInfo
-from otaclient.configs._proxy_info import ProxyInfo
 
-__all__ = [
-    "ENV_PREFIX",
-    "ConfigurableSettings",
-    "Consts",
-    "CreateStandbyMechanism",
-    "BootloaderType",
-    "ECUContact",
-    "ECUInfo",
-    "ProxyInfo",
-    "set_configs",
-    "dynamic_root",
-]
+from __future__ import annotations
+
+from pytest_mock import MockerFixture
+
+from otaclient.configs import Consts, _cfg_consts, dynamic_root
+
+
+def test_cfg_consts_dynamic_root(mocker: MockerFixture):
+    _real_root = "/host_root"
+    mocked_consts = Consts()
+    mocker.patch.object(mocked_consts, "_ACTIVE_ROOT", _real_root)
+    mocker.patch.object(_cfg_consts, "cfg_consts", mocked_consts)
+
+    assert mocked_consts.ACTIVE_ROOT == _real_root
+    assert dynamic_root(mocked_consts.BOOT_DPATH) == "/host_root/boot"
+    assert mocked_consts.OTA_API_SERVER_PORT == 50051

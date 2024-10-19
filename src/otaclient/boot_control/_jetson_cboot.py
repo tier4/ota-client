@@ -34,7 +34,8 @@ from otaclient.boot_control._firmware_package import (
     load_firmware_package,
 )
 from otaclient_common import replace_root
-from otaclient_common.common import file_digest, subprocess_run_wrapper
+from otaclient_common._io import cal_file_digest
+from otaclient_common.common import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
 from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
@@ -249,7 +250,7 @@ class NVUpdateEngine:
                 logger.warning(f"{bup_fpath=} doesn't exist! skip...")
                 continue
 
-            _digest = file_digest(bup_fpath, algorithm=payload_digest_alg)
+            _digest = cal_file_digest(bup_fpath, algorithm=payload_digest_alg)
             if _digest != payload_digest_value:
                 logger.warning(
                     f"{payload_digest_alg} validation failed, "

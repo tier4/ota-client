@@ -268,9 +268,9 @@ class TestGrubControl:
 
         ###### mocking CMDHelperFuncs ######
         _CMDHelper_mock = typing.cast(
-            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
+            CMDHelperFuncs,
+            mocker.MagicMock(spec=CMDHelperFuncs, side_effect=self._fsm.switch_boot),
         )
-        _CMDHelper_mock.reboot.side_effect = self._fsm.switch_boot
         _CMDHelper_mock.get_attrs_by_dev = mocker.MagicMock(
             wraps=self._fsm.get_attrs_by_dev
         )
@@ -366,7 +366,7 @@ class TestGrubControl:
         ).read_text().strip() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
         # NOTE: check grub.cfg_slot_a_post_update, the target entry is 0
         self._grub_reboot_mock.assert_called_once_with(0)
-        self._CMDHelper_mock.reboot.assert_called_once()
+        self._CMDHelper_mock.reboot.assert_called_once()  # type: ignore
 
         ###### stage 2 ######
         # test init after first reboot

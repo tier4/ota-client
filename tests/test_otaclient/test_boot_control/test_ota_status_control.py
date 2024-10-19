@@ -24,7 +24,7 @@ import pytest
 from otaclient.boot_control._common import OTAStatusFilesControl
 from otaclient.boot_control.configs import BaseConfig as cfg
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import read_str_from_file, write_str_to_file
+from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +110,11 @@ class TestOTAStatusFilesControl:
     ):
         logger.info(f"{test_case=}")
         # ------ setup ------ #
-        write_str_to_file(
+        write_str_to_file_atomic(
             self.slot_a_status_file,
             input_slot_a_status.name if input_slot_a_status else "",
         )
-        write_str_to_file(self.slot_a_slot_in_use_file, input_slot_a_slot_in_use)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, input_slot_a_slot_in_use)
 
         # ------ execution ------ #
         status_control = OTAStatusFilesControl(
@@ -193,10 +193,14 @@ class TestOTAStatusFilesControl:
         """First reboot after OTA from slot_a to slot_b."""
         logger.info(f"{test_case=}")
         # ------ setup ------ #
-        write_str_to_file(self.slot_a_status_file, api_types.StatusOta.FAILURE.name)
-        write_str_to_file(self.slot_a_slot_in_use_file, self.slot_b)
-        write_str_to_file(self.slot_b_status_file, api_types.StatusOta.UPDATING.name)
-        write_str_to_file(self.slot_b_slot_in_use_file, self.slot_b)
+        write_str_to_file_atomic(
+            self.slot_a_status_file, api_types.StatusOta.FAILURE.name
+        )
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_b)
+        write_str_to_file_atomic(
+            self.slot_b_status_file, api_types.StatusOta.UPDATING.name
+        )
+        write_str_to_file_atomic(self.slot_b_slot_in_use_file, self.slot_b)
 
         # ------ execution ------ #
         # otaclient boots on slot_b
@@ -249,10 +253,14 @@ class TestOTAStatusFilesControl:
     def test_accidentally_boots_back_to_standby(self):
         """slot_a should be active slot but boots back to slot_b."""
         # ------ setup ------ #
-        write_str_to_file(self.slot_a_status_file, api_types.StatusOta.SUCCESS.name)
-        write_str_to_file(self.slot_a_slot_in_use_file, self.slot_a)
-        write_str_to_file(self.slot_b_status_file, api_types.StatusOta.FAILURE.name)
-        write_str_to_file(self.slot_b_slot_in_use_file, self.slot_a)
+        write_str_to_file_atomic(
+            self.slot_a_status_file, api_types.StatusOta.SUCCESS.name
+        )
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        write_str_to_file_atomic(
+            self.slot_b_status_file, api_types.StatusOta.FAILURE.name
+        )
+        write_str_to_file_atomic(self.slot_b_slot_in_use_file, self.slot_a)
 
         # ------ execution ------ #
         # otaclient accidentally boots on slot_b

@@ -147,8 +147,3 @@ def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
         logger.warning(f"{proxy_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")
         return DEFAULT_PROXY_INFO
-
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.PROXY_INFO_FPATH
-proxy_info = parse_proxy_info("/boot/ota/proxy_info.yaml")

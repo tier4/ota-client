@@ -21,7 +21,7 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Union
+from typing import Union, cast
 
 import otaclient
 from otaclient._types import (
@@ -183,6 +183,8 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 # ------ stats monitor implementation ------ #
 #
 
+TERMINATE_SENTINEL = cast(StatsReport, object())
+
 
 class OTAClientStatsCollector:
 
@@ -241,13 +243,15 @@ class OTAClientStatsCollector:
 
     # API
 
-    def start(self) -> None:
+    def start(self) -> Thread:
         """Start the stats_monitor thread."""
-        Thread(
+        t = Thread(
             target=self._stats_collector_thread,
             daemon=True,
             name="otaclient_stats_monitor",
-        ).start()
+        )
+        t.start()
+        return t
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:

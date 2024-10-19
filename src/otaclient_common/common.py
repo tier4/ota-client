@@ -20,13 +20,11 @@ TODO(20240603): the old otaclient.app.common, split it by functionalities in
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import shutil
 import subprocess
 import time
-from functools import partial
 from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urljoin
@@ -34,7 +32,6 @@ from urllib.parse import urljoin
 import requests
 
 from otaclient_common.linux import subprocess_run_wrapper
-from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -51,57 +48,6 @@ def wait_with_backoff(_retry_cnt: int, *, _backoff_factor: float, _backoff_max: 
             _backoff_max,
         )
     )
-
-
-# file verification
-def file_digest(fpath: StrOrPath, *, algorithm: str, chunk_size: int = 1 * 1024 * 1024):
-    """Generate file digest with <algorithm>."""
-    with open(fpath, "rb") as f:
-        hasher = hashlib.new(algorithm)
-        while d := f.read(chunk_size):
-            hasher.update(d)
-        return hasher.hexdigest()
-
-
-file_sha256 = partial(file_digest, algorithm="sha256")
-file_sha256.__doc__ = "Generate file digest with sha256."
-
-
-def verify_file(fpath: Path, fhash: str, fsize: Optional[int]) -> bool:
-    if (
-        fpath.is_symlink()
-        or (not fpath.is_file())
-        or (fsize is not None and fpath.stat().st_size != fsize)
-    ):
-        return False
-    return file_sha256(fpath) == fhash
-
-
-# handled file read/write
-def read_str_from_file(path: Union[Path, str], *, missing_ok=True, default="") -> str:
-    """
-    Params:
-        missing_ok: if set to False, FileNotFoundError will be raised to upper
-        default: the default value to return when missing_ok=True and file not found
-    """
-    try:
-        return Path(path).read_text().strip()
-    except FileNotFoundError:
-        if missing_ok:
-            return default
-
-        raise
-
-
-def write_str_to_file(path: Path, _input: str):
-    path.write_text(_input)
-
-
-def write_str_to_file_sync(path: Union[Path, str], _input: str):
-    with open(path, "w") as f:
-        f.write(_input)
-        f.flush()
-        os.fsync(f.fileno())
 
 
 def subprocess_check_output(
@@ -277,47 +223,6 @@ def copytree_identical(src: Path, dst: Path):
             _src_f = _cur_dir_on_src / fname
             if not (_src_f.is_symlink() or _src_f.is_file()):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
-
-
-def re_symlink_atomic(src: Path, target: Union[Path, str]):
-    """Make the <src> a symlink to <target> atomically.
-
-    If the src is already existed as a file/symlink,
-    the src will be replaced by the newly created link unconditionally.
-
-    NOTE: os.rename is atomic when src and dst are on
-    the same filesystem under linux.
-    NOTE 2: src should not exist or exist as file/symlink.
-    """
-    if not (src.is_symlink() and str(os.readlink(src)) == str(target)):
-        tmp_link = Path(src).parent / f"tmp_link_{os.urandom(6).hex()}"
-        try:
-            tmp_link.symlink_to(target)
-            os.rename(tmp_link, src)  # unconditionally override
-        except Exception:
-            tmp_link.unlink(missing_ok=True)
-            raise
-
-
-def replace_atomic(src: Union[str, Path], dst: Union[str, Path]):
-    """Atomically replace dst file with src file.
-
-    NOTE: atomic is ensured by os.rename/os.replace under the same filesystem.
-    """
-    src, dst = Path(src), Path(dst)
-    if not src.is_file():
-        raise ValueError(f"{src=} is not a regular file or not exist")
-
-    _tmp_file = dst.parent / f".tmp_{os.urandom(6).hex()}"
-    try:
-        # prepare a copy of src file under dst's parent folder
-        shutil.copy(src, _tmp_file, follow_symlinks=True)
-        # atomically rename/replace the dst file with the copy
-        os.replace(_tmp_file, dst)
-        os.sync()
-    except Exception:
-        _tmp_file.unlink(missing_ok=True)
-        raise
 
 
 def urljoin_ensure_base(base: str, url: str):

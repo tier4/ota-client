@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import time
 from hashlib import sha256
@@ -30,13 +29,8 @@ from otaclient_common import replace_root
 from otaclient_common.common import (
     copytree_identical,
     ensure_otaproxy_start,
-    file_sha256,
-    re_symlink_atomic,
-    read_str_from_file,
     subprocess_call,
     subprocess_check_output,
-    verify_file,
-    write_str_to_file_sync,
 )
 from tests.conftest import run_http_server
 from tests.utils import compare_dir
@@ -54,44 +48,6 @@ def file_t(tmp_path: Path) -> Tuple[str, str, int]:
     test_f = tmp_path / "test_file"
     test_f.write_text(_TEST_FILE_CONTENT)
     return str(test_f), _TEST_FILE_SHA256, _TEST_FILE_LENGTH
-
-
-def test_file_sha256(file_t: Tuple[str, str, int]):
-    _path, _sha256, _ = file_t
-    assert file_sha256(_path) == _sha256
-
-
-def test_verify_file(tmp_path: Path, file_t: Tuple[str, str, int]):
-    _path, _sha256, _size = file_t
-    assert verify_file(Path(_path), _sha256, _size)
-    assert verify_file(Path(_path), _sha256, None)
-    assert not verify_file(Path(_path), _sha256, 123)
-    assert not verify_file(Path(_path), sha256().hexdigest(), 123)
-
-    # test over symlink file, verify_file should return False on symlink
-    _symlink = tmp_path / "test_file_symlink"
-    _symlink.symlink_to(_path)
-    assert not verify_file(_symlink, _sha256, None)
-
-
-def test_read_from_file(file_t: Tuple[str, str, int]):
-    _path, _, _ = file_t
-    # append some empty lines to the test_file
-    _append = "    \n      \n"
-    with open(_path, "a") as f:
-        f.write(_append)
-
-    assert read_str_from_file(_path) == _TEST_FILE_CONTENT
-    assert read_str_from_file("/non-existed", missing_ok=True, default="") == ""
-    assert read_str_from_file("/non-existed", missing_ok=True, default="abc") == "abc"
-    with pytest.raises(FileNotFoundError):
-        read_str_from_file("/non-existed", missing_ok=False)
-
-
-def test_write_to_file_sync(tmp_path: Path):
-    _path = tmp_path / "write_to_file"
-    write_str_to_file_sync(_path, _TEST_FILE_CONTENT)
-    assert _path.read_text() == _TEST_FILE_CONTENT
 
 
 class Test_copytree_identical:
@@ -181,52 +137,6 @@ class Test_copytree_identical:
         copytree_identical(self.a_dir, self.b_dir)
         # check result
         compare_dir(self.a_dir, self.b_dir)
-
-
-class Test_re_symlink_atomic:
-    def test_symlink_to_file(self, tmp_path: Path):
-        _symlink = tmp_path / "_symlink"
-        _target = tmp_path / "_target"
-        _target.write_text("_target")
-
-        # test1: src symlink doesn't exist
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test2: src symlink is a symlink that points to correct target
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test3: src symlink is a symlink that points to wrong target
-        _symlink.unlink(missing_ok=True)
-        _symlink.symlink_to("/non-existed")
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test4: src is a file
-        _symlink.unlink(missing_ok=True)
-        _symlink.write_text("123123123")
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-
-    def test_symlink_to_directory(self, tmp_path: Path):
-        _symlink = tmp_path / "_symlink"
-        _target = tmp_path / "_target"
-        _target.mkdir()
-
-        # test1: src symlink doesn't exist
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test2: src symlink is a symlink that points to correct target
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test3: src symlink is a symlink that points to wrong target
-        _symlink.unlink(missing_ok=True)
-        _symlink.symlink_to("/non-existed")
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
-        # test4: src is a file
-        _symlink.unlink(missing_ok=True)
-        _symlink.write_text("123123123")
-        re_symlink_atomic(_symlink, _target)
-        assert _symlink.is_symlink() and os.readlink(_symlink) == str(_target)
 
 
 class Test_ensure_otaproxy_start:

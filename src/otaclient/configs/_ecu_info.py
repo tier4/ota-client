@@ -133,8 +133,3 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
         logger.warning(f"{ecu_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
         return DEFAULT_ECU_INFO
-
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.ECU_INFO_FPATH
-ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")

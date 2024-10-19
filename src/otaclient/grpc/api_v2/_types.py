@@ -85,6 +85,7 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
     update_status.downloaded_bytes = _update_progress.downloaded_bytes
     update_status.downloaded_files_num = _update_progress.downloaded_files_num
     update_status.downloaded_files_size = _update_progress.downloaded_files_size
+    update_status.downloading_errors = _update_progress.downloading_errors
 
     # update_meta
     _update_meta = _in.update_meta

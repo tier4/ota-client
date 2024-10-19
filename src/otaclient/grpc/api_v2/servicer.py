@@ -30,9 +30,9 @@ from otaclient._types import (
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient.api_v2.ecu_status import ECUStatusStorage
 from otaclient.app.configs import ecu_info, server_cfg
-from otaclient.configs.ecu_info import ECUContact
+from otaclient.configs import ECUContact
+from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)

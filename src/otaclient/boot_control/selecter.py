@@ -21,7 +21,7 @@ from pathlib import Path
 
 from typing_extensions import deprecated
 
-from otaclient_common.common import read_str_from_file
+from otaclient_common._io import read_str_from_file
 
 from .configs import BootloaderType
 from .protocol import BootControllerProtocol
@@ -58,7 +58,7 @@ def detect_bootloader() -> BootloaderType:
         # evidence: rpi device has a special file which reveals the rpi model
         rpi_model_file = Path(rpi_boot_cfg.RPI_MODEL_FILE)
         if rpi_model_file.is_file():
-            if (_model_str := read_str_from_file(rpi_model_file)).find(
+            if (_model_str := read_str_from_file(rpi_model_file, _default="")).find(
                 rpi_boot_cfg.RPI_MODEL_HINT
             ) != -1:
                 return BootloaderType.RPI_BOOT

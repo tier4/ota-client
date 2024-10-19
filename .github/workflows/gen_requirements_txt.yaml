@@ -1,0 +1,52 @@
+name: gen requirements.txt on pyproject.toml file changed
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'pyproject.toml'
+  # allow manual dispatch of this workflow
+  workflow_dispatch:
+
+jobs:
+  gen-requirements-txt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          # use repo scope deploy key for the later git operations, so that the pushed commit can trigger the
+          #   workflow as expected. The default action token GITHUB_TOKEN cannot trigger new workflows.
+          # For more details about this restriction, please refer to:
+          #   https://github.com/peter-evans/create-pull-request/issues/48 and
+          #   https://github.com/peter-evans/create-pull-request/blob/main/docs/concepts-guidelines.md#triggering-further-workflow-runs
+          ssh_key: ${{ secrets.DEPLOY_KEY }}
+          persist-credentials: true
+
+      - name: setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: generate requirements.txt
+        run: |
+          python .github/tools/gen_requirements_txt.py \
+            pyproject.toml requirements.txt
+
+      - name: commit change if needed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          if git diff --exit-code requirements.txt; then
+            echo "skip commit as requirements.txt is not changed"
+          else
+            echo "detect requirements.txt updated, commit change ..."
+            git add requirements.txt
+            git commit -m "[GHA] Update requirements.txt on pyproject.toml changed"
+            git push
+          fi

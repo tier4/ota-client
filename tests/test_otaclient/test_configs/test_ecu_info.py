@@ -20,13 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from otaclient.configs.ecu_info import (
-    DEFAULT_ECU_INFO,
-    BootloaderType,
-    ECUContact,
-    ECUInfo,
-    parse_ecu_info,
-)
+from otaclient.configs import BootloaderType, ECUContact, ECUInfo
+from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
 
 
 @pytest.mark.parametrize(
@@ -84,6 +79,7 @@ from otaclient.configs.ecu_info import (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
                 'ip_addr: "192.168.1.1"\n'
+                "bootloader: grub\n"
                 'available_ecu_ids: ["autoware", "p1", "p2"]\n'
                 "secondaries: \n"
                 '- ecu_id: "p1"\n'
@@ -94,7 +90,7 @@ from otaclient.configs.ecu_info import (
             ECUInfo(
                 ecu_id="autoware",
                 ip_addr=IPv4Address("192.168.1.1"),
-                bootloader=BootloaderType.AUTO_DETECT,
+                bootloader=BootloaderType.GRUB,
                 available_ecu_ids=["autoware", "p1", "p2"],
                 secondaries=[
                     ECUContact(
