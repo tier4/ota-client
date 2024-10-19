@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import logging
 import multiprocessing as mp
@@ -30,8 +31,9 @@ from pathlib import Path
 from typing import NoReturn
 
 import otaclient
-from otaclient.configs.cfg import proxy_info
-from otaclient.grpc.main import apiv2_server_main
+from otaclient import __version__
+from otaclient.app.configs import server_cfg
+from otaclient.configs.cfg import ecu_info, proxy_info
 from otaclient.log_setting import configure_logging
 from otaclient.otaproxy import (
     otaproxy_running,
@@ -82,6 +84,72 @@ def _subp_signterm_handler(signame, frame) -> NoReturn:
     raise KeyboardInterrupt("receives SIGTERM, exits ...")
 
 
+def apiv2_server_main(
+    *,
+    status_report_queue: mp_Queue,
+    operation_push_queue: mp_Queue,
+    operation_ack_queue: mp_Queue,
+    any_requires_network: mp_sync.Event,
+    no_child_ecus_in_update: mp_sync.Event,
+    global_shutdown_flag: mp_sync.Event,
+    all_ecus_succeeded: mp_sync.Event,
+):  # pragma: no cover
+    """OTA API server process main.
+
+    NOTE that the imports within this function have side-effect, so we don't
+        import them globally.
+    """
+    import grpc.aio as grpc_aio
+
+    import otaclient
+    from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage, ECUTracker
+    from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer as APIv2Servicer
+    from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+
+    configure_logging()
+
+    global _main_global_shutdown_flag
+    _main_global_shutdown_flag = global_shutdown_flag
+
+    otaclient._global_shutdown_flag = global_shutdown_flag
+    # NOTE: spawn will not let the child process inherits the signal handler
+    signal.signal(signal.SIGTERM, _subp_signterm_handler)
+
+    async def _main():
+        server = grpc_aio.server()
+        server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+
+        ecu_status_storage = ECUStatusStorage(
+            any_requires_network=any_requires_network,
+            no_child_ecus_in_update=no_child_ecus_in_update,
+            all_ecus_succeeded=all_ecus_succeeded,
+        )
+        ecu_tracker = ECUTracker(
+            ecu_status_storage=ecu_status_storage,
+            status_report_queue=status_report_queue,
+        )
+        ecu_tracker.start_tracking()
+
+        # mount API v2 servicer
+        v2_grpc.add_OtaClientServiceServicer_to_server(
+            server=server,
+            servicer=APIv2Servicer(
+                ecu_status_storage=ecu_status_storage,
+                operation_push_queue=operation_push_queue,
+                operation_ack_queue=operation_ack_queue,
+            ),
+        )
+
+        logger.info("OTA API server started")
+        await server.start()
+        try:
+            await server.wait_for_termination()
+        finally:
+            await server.stop(1)
+
+    asyncio.run(_main())
+
+
 def ota_app_main(
     *,
     status_report_queue: mp_Queue,
@@ -94,7 +162,6 @@ def ota_app_main(
     import otaclient
     from otaclient.ota_app import OTAClientAPP
 
-    # logging needed to be configured again at new process
     configure_logging()
 
     global _main_global_shutdown_flag
@@ -174,6 +241,10 @@ def main() -> None:  # pragma: no cover
     global _main_global_shutdown_flag
     _main_global_shutdown_flag = global_shutdown_flag
     otaclient._global_shutdown_flag = global_shutdown_flag
+
+    logger.info("started")
+    logger.info(f"otaclient version: {__version__}")
+    logger.info(f"ecu_info.yaml: \n{ecu_info}")
 
     # ota_core <-> ota API server
     no_child_ecus_in_update = ctx.Event()
