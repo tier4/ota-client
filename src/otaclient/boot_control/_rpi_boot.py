@@ -28,7 +28,7 @@ from typing_extensions import Self
 
 import otaclient.app.errors as ota_errors
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import replace_atomic
+from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common.linux import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
@@ -36,7 +36,6 @@ from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
     SlotMountHelper,
-    write_str_to_file_sync,
 )
 from .configs import rpi_boot_cfg as cfg
 from .protocol import BootControllerProtocol
@@ -380,8 +379,8 @@ class _RPIBootControl:
         config_txt_standby = get_sysboot_files_fpath(CONFIG_TXT, standby_slot)
 
         try:
-            replace_atomic(config_txt_current, self.system_boot_mp / CONFIG_TXT)
-            replace_atomic(config_txt_standby, self.system_boot_mp / TRYBOOT_TXT)
+            copyfile_atomic(config_txt_current, self.system_boot_mp / CONFIG_TXT)
+            copyfile_atomic(config_txt_standby, self.system_boot_mp / TRYBOOT_TXT)
             logger.info(
                 "finalizing boot configuration,"
                 f"replace {CONFIG_TXT} with {config_txt_current=}, "
@@ -400,7 +399,7 @@ class _RPIBootControl:
     def prepare_tryboot_txt(self):
         """Copy the standby slot's config.txt as tryboot.txt."""
         try:
-            replace_atomic(
+            copyfile_atomic(
                 get_sysboot_files_fpath(CONFIG_TXT, self.standby_slot),
                 self.system_boot_mp / TRYBOOT_TXT,
             )
@@ -468,7 +467,7 @@ class RPIBootController(BootControllerProtocol):
                 rootfs_fslabel=self._rpiboot_control.standby_slot
             )
             logger.debug(f"{_updated_fstab_str=}")
-            write_str_to_file_sync(_fstab_fpath, _updated_fstab_str)
+            write_str_to_file_atomic(_fstab_fpath, _updated_fstab_str)
         except Exception as e:
             _err_msg = f"failed to update fstab file for standby slot: {e!r}"
             logger.error(_err_msg)
