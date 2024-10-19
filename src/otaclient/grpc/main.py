@@ -24,7 +24,6 @@ import logging
 
 import grpc.aio
 
-from otaclient import __version__
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
@@ -54,10 +53,6 @@ async def launch_otaclient_grpc_server():
 
 
 def main():
-    logger.info("started")
-    logger.info(f"otaclient version: {__version__}")
-    logger.info(f"ecu_info.yaml: \n{ecu_info}")
-
     # setup the otaclient runtime working dir
     create_otaclient_rundir(cfg.RUN_DIR)
 
