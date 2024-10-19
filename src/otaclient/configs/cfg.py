@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""configs are loaded in this module."""
+"""Load ecu_info, proxy_info and otaclient configs."""
 
 from typing import TYPE_CHECKING, Any
 

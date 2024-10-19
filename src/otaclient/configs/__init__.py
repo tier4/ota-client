@@ -18,7 +18,7 @@ from otaclient.configs._cfg_configurable import (
     ConfigurableSettings,
     set_configs,
 )
-from otaclient.configs._cfg_consts import Consts, dynamic_root
+from otaclient.configs._cfg_consts import Consts, CreateStandbyMechanism, dynamic_root
 from otaclient.configs._ecu_info import BootloaderType, ECUContact, ECUInfo
 from otaclient.configs._proxy_info import ProxyInfo
 
@@ -26,6 +26,7 @@ __all__ = [
     "ENV_PREFIX",
     "ConfigurableSettings",
     "Consts",
+    "CreateStandbyMechanism",
     "BootloaderType",
     "ECUContact",
     "ECUInfo",
