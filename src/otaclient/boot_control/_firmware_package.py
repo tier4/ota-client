@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import logging
 import re
-from enum import Enum
 from pathlib import Path
 from typing import Any, List, Literal, Union
 
