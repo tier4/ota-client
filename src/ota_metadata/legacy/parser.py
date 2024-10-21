@@ -47,7 +47,6 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, fields
-from functools import partial
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -71,6 +70,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from typing_extensions import Self
 
+from ota_metadata.util.cert_store import CACertChainStore, load_cert_in_pem
 from ota_proxy import OTAFileCacheControl
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
@@ -246,7 +246,8 @@ class _MetadataJWTParser:
     HASH_ALG = "sha256"
 
     def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
-        self.cert_dir = Path(certs_dir)
+        # TODO: in the future load the cert store at otaclient starts up.
+        self.cert_store = CACertChainStore(certs_dir)
 
         # pre_parse metadata_jwt
         jwt_list = metadata_jwt.split(".")
@@ -273,40 +274,21 @@ class _MetadataJWTParser:
         Raises:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
-        ca_set_prefix = set()
-        # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self.cert_dir.glob("*.*.pem"):
-            if m := re.match(r"(.*)\..*.pem", cert.name):
-                ca_set_prefix.add(m.group(1))
-            else:
-                raise MetadataJWTVerificationFailed("no pem file is found")
-        if len(ca_set_prefix) == 0:
-            logger.warning("there is no root or intermediate certificate")
-            return
-        logger.info(f"certs prefixes {ca_set_prefix}")
-
-        load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
-
         try:
-            cert_to_verify = load_pem(metadata_cert)
+            cert_to_verify = load_cert_in_pem(metadata_cert)
         except crypto.Error as e:
             _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
             logger.exception(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg) from e
 
-        for ca_prefix in sorted(ca_set_prefix):
-            certs_list = [
-                self.cert_dir / c.name for c in self.cert_dir.glob(f"{ca_prefix}.*.pem")
-            ]
-
-            store = crypto.X509Store()
-            for c in certs_list:
-                logger.info(f"cert {c}")
-                store.add_cert(load_pem(c.read_bytes()))
-
+        # verify the OTA image cert against CA cert chain store
+        for ca_prefix, ca_chain_store in self.cert_store.items():
             try:
-                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
-                store_ctx.verify_certificate()
+                crypto.X509StoreContext(
+                    store=ca_chain_store,
+                    certificate=cert_to_verify,
+                ).verify_certificate()
+
                 logger.info(f"verfication succeeded against: {ca_prefix}")
                 return
             except crypto.X509StoreContextError as e:

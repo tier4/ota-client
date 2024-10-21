@@ -40,7 +40,7 @@ CERT_NAME_PA = re.compile(r"(?<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
-_load_cert_in_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
+load_cert_in_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
 
 
 def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
@@ -77,7 +77,7 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
         try:
             ca_chain = crypto.X509Store()
             for c in cert_dir.glob(f"{ca_prefix}.*.pem"):
-                ca_chain.add_cert(_load_cert_in_pem(c.read_bytes()))
+                ca_chain.add_cert(load_cert_in_pem(c.read_bytes()))
             ca_chains[ca_prefix] = ca_chain
         except Exception as e:
             _err_msg = f"failed to load CA chain {ca_prefix}: {e!r}"
@@ -87,12 +87,17 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
         _err_msg = "all found CA chains are invalid, abort!!!"
         logger.error(_err_msg)
         raise CACertStoreInvalid(_err_msg)
+
+    logger.info(f"loaded CA cert chains: {list(ca_chains)}")
     return ca_chains
 
 
-class CACertChainStore(Dict[str, crypto.X509StoreContext]):
+class CACertChainStore(Dict[str, crypto.X509Store]):
 
     def __new__(cls, cert_dir: StrOrPath):
         _store = _load_ca_cert_chains(cert_dir)
         _new = dict.__new__(cls, _store)
         return _new
+
+    def __init__(self, cert_dir: StrOrPath):
+        """A dict-like type that stores CA chain name and CA store mapping."""
