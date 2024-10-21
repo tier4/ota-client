@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import logging
 import re
-from enum import Enum
 from pathlib import Path
 from typing import Any, List, Literal, Union
 
@@ -52,12 +51,12 @@ import yaml
 from pydantic import BaseModel, BeforeValidator
 from typing_extensions import Annotated
 
-from otaclient_common.typing import StrOrPath, gen_strenum_validator
+from otaclient_common.typing import StrEnum, StrOrPath, gen_strenum_validator
 
 logger = logging.getLogger(__name__)
 
 
-class PayloadType(str, Enum):
+class PayloadType(StrEnum):
     UEFI_CAPSULE = "UEFI-CAPSULE"
     UEFI_BOOT_APP = "UEFI-BOOT-APP"
     BUP = "BUP"
@@ -148,7 +147,7 @@ class FirmwarePackage(BaseModel):
     digest: Annotated[DigestValue, BeforeValidator(DigestValue.parse)]
 
 
-class HardwareType(str, Enum):
+class HardwareType(StrEnum):
     """
     Currently we only support NVIDIA Jetson device.
     """

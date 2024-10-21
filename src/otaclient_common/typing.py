@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
@@ -28,6 +29,33 @@ T = TypeVar("T")
 
 EnumT = TypeVar("EnumT", bound=Enum)
 StrOrPath = Union[str, Path]
+
+# Before 3.11, if type mixin has its own __format__, Enum will implicitly
+#   preserve and use the __format__. This behavior is critical for str Enum
+#   to be used as string directly.
+#   However, starting from 3.11, the above implicit behavior no long exists. Instead
+#   we have ReprEnum. ONLY subclass of ReprEnum will preserves the type mixin's __format__.
+#   The above changes mean that starting from 3.11, <custom_enum>(str, Enum)
+#   cannot be used directly as str in f string or format, we need StrEnum.
+#
+# NOTE that in >= 3.11, str(<StrEnum_member>) will be the enum value, however
+# that is not true in < 3.11,
+#
+# To cover this behavior change, we simply need to use StrEnum for >= 3.11,
+#   and for easy maintain, for < 3.11 we manually define a StrEnum.
+if sys.version_info >= (3, 11):
+    # StrEnum is a subclass of ReprEnum, with type mixin as str.
+    from enum import StrEnum
+
+else:
+    # for < 3.11, (str, Enum)'s behavior is the same as StrEnum in >= 3.11.
+    #   besides here, we implement __str__ to use str type's one, to align with
+    #   the behavior of >= 3.11.
+    class StrEnum(str, Enum):
+
+        def __str__(self) -> str:
+            return str.__str__(self)
+
 
 # pydantic helpers
 
@@ -44,7 +72,7 @@ def gen_strenum_validator(
     """A before validator generator that converts input value into enum
     before passing it to pydantic validator.
 
-    NOTE(20240129): as upto pydantic v2.5.3, (str, Enum) field cannot
+    NOTE(20240129): as upto pydantic v2.5.3, field with StrEnum type cannot
                     pass strict validation if input is str.
     """
 
