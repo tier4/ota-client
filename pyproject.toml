@@ -37,7 +37,7 @@ dependencies = [
   "simple-sqlite3-orm<0.3,>=0.2",
   "typing-extensions>=4.6.3",
   "urllib3<2.3,>=2.2.2",
-  "uvicorn[standard]>=0.30,<0.32",
+  "uvicorn[standard]>=0.30,<0.33",
   "zstandard<0.24,>=0.22",
 ]
 optional-dependencies.dev = [
