@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, TypeVar, Union
@@ -28,6 +29,25 @@ T = TypeVar("T")
 
 EnumT = TypeVar("EnumT", bound=Enum)
 StrOrPath = Union[str, Path]
+
+# Before 3.11, if type mixin has its own __str__ and __format__,
+#   Enum will implicitly preserve and use the __str__ and __format__.
+#   However, starting from 3.11, we have ReprEnum. ONLY subclass of ReprEnum
+#   will preserves the type mixin's __str__ and __format__.
+#   The above changes mean that starting from 3.11, <custom_enum>(str, Enum)
+#   cannot be used directly as str in f string or format, we need StrEnum.
+#
+# To cover this behavior change, we simply need to use StrEnum for >= 3.11,
+#   and for easy maintain, for < 3.11 we manually define a StrEnum.
+if sys.version_info >= (3, 11):
+    # StrEnum is a subclass of ReprEnum, with type mixin as str.
+    from enum import StrEnum
+
+else:
+    # for pre-3.11, (str, Enum)'s behavior is the same as StrEnum in >= 3.11.
+    class StrEnum(str, Enum):
+        pass
+
 
 # pydantic helpers
 
