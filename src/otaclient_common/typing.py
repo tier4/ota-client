@@ -72,7 +72,7 @@ def gen_strenum_validator(
     """A before validator generator that converts input value into enum
     before passing it to pydantic validator.
 
-    NOTE(20240129): as upto pydantic v2.5.3, (str, Enum) field cannot
+    NOTE(20240129): as upto pydantic v2.5.3, field with StrEnum type cannot
                     pass strict validation if input is str.
     """
 

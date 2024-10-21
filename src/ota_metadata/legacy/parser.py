@@ -47,7 +47,6 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, fields
-from enum import Enum
 from functools import partial
 from os import PathLike
 from pathlib import Path
@@ -84,6 +83,7 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
+from otaclient_common.typing import StrEnum
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
@@ -114,7 +114,7 @@ class MetadataJWTVerificationFailed(Exception):
 FV = TypeVar("FV")
 
 
-class MetafilesV1(str, Enum):
+class MetafilesV1(StrEnum):
     """version1 text based ota metafiles fname.
     Check _MetadataJWTClaimsLayout for more details.
     """

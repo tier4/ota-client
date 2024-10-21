@@ -16,14 +16,13 @@
 
 from __future__ import annotations
 
-from enum import Enum
-
 from otaclient_common import replace_root
+from otaclient_common.typing import StrEnum
 
 CANONICAL_ROOT = "/"
 
 
-class CreateStandbyMechanism(str, Enum):
+class CreateStandbyMechanism(StrEnum):
     LEGACY = "LEGACY"  # deprecated and removed
     REBUILD = "REBUILD"  # default
     IN_PLACE = "IN_PLACE"  # not yet implemented

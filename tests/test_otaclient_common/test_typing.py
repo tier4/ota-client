@@ -28,5 +28,5 @@ def test_str_enum():
     # str enum's __format__ should be the str's one, returning the str value.
     assert f"{EnumForTest.A}" == EnumForTest.A.value
     # our version of str enum for < 3.11 fully aligns with >= 3.11, which __str__
-    #   is the str type's one
+    #   is the str type's one.
     assert str(EnumForTest.A) == EnumForTest.A.value
