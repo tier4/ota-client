@@ -15,6 +15,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from subprocess import check_output
+
 from otaclient_common.typing import StrEnum
 
 
@@ -22,7 +25,7 @@ class EnumForTest(StrEnum):
     A = "A"
 
 
-def test_str_enum():
+def test_str_enum(tmp_path: Path):
     # str enum should be able to compare with string instance directly.
     assert EnumForTest.A == EnumForTest.A.value
     # str enum's __format__ should be the str's one, returning the str value.
@@ -30,3 +33,13 @@ def test_str_enum():
     # our version of str enum for < 3.11 fully aligns with >= 3.11, which __str__
     #   is the str type's one.
     assert str(EnumForTest.A) == EnumForTest.A.value
+
+    # When directly use as str, StrEnum should be behaved like a normal string.
+    test_file = tmp_path / "file_written"
+    test_file.write_text(EnumForTest.A)
+
+    assert (
+        check_output(["cat", str(test_file)]).decode()
+        == EnumForTest.A
+        == EnumForTest.A.value
+    )
