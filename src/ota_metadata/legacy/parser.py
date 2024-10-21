@@ -274,12 +274,19 @@ class _MetadataJWTParser:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
         ca_set_prefix = set()
-        # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self.cert_dir.glob("*.*.pem"):
-            if m := re.match(r"(.*)\..*.pem", cert.name):
-                ca_set_prefix.add(m.group(1))
+        # we search the CA chains with the following naming schema:
+        #   <env_name>.<intermediate|root>.pem,
+        #   in which <env_name> should match regex pattern `[\w\-]+`
+        # e.g:
+        #   dev chain: dev.intermediate.pem, dev.root.pem
+        #   prd chain: prd.intermediate.pem, prd.intermediate.pem
+        cert_name_pa = re.compile(r"(?<chain>[\w\-]+)\.[\w\-]+\.pem")
+        for cert in self.cert_dir.glob("*.pem"):
+            if m := cert_name_pa.match(cert.name):
+                ca_set_prefix.add(m.group("chain"))
             else:
-                raise MetadataJWTVerificationFailed("no pem file is found")
+                _err_msg = f"detect invalid named certs: {cert.name}"
+                logger.warning(_err_msg)
 
         # NOTE(20241021): in the old day the hack to bypass OTA image certificate validation
         #   with no CA chains installed was introduced, mostly for the following reasons:
@@ -290,7 +297,7 @@ class _MetadataJWTParser:
         #       or just using the build system to build image signed with dev certs.
         #   For 2., we have already given long enough time for the migration, I think it is time
         #       to remove this hack.
-        if len(ca_set_prefix) == 0:
+        if not ca_set_prefix:
             _err_msg = f"no CA cert chains found to be installed under the {self.cert_dir}, abort!!!"
             logger.error(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg)
