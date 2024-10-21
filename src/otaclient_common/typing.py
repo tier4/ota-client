@@ -48,9 +48,13 @@ if sys.version_info >= (3, 11):
     from enum import StrEnum
 
 else:
-    # for pre-3.11, (str, Enum)'s behavior is the same as StrEnum in >= 3.11.
+    # for < 3.11, (str, Enum)'s behavior is the same as StrEnum in >= 3.11.
+    #   besides here, we implement __str__ to use str type's one, to align with
+    #   the behavior of >= 3.11.
     class StrEnum(str, Enum):
-        pass
+
+        def __str__(self) -> str:
+            return str.__str__(self)
 
 
 # pydantic helpers
