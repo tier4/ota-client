@@ -25,10 +25,10 @@ import logging
 import grpc.aio
 
 from otaclient import __version__
+from otaclient._utils import check_other_otaclient, create_otaclient_rundir
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
-from otaclient.grpc.utils import check_other_otaclient, create_otaclient_rundir
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
 
