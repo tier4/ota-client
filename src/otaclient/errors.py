@@ -18,7 +18,7 @@ import traceback
 from enum import Enum, unique
 from typing import ClassVar
 
-from otaclient_api.v2 import types as api_types
+from otaclient._types import FailureType
 
 
 @unique
@@ -72,7 +72,7 @@ class OTAError(Exception):
 
     ERROR_PREFIX: ClassVar[str] = "E"
 
-    failure_type: api_types.FailureType = api_types.FailureType.RECOVERABLE
+    failure_type: FailureType = FailureType.RECOVERABLE
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UNSPECIFIC
     failure_description: str = "no description available for this error"
 
@@ -120,7 +120,7 @@ _NETWORK_ERR_DEFAULT_DESC = "network unstable, please check the network connecti
 class NetworkError(OTAError):
     """Generic network error"""
 
-    failure_type: api_types.FailureType = api_types.FailureType.RECOVERABLE
+    failure_type: FailureType = FailureType.RECOVERABLE
     failure_errcode: OTAErrorCode = OTAErrorCode.E_NETWORK
     failure_description: str = _NETWORK_ERR_DEFAULT_DESC
 
@@ -143,7 +143,7 @@ _RECOVERABLE_DEFAULT_DESC = (
 
 
 class OTAErrorRecoverable(OTAError):
-    failure_type: api_types.FailureType = api_types.FailureType.RECOVERABLE
+    failure_type: FailureType = FailureType.RECOVERABLE
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_RECOVERABLE
     failure_description: str = _RECOVERABLE_DEFAULT_DESC
 
@@ -180,7 +180,7 @@ _UNRECOVERABLE_DEFAULT_DESC = (
 
 
 class OTAErrorUnrecoverable(OTAError):
-    failure_type: api_types.FailureType = api_types.FailureType.RECOVERABLE
+    failure_type: FailureType = FailureType.RECOVERABLE
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     failure_description: str = _UNRECOVERABLE_DEFAULT_DESC
 

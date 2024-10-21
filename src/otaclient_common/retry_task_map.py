@@ -206,7 +206,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         return self._fut_gen(ensure_tasks_pull_interval)
 
 
-# only expose APIs we want to exposed
+# only expose APIs we want to expose
 if TYPE_CHECKING:
 
     class ThreadPoolExecutorWithRetry:
