@@ -13,11 +13,13 @@
 # limitations under the License.
 
 
-from otaclient.log_setting import configure_logging
+def main():
+    from otaclient.grpc.main import main
+    from otaclient.log_setting import configure_logging
 
-configure_logging()
+    configure_logging()
+    main()
+
 
 if __name__ == "__main__":
-    from otaclient.grpc.main import main
-
     main()
