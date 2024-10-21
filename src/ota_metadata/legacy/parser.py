@@ -280,10 +280,22 @@ class _MetadataJWTParser:
                 ca_set_prefix.add(m.group(1))
             else:
                 raise MetadataJWTVerificationFailed("no pem file is found")
+
+        # NOTE(20241021): in the old day the hack to bypass OTA image certificate validation
+        #   with no CA chains installed was introduced, mostly for the following reasons:
+        #   1. make convenience for local OTA test with self-signed OTA image.
+        #   2. for migrating from non-signed OTA image distribution.
+        #
+        #   For 1., the developer is highly recommended to install the test certs in their own environment,
+        #       or just using the build system to build image signed with dev certs.
+        #   For 2., we have already given long enough time for the migration, I think it is time
+        #       to remove this hack.
         if len(ca_set_prefix) == 0:
-            logger.warning("there is no root or intermediate certificate")
-            return
-        logger.info(f"certs prefixes {ca_set_prefix}")
+            _err_msg = f"no CA cert chains found to be installed under the {self.cert_dir}, abort!!!"
+            logger.error(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg)
+
+        logger.info(f"found installed CA chains: {ca_set_prefix}")
 
         load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
 
