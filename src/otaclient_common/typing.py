@@ -30,12 +30,16 @@ T = TypeVar("T")
 EnumT = TypeVar("EnumT", bound=Enum)
 StrOrPath = Union[str, Path]
 
-# Before 3.11, if type mixin has its own __str__ and __format__,
-#   Enum will implicitly preserve and use the __str__ and __format__.
-#   However, starting from 3.11, we have ReprEnum. ONLY subclass of ReprEnum
-#   will preserves the type mixin's __str__ and __format__.
+# Before 3.11, if type mixin has its own __format__, Enum will implicitly
+#   preserve and use the __format__. This behavior is critical for str Enum
+#   to be used as string directly.
+#   However, starting from 3.11, the above implicit behavior no long exists. Instead
+#   we have ReprEnum. ONLY subclass of ReprEnum will preserves the type mixin's __format__.
 #   The above changes mean that starting from 3.11, <custom_enum>(str, Enum)
 #   cannot be used directly as str in f string or format, we need StrEnum.
+#
+# NOTE that in >= 3.11, str(<StrEnum_member>) will be the enum value, however
+# that is not true in < 3.11,
 #
 # To cover this behavior change, we simply need to use StrEnum for >= 3.11,
 #   and for easy maintain, for < 3.11 we manually define a StrEnum.
