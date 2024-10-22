@@ -36,7 +36,11 @@ import requests.exceptions as requests_exc
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
-from ota_metadata.util.cert_store import CACertChainStore
+from ota_metadata.util.cert_store import (
+    CACertChainStore,
+    CACertStoreInvalid,
+    load_ca_cert_chains,
+)
 from otaclient import __version__
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.create_standby import (
@@ -615,7 +619,16 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_traceback = ""
 
             # load CA certificate chains for OTA image sign cert verification
-            self.ca_chains_store = CACertChainStore(cfg.CERTS_DIR)
+            # TODO: for now aligns with the previous behavior, not failed on empty CA store
+            try:
+                ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+            except CACertStoreInvalid as e:
+                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA image sign cert verification will be skipped!!!"
+                logger.warning(_err_msg)
+
+                ca_chains_store = CACertChainStore()
+            self.ca_chains_store = ca_chains_store
+
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
