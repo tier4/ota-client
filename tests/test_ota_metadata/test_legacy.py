@@ -233,6 +233,7 @@ def test_ota_metadata(payload_str: str, certs_dirs: CertsDirs):
     assert asdict(metadata.certificate) == CERTIFICATE_INFO
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
 
+    parser.verify_metadata_cert(sign_pem.read_bytes())
     parser.verify_metadata(sign_pem.read_bytes())
     if "total_regular_size" in payload_str:
         assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
@@ -259,6 +260,7 @@ def test_ota_metadata_with_verify_certificate_exception(
     # use chain_b to verify chain_a's sign cert
     with pytest.raises(MetadataJWTVerificationFailed):
         parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
+        parser.verify_metadata_cert((chain_a / "sign.pem").read_bytes())
         parser.verify_metadata((chain_a / "sign.pem").read_bytes())
 
 
@@ -278,6 +280,7 @@ def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
     with pytest.raises(MetadataJWTPayloadInvalid):
         metadata_jwt = generate_jwt(payload_str, sign_key)
         parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
+        parser.verify_metadata_cert(sign_pem.read_bytes())
         parser.verify_metadata(sign_pem.read_bytes())
 
 
