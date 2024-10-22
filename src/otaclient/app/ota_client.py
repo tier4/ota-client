@@ -186,12 +186,6 @@ class _OTAUpdater:
     ) -> None:
         self.ca_chains_store = ca_chains_store
 
-        # TODO: to align with the behavior from v1.0.0, skip the OTA image verification if
-        #   ca_chains_store is empty
-        self._skip_ota_image_sign_cert_verification = False
-        if not ca_chains_store:
-            self._skip_ota_image_sign_cert_verification = True
-
         self._shutdown = False
         self._update_status = api_types.UpdateStatus()
         self._last_status_query_timestamp = 0
@@ -414,7 +408,6 @@ class _OTAUpdater:
                 downloader=self._downloader_pool.get_instance(),
                 run_dir=Path(cfg.RUN_DIR),
                 ca_chains_store=self.ca_chains_store,
-                skip_cert_verification=self._skip_ota_image_sign_cert_verification,
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
@@ -626,12 +619,13 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_traceback = ""
 
             # load CA certificate chains for OTA image sign cert verification
-            # TODO: for now aligns with the previous behavior, not failed on empty CA store
+            # TODO: in the future when otaclient re-architecture is finished,
+            #   directly fail here as otaclient should not do any OTA wihtout CA chains installed.
             try:
                 ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
             except CACertStoreInvalid as e:
-                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA image sign cert verification will be skipped!!!"
-                logger.warning(_err_msg)
+                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will not occur on no CA chains installed!!!"
+                logger.error(_err_msg)
 
                 ca_chains_store = CACertChainStore()
             self.ca_chains_store = ca_chains_store
@@ -660,6 +654,13 @@ class OTAClient(OTAClientProtocol):
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
         try:
             logger.info("[update] entering local update...")
+
+            if not self.ca_chains_store:
+                raise ota_errors.MetadataJWTVerficationFailed(
+                    "no CA chains are installed, reject any OTA update",
+                    module=__name__,
+                )
+
             self._update_executor = _OTAUpdater(
                 version=version,
                 raw_url_base=url_base,
