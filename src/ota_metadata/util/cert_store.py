@@ -54,21 +54,10 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
             _err_msg = f"detect invalid named certs: {cert.name}"
             logger.warning(_err_msg)
 
-    # NOTE(20241021): in the old day the hack to bypass OTA image certificate validation
-    #   with no CA chains installed was introduced, mostly for the following reasons:
-    #   1. make convenience for local OTA test with self-signed OTA image.
-    #   2. for migrating from non-signed OTA image distribution.
-    #
-    #   For 1., the developer is highly recommended to install the test certs in their own environment,
-    #       or just using the build system to build image signed with dev certs.
-    #   For 2., we have already given long enough time for the migration, I think it is time
-    #       to remove this hack.
     if not ca_set_prefix:
-        _err_msg = (
-            f"no CA cert chains found to be installed under the {cert_dir}, abort!!!"
-        )
-        logger.error(_err_msg)
-        raise CACertStoreInvalid(_err_msg)
+        _err_msg = f"no CA cert chains found to be installed under the {cert_dir}!!!"
+        logger.warning(_err_msg)
+        return {}
 
     logger.info(f"found installed CA chains: {ca_set_prefix}")
 
@@ -84,9 +73,9 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
             logger.warning(_err_msg)
 
     if not ca_chains:
-        _err_msg = "all found CA chains are invalid, abort!!!"
-        logger.error(_err_msg)
-        raise CACertStoreInvalid(_err_msg)
+        _err_msg = "all found CA chains are invalid!!!"
+        logger.warning(_err_msg)
+        return {}
 
     logger.info(f"loaded CA cert chains: {list(ca_chains)}")
     return ca_chains
