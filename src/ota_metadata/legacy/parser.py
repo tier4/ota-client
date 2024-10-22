@@ -592,9 +592,13 @@ class OTAMetadata:
         run_dir: Path,
         ca_chains_store: CACertChainStore,
         retry_interval: int = 1,
-        skip_cert_verification: bool = False,
     ) -> None:
-        self.skip_cert_verification = skip_cert_verification
+        # TODO: in the future when otaclient re-architecture is finished,
+        #   otaclient core should exit on no CA cert chains installed.
+        if not ca_chains_store:
+            _err_msg = "CA chains store is empty!!! immediately fail the verification"
+            logger.error(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg)
 
         self.url_base = url_base
         self._downloader = downloader
@@ -682,8 +686,7 @@ class OTAMetadata:
 
             cert_bytes = cert_file.read_bytes()
 
-            if not self.skip_cert_verification:
-                _parser.verify_metadata_cert(cert_bytes)
+            _parser.verify_metadata_cert(cert_bytes)
             _parser.verify_metadata(cert_bytes)
 
         # return verified ota metadata
