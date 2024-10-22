@@ -302,7 +302,7 @@ class _MetadataJWTParser:
         logger.error(_err_msg)
         raise MetadataJWTVerificationFailed(_err_msg)
 
-    def verify_metadata(self, metadata_cert: bytes):
+    def verify_metadata_signature(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
 
         Raises:
@@ -687,7 +687,7 @@ class OTAMetadata:
             cert_bytes = cert_file.read_bytes()
 
             _parser.verify_metadata_cert(cert_bytes)
-            _parser.verify_metadata(cert_bytes)
+            _parser.verify_metadata_signature(cert_bytes)
 
         # return verified ota metadata
         return _ota_metadata
