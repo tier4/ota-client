@@ -245,9 +245,9 @@ class _MetadataJWTParser:
 
     HASH_ALG = "sha256"
 
-    def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
+    def __init__(self, metadata_jwt: str, *, ca_chains_store: CACertChainStore):
         # TODO: in the future load the cert store at otaclient starts up.
-        self.cert_store = CACertChainStore(certs_dir)
+        self.ca_chains_store = ca_chains_store
 
         # pre_parse metadata_jwt
         jwt_list = metadata_jwt.split(".")
@@ -274,6 +274,10 @@ class _MetadataJWTParser:
         Raises:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
+        # TODO: in the future, directly failed on ca_chain_store is empty.
+        if not self.ca_chains_store:
+            return
+
         try:
             cert_to_verify = load_cert_in_pem(metadata_cert)
         except crypto.Error as e:
@@ -282,10 +286,10 @@ class _MetadataJWTParser:
             raise MetadataJWTVerificationFailed(_err_msg) from e
 
         # verify the OTA image cert against CA cert chain store
-        for ca_prefix, ca_chain_store in self.cert_store.items():
+        for ca_prefix, ca_chain in self.ca_chains_store.items():
             try:
                 crypto.X509StoreContext(
-                    store=ca_chain_store,
+                    store=ca_chain,
                     certificate=cert_to_verify,
                 ).verify_certificate()
 
@@ -597,13 +601,13 @@ class OTAMetadata:
         url_base: str,
         downloader: Downloader,
         run_dir: Path,
-        certs_dir: Path,
+        ca_chains_store: CACertChainStore,
         retry_interval: int = 1,
     ) -> None:
         self.url_base = url_base
         self._downloader = downloader
         self.run_dir = run_dir
-        self.certs_dir = certs_dir
+        self.ca_chains_store = ca_chains_store
         self.retry_interval = retry_interval
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=run_dir)
         self._tmp_dir_path = Path(self._tmp_dir.name)
@@ -655,7 +659,8 @@ class OTAMetadata:
                     time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
-                _downloaded_meta_f.read_text(), certs_dir=self.certs_dir
+                _downloaded_meta_f.read_text(),
+                ca_chains_store=self.ca_chains_store,
             )
         # get not yet verified parsed ota_metadata
         _ota_metadata = _parser.get_otametadata()
