@@ -36,6 +36,7 @@ from ota_metadata.legacy.parser import (
     parse_regulars_from_txt,
     parse_symlinks_from_txt,
 )
+from ota_metadata.util.cert_store import load_ca_cert_chains
 from tests.conftest import TEST_DIR
 
 GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
@@ -220,8 +221,10 @@ def test_ota_metadata(payload_str: str, certs_dirs: CertsDirs):
     sign_pem = chain_b / "sign.pem"
     sign_key = chain_b / "sign.key"
 
+    ca_store = load_ca_cert_chains(certs_dir)
+
     metadata_jwt = generate_jwt(payload_str, sign_key)
-    parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
+    parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
     metadata = parser.get_otametadata()
     assert asdict(metadata.directory) == DIR_INFO
     assert asdict(metadata.symboliclink) == SYMLINK_INFO
@@ -251,10 +254,11 @@ def test_ota_metadata_with_verify_certificate_exception(
     chain_a, chain_b = certs_dirs["chain_a"], certs_dirs["chain_b"]
     chain_a_sign_key = chain_a / "sign.key"
 
+    ca_store = load_ca_cert_chains(chain_b)
     metadata_jwt = generate_jwt(payload_str, chain_a_sign_key)
     # use chain_b to verify chain_a's sign cert
     with pytest.raises(MetadataJWTVerificationFailed):
-        parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(chain_b))
+        parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
         parser.verify_metadata((chain_a / "sign.pem").read_bytes())
 
 
@@ -270,9 +274,10 @@ def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
     sign_pem = certs_dir / "sign.pem"
     sign_key = certs_dir / "sign.key"
 
+    ca_store = load_ca_cert_chains(certs_dir)
     with pytest.raises(MetadataJWTPayloadInvalid):
         metadata_jwt = generate_jwt(payload_str, sign_key)
-        parser = _MetadataJWTParser(metadata_jwt, certs_dir=str(certs_dir))
+        parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
         parser.verify_metadata(sign_pem.read_bytes())
 
 
@@ -385,7 +390,7 @@ def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
         ),
     ),
 )
-def test_RegularInf(
+def test_regulars_txt(
     _input: str,
     mode: int,
     uid: int,
@@ -421,7 +426,7 @@ def test_RegularInf(
         ),
     ),
 )
-def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
+def test_dirs_txt(_input: str, mode: int, uid: int, gid: int, path: str):
     entry = parse_dirs_from_txt(_input)
 
     assert entry.mode == mode
@@ -444,7 +449,7 @@ def test_DirectoryInf(_input: str, mode: int, uid: int, gid: int, path: str):
         ),
     ),
 )
-def test_SymbolicLinkInf(
+def test_symlinks_txt(
     _input: str, mode: int, uid: int, gid: int, link: str, target: str
 ):
     entry = parse_symlinks_from_txt(_input)
@@ -465,6 +470,6 @@ def test_SymbolicLinkInf(
         ),
     ),
 )
-def test_PersistentInf(_input: str, path: str):
+def test_persistent_txt(_input: str, path: str):
     entry = parse_persistents_from_txt(_input)
     assert entry.path == path
