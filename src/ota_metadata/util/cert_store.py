@@ -84,9 +84,15 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
 class CACertChainStore(Dict[str, crypto.X509Store]):
 
     def __new__(cls, cert_dir: StrOrPath):
-        _store = _load_ca_cert_chains(cert_dir)
-        _new = dict.__new__(cls, _store)
-        return _new
+        # TODO: in the future, directly failed if exception is raised
+        try:
+            _store = _load_ca_cert_chains(cert_dir)
+            _new = dict.__new__(cls, _store)
+            return _new
+        except Exception as e:
+            logger.warning(f"import ca chains failed: {e!r}")
+            logger.warning("for now allow empty cert store")
+            return dict.__new__(cls, {})
 
     def __init__(self, cert_dir: StrOrPath):
         """A dict-like type that stores CA chain name and CA store mapping."""
