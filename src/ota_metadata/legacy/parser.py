@@ -592,7 +592,10 @@ class OTAMetadata:
         run_dir: Path,
         ca_chains_store: CACertChainStore,
         retry_interval: int = 1,
+        skip_cert_verification: bool = False,
     ) -> None:
+        self.skip_cert_verification = skip_cert_verification
+
         self.url_base = url_base
         self._downloader = downloader
         self.run_dir = run_dir
@@ -621,9 +624,7 @@ class OTAMetadata:
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
 
-    def _process_metadata_jwt(
-        self, *, skip_cert_verification: bool = False
-    ) -> _MetadataJWTClaimsLayout:
+    def _process_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
@@ -681,7 +682,7 @@ class OTAMetadata:
 
             cert_bytes = cert_file.read_bytes()
 
-            if not skip_cert_verification:
+            if not self.skip_cert_verification:
                 _parser.verify_metadata_cert(cert_bytes)
             _parser.verify_metadata(cert_bytes)
 
