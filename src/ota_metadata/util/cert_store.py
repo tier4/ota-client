@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # e.g:
 #   dev chain: dev.intermediate.pem, dev.root.pem
 #   prd chain: prd.intermediate.pem, prd.intermediate.pem
-CERT_NAME_PA = re.compile(r"(?<chain>[\w\-]+)\.[\w\-]+\.pem")
+CERT_NAME_PA = re.compile(r"(?P<chain>[\w\-]+)\.[\w\-]+\.pem")
 
 
 class CACertStoreInvalid(Exception): ...
