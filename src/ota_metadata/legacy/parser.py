@@ -246,7 +246,6 @@ class _MetadataJWTParser:
     HASH_ALG = "sha256"
 
     def __init__(self, metadata_jwt: str, *, ca_chains_store: CACertChainStore):
-        # TODO: in the future load the cert store at otaclient starts up.
         self.ca_chains_store = ca_chains_store
 
         # pre_parse metadata_jwt
@@ -268,15 +267,16 @@ class _MetadataJWTParser:
         self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
         logger.info(f"metadata={self.ota_metadata!r}")
 
-    def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
+    def verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
-        # TODO: in the future, directly failed on ca_chain_store is empty.
         if not self.ca_chains_store:
-            return
+            _err_msg = "CA chains store is empty!!! immediately fail the verification"
+            logger.error(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg)
 
         try:
             cert_to_verify = load_cert_in_pem(metadata_cert)
@@ -302,7 +302,7 @@ class _MetadataJWTParser:
         logger.error(_err_msg)
         raise MetadataJWTVerificationFailed(_err_msg)
 
-    def _verify_metadata(self, metadata_cert: bytes):
+    def verify_metadata(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
 
         Raises:
@@ -329,17 +329,6 @@ class _MetadataJWTParser:
             A instance of OTAMetaData representing the parsed(but not yet verified) metadata.
         """
         return self.ota_metadata
-
-    def verify_metadata(self, metadata_cert: bytes):
-        """Verify metadata_jwt against metadata cert and local pinned CA certs.
-
-        Raises:
-            Raise MetadataJWTVerificationFailed on verification failed.
-        """
-        # step1: verify the cert itself against local pinned CA cert
-        self._verify_metadata_cert(metadata_cert)
-        # step2: verify the metadata against input metadata_cert
-        self._verify_metadata(metadata_cert)
 
 
 # place holder for unset must field in _MetadataJWTClaimsLayout
@@ -632,7 +621,9 @@ class OTAMetadata:
         # download, parse and store ota metatfiles
         self._process_text_base_otameta_files()
 
-    def _process_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
+    def _process_metadata_jwt(
+        self, *, skip_cert_verification: bool = False
+    ) -> _MetadataJWTClaimsLayout:
         """Download, loading and parsing metadata.jwt."""
         logger.debug("process metadata.jwt...")
         # download and parse metadata.jwt
@@ -687,7 +678,12 @@ class OTAMetadata:
                 except Exception as e:
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
                     time.sleep(self.retry_interval)
-            _parser.verify_metadata(cert_file.read_bytes())
+
+            cert_bytes = cert_file.read_bytes()
+
+            if not skip_cert_verification:
+                _parser.verify_metadata_cert(cert_bytes)
+            _parser.verify_metadata(cert_bytes)
 
         # return verified ota metadata
         return _ota_metadata
