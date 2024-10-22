@@ -40,10 +40,22 @@ CERT_NAME_PA = re.compile(r"(?<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
+class CACertChainStore(Dict[str, crypto.X509Store]):
+    """A dict-like type that stores CA chain name and CA store mapping."""
+
+
 load_cert_in_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
 
 
-def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
+def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
+    """Load CA cert chains from <cert_dir>.
+
+    Raises:
+        CACertStoreInvalid on failed import.
+
+    Returns:
+        A dict
+    """
     cert_dir = Path(cert_dir)
 
     ca_set_prefix = set()
@@ -56,12 +68,12 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
 
     if not ca_set_prefix:
         _err_msg = f"no CA cert chains found to be installed under the {cert_dir}!!!"
-        logger.warning(_err_msg)
-        return {}
+        logger.error(_err_msg)
+        raise CACertStoreInvalid(_err_msg)
 
     logger.info(f"found installed CA chains: {ca_set_prefix}")
 
-    ca_chains: dict[str, crypto.X509Store] = {}
+    ca_chains = CACertChainStore()
     for ca_prefix in sorted(ca_set_prefix):
         try:
             ca_chain = crypto.X509Store()
@@ -73,26 +85,9 @@ def _load_ca_cert_chains(cert_dir: StrOrPath) -> dict[str, crypto.X509Store]:
             logger.warning(_err_msg)
 
     if not ca_chains:
-        _err_msg = "all found CA chains are invalid!!!"
-        logger.warning(_err_msg)
-        return {}
+        _err_msg = "all found CA chains are invalid, no CA chain is imported!!!"
+        logger.error(_err_msg)
+        raise CACertStoreInvalid(_err_msg)
 
     logger.info(f"loaded CA cert chains: {list(ca_chains)}")
     return ca_chains
-
-
-class CACertChainStore(Dict[str, crypto.X509Store]):
-
-    def __new__(cls, cert_dir: StrOrPath):
-        # TODO: in the future, directly failed if exception is raised
-        try:
-            _store = _load_ca_cert_chains(cert_dir)
-            _new = dict.__new__(cls, _store)
-            return _new
-        except Exception as e:
-            logger.warning(f"import ca chains failed: {e!r}")
-            logger.warning("for now allow empty cert store")
-            return dict.__new__(cls, {})
-
-    def __init__(self, cert_dir: StrOrPath):
-        """A dict-like type that stores CA chain name and CA store mapping."""
