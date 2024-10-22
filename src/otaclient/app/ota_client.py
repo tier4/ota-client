@@ -186,6 +186,12 @@ class _OTAUpdater:
     ) -> None:
         self.ca_chains_store = ca_chains_store
 
+        # TODO: to align with the behavior from v1.0.0, skip the OTA image verification if
+        #   ca_chains_store is empty
+        self._skip_ota_image_sign_cert_verification = False
+        if not ca_chains_store:
+            self._skip_ota_image_sign_cert_verification = True
+
         self._shutdown = False
         self._update_status = api_types.UpdateStatus()
         self._last_status_query_timestamp = 0
@@ -408,6 +414,7 @@ class _OTAUpdater:
                 downloader=self._downloader_pool.get_instance(),
                 run_dir=Path(cfg.RUN_DIR),
                 ca_chains_store=self.ca_chains_store,
+                skip_cert_verification=self._skip_ota_image_sign_cert_verification,
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
