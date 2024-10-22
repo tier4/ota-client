@@ -36,6 +36,7 @@ import requests.exceptions as requests_exc
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
+from ota_metadata.util.cert_store import CACertChainStore
 from otaclient import __version__
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.create_standby import (
@@ -172,12 +173,15 @@ class _OTAUpdater:
         version: str,
         raw_url_base: str,
         cookies_json: str,
+        ca_chains_store: CACertChainStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
         status_query_interval: int = DEFAULT_STATUS_QUERY_INTERVAL,
     ) -> None:
+        self.ca_chains_store = ca_chains_store
+
         self._shutdown = False
         self._update_status = api_types.UpdateStatus()
         self._last_status_query_timestamp = 0
@@ -399,7 +403,7 @@ class _OTAUpdater:
                 url_base=self.url_base,
                 downloader=self._downloader_pool.get_instance(),
                 run_dir=Path(cfg.RUN_DIR),
-                certs_dir=Path(cfg.CERTS_DIR),
+                ca_chains_store=self.ca_chains_store,
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
@@ -609,6 +613,9 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_type = api_types.FailureType.NO_FAILURE
             self.last_failure_reason = ""
             self.last_failure_traceback = ""
+
+            # load CA certificate chains for OTA image sign cert verification
+            self.ca_chains_store = CACertChainStore(cfg.CERTS_DIR)
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
@@ -637,6 +644,7 @@ class OTAClient(OTAClientProtocol):
                 version=version,
                 raw_url_base=url_base,
                 cookies_json=cookies_json,
+                ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
                 control_flags=self.control_flags,
