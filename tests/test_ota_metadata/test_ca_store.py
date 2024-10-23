@@ -44,8 +44,6 @@ def setup_ca_chain(tmp_path: Path) -> tuple[str, Path, Path]:
     gen_certs_script = certs_dir / GEN_CERTS_SCRIPT.name
 
     chain = "test_chain"
-
-    certs_dir.mkdir()
     subprocess.run(
         [
             "bash",
@@ -67,10 +65,10 @@ def test_ca_store(setup_ca_chain: tuple[str, Path, Path]):
         crypto.X509StoreContext(
             store=ca_store[ca_chain],
             certificate=load_cert_in_pem(TEST_BASE_SIGN_PEM.read_bytes()),
-        )
+        ).verify_certificate()
 
     # verification should succeed with proper chain and corresponding sign cert.
     crypto.X509StoreContext(
         store=ca_store[ca_chain],
         certificate=load_cert_in_pem(sign_pem.read_bytes()),
-    )
+    ).verify_certificate()
