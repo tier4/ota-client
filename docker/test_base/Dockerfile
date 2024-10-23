@@ -4,7 +4,7 @@ ARG UBUNTU_BASE
 # ------ stage 1: prepare base image ------ #
 #
 
-FROM ${UBUNTU_BASE} AS builder
+FROM ${UBUNTU_BASE} AS image_build
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -12,10 +12,9 @@ ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 # special treatment to the ota-image: create file that needs url escaping
 # NOTE: include special identifiers #?; into the pathname
-RUN echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"
-
-# install required packages
 RUN set -eux; \
+    echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"; \
+    # install required packages
     apt-get update -qq; \
     apt-get install -y linux-image-generic; \
     apt-get clean; \
@@ -44,26 +43,24 @@ ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
+	    gcc \
+        git \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        python3-dev \
         python3-minimal \
         python3-pip \
         python3-venv \
-        python3-dev \
-	    libcurl4-openssl-dev \
-	    libssl-dev \
-	    gcc \
-        wget \
-        git; \
+        wget; \
     apt-get install -y -qq linux-image-generic; \
-    apt-get clean
-
-# install hatch
-RUN set -eux; \
+    apt-get clean; \
+    # install hatch
     python3 -m pip install --no-cache-dir -q -U pip; \
     python3 -m pip install --no-cache-dir -U hatch
 
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 
-COPY --from=builder / /${OTA_IMAGE_DIR}
+COPY --from=image_build / /${OTA_IMAGE_DIR}
 
 # generate test certs and sign key
 COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
@@ -72,10 +69,8 @@ RUN set -eu; \
     pushd /tmp/certs; \
     ./gen_certs.sh; \
     cp ./* "${CERTS_DIR}"; \
-    popd
-
-# build the test OTA image
-RUN set -eu; \
+    popd; \
+    # build the test OTA image
     cp "${CERTS_DIR}"/sign.key sign.key; \
     cp "${CERTS_DIR}"/sign.pem sign.pem; \
     git clone ${OTA_METADATA_REPO}; \
@@ -96,10 +91,8 @@ RUN set -eu; \
         --persistent-file ota-metadata/metadata/persistents.txt \
         --rootfs-directory data \
         --compressed-rootfs-directory data.zst; \
-    cp ota-metadata/metadata/persistents.txt .
-
-# cleanup
-RUN set -eux; \
+    cp ota-metadata/metadata/persistents.txt .; \
+    # cleanup
     apt-get clean; \
     rm -rf \
         /tmp/* \
