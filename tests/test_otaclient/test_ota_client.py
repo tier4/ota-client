@@ -29,6 +29,7 @@ import pytest_mock
 
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
+from ota_metadata.util.cert_store import load_ca_cert_chains
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (
@@ -47,7 +48,7 @@ from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
 
-class Test_OTAUpdater:
+class TestOTAUpdater:
     """
     NOTE: the boot_control and create_standby are mocked, only testing
           the logics directly implemented by OTAUpdater
@@ -156,17 +157,20 @@ class Test_OTAUpdater:
             f"{cfg.OTACLIENT_MODULE_PATH}.OTAUpdateStatsCollector", mocker.MagicMock()
         )
 
-    def test_OTAUpdater(self, mocker: pytest_mock.MockerFixture):
+    def test_otaupdater(self, mocker: pytest_mock.MockerFixture):
         from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
+        ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
+
         _updater = _OTAUpdater(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
+            ca_chains_store=ca_store,
             boot_controller=self._boot_control,
             upper_otaproxy=None,
             create_standby_cls=self._create_standby_cls,
@@ -194,7 +198,7 @@ class Test_OTAUpdater:
         process_persists_handler.assert_called_once()
 
 
-class Test_OTAClient:
+class TestOTAClient:
     """Testing on OTAClient workflow."""
 
     OTACLIENT_VERSION = "otaclient_version"

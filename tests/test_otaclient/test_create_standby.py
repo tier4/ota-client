@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
+from ota_metadata.util.cert_store import load_ca_cert_chains
 from otaclient import create_standby
 from otaclient.app.configs import BaseConfig
 from otaclient.app.configs import config as otaclient_cfg
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 MODULE = create_standby.__name__
 
 
-class Test_OTAupdate_with_create_standby_RebuildMode:
+class TestOTAupdateWithCreateStandbyRebuildMode:
     """
     NOTE: the boot_control is mocked, only testing
           create_standby and the logics directly implemented by OTAUpdater
@@ -74,7 +75,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
         )
-        self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir
+        self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir  # type: ignore
 
         # ------ mock otaclient cfg ------ #
         _cfg = BaseConfig()
@@ -84,15 +85,19 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
         mocker.patch(f"{MODULE}.rebuild_mode.cfg", _cfg)
 
-    def test_update_with_create_standby_RebuildMode(self, mocker: MockerFixture):
+    def test_update_with_rebuild_mode(self, mocker: MockerFixture):
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
+
+        ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
+
         _updater = _OTAUpdater(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
+            ca_chains_store=ca_store,
             upper_otaproxy=None,
             boot_controller=self._boot_control,
             create_standby_cls=RebuildMode,
@@ -111,7 +116,7 @@ class Test_OTAupdate_with_create_standby_RebuildMode:
         persist_handler.assert_called_once()
         # --- assert update finished
         _updater.shutdown.assert_called_once()
-        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
+        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()  # type: ignore
         # --- ensure the update stats are collected
         collector = _updater._update_stats_collector
         assert collector.processed_files_num
