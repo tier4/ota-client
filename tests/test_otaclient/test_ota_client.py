@@ -48,6 +48,18 @@ from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
 
+@pytest.fixture(autouse=True, scope="module")
+def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
+    """Mock to use the certs from the OTA test base image."""
+    from otaclient.app.ota_client import cfg as _cfg
+
+    module_mocker.patch.object(
+        _cfg,
+        "CERTS_DIR",
+        cfg.CERTS_DIR,
+    )
+
+
 class TestOTAUpdater:
     """
     NOTE: the boot_control and create_standby are mocked, only testing
