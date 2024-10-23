@@ -593,8 +593,6 @@ class OTAMetadata:
         ca_chains_store: CACertChainStore,
         retry_interval: int = 1,
     ) -> None:
-        # TODO: in the future when otaclient re-architecture is finished,
-        #   otaclient core should exit on no CA cert chains installed.
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
