@@ -618,17 +618,13 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_reason = ""
             self.last_failure_traceback = ""
 
-            # load CA certificate chains for OTA image sign cert verification
-            # TODO: in the future when otaclient re-architecture is finished,
-            #   directly fail here as otaclient should not do any OTA wihtout CA chains installed.
             try:
-                ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+                self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
             except CACertStoreInvalid as e:
-                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will not occur on no CA chains installed!!!"
+                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
                 logger.error(_err_msg)
 
-                ca_chains_store = CACertChainStore()
-            self.ca_chains_store = ca_chains_store
+                self.ca_chains_store = CACertChainStore()
 
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
