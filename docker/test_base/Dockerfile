@@ -13,7 +13,7 @@ ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 # special treatment to the ota-image: create file that needs url escaping
 # NOTE: include special identifiers #?; into the pathname
 RUN set -eux; \
-    echo -n "${SPECIAL_FILE}" > "${OTA_IMAGE_DIR}/${SPECIAL_FILE}"; \
+    echo -n "${SPECIAL_FILE}" > "/${SPECIAL_FILE}"; \
     # install required packages
     apt-get update -qq; \
     apt-get install -y linux-image-generic; \
