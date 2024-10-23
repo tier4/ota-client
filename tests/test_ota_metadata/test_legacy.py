@@ -36,7 +36,7 @@ from ota_metadata.legacy.parser import (
     parse_regulars_from_txt,
     parse_symlinks_from_txt,
 )
-from ota_metadata.util.cert_store import load_ca_cert_chains
+from ota_metadata.utils.cert_store import load_ca_cert_chains
 from tests.conftest import TEST_DIR
 
 GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"

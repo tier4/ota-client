@@ -36,7 +36,7 @@ import requests.exceptions as requests_exc
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
-from ota_metadata.util.cert_store import (
+from ota_metadata.utils.cert_store import (
     CACertChainStore,
     CACertStoreInvalid,
     load_ca_cert_chains,

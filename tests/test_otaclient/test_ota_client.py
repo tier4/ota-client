@@ -29,7 +29,7 @@ import pytest_mock
 
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
-from ota_metadata.util.cert_store import load_ca_cert_chains
+from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (

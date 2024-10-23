@@ -70,7 +70,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from typing_extensions import Self
 
-from ota_metadata.util.cert_store import CACertChainStore, load_cert_in_pem
+from ota_metadata.utils.cert_store import CACertChainStore, load_cert_in_pem
 from ota_proxy import OTAFileCacheControl
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader

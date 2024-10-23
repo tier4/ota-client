@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
-from ota_metadata.util.cert_store import load_ca_cert_chains
+from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import create_standby
 from otaclient.app.configs import BaseConfig
 from otaclient.app.configs import config as otaclient_cfg
