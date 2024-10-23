@@ -234,7 +234,7 @@ def test_ota_metadata(payload_str: str, certs_dirs: CertsDirs):
     assert metadata.rootfs_directory == ROOTFS_DIR_INFO
 
     parser.verify_metadata_cert(sign_pem.read_bytes())
-    parser.verify_metadata(sign_pem.read_bytes())
+    parser.verify_metadata_signature(sign_pem.read_bytes())
     if "total_regular_size" in payload_str:
         assert metadata.total_regular_size == TOTAL_REGULAR_SIZE
     else:
@@ -261,7 +261,7 @@ def test_ota_metadata_with_verify_certificate_exception(
     with pytest.raises(MetadataJWTVerificationFailed):
         parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
         parser.verify_metadata_cert((chain_a / "sign.pem").read_bytes())
-        parser.verify_metadata((chain_a / "sign.pem").read_bytes())
+        parser.verify_metadata_signature((chain_a / "sign.pem").read_bytes())
 
 
 @pytest.mark.parametrize(
@@ -281,7 +281,7 @@ def test_invalid_metadata_jwt(payload_str: str, certs_dirs: CertsDirs):
         metadata_jwt = generate_jwt(payload_str, sign_key)
         parser = _MetadataJWTParser(metadata_jwt, ca_chains_store=ca_store)
         parser.verify_metadata_cert(sign_pem.read_bytes())
-        parser.verify_metadata(sign_pem.read_bytes())
+        parser.verify_metadata_signature(sign_pem.read_bytes())
 
 
 # ------ text based ota metafiles parsing test ------ #
