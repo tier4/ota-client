@@ -191,17 +191,13 @@ def certs_dirs(tmp_path: Path) -> CertsDirs:
     for chain in ["chain_a", "chain_b"]:
         chain_dir = certs_dir / chain
         chain_dir.mkdir()
-        chain_interm_cert = chain_dir / f"{chain}.intermediate.pem"
+        chain_interm_cert = chain_dir / f"{chain}.interm.pem"
         chain_root_cert = chain_dir / f"{chain}.root.pem"
 
         subprocess.run(
-            [str(gen_certs_script)],
+            [str(gen_certs_script), chain],
             cwd=chain_dir,
         )
-        interm_cert = chain_dir / "interm.pem"
-        root_cert = chain_dir / "root.pem"
-        shutil.move(str(interm_cert), chain_interm_cert)
-        shutil.move(str(root_cert), chain_root_cert)
         shutil.copy(chain_interm_cert, multi_chain_dir)
         shutil.copy(chain_root_cert, multi_chain_dir)
 
