@@ -22,7 +22,11 @@ from pathlib import Path
 import pytest
 from OpenSSL import crypto
 
-from ota_metadata.utils.cert_store import load_ca_cert_chains, load_cert_in_pem
+from ota_metadata.utils.cert_store import (
+    CACertStoreInvalid,
+    load_ca_cert_chains,
+    load_cert_in_pem,
+)
 from tests.conftest import TEST_DIR
 from tests.conftest import TestConfiguration as cfg
 
@@ -72,3 +76,20 @@ def test_ca_store(setup_ca_chain: tuple[str, Path, Path]):
         store=ca_store[ca_chain],
         certificate=load_cert_in_pem(sign_pem.read_bytes()),
     ).verify_certificate()
+
+
+def test_ca_store_empty(tmp_path: Path):
+    with pytest.raises(CACertStoreInvalid):
+        load_ca_cert_chains(tmp_path)
+
+
+def test_ca_store_invalid(tmp_path: Path):
+    # create invalid certs under tmp_path
+    root_cert = tmp_path / "test.root.pem"
+    intermediate = tmp_path / "test.intermediate.pem"
+
+    root_cert.write_text("abcdef")
+    intermediate.write_text("123456")
+
+    with pytest.raises(CACertStoreInvalid):
+        load_ca_cert_chains(tmp_path)
