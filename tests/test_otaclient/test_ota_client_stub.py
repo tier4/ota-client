@@ -32,8 +32,9 @@ from otaclient.app.ota_client_stub import (
     OTAClientServiceStub,
     OTAProxyLauncher,
 )
-from otaclient.configs.ecu_info import ECUInfo, parse_ecu_info
-from otaclient.configs.proxy_info import ProxyInfo, parse_proxy_info
+from otaclient.configs import ECUInfo, ProxyInfo
+from otaclient.configs._ecu_info import parse_ecu_info
+from otaclient.configs._proxy_info import parse_proxy_info
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
 from tests.conftest import cfg

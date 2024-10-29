@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-from enum import Enum
 from pathlib import Path
 from typing import List
 
@@ -27,12 +26,17 @@ from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
 from typing_extensions import Annotated
 
 from otaclient.configs._common import BaseFixedConfig
-from otaclient_common.typing import NetworkPort, StrOrPath, gen_strenum_validator
+from otaclient_common.typing import (
+    NetworkPort,
+    StrEnum,
+    StrOrPath,
+    gen_strenum_validator,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class BootloaderType(str, Enum):
+class BootloaderType(StrEnum):
     """Bootloaders that supported by otaclient.
 
     auto_detect: (DEPRECATED) at runtime detecting what bootloader is in use in this ECU.
@@ -133,8 +137,3 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> ECUInfo:
         logger.warning(f"{ecu_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")
         return DEFAULT_ECU_INFO
-
-
-# NOTE(20240327): set the default as literal for now,
-#   in the future this will be app_cfg.ECU_INFO_FPATH
-ecu_info = parse_ecu_info(ecu_info_file="/boot/ota/ecu_info.yaml")

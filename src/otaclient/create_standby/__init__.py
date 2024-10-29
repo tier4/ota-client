@@ -26,13 +26,13 @@ logger = logging.getLogger(__name__)
 def get_standby_slot_creator(
     mode: CreateStandbyMechanism,
 ) -> Type[StandbySlotCreatorProtocol]:
-    logger.info(f"use slot update {mode=}")
+    logger.info(f"use slot update mechanism: {mode!r}")
     if mode == CreateStandbyMechanism.REBUILD:
         from .rebuild_mode import RebuildMode
 
         return RebuildMode
     else:
-        raise NotImplementedError(f"slot update {mode=} not implemented")
+        raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
 
 
 __all__ = ("get_standby_slot_creator",)

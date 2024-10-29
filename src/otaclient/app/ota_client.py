@@ -36,6 +36,11 @@ import requests.exceptions as requests_exc
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
+from ota_metadata.utils.cert_store import (
+    CACertChainStore,
+    CACertStoreInvalid,
+    load_ca_cert_chains,
+)
 from otaclient import __version__
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.create_standby import (
@@ -172,12 +177,15 @@ class _OTAUpdater:
         version: str,
         raw_url_base: str,
         cookies_json: str,
+        ca_chains_store: CACertChainStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
         status_query_interval: int = DEFAULT_STATUS_QUERY_INTERVAL,
     ) -> None:
+        self.ca_chains_store = ca_chains_store
+
         self._shutdown = False
         self._update_status = api_types.UpdateStatus()
         self._last_status_query_timestamp = 0
@@ -399,7 +407,7 @@ class _OTAUpdater:
                 url_base=self.url_base,
                 downloader=self._downloader_pool.get_instance(),
                 run_dir=Path(cfg.RUN_DIR),
-                certs_dir=Path(cfg.CERTS_DIR),
+                ca_chains_store=self.ca_chains_store,
             )
             self.total_files_num = otameta.total_files_num
             self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
@@ -609,6 +617,15 @@ class OTAClient(OTAClientProtocol):
             self.last_failure_type = api_types.FailureType.NO_FAILURE
             self.last_failure_reason = ""
             self.last_failure_traceback = ""
+
+            try:
+                self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+            except CACertStoreInvalid as e:
+                _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
+                logger.error(_err_msg)
+
+                self.ca_chains_store = CACertChainStore()
+
         except Exception as e:
             _err_msg = f"failed to start otaclient core: {e!r}"
             logger.error(_err_msg)
@@ -633,10 +650,18 @@ class OTAClient(OTAClientProtocol):
     def update(self, version: str, url_base: str, cookies_json: str) -> None:
         try:
             logger.info("[update] entering local update...")
+
+            if not self.ca_chains_store:
+                raise ota_errors.MetadataJWTVerficationFailed(
+                    "no CA chains are installed, reject any OTA update",
+                    module=__name__,
+                )
+
             self._update_executor = _OTAUpdater(
                 version=version,
                 raw_url_base=url_base,
                 cookies_json=cookies_json,
+                ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
                 control_flags=self.control_flags,
