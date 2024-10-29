@@ -47,7 +47,6 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, fields
-from functools import partial
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -71,6 +70,7 @@ from urllib.parse import quote
 from OpenSSL import crypto
 from typing_extensions import Self
 
+from ota_metadata.utils.cert_store import CACertChainStore, load_cert_in_pem
 from ota_proxy import OTAFileCacheControl
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
@@ -245,8 +245,8 @@ class _MetadataJWTParser:
 
     HASH_ALG = "sha256"
 
-    def __init__(self, metadata_jwt: str, *, certs_dir: Union[str, Path]):
-        self.cert_dir = Path(certs_dir)
+    def __init__(self, metadata_jwt: str, *, ca_chains_store: CACertChainStore):
+        self.ca_chains_store = ca_chains_store
 
         # pre_parse metadata_jwt
         jwt_list = metadata_jwt.split(".")
@@ -267,46 +267,32 @@ class _MetadataJWTParser:
         self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
         logger.info(f"metadata={self.ota_metadata!r}")
 
-    def _verify_metadata_cert(self, metadata_cert: bytes) -> None:
+    def verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
 
         Raises:
             Raise MetadataJWTVerificationFailed on verification failed.
         """
-        ca_set_prefix = set()
-        # e.g. under _certs_dir: A.1.pem, A.2.pem, B.1.pem, B.2.pem
-        for cert in self.cert_dir.glob("*.*.pem"):
-            if m := re.match(r"(.*)\..*.pem", cert.name):
-                ca_set_prefix.add(m.group(1))
-            else:
-                raise MetadataJWTVerificationFailed("no pem file is found")
-        if len(ca_set_prefix) == 0:
-            logger.warning("there is no root or intermediate certificate")
-            return
-        logger.info(f"certs prefixes {ca_set_prefix}")
-
-        load_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
+        if not self.ca_chains_store:
+            _err_msg = "CA chains store is empty!!! immediately fail the verification"
+            logger.error(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg)
 
         try:
-            cert_to_verify = load_pem(metadata_cert)
+            cert_to_verify = load_cert_in_pem(metadata_cert)
         except crypto.Error as e:
             _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
             logger.exception(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg) from e
 
-        for ca_prefix in sorted(ca_set_prefix):
-            certs_list = [
-                self.cert_dir / c.name for c in self.cert_dir.glob(f"{ca_prefix}.*.pem")
-            ]
-
-            store = crypto.X509Store()
-            for c in certs_list:
-                logger.info(f"cert {c}")
-                store.add_cert(load_pem(c.read_bytes()))
-
+        # verify the OTA image cert against CA cert chain store
+        for ca_prefix, ca_chain in self.ca_chains_store.items():
             try:
-                store_ctx = crypto.X509StoreContext(store, cert_to_verify)
-                store_ctx.verify_certificate()
+                crypto.X509StoreContext(
+                    store=ca_chain,
+                    certificate=cert_to_verify,
+                ).verify_certificate()
+
                 logger.info(f"verfication succeeded against: {ca_prefix}")
                 return
             except crypto.X509StoreContextError as e:
@@ -316,7 +302,7 @@ class _MetadataJWTParser:
         logger.error(_err_msg)
         raise MetadataJWTVerificationFailed(_err_msg)
 
-    def _verify_metadata(self, metadata_cert: bytes):
+    def verify_metadata_signature(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
 
         Raises:
@@ -343,17 +329,6 @@ class _MetadataJWTParser:
             A instance of OTAMetaData representing the parsed(but not yet verified) metadata.
         """
         return self.ota_metadata
-
-    def verify_metadata(self, metadata_cert: bytes):
-        """Verify metadata_jwt against metadata cert and local pinned CA certs.
-
-        Raises:
-            Raise MetadataJWTVerificationFailed on verification failed.
-        """
-        # step1: verify the cert itself against local pinned CA cert
-        self._verify_metadata_cert(metadata_cert)
-        # step2: verify the metadata against input metadata_cert
-        self._verify_metadata(metadata_cert)
 
 
 # place holder for unset must field in _MetadataJWTClaimsLayout
@@ -615,13 +590,18 @@ class OTAMetadata:
         url_base: str,
         downloader: Downloader,
         run_dir: Path,
-        certs_dir: Path,
+        ca_chains_store: CACertChainStore,
         retry_interval: int = 1,
     ) -> None:
+        if not ca_chains_store:
+            _err_msg = "CA chains store is empty!!! immediately fail the verification"
+            logger.error(_err_msg)
+            raise MetadataJWTVerificationFailed(_err_msg)
+
         self.url_base = url_base
         self._downloader = downloader
         self.run_dir = run_dir
-        self.certs_dir = certs_dir
+        self.ca_chains_store = ca_chains_store
         self.retry_interval = retry_interval
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=run_dir)
         self._tmp_dir_path = Path(self._tmp_dir.name)
@@ -673,7 +653,8 @@ class OTAMetadata:
                     time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
-                _downloaded_meta_f.read_text(), certs_dir=self.certs_dir
+                _downloaded_meta_f.read_text(),
+                ca_chains_store=self.ca_chains_store,
             )
         # get not yet verified parsed ota_metadata
         _ota_metadata = _parser.get_otametadata()
@@ -700,7 +681,11 @@ class OTAMetadata:
                 except Exception as e:
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
                     time.sleep(self.retry_interval)
-            _parser.verify_metadata(cert_file.read_bytes())
+
+            cert_bytes = cert_file.read_bytes()
+
+            _parser.verify_metadata_cert(cert_bytes)
+            _parser.verify_metadata_signature(cert_bytes)
 
         # return verified ota metadata
         return _ota_metadata
