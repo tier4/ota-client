@@ -251,6 +251,17 @@ class TestStatusMonitor:
                 )
             )
 
+        # NOTE: we know what to download after delta being calculated
+        msg_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    total_download_files_num=self.DOWNLOAD_NUM,
+                    total_download_files_size=self.DWONLOAD_SIZE,
+                    total_remove_files_num=123,
+                )
+            )
+        )
+
         # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
 
@@ -264,6 +275,10 @@ class TestStatusMonitor:
         assert (update_progress := otaclient_status.update_progress)
         assert update_progress.processed_files_num == self.DELTA_NUM
         assert update_progress.processed_files_size == self.DELTA_SIZE
+        assert (update_meta := otaclient_status.update_meta)
+        assert update_meta.total_download_files_num == self.DOWNLOAD_NUM
+        assert update_meta.total_download_files_size == self.DWONLOAD_SIZE
+        assert update_meta.total_remove_files_num == 123
 
     def test_download_ota_files(
         self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
@@ -410,8 +425,6 @@ class TestStatusMonitor:
         assert otaclient_status.ota_status == OTAStatus.UPDATING
 
         # confirm the OTA status store is expected
-        # check update_progress
         assert (update_progress := otaclient_status.update_progress)
-        assert update_progress.downloaded_files_num == self.DOWNLOAD_NUM
         assert update_progress.processed_files_num == self.TOTAL_FILES_NUM
         assert update_progress.processed_files_size == self.TOTAL_FILES_SIZE
