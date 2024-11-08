@@ -40,6 +40,7 @@ from tests.utils import compare_message
 
 logger = logging.getLogger(__name__)
 
+SERVICER_MODULE = "otaclient.grpc.api_v2.servicer"
 
 ECU_INFO_YAML = """\
 format_vesrion: 1
@@ -103,7 +104,7 @@ class TestOTAClientServiceStub:
 
         # ------ mock and patch ecu_info ------ #
         self.ecu_info = ecu_info = ecu_info_fixture
-        mocker.patch(f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ecu_info", ecu_info)
+        mocker.patch(f"{SERVICER_MODULE}.ecu_info", ecu_info)
 
         # ------ init and setup the ecu_storage ------ #
         self.ecu_storage = ECUStatusStorage()
@@ -129,28 +130,26 @@ class TestOTAClientServiceStub:
 
         # ------ mock and patch proxy_info ------ #
         self.proxy_info = proxy_info = proxy_info_fixture
-        mocker.patch(f"{cfg.OTACLIENT_STUB_MODULE_PATH}.proxy_info", proxy_info)
+        mocker.patch(f"{SERVICER_MODULE}.proxy_info", proxy_info)
 
         # --- patching and mocking --- #
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ECUStatusStorage",
+            f"{SERVICER_MODULE}.ECUStatusStorage",
             mocker.MagicMock(return_value=self.ecu_storage),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAServicer",
+            f"{SERVICER_MODULE}.OTAServicer",
             mocker.MagicMock(return_value=self.otaclient_api_types),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}._ECUTracker",
+            f"{SERVICER_MODULE}.ECUTracker",
             mocker.MagicMock(return_value=self.ecu_status_tracker),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAProxyLauncher",
+            f"{SERVICER_MODULE}.OTAProxyLauncher",
             mocker.MagicMock(return_value=self.otaproxy_launcher),
         )
-        mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.OTAClientCall", self.otaclient_call
-        )
+        mocker.patch(f"{SERVICER_MODULE}.OTAClientCall", self.otaclient_call)
 
         # --- start the OTAClientServiceStub --- #
         self.otaclient_service_stub = OTAClientServiceStub()
