@@ -38,9 +38,9 @@ from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from otaclient_common.common import ensure_otaproxy_start
 
-from .configs import config as cfg
-from .configs import server_cfg
-from .ota_client import OTAClientControlFlags, OTAServicer
+from ...app.configs import config as cfg
+from ...app.configs import server_cfg
+from ...app.ota_client import OTAClientControlFlags, OTAServicer
 
 logger = logging.getLogger(__name__)
 
