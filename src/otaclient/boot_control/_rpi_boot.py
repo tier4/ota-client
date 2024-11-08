@@ -26,7 +26,7 @@ from typing import Any, Generator, Literal
 
 from typing_extensions import Self
 
-import otaclient.app.errors as ota_errors
+import otaclient.errors as ota_errors
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common.linux import subprocess_run_wrapper

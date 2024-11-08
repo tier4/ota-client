@@ -14,6 +14,8 @@
 """OTA error code definition"""
 
 
+from __future__ import annotations
+
 import traceback
 from enum import Enum, unique
 from typing import ClassVar

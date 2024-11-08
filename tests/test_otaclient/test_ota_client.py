@@ -31,7 +31,6 @@ from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient.app.configs import config as otaclient_cfg
-from otaclient.app.errors import OTAErrorRecoverable
 from otaclient.app.ota_client import (
     OTAClient,
     OTAClientControlFlags,
@@ -43,6 +42,7 @@ from otaclient.boot_control.configs import BootloaderType
 from otaclient.configs import ECUInfo
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
+from otaclient.errors import OTAErrorRecoverable
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
