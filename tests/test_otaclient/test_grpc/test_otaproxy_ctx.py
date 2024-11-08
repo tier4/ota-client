@@ -27,9 +27,10 @@ from pytest_mock import MockerFixture
 from ota_proxy import OTAProxyContextProto
 from ota_proxy.config import Config as otaproxyConfig
 from otaclient.grpc.api_v2.servicer import OTAProxyLauncher
-from tests.conftest import cfg
 
 logger = logging.getLogger(__name__)
+
+OTAPROXY_CTX_MODULE = "otaclient.grpc._otaproxy_ctx"
 
 
 class _DummyOTAProxyContext(OTAProxyContextProto):
@@ -64,9 +65,9 @@ class TestOTAProxyLauncher:
         proxy_server_cfg.DB_FILE = str(cache_base_dir / "cache_db")  # type: ignore
 
         # ------ apply cfg patches ------ #
-        mocker.patch(f"{cfg.OTACLIENT_STUB_MODULE_PATH}.proxy_info", proxy_info)
+        mocker.patch(f"{OTAPROXY_CTX_MODULE}.proxy_info", proxy_info)
         mocker.patch(
-            f"{cfg.OTACLIENT_STUB_MODULE_PATH}.local_otaproxy_cfg",
+            f"{OTAPROXY_CTX_MODULE}.local_otaproxy_cfg",
             proxy_server_cfg,
         )
 

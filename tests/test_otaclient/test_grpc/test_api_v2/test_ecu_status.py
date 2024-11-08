@@ -24,10 +24,11 @@ from pytest_mock import MockerFixture
 
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
-from tests.conftest import cfg
 from tests.utils import compare_message
 
 logger = logging.getLogger(__name__)
+
+ECU_STATUS_MODULE = "otaclient.grpc.api_v2.ecu_status"
 
 
 class TestECUStatusStorage:
@@ -40,7 +41,7 @@ class TestECUStatusStorage:
         self.ecu_info = ecu_info = ecu_info_fixture
 
         # ------ apply cfg patches ------ #
-        mocker.patch(f"{cfg.OTACLIENT_STUB_MODULE_PATH}.ecu_info", ecu_info)
+        mocker.patch(f"{ECU_STATUS_MODULE}.ecu_info", ecu_info)
 
         # init and setup the ecu_storage
         self.ecu_storage = ECUStatusStorage()

@@ -42,45 +42,6 @@ logger = logging.getLogger(__name__)
 
 SERVICER_MODULE = "otaclient.grpc.api_v2.servicer"
 
-ECU_INFO_YAML = """\
-format_vesrion: 1
-ecu_id: "autoware"
-ip_addr: "10.0.0.1"
-bootloader: "grub"
-secondaries:
-    - ecu_id: "p1"
-      ip_addr: "10.0.0.11"
-    - ecu_id: "p2"
-      ip_addr: "10.0.0.12"
-available_ecu_ids:
-    - "autoware"
-    # p1: new otaclient
-    - "p1"
-    # p2: old otaclient
-    - "p2"
-"""
-
-PROXY_INFO_YAML = """\
-gateway_otaproxy: false,
-enable_local_ota_proxy: true
-local_ota_proxy_listen_addr: "127.0.0.1"
-local_ota_proxy_listen_port: 8082
-"""
-
-
-@pytest.fixture
-def ecu_info_fixture(tmp_path: Path) -> ECUInfo:
-    _yaml_f = tmp_path / "ecu_info.yaml"
-    _yaml_f.write_text(ECU_INFO_YAML)
-    return parse_ecu_info(_yaml_f)
-
-
-@pytest.fixture
-def proxy_info_fixture(tmp_path: Path) -> ProxyInfo:
-    _yaml_f = tmp_path / "proxy_info.yaml"
-    _yaml_f.write_text(PROXY_INFO_YAML)
-    return parse_proxy_info(_yaml_f)
-
 
 class TestOTAClientServiceStub:
     POLLING_INTERVAL = 1
