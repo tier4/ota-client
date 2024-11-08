@@ -446,6 +446,7 @@ class CMDHelperFuncs:
             cmd.extend(args)
 
         try:
+            logger.warning("system will reboot now!")
             subprocess_call(cmd, raise_exception=True)
             sys.exit(0)
         except CalledProcessError:
