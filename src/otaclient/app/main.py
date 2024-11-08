@@ -23,9 +23,6 @@ from pathlib import Path
 
 import grpc.aio
 
-# NOTE: as ota_metadata are using dynamic module import,
-#   we need to import them before any other otaclient modules.
-import ota_metadata.legacy  # noqa: F401
 from otaclient import __version__
 from otaclient.app.configs import config as cfg
 from otaclient.app.configs import ecu_info, server_cfg
