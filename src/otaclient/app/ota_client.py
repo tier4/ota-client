@@ -48,6 +48,7 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
+from otaclient.utils import wait_and_log
 from otaclient_api.v2 import types as api_types
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -68,6 +69,7 @@ from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOpera
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATUS_QUERY_INTERVAL = 1
+WAIT_BEFORE_REBOOT = 6
 
 
 class LiveOTAStatus:
@@ -485,7 +487,14 @@ class _OTAUpdater:
         next(_postupdate_gen := self._boot_controller.post_update())
 
         logger.info("local update finished, wait on all subecs...")
-        self._control_flags.wait_can_reboot_flag()
+        wait_and_log(
+            flag=self._control_flags._can_reboot,
+            message="permit reboot flag",
+            log_func=logger.info,
+        )
+
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
         next(_postupdate_gen, None)  # reboot
 
     # API
