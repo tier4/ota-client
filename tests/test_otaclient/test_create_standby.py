@@ -118,7 +118,7 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         persist_handler.assert_called_once()
         # --- assert update finished
         _updater.shutdown.assert_called_once()
-        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()  # type: ignore
+        otaclient_control_flags._can_reboot.is_set.assert_called_once()  # type: ignore
         # --- ensure the update stats are collected
         collector = _updater._update_stats_collector
         assert collector.processed_files_num
