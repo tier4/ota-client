@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 import time
@@ -174,7 +175,9 @@ class TestStatusMonitor:
         assert (update_progress := otaclient_status.update_progress)
         assert update_progress.downloaded_bytes == self.METADATA_SIZE
 
-    def test_filter_invalid_session_id(self, msg_queue: Queue[StatusReport]) -> None:
+    def test_filter_invalid_session_id(
+        self, msg_queue: Queue[StatusReport], caplog: pytest.LogCaptureFixture
+    ) -> None:
         """This test put reports with invalid session_id into the msg_queue.
 
         If the filter is working, all the later test methods will not fail.
@@ -215,6 +218,10 @@ class TestStatusMonitor:
                 session_id=_invalid_session_id,
             )
         )
+
+        time.sleep(2)
+        assert len(caplog.records) == 3  # three warning logs are issued
+        assert all(_record.levelno == logging.WARNING for _record in caplog.records)
 
     def test_calculate_delta(
         self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
