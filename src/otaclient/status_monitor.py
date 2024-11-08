@@ -257,6 +257,7 @@ class OTAClientStatusCollector:
         # ------ during OTA session ------ #
         report_session_id = report.session_id
         if report_session_id != status_storage.session_id:
+            logger.warning(f"drop reports from mismatched session: {report}")
             return  # drop invalid report
         if isinstance(payload, OTAUpdatePhaseChangeReport):
             return _on_update_phase_changed(status_storage, payload)
