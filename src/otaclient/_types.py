@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common.typing import StrEnum
 
