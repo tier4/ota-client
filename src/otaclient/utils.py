@@ -20,7 +20,7 @@ import itertools
 import logging
 import time
 from abc import abstractmethod
-from typing import Protocol
+from typing import Callable, Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ def wait_and_log(
     *,
     check_interval: int = 2,
     log_interval: int = 30,
+    log_func: Callable[[str], None] = logger.info,
 ) -> None:
     """Wait for <flag> until it is set while print a log every <log_interval>."""
     log_round = 0
@@ -46,6 +47,6 @@ def wait_and_log(
 
         _new_log_round = seconds // log_interval
         if _new_log_round > log_round:
-            logger.info(f"wait for {message}: {seconds}s passed ...")
+            log_func(f"wait for {message}: {seconds}s passed ...")
             log_round = _new_log_round
         time.sleep(check_interval)
