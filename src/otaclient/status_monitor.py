@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The implementation of tracking otaclient operation stats."""
+"""The implementation of tracking otaclient operation status."""
 
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ class SetUpdateMetaReport(UpdateMeta):
 
 
 @dataclass
-class StatsReport:
+class StatusReport:
     payload: Union[
         SetOTAClientMetaReport,
         UpdateProgressReport,
@@ -213,17 +213,17 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 
 
 #
-# ------ stats monitor implementation ------ #
+# ------ status monitor implementation ------ #
 #
 
-TERMINATE_SENTINEL = cast(StatsReport, object())
+TERMINATE_SENTINEL = cast(StatusReport, object())
 
 
-class OTAClientStatsCollector:
+class OTAClientStatusCollector:
 
     def __init__(
         self,
-        msg_queue: queue.Queue[StatsReport],
+        msg_queue: queue.Queue[StatusReport],
         *,
         min_collect_interval: int = 1,
         min_push_interval: int = 1,
@@ -232,12 +232,12 @@ class OTAClientStatsCollector:
         self.min_push_interval = min_push_interval
 
         self._input_queue = msg_queue
-        self._stats = None
+        self._status = None
 
-    def load_report(self, report: StatsReport):
-        if self._stats is None:
-            self._stats = OTAClientStatus()
-        status_storage = self._stats
+    def load_report(self, report: StatusReport):
+        if self._status is None:
+            self._status = OTAClientStatus()
+        status_storage = self._status
 
         payload = report.payload
         # ------ update otaclient meta ------ #
@@ -265,8 +265,8 @@ class OTAClientStatsCollector:
         if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
 
-    def _stats_collector_thread(self) -> None:
-        """Main entry of stats monitor working thread."""
+    def _status_collector_thread(self) -> None:
+        """Main entry of status monitor working thread."""
         while not _otaclient_shutdown:
             try:
                 report = self._input_queue.get_nowait()
@@ -279,15 +279,15 @@ class OTAClientStatsCollector:
     # API
 
     def start(self) -> Thread:
-        """Start the stats_monitor thread."""
+        """Start the status_monitor thread."""
         t = Thread(
-            target=self._stats_collector_thread,
+            target=self._status_collector_thread,
             daemon=True,
-            name="otaclient_stats_monitor",
+            name="otaclient_status_monitor",
         )
         t.start()
         return t
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
-        return self._stats
+        return self._status
