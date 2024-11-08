@@ -258,7 +258,8 @@ class TestStatusMonitor:
                     total_download_files_num=self.DOWNLOAD_NUM,
                     total_download_files_size=self.DWONLOAD_SIZE,
                     total_remove_files_num=123,
-                )
+                ),
+                session_id=self.SESSION_ID_FOR_TEST,
             )
         )
 
