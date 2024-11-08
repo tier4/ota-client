@@ -90,6 +90,8 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
+        otaclient_control_flags._can_reboot = _can_reboot = mocker.MagicMock()
+        _can_reboot.is_set = mocker.MagicMock(return_value=True)
 
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 

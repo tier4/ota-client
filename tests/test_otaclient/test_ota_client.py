@@ -176,6 +176,9 @@ class TestOTAUpdater:
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
         )
+        otaclient_control_flags._can_reboot = _can_reboot = mocker.MagicMock()
+        _can_reboot.is_set = mocker.MagicMock(return_value=True)
+
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
         _updater = _OTAUpdater(
@@ -199,7 +202,7 @@ class TestOTAUpdater:
             _downloaded_files_size += _f.stat().st_size
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
         # assert the control_flags has been waited
-        otaclient_control_flags.wait_can_reboot_flag.assert_called_once()
+        otaclient_control_flags._can_reboot.is_set.assert_called_once()
         assert _updater.updating_version == str(cfg.UPDATE_VERSION)
         # assert boot controller is used
         self._boot_control.pre_update.assert_called_once()
