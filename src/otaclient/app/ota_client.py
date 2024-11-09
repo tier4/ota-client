@@ -197,7 +197,7 @@ class _OTAUpdater:
             cfg.OTA_TMP_STORE
         ).relative_to("/")
         self._ota_tmp_image_meta_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTA_TMP_STORE
+            cfg.OTA_TMP_META_STORE
         ).relative_to("/")
 
         # ------ parse cookies ------ #
