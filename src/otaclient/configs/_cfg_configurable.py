@@ -70,9 +70,6 @@ class _OTAClientSettings(BaseModel):
     # ------ debug flags ------ #
     #
     DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP: bool = False
-    DEBUG_DISABLE_OTAPROXY_HTTPS_VERIFY: bool = False
-    DEBUG_DISABLE_OTAMETA_CERT_CHECK: bool = False
-    DEBUG_DISABLE_OTAMETA_SIGN_CHECK: bool = False
 
 
 class _MultipleECUSettings(BaseModel):
