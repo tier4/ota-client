@@ -30,6 +30,8 @@ class CreateStandbyMechanism(StrEnum):
 
 class Consts:
 
+    CANONICAL_ROOT = CANONICAL_ROOT
+
     @property
     def ACTIVE_ROOT(self) -> str:  # NOSONAR
         return self._ACTIVE_ROOT
