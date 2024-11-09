@@ -27,6 +27,7 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.errors as ota_errors
+from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common.linux import subprocess_run_wrapper
@@ -37,7 +38,7 @@ from ._common import (
     OTAStatusFilesControl,
     SlotMountHelper,
 )
-from .configs import rpi_boot_cfg as cfg
+from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def get_sysboot_files_fpath(boot_fname: BOOTFILES, slot: SlotID) -> Path:
     For example, for vmlinuz for slot_a, we get /boot/firmware/vmlinuz_slot_a
     """
     fname = f"{boot_fname}{SEP_CHAR}{slot}"
-    return Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / fname
+    return Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT) / fname
 
 
 class _RPIBootControl:
@@ -111,12 +112,12 @@ class _RPIBootControl:
     """
 
     def __init__(self) -> None:
-        self.system_boot_mp = Path(cfg.SYSTEM_BOOT_MOUNT_POINT)
+        self.system_boot_mp = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         self.system_boot_mp.mkdir(exist_ok=True)
 
         # sanity check, ensure we are running at raspberry pi device
-        model_fpath = Path(cfg.RPI_MODEL_FILE)
-        err_not_rpi_device = f"{cfg.RPI_MODEL_FILE} doesn't exist! Are we running at raspberry pi device?"
+        model_fpath = Path(boot_cfg.RPI_MODEL_FILE)
+        err_not_rpi_device = f"{boot_cfg.RPI_MODEL_FILE} doesn't exist! Are we running at raspberry pi device?"
         if not model_fpath.is_file():
             logger.error(err_not_rpi_device)
             raise _RPIBootControllerError(err_not_rpi_device)
@@ -205,7 +206,9 @@ class _RPIBootControl:
         self._check_active_slot_id()
 
         # NOTE(20240604): for backward compatibility, always remove flag file
-        flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+        flag_file = (
+            Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT) / boot_cfg.SWITCH_BOOT_FLAG_FILE
+        )
         flag_file.unlink(missing_ok=True)
 
     def _check_active_slot_id(self):
@@ -286,10 +289,10 @@ class _RPIBootControl:
         mounts: dict[str, str] = {}
 
         # we need to mount /proc, /sys and /boot/firmware to make flash-kernel works
-        system_boot_mp = target_slot_mp / Path(cfg.SYSTEM_BOOT_MOUNT_POINT).relative_to(
-            "/"
-        )
-        mounts[str(system_boot_mp)] = cfg.SYSTEM_BOOT_MOUNT_POINT
+        system_boot_mp = target_slot_mp / Path(
+            boot_cfg.SYSTEM_BOOT_MOUNT_POINT
+        ).relative_to("/")
+        mounts[str(system_boot_mp)] = boot_cfg.SYSTEM_BOOT_MOUNT_POINT
 
         proc_mp = target_slot_mp / "proc"
         mounts[str(proc_mp)] = "/proc"
@@ -352,7 +355,9 @@ class _RPIBootControl:
 
             # NOTE(20240603): for backward compatibility(downgrade), still create the flag file.
             #   The present of flag files means the firmware is updated.
-            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
+            flag_file = (
+                Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT) / boot_cfg.SWITCH_BOOT_FLAG_FILE
+            )
             flag_file.write_text("")
             os.sync()
         except Exception as e:
@@ -430,19 +435,19 @@ class RPIBootController(BootControllerProtocol):
             # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
-                standby_slot_mount_point=cfg.MOUNT_POINT,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 active_slot_dev=self._rpiboot_control.active_slot_dev,
-                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
             # init ota-status files
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._rpiboot_control.active_slot,
                 standby_slot=self._rpiboot_control.standby_slot,
-                current_ota_status_dir=Path(cfg.ACTIVE_ROOTFS_PATH)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                current_ota_status_dir=Path(cfg.ACTIVE_ROOT)
+                / Path(boot_cfg.OTA_STATUS_DIR).relative_to(cfg.CANONICAL_ROOT),
                 # NOTE: might not yet be populated before OTA update applied!
-                standby_ota_status_dir=Path(cfg.MOUNT_POINT)
-                / Path(cfg.OTA_STATUS_DIR).relative_to("/"),
+                standby_ota_status_dir=Path(cfg.STANDBY_SLOT_MNT)
+                / Path(boot_cfg.OTA_STATUS_DIR).relative_to(cfg.CANONICAL_ROOT),
                 finalize_switching_boot=self._rpiboot_control.finalize_switching_boot,
             )
             logger.info("rpi_boot starting finished")
