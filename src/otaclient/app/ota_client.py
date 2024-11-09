@@ -42,6 +42,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import __version__
+from otaclient import errors as ota_errors
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
@@ -60,7 +61,6 @@ from otaclient_common.downloader import (
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
-from . import errors as ota_errors
 from .configs import config as cfg
 from .configs import ecu_info
 from .interface import OTAClientProtocol
