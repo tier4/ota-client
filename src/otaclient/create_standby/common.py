@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""Common used helpers, classes and functions for different bank creating methods."""
+"""Common used helpers, classes and functions for different bank creating methods."""
 
 
 from __future__ import annotations
@@ -32,12 +32,12 @@ from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
-from otaclient.app.configs import config as cfg
 from otaclient.app.update_stats import (
     OperationRecord,
     OTAUpdateStatsCollector,
     ProcessOperation,
 )
+from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
 
 logger = logging.getLogger(__name__)
@@ -87,8 +87,10 @@ class _HardlinkTracker:
 class HardlinkRegister:
     def __init__(self):
         self._lock = Lock()
-        self._hash_ref_dict: Dict[str, _WeakRef] = WeakValueDictionary()  # type: ignore
-        self._ref_tracker_dict: Dict[_WeakRef, _HardlinkTracker] = WeakKeyDictionary()  # type: ignore
+        self._hash_ref_dict: WeakValueDictionary[str, _WeakRef] = WeakValueDictionary()
+        self._ref_tracker_dict: WeakKeyDictionary[_WeakRef, _HardlinkTracker] = (
+            WeakKeyDictionary()
+        )
 
     def get_tracker(
         self, _identifier: Any, path: str, nlink: int
