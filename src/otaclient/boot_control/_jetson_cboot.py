@@ -25,13 +25,13 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient import errors as ota_errors
-from otaclient.app.configs import config as cfg
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
     PayloadType,
     load_firmware_package,
 )
+from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
 from otaclient_common._io import cal_file_digest
@@ -286,7 +286,7 @@ class _CBootControl:
         #   same as the firmware BSP version.
         try:
             self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
-                rootfs=cfg.ACTIVE_ROOTFS_PATH
+                rootfs=cfg.ACTIVE_ROOT
             )
         except Exception as e:
             _err_msg = f"failed to detect BSP version: {e!r}"
@@ -452,9 +452,9 @@ class JetsonCBootControl(BootControllerProtocol):
             # mount point prepare
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
-                standby_slot_mount_point=cfg.MOUNT_POINT,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 active_slot_dev=self._cboot_control.curent_rootfs_devpath,
-                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
 
             # init ota-status files
@@ -462,8 +462,8 @@ class JetsonCBootControl(BootControllerProtocol):
             standby_ota_status_dir = Path(
                 replace_root(
                     boot_cfg.OTA_STATUS_DIR,
-                    "/",
-                    cfg.MOUNT_POINT,
+                    cfg.CANONICAL_ROOT,
+                    cfg.STANDBY_SLOT_MNT,
                 )
             )
             self._ota_status_control = OTAStatusFilesControl(
