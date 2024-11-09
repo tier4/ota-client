@@ -37,7 +37,7 @@ from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 logger = logging.getLogger(__name__)
 
 
-class OTAClientServiceStub:
+class OTAClientAPIServicer:
     """Handlers for otaclient service API.
 
     This class also handles otaproxy lifecyle and dependence managing.

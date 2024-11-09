@@ -26,7 +26,7 @@ from pytest_mock import MockerFixture
 from otaclient.app.ota_client import OTAServicer
 from otaclient.grpc.api_v2.servicer import (
     ECUStatusStorage,
-    OTAClientServiceStub,
+    OTAClientAPIServicer,
     OTAProxyLauncher,
 )
 from otaclient_api.v2 import types as api_types
@@ -108,7 +108,7 @@ class TestOTAClientServiceStub:
         mocker.patch(f"{SERVICER_MODULE}.OTAClientCall", self.otaclient_call)
 
         # --- start the OTAClientServiceStub --- #
-        self.otaclient_service_stub = OTAClientServiceStub()
+        self.otaclient_service_stub = OTAClientAPIServicer()
 
         try:
             yield
