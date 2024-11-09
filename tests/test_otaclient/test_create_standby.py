@@ -24,10 +24,9 @@ from pytest_mock import MockerFixture
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import create_standby
-from otaclient.app.configs import BaseConfig
-from otaclient.app.configs import config as otaclient_cfg
 from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 from otaclient.boot_control import BootControllerProtocol
+from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
@@ -78,12 +77,19 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir  # type: ignore
 
         # ------ mock otaclient cfg ------ #
-        _cfg = BaseConfig()
-        _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
-        _cfg.ACTIVE_ROOT_MOUNT_POINT = str(self.slot_a)  # type: ignore
-        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
-        mocker.patch(f"{MODULE}.rebuild_mode.cfg", _cfg)
+        mocker.patch(
+            f"{cfg.OTACLIENT_MODULE_PATH}.cfg.STANDBY_SLOT_MNT", str(self.slot_b)
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_MODULE_PATH}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a)
+        )
+        mocker.patch(
+            f"{cfg.OTACLIENT_MODULE_PATH}.cfg.RUN_DIR", str(self.otaclient_run_dir)
+        )
+
+        mocker.patch(f"{MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
+        mocker.patch(f"{MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
+        mocker.patch(f"{MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
 
     def test_update_with_rebuild_mode(self, mocker: MockerFixture):
         # ------ execution ------ #
