@@ -16,7 +16,8 @@
 import logging
 from typing import Type
 
-from otaclient.app.configs import CreateStandbyMechanism
+from otaclient.configs import CreateStandbyMechanism
+from otaclient.configs._cfg_configurable import CREATE_STANDBY_METHOD_LTIERAL
 
 from .interface import StandbySlotCreatorProtocol
 
@@ -24,15 +25,15 @@ logger = logging.getLogger(__name__)
 
 
 def get_standby_slot_creator(
-    mode: CreateStandbyMechanism,
+    mode: CREATE_STANDBY_METHOD_LTIERAL,
 ) -> Type[StandbySlotCreatorProtocol]:
     logger.info(f"use slot update mechanism: {mode!r}")
     if mode == CreateStandbyMechanism.REBUILD:
         from .rebuild_mode import RebuildMode
 
         return RebuildMode
-    else:
-        raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
+
+    raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
 
 
 __all__ = ("get_standby_slot_creator",)
