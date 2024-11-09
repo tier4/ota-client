@@ -71,6 +71,11 @@ class _OTAClientSettings(BaseModel):
     #
     DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP: bool = False
 
+    #
+    # ------ IO settings ------ #
+    #
+    CHUNK_SIZE = 1024 * 1024  # 1MiB
+
 
 class _MultipleECUSettings(BaseModel):
     # The timeout of waiting sub ECU acks the OTA request.
