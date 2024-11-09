@@ -73,6 +73,8 @@ class Consts:
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
 
+    DEFAULT_VERSION_STR = ""
+
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
 
