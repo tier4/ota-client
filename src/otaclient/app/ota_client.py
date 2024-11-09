@@ -254,6 +254,7 @@ class _OTAUpdater:
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
             cookies=cookies,
             proxies=proxies,
         )
