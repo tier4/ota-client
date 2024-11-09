@@ -23,11 +23,9 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Dict
 
-from otaclient.app.configs import config as cfg
-from otaclient.app.configs import server_cfg
 from otaclient.app.ota_client import OTAClientControlFlags, OTAServicer
 from otaclient.configs import ECUContact
-from otaclient.configs.cfg import ecu_info, proxy_info
+from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
@@ -53,7 +51,7 @@ class OTAClientAPIServicer:
 
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
-        self.listen_port = server_cfg.SERVER_PORT
+        self.listen_port = cfg.OTA_API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flags = OTAClientControlFlags()
@@ -165,7 +163,7 @@ class OTAClientAPIServicer:
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -180,7 +178,7 @@ class OTAClientAPIServicer:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to update request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
@@ -229,7 +227,7 @@ class OTAClientAPIServicer:
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
                     request=request,
-                    timeout=server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
+                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
             tasks[_task] = ecu_contact
@@ -243,7 +241,7 @@ class OTAClientAPIServicer:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} doesn't respond to rollback request on-time"
-                        f"(within {server_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive

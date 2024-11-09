@@ -30,9 +30,8 @@ from typing_extensions import Self
 from ota_proxy import OTAProxyContextProto, subprocess_otaproxy_launcher
 from ota_proxy import config as local_otaproxy_cfg
 from otaclient import log_setting
-from otaclient.app.configs import config as cfg
 from otaclient.boot_control._common import CMDHelperFuncs
-from otaclient.configs.cfg import proxy_info
+from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common.common import ensure_otaproxy_start
 
 logger = logging.getLogger(__name__)
