@@ -15,23 +15,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from otaclient.app.configs import BaseConfig
 from otaclient.configs import BootloaderType
 
 
-@dataclass
-class GrubControlConfig(BaseConfig):
+class GrubControlConfig:
     """x86-64 platform, with grub as bootloader."""
 
-    BOOTLOADER: BootloaderType = BootloaderType.GRUB
-    FSTAB_FILE_PATH: str = "/etc/fstab"
-    GRUB_DIR: str = "/boot/grub"
-    GRUB_CFG_FNAME: str = "grub.cfg"
-    GRUB_CFG_PATH: str = "/boot/grub/grub.cfg"
-    DEFAULT_GRUB_PATH: str = "/etc/default/grub"
-    BOOT_OTA_PARTITION_FILE: str = "ota-partition"
+    BOOTLOADER = BootloaderType.GRUB
+    FSTAB_FILE_PATH = "/etc/fstab"
+    GRUB_DIR = "/boot/grub"
+    GRUB_CFG_FNAME = "grub.cfg"
+    GRUB_CFG_PATH = "/boot/grub/grub.cfg"
+    DEFAULT_GRUB_PATH = "/etc/default/grub"
+    BOOT_OTA_PARTITION_FILE = "ota-partition"
 
 
 class JetsonBootCommon:
@@ -82,9 +78,8 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     L4TLAUNCHER_VER_FNAME = "l4tlauncher_version"
 
 
-@dataclass
-class RPIBootControlConfig(BaseConfig):
-    BBOOTLOADER: BootloaderType = BootloaderType.RPI_BOOT
+class RPIBootControlConfig:
+    BBOOTLOADER = BootloaderType.RPI_BOOT
     RPI_MODEL_FILE = "/proc/device-tree/model"
     RPI_MODEL_HINT = "Raspberry Pi 4 Model B"
 
