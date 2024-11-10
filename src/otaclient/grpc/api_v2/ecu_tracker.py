@@ -19,10 +19,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from otaclient.app.configs import server_cfg
 from otaclient.app.ota_client import OTAServicer
 from otaclient.configs import ECUContact
-from otaclient.configs.cfg import ecu_info
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
@@ -59,7 +58,7 @@ class ECUTracker:
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
-                    timeout=server_cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
+                    timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=api_types.StatusRequest(),
                 )
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
