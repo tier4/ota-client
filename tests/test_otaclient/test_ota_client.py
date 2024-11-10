@@ -58,7 +58,7 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
 
     module_mocker.patch.object(
         _cfg,
-        "CERTS_DIR",
+        "CERT_DPATH",
         cfg.CERTS_DIR,
     )
 
