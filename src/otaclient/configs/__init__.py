@@ -48,7 +48,15 @@ else:
     class DefaultOTAClientConfigs:
 
         def __init__(self) -> None:
-            for k, v in Consts.__dict__.items():
-                self.__dict__[k] = v
-            for k, v in ConfigurableSettings().model_dump().items():
-                self.__dict__[k] = v
+            self._cfg_consts = Consts()
+            self._cfg_configurable = ConfigurableSettings()
+
+        # NOTE(20241108): still use __getattr__ to allow changing/mocking attributes
+        #   for easy testing.
+        def __getattr__(self, name: str):
+            for _cfg in [self._cfg_consts, self._cfg_configurable]:
+                try:
+                    return getattr(_cfg, name)
+                except AttributeError:
+                    continue
+            raise AttributeError(f"no such config field: {name=}")
