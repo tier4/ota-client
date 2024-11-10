@@ -13,6 +13,8 @@
 # limitations under the License.
 """otaclient configs package."""
 
+from typing import TYPE_CHECKING
+
 from otaclient.configs._cfg_configurable import (
     ENV_PREFIX,
     ConfigurableSettings,
@@ -33,4 +35,20 @@ __all__ = [
     "ProxyInfo",
     "set_configs",
     "dynamic_root",
+    "default_cfg",
 ]
+
+if TYPE_CHECKING:
+
+    class DefaultOTAClientConfigs(ConfigurableSettings, Consts):
+        """Default OTAClient configs, without parsing the env vars."""
+
+else:
+
+    class DefaultOTAClientConfigs:
+
+        def __init__(self) -> None:
+            for k, v in Consts.__dict__.items():
+                self.__dict__[k] = v
+            for k, v in ConfigurableSettings().model_dump().items():
+                self.__dict__[k] = v
