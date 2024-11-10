@@ -35,7 +35,7 @@ __all__ = [
     "ProxyInfo",
     "set_configs",
     "dynamic_root",
-    "default_cfg",
+    "DefaultOTAClientConfigs",
 ]
 
 if TYPE_CHECKING:
