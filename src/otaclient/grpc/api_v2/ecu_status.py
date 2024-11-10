@@ -58,8 +58,8 @@ T = TypeVar("T")
 #   disconnected ECU will be excluded from status API response.
 DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
 
-IDLE_POLLING_INTERVAL = 1  # second
-ACTIVE_POLLING_INTERVAL = 10  # seconds
+IDLE_POLLING_INTERVAL = 10  # second
+ACTIVE_POLLING_INTERVAL = 1  # seconds
 
 
 class _OrderedSet(Dict[T, None]):
