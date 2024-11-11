@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""Shared utils for boot_controller."""
+"""Shared utils for boot_controller."""
 
 
 from __future__ import annotations
 
 import contextlib
 import logging
-import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -153,7 +152,7 @@ class CMDHelperFuncs:
 
     @classmethod
     def is_target_mounted(
-        cls, target: Path | str, *, raise_exception: bool = True
+        cls, target: StrOrPath, *, raise_exception: bool = False
     ) -> bool:
         """Check if <target> is mounted or not. <target> can be a dev or a mount point.
 
@@ -166,10 +165,17 @@ class CMDHelperFuncs:
                 Defaults to True.
 
         Returns:
-            bool: return True if the target has at least one mount_point.
+            Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
+                <target> is not a mount point or not mounted.
         """
         cmd = ["findmnt", target]
-        return bool(subprocess_check_output(cmd, raise_exception=raise_exception))
+        try:
+            subprocess_call(cmd, raise_exception=True)
+            return True
+        except CalledProcessError:
+            if raise_exception:
+                raise
+            return False
 
     @classmethod
     def get_parent_dev(cls, child_device: str, *, raise_exception: bool = True) -> str:
@@ -697,96 +703,6 @@ class OTAStatusFilesControl:
         switch to use live_ota_status by otaclient after otaclient is running.
         """
         return self._ota_status
-
-
-class SlotMountHelper:
-    """Helper class that provides methods for mounting slots."""
-
-    def __init__(
-        self,
-        *,
-        standby_slot_dev: Union[str, Path],
-        standby_slot_mount_point: Union[str, Path],
-        active_slot_dev: Union[str, Path],
-        active_slot_mount_point: Union[str, Path],
-    ) -> None:
-        # dev
-        self.standby_slot_dev = str(standby_slot_dev)
-        self.active_slot_dev = str(active_slot_dev)
-        # mount points
-        self.standby_slot_mount_point = Path(standby_slot_mount_point)
-        self.active_slot_mount_point = Path(active_slot_mount_point)
-        self.standby_slot_mount_point.mkdir(exist_ok=True, parents=True)
-        self.active_slot_mount_point.mkdir(exist_ok=True, parents=True)
-        # standby slot /boot dir
-        # NOTE(20230907): this will always be <standby_slot_mp>/boot,
-        #                 in the future this attribute will not be used by
-        #                 standby slot creater.
-        self.standby_boot_dir = self.standby_slot_mount_point / Path(
-            cfg.BOOT_DPATH
-        ).relative_to("/")
-
-    def mount_standby(self) -> None:
-        """Mount standby slot dev to <standby_slot_mount_point>."""
-        logger.debug("mount standby slot rootfs dev...")
-        if CMDHelperFuncs.is_target_mounted(
-            self.standby_slot_dev, raise_exception=False
-        ):
-            logger.debug(f"{self.standby_slot_dev=} is mounted, try to umount it ...")
-            CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
-
-        CMDHelperFuncs.mount_rw(
-            target=self.standby_slot_dev,
-            mount_point=self.standby_slot_mount_point,
-        )
-
-    def mount_active(self) -> None:
-        """Mount active rootfs ready-only."""
-        logger.debug("mount active slot rootfs dev...")
-        CMDHelperFuncs.mount_ro(
-            target=self.active_slot_dev,
-            mount_point=self.active_slot_mount_point,
-        )
-
-    def preserve_ota_folder_to_standby(self):
-        """Copy the /boot/ota folder to standby slot to preserve it.
-
-        /boot/ota folder contains the ota setting for this device,
-        so we should preserve it for each slot, accross each update.
-        """
-        logger.debug("copy /boot/ota from active to standby.")
-        try:
-            _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            shutil.copytree(_src, _dst, dirs_exist_ok=True)
-        except Exception as e:
-            raise ValueError(
-                f"failed to copy /boot/ota from active to standby: {e!r}"
-            ) from e
-
-    def prepare_standby_dev(
-        self,
-        *,
-        erase_standby: bool = False,
-        fslabel: Optional[str] = None,
-    ) -> None:
-        CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
-        if erase_standby:
-            return CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
-
-        # TODO: in the future if in-place update mode is implemented, do a
-        #   fschck over the standby slot file system.
-        if fslabel:
-            CMDHelperFuncs.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
-
-    def umount_all(self, *, ignore_error: bool = True):
-        logger.debug("unmount standby slot and active slot mount point...")
-        CMDHelperFuncs.umount(
-            self.standby_slot_mount_point, raise_exception=ignore_error
-        )
-        CMDHelperFuncs.umount(
-            self.active_slot_mount_point, raise_exception=ignore_error
-        )
 
 
 def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
