@@ -200,7 +200,7 @@ def subprocess_run_wrapper(
     return subprocess.run(
         cmd,
         check=check,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.PIPE if check_output else None,
         stdout=subprocess.PIPE if check_output else None,
         timeout=timeout,
         preexec_fn=preexec_fn,
