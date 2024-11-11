@@ -31,6 +31,7 @@ from otaclient.boot_control._firmware_package import (
     PayloadType,
     load_firmware_package,
 )
+from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -38,7 +39,7 @@ from otaclient_common._io import cal_file_digest
 from otaclient_common.common import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
-from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
+from ._common import CMDHelperFuncs, OTAStatusFilesControl
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -453,7 +454,7 @@ class JetsonCBootControl(BootControllerProtocol):
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._cboot_control.standby_rootfs_devpath,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-                active_slot_dev=self._cboot_control.curent_rootfs_devpath,
+                active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
 
