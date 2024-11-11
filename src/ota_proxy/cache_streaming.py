@@ -335,6 +335,7 @@ async def cache_streaming(
     Raises:
         CacheStreamingFailed if any exception happens during retrieving.
     """
+    _cache_write_gen = None
     try:
         _cache_write_gen = await tracker.start_provider(cache_meta)
         _cache_writer_failed = False
@@ -370,8 +371,9 @@ async def cache_streaming(
     finally:
         # force terminate the generator in all condition at exit, this
         #   can ensure the generator being gced after cache_streaming exits.
-        with contextlib.suppress(StopAsyncIteration):
-            await _cache_write_gen.athrow(StopAsyncIteration)
+        if _cache_write_gen:
+            with contextlib.suppress(StopAsyncIteration):
+                await _cache_write_gen.athrow(StopAsyncIteration)
 
         # remove the refs
         fd, tracker = None, None  # type: ignore
