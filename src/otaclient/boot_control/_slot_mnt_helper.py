@@ -34,6 +34,79 @@ MAX_RETRY_COUNT = 6
 RETRY_INTERVAL = 2
 
 
+def ensure_mount(
+    target: StrOrPath, mnt_point: StrOrPath, *, mount_func, raise_exception: bool = True
+) -> None:
+    """Ensure the <target> mounted on <mnt_point> by our best.
+
+    Raises:
+        If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(MAX_RETRY_COUNT + 1):
+        try:
+            mount_func(target=target, mount_point=mnt_point)
+            CMDHelperFuncs.is_target_mounted(target, raise_exception=True)
+            return
+        except CalledProcessError as e:
+            logger.error(f"retry#{_retry} failed to mout standby slot: {e!r}")
+            logger.error(f"{e.stderr=}\n{e.stdout=}")
+
+            if _retry >= MAX_RETRY_COUNT:
+                logger.error("exceed max retry count on mounting, abort")
+                if raise_exception:
+                    raise
+                return
+
+            sleep(RETRY_INTERVAL)
+            continue
+
+
+def ensure_umount(mnt_point: StrOrPath, *, ignore_error: bool) -> None:
+    """Try to umount the <mnt_point> at our best.
+
+    Raises:
+        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+    """
+    if not CMDHelperFuncs.is_target_mounted(mnt_point):
+        return
+
+    for _retry in range(MAX_RETRY_COUNT + 1):
+        try:
+            CMDHelperFuncs.umount(mnt_point, raise_exception=True)
+            break
+        except CalledProcessError as e:
+            logger.warning(f"retry#{_retry} failed to umount standby slot: {e!r}")
+            logger.warning(f"{e.stderr}\n{e.stdout}")
+
+            if _retry >= MAX_RETRY_COUNT:
+                logger.error(f"reached max retry on umounting {mnt_point}, abort")
+                if not ignore_error:
+                    raise
+                return
+
+            sleep(RETRY_INTERVAL)
+            continue
+
+
+def ensure_mointpoint(mnt_point: Path) -> None:
+    """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
+
+    If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
+        we still keep use the mountpoint as later mount will override the previous one.
+    """
+    if not mnt_point.is_dir():
+        mnt_point.unlink(missing_ok=True)
+
+    if not mnt_point.exists():
+        mnt_point.mkdir(exist_ok=True, parents=True)
+        return
+
+    try:
+        ensure_umount(mnt_point, ignore_error=False)
+    except Exception:
+        logger.warning(f"still use {mnt_point} and override the previous mount")
+
+
 class SlotMountHelper:
     """Helper class that provides methods for mounting slots."""
 
@@ -61,68 +134,6 @@ class SlotMountHelper:
             )
         )
 
-    @staticmethod
-    def _umount(mnt_point: StrOrPath, *, ignore_error: bool) -> None:
-        """Try to umount the <mnt_point> at our best.
-
-        Raises:
-            If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
-        """
-        if not CMDHelperFuncs.is_target_mounted(mnt_point):
-            return
-
-        for _retry in range(MAX_RETRY_COUNT + 1):
-            try:
-                CMDHelperFuncs.umount(mnt_point, raise_exception=True)
-                break
-            except CalledProcessError as e:
-                logger.warning(f"retry#{_retry} failed to umount standby slot: {e!r}")
-                logger.warning(f"{e.stderr}\n{e.stdout}")
-
-                if _retry >= MAX_RETRY_COUNT:
-                    logger.error(f"reached max retry on umounting {mnt_point}, abort")
-                    if not ignore_error:
-                        raise
-
-                sleep(RETRY_INTERVAL)
-                continue
-
-    def _ensure_mointpoint(self, mnt_point: Path) -> None:
-        """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
-
-        If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
-            we still keep use the mountpoint as later mount will override the previous one.
-        """
-        if not mnt_point.is_dir():
-            mnt_point.unlink(missing_ok=True)
-
-        if not mnt_point.exists():
-            mnt_point.mkdir(exist_ok=True, parents=True)
-            return
-
-        try:
-            self._umount(mnt_point, ignore_error=False)
-        except Exception:
-            logger.warning(f"still use {mnt_point} and override the previous mount")
-
-    @staticmethod
-    def _ensure_mount(target: StrOrPath, mnt_point: StrOrPath, *, mount_func) -> None:
-        for _retry in range(MAX_RETRY_COUNT + 1):
-            try:
-                mount_func(target=target, mount_point=mnt_point)
-                CMDHelperFuncs.is_target_mounted(target, raise_exception=True)
-                return
-            except CalledProcessError as e:
-                logger.error(f"retry#{_retry} failed to mout standby slot: {e!r}")
-                logger.error(f"{e.stderr=}\n{e.stdout=}")
-
-                if _retry == MAX_RETRY_COUNT:
-                    logger.error("exceed max retry count on mounting, abort")
-                    raise
-
-                sleep(RETRY_INTERVAL)
-                continue
-
     def mount_standby(self) -> None:
         """Mount standby slot dev to <standby_slot_mount_point>.
 
@@ -130,8 +141,8 @@ class SlotMountHelper:
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount standby slot rootfs dev...")
-        self._ensure_mointpoint(self.standby_slot_mount_point)
-        self._ensure_mount(
+        ensure_mointpoint(self.standby_slot_mount_point)
+        ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,
             mount_func=CMDHelperFuncs.mount_rw,
@@ -144,8 +155,8 @@ class SlotMountHelper:
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
-        self._ensure_mointpoint(self.active_slot_mount_point)
-        self._ensure_mount(
+        ensure_mointpoint(self.active_slot_mount_point)
+        ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
             mount_func=CMDHelperFuncs.bind_mount_ro,
@@ -184,5 +195,5 @@ class SlotMountHelper:
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
-        self._umount(self.active_slot_mount_point, ignore_error=ignore_error)
-        self._umount(self.standby_slot_mount_point, ignore_error=ignore_error)
+        ensure_umount(self.active_slot_mount_point, ignore_error=ignore_error)
+        ensure_umount(self.standby_slot_mount_point, ignore_error=ignore_error)

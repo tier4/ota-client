@@ -177,7 +177,7 @@ EFIVARS_SYS_MOUNT_POINT = "/sys/firmware/efi/efivars/"
 @contextlib.contextmanager
 def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:  # pragma: no cover
     """Ensure the efivarfs is mounted as rw, and then umount it."""
-    if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT):
+    if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT, raise_exception=False):
         options = "remount,rw,nosuid,nodev,noexec,relatime"
     else:
         logger.warning(
