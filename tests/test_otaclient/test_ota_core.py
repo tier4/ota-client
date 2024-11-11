@@ -30,13 +30,7 @@ import pytest_mock
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient.app import ota_client
-from otaclient.app.ota_client import (
-    OTAClient,
-    OTAClientControlFlags,
-    OTAServicer,
-    _OTAUpdater,
-)
+from otaclient import ota_core
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control.configs import BootloaderType
 from otaclient.configs import ECUInfo
@@ -44,17 +38,23 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.errors import OTAErrorRecoverable
+from otaclient.ota_core import (
+    OTAClient,
+    OTAClientControlFlags,
+    OTAServicer,
+    _OTAUpdater,
+)
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
-OTACLIENT_MODULE = ota_client.__name__
+OTACLIENT_MODULE = ota_core.__name__
 
 
 @pytest.fixture(autouse=True, scope="module")
 def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
     """Mock to use the certs from the OTA test base image."""
-    from otaclient.app.ota_client import cfg as _cfg
+    from otaclient.ota_core import cfg as _cfg
 
     module_mocker.patch.object(
         _cfg,
@@ -169,7 +169,7 @@ class TestOTAUpdater:
         )
 
     def test_otaupdater(self, mocker: pytest_mock.MockerFixture):
-        from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
+        from otaclient.ota_core import OTAClientControlFlags, _OTAUpdater
 
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(

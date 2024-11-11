@@ -23,11 +23,11 @@ import pytest
 from pytest_mock import MockerFixture
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient.app.ota_client import OTAClientControlFlags, _OTAUpdater
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import common, rebuild_mode
 from otaclient.create_standby.rebuild_mode import RebuildMode
+from otaclient.ota_core import OTAClientControlFlags, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
 

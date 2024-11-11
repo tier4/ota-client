@@ -19,10 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from otaclient.app.ota_client import OTAServicer
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
+from otaclient.ota_core import OTAServicer
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
