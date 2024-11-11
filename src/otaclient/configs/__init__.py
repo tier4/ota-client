@@ -13,6 +13,8 @@
 # limitations under the License.
 """otaclient configs package."""
 
+from typing import TYPE_CHECKING
+
 from otaclient.configs._cfg_configurable import (
     ENV_PREFIX,
     ConfigurableSettings,
@@ -33,4 +35,28 @@ __all__ = [
     "ProxyInfo",
     "set_configs",
     "dynamic_root",
+    "DefaultOTAClientConfigs",
 ]
+
+if TYPE_CHECKING:
+
+    class DefaultOTAClientConfigs(ConfigurableSettings, Consts):
+        """Default OTAClient configs, without parsing the env vars."""
+
+else:
+
+    class DefaultOTAClientConfigs:
+
+        def __init__(self) -> None:
+            self._cfg_consts = Consts()
+            self._cfg_configurable = ConfigurableSettings()
+
+        # NOTE(20241108): still use __getattr__ to allow changing/mocking attributes
+        #   for easy testing.
+        def __getattr__(self, name: str):
+            for _cfg in [self._cfg_consts, self._cfg_configurable]:
+                try:
+                    return getattr(_cfg, name)
+                except AttributeError:
+                    continue
+            raise AttributeError(f"no such config field: {name=}")

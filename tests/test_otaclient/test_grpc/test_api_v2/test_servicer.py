@@ -24,9 +24,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.app.ota_client import OTAServicer
+from otaclient.grpc.api_v2 import ecu_status, servicer
 from otaclient.grpc.api_v2.servicer import (
     ECUStatusStorage,
-    OTAClientServiceStub,
+    OTAClientAPIServicer,
     OTAProxyLauncher,
 )
 from otaclient_api.v2 import types as api_types
@@ -35,7 +36,8 @@ from tests.utils import compare_message
 
 logger = logging.getLogger(__name__)
 
-SERVICER_MODULE = "otaclient.grpc.api_v2.servicer"
+SERVICER_MODULE = servicer.__name__
+ECU_STATUS_MODULE = ecu_status.__name__
 
 
 class TestOTAClientServiceStub:
@@ -58,17 +60,22 @@ class TestOTAClientServiceStub:
     ):
         threadpool = ThreadPoolExecutor()
 
-        # ------ mock and patch ecu_info ------ #
+        # ------ mock and patch ------ #
         self.ecu_info = ecu_info = ecu_info_fixture
         mocker.patch(f"{SERVICER_MODULE}.ecu_info", ecu_info)
+
+        # NOTE: decrease the interval to speed up testing
+        #       (used by _otaproxy_lifecycle_managing/_otaclient_control_flags_managing task)
+        mocker.patch(
+            f"{ECU_STATUS_MODULE}.ACTIVE_POLLING_INTERVAL", self.POLLING_INTERVAL
+        )
+        mocker.patch(
+            f"{ECU_STATUS_MODULE}.IDLE_POLLING_INTERVAL", self.POLLING_INTERVAL
+        )
 
         # ------ init and setup the ecu_storage ------ #
         self.ecu_storage = ECUStatusStorage()
         self.ecu_storage.on_ecus_accept_update_request = mocker.AsyncMock()
-        # NOTE: decrease the interval to speed up testing
-        #       (used by _otaproxy_lifecycle_managing/_otaclient_control_flags_managing task)
-        self.ecu_storage.ACTIVE_POLLING_INTERVAL = self.POLLING_INTERVAL  # type: ignore
-        self.ecu_storage.IDLE_POLLING_INTERVAL = self.POLLING_INTERVAL  # type: ignore
         # NOTE: disable internal overall ecu status generation task as we
         #       will manipulate the values by ourselves.
         self.ecu_storage._debug_properties_update_shutdown_event.set()
@@ -108,7 +115,7 @@ class TestOTAClientServiceStub:
         mocker.patch(f"{SERVICER_MODULE}.OTAClientCall", self.otaclient_call)
 
         # --- start the OTAClientServiceStub --- #
-        self.otaclient_service_stub = OTAClientServiceStub()
+        self.otaclient_service_stub = OTAClientAPIServicer()
 
         try:
             yield

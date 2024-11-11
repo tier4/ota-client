@@ -134,7 +134,7 @@ def run_http_server_subprocess():
         _server_p.kill()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     """Prepare AB slots for the whole test session.
 

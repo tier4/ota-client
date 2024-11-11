@@ -70,9 +70,11 @@ class _OTAClientSettings(BaseModel):
     # ------ debug flags ------ #
     #
     DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP: bool = False
-    DEBUG_DISABLE_OTAPROXY_HTTPS_VERIFY: bool = False
-    DEBUG_DISABLE_OTAMETA_CERT_CHECK: bool = False
-    DEBUG_DISABLE_OTAMETA_SIGN_CHECK: bool = False
+
+    #
+    # ------ IO settings ------ #
+    #
+    CHUNK_SIZE: int = 1024 * 1024  # 1MiB
 
 
 class _MultipleECUSettings(BaseModel):

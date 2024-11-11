@@ -24,9 +24,8 @@ from pathlib import Path
 import grpc.aio
 
 from otaclient import __version__
-from otaclient.app.configs import config as cfg
-from otaclient.app.configs import ecu_info, server_cfg
-from otaclient.grpc.api_v2.servicer import OTAClientServiceStub
+from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient.log_setting import configure_logging
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
@@ -57,14 +56,14 @@ def _check_other_otaclient():
 
 
 def create_otaclient_grpc_server():
-    service_stub = OTAClientServiceStub()
+    service_stub = OTAClientAPIServicer()
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
     server = grpc.aio.server()
     v2_grpc.add_OtaClientServiceServicer_to_server(
         server=server, servicer=ota_client_service_v2
     )
-    server.add_insecure_port(f"{ecu_info.ip_addr}:{server_cfg.SERVER_PORT}")
+    server.add_insecure_port(f"{ecu_info.ip_addr}:{cfg.OTA_API_SERVER_PORT}")
     return server
 
 

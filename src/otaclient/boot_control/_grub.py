@@ -43,6 +43,7 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient import errors as ota_errors
+from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import (
     read_str_from_file,
@@ -57,7 +58,7 @@ from ._common import (
     SlotMountHelper,
     cat_proc_cmdline,
 )
-from .configs import grub_cfg as cfg
+from .configs import grub_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
@@ -402,17 +403,17 @@ class _GrubControl:
             f"{self.active_slot=}@{self.active_root_dev}, {self.standby_slot=}@{self.standby_root_dev}"
         )
 
-        self.boot_dir = Path(cfg.BOOT_DIR)
-        self.grub_file = Path(cfg.GRUB_CFG_PATH)
+        self.boot_dir = Path(cfg.BOOT_DPATH)
+        self.grub_file = Path(boot_cfg.GRUB_CFG_PATH)
 
-        self.ota_partition_symlink = self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
+        self.ota_partition_symlink = self.boot_dir / boot_cfg.BOOT_OTA_PARTITION_FILE
         self.active_ota_partition_folder = (
-            self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
+            self.boot_dir / boot_cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.active_slot}")
         self.active_ota_partition_folder.mkdir(exist_ok=True)
 
         self.standby_ota_partition_folder = (
-            self.boot_dir / cfg.BOOT_OTA_PARTITION_FILE
+            self.boot_dir / boot_cfg.BOOT_OTA_PARTITION_FILE
         ).with_suffix(f".{self.standby_slot}")
         self.standby_ota_partition_folder.mkdir(exist_ok=True)
 
@@ -528,7 +529,7 @@ class _GrubControl:
         # lookup the grub file and find the booted entry
         # NOTE(20230905): use standard way to find initrd img
         initrd_img = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
-        if not (Path(cfg.BOOT_DIR) / initrd_img).is_file():
+        if not (Path(cfg.BOOT_DPATH) / initrd_img).is_file():
             raise ValueError(f"failed to find booted initrd image({initrd_img})")
         return kernel_ma.group("kernel"), initrd_img
 
@@ -568,9 +569,9 @@ class _GrubControl:
         1. this method only ensures the entry existence for current booted slot.
         2. this method ensures the default entry to be the current booted slot.
         """
-        grub_default_file = Path(cfg.ACTIVE_ROOTFS_PATH) / Path(
-            cfg.DEFAULT_GRUB_PATH
-        ).relative_to("/")
+        grub_default_file = Path(cfg.ACTIVE_ROOT) / Path(
+            boot_cfg.DEFAULT_GRUB_PATH
+        ).relative_to(cfg.CANONICAL_ROOT)
 
         # NOTE: If the path points to a symlink, exists() returns
         #       whether the symlink points to an existing file or directory.
@@ -615,7 +616,9 @@ class _GrubControl:
 
         # step4: populate new active grub_file
         # update the ota.standby entry's rootfs uuid to standby slot's uuid
-        active_slot_grub_file = self.active_ota_partition_folder / cfg.GRUB_CFG_FNAME
+        active_slot_grub_file = (
+            self.active_ota_partition_folder / boot_cfg.GRUB_CFG_FNAME
+        )
 
         grub_cfg_content = GrubHelper.grub_mkconfig()
         try:
@@ -653,14 +656,14 @@ class _GrubControl:
         # finally, point grub.cfg to active slot's grub.cfg
         symlink_atomic(  # /boot/grub/grub.cfg -> ../ota-partition/grub.cfg
             self.grub_file,
-            Path("../") / cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
+            Path("../") / boot_cfg.BOOT_OTA_PARTITION_FILE / "grub.cfg",
         )
         logger.info(f"update_grub for {self.active_slot} finished.")
 
     def _ensure_ota_partition_symlinks(self, active_slot: str):
         """Ensure /boot/{ota_partition,vmlinuz-ota,initrd.img-ota} symlinks from
         specified <active_slot> point's of view."""
-        ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
+        ota_partition_folder = Path(boot_cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
         symlink_atomic(  # /boot/ota-partition -> ota-partition.<active_slot>
             self.boot_dir / ota_partition_folder,
             ota_partition_folder.with_suffix(f".{active_slot}"),
@@ -676,7 +679,7 @@ class _GrubControl:
 
     def _ensure_standby_slot_boot_files_symlinks(self, standby_slot: str):
         """Ensure boot files symlinks for specified <standby_slot>."""
-        ota_partition_folder = Path(cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
+        ota_partition_folder = Path(boot_cfg.BOOT_OTA_PARTITION_FILE)  # ota-partition
         symlink_atomic(  # /boot/vmlinuz-ota.standby -> ota-partition.<standby_slot>/vmlinuz-ota
             self.boot_dir / GrubHelper.KERNEL_OTA_STANDBY,
             ota_partition_folder.with_suffix(f".{standby_slot}")
@@ -747,9 +750,9 @@ class GrubController(BootControllerProtocol):
             self._boot_control = _GrubControl()
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._boot_control.standby_root_dev,
-                standby_slot_mount_point=cfg.MOUNT_POINT,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 active_slot_dev=self._boot_control.active_root_dev,
-                active_slot_mount_point=cfg.ACTIVE_ROOT_MOUNT_POINT,
+                active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=self._boot_control.active_slot,
@@ -834,7 +837,7 @@ class GrubController(BootControllerProtocol):
             cfg.OTA_STATUS_FNAME,
             cfg.OTA_VERSION_FNAME,
             cfg.SLOT_IN_USE_FNAME,
-            cfg.GRUB_CFG_FNAME,
+            boot_cfg.GRUB_CFG_FNAME,
         )
         removes = (
             f
@@ -902,10 +905,10 @@ class GrubController(BootControllerProtocol):
             logger.info("grub_boot: post-update setup...")
             # ------ update fstab ------ #
             active_fstab = self._mp_control.active_slot_mount_point / Path(
-                cfg.FSTAB_FILE_PATH
+                boot_cfg.FSTAB_FILE_PATH
             ).relative_to("/")
             standby_fstab = self._mp_control.standby_slot_mount_point / Path(
-                cfg.FSTAB_FILE_PATH
+                boot_cfg.FSTAB_FILE_PATH
             ).relative_to("/")
             self._update_fstab(
                 standby_slot_fstab=standby_fstab,

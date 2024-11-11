@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import os
 import shutil
@@ -21,12 +23,12 @@ from typing import Set, Tuple
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient.app.configs import config as cfg
 from otaclient.app.update_stats import (
     OperationRecord,
     OTAUpdateStatsCollector,
     ProcessOperation,
 )
+from otaclient.configs.cfg import cfg
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
@@ -168,7 +170,9 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""
-        _dst = self.standby_slot_mp / Path(cfg.META_FOLDER).relative_to("/")
+        _dst = self.standby_slot_mp / Path(cfg.IMAGE_META_DPATH).relative_to(
+            cfg.CANONICAL_ROOT
+        )
         _dst.mkdir(parents=True, exist_ok=True)
 
         logger.info(f"save image meta files to {_dst}")

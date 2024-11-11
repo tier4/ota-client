@@ -20,9 +20,9 @@ import asyncio
 import pytest
 import pytest_mock
 
-from otaclient.app.configs import server_cfg
 from otaclient.app.main import create_otaclient_grpc_server
 from otaclient.configs import ECUInfo
+from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
 from tests.utils import compare_message
@@ -30,7 +30,7 @@ from tests.utils import compare_message
 OTACLIENT_APP_MAIN = "otaclient.app.main"
 
 
-class _MockedOTAClientServiceStub:
+class _MockedOTAClientAPIServicer:
     MY_ECU_ID = "autoware"
     UPDATE_RESP_ECU = api_types.UpdateResponseEcu(
         ecu_id=MY_ECU_ID,
@@ -63,16 +63,16 @@ class _MockedOTAClientServiceStub:
         return self.STATUS_RESP
 
 
-class Test_ota_client_service:
-    MY_ECU_ID = _MockedOTAClientServiceStub.MY_ECU_ID
+class TestOTAClientAPIServer:
+    MY_ECU_ID = _MockedOTAClientAPIServicer.MY_ECU_ID
     LISTEN_ADDR = "127.0.0.1"
-    LISTEN_PORT = server_cfg.SERVER_PORT
+    LISTEN_PORT = otaclient_cfg.OTA_API_SERVER_PORT
 
     @pytest.fixture(autouse=True)
     def setup_test(self, mocker: pytest_mock.MockerFixture):
-        self.otaclient_service_stub = _MockedOTAClientServiceStub()
+        self.otaclient_service_stub = _MockedOTAClientAPIServicer()
         mocker.patch(
-            f"{OTACLIENT_APP_MAIN}.OTAClientServiceStub",
+            f"{OTACLIENT_APP_MAIN}.OTAClientAPIServicer",
             return_value=self.otaclient_service_stub,
         )
 

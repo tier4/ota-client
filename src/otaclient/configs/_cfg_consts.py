@@ -30,6 +30,8 @@ class CreateStandbyMechanism(StrEnum):
 
 class Consts:
 
+    CANONICAL_ROOT = CANONICAL_ROOT
+
     @property
     def ACTIVE_ROOT(self) -> str:  # NOSONAR
         return self._ACTIVE_ROOT
@@ -49,6 +51,7 @@ class Consts:
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
+    OTA_TMP_META_STORE = "/.ota-meta"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
@@ -72,6 +75,8 @@ class Consts:
     OTA_STATUS_FNAME = "status"
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
+
+    DEFAULT_VERSION_STR = ""
 
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082

@@ -24,7 +24,7 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Callable, Literal, NoReturn, Optional, Union
 
-from otaclient.app.configs import config as cfg
+from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 from otaclient_common.common import subprocess_call, subprocess_check_output
@@ -107,7 +107,7 @@ class CMDHelperFuncs:
         Returns:
             str: the devpath of current rootfs device.
         """
-        cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOTFS_PATH]
+        cmd = ["findmnt", "-nfco", "SOURCE", cfg.ACTIVE_ROOT]
         return subprocess_check_output(cmd, raise_exception=raise_exception)
 
     @classmethod
@@ -723,7 +723,7 @@ class SlotMountHelper:
         #                 in the future this attribute will not be used by
         #                 standby slot creater.
         self.standby_boot_dir = self.standby_slot_mount_point / Path(
-            cfg.BOOT_DIR
+            cfg.BOOT_DPATH
         ).relative_to("/")
 
     def mount_standby(self) -> None:
@@ -756,8 +756,8 @@ class SlotMountHelper:
         """
         logger.debug("copy /boot/ota from active to standby.")
         try:
-            _src = self.active_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DIR).relative_to("/")
+            _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
+            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
         except Exception as e:
             raise ValueError(

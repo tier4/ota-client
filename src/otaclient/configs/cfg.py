@@ -47,7 +47,9 @@ else:
 
     class _OTAClientConfigs:
 
-        def __getattribute__(self, name: str) -> Any:
+        # NOTE(20241108): still use __getattr__ to allow changing/mocking attributes
+        #   for easy testing.
+        def __getattr__(self, name: str) -> Any:
             for _cfg in [cfg_consts, cfg_configurable]:
                 try:
                     return getattr(_cfg, name)

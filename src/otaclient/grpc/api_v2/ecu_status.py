@@ -45,13 +45,21 @@ import time
 from itertools import chain
 from typing import Dict, Iterable, Optional, Set, TypeVar
 
-from otaclient.app.configs import config as cfg
-from otaclient.configs.cfg import ecu_info
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_api.v2 import types as api_types
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+# NOTE(20230522):
+#   ECU will be treated as disconnected if we cannot get in touch with it
+#   longer than <DISCONNECTED_ECU_TIMEOUT_FACTOR> * <current_polling_interval>.
+#   disconnected ECU will be excluded from status API response.
+DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
+
+IDLE_POLLING_INTERVAL = 10  # second
+ACTIVE_POLLING_INTERVAL = 1  # seconds
 
 
 class _OrderedSet(Dict[T, None]):
@@ -72,19 +80,6 @@ class _OrderedSet(Dict[T, None]):
 
 
 class ECUStatusStorage:
-    DELAY_OVERALL_STATUS_REPORT_UPDATE = (
-        cfg.KEEP_OVERALL_ECUS_STATUS_ON_ANY_UPDATE_REQ_ACKED
-    )
-    UNREACHABLE_ECU_TIMEOUT = cfg.ECU_UNREACHABLE_TIMEOUT
-    PROPERTY_REFRESH_INTERVAL = cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL
-    IDLE_POLLING_INTERVAL = cfg.IDLE_INTERVAL
-    ACTIVE_POLLING_INTERVAL = cfg.ACTIVE_INTERVAL
-
-    # NOTE(20230522):
-    #   ECU will be treated as disconnected if we cannot get in touch with it
-    #   longer than <DISCONNECTED_ECU_TIMEOUT_FACTOR> * <current_polling_interval>.
-    #   disconnected ECU will be excluded from status API response.
-    DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
 
     def __init__(self) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -151,7 +146,7 @@ class ECUStatusStorage:
         return (
             cur_timestamp
             > self._all_ecus_last_contact_timestamp[ecu_id]
-            + self.UNREACHABLE_ECU_TIMEOUT
+            + cfg.ECU_UNREACHABLE_TIMEOUT
         )
 
     async def _generate_overall_status_report(self):
@@ -174,7 +169,7 @@ class ECUStatusStorage:
             logger.warning(f"new lost ecu(s) detected: {_new_lost_ecus_id}")
         if lost_ecus:
             logger.warning(
-                f"lost ecu(s)(disconnected longer than{self.UNREACHABLE_ECU_TIMEOUT}s): {lost_ecus=}"
+                f"lost ecu(s)(disconnected longer than{cfg.ECU_UNREACHABLE_TIMEOUT}s): {lost_ecus=}"
             )
 
         # check ECUs in tracked active ECUs set that are updating
@@ -267,15 +262,15 @@ class ECUStatusStorage:
                 if last_storage_update != self.storage_last_updated_timestamp and (
                     current_timestamp
                     > self.last_update_request_received_timestamp
-                    + self.DELAY_OVERALL_STATUS_REPORT_UPDATE
+                    + cfg.PAUSED_OVERALL_ECUS_STATUS_CHANGE_ON_UPDATE_REQ_ACKED
                 ):
                     last_storage_update = self.storage_last_updated_timestamp
                     await self._generate_overall_status_report()
             # if properties are not initialized, use active_interval for update
             if self.properties_last_update_timestamp == 0:
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
             else:
-                await asyncio.sleep(self.PROPERTY_REFRESH_INTERVAL)
+                await asyncio.sleep(cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL)
 
     # API
 
@@ -352,9 +347,9 @@ class ECUStatusStorage:
             if one only wants to get the polling interval value.
         """
         return (
-            self.ACTIVE_POLLING_INTERVAL
+            ACTIVE_POLLING_INTERVAL
             if self.active_ota_update_present.is_set()
-            else self.IDLE_POLLING_INTERVAL
+            else IDLE_POLLING_INTERVAL
         )
 
     def get_polling_waiter(self):
@@ -370,13 +365,13 @@ class ECUStatusStorage:
 
         async def _waiter():
             if self.active_ota_update_present.is_set():
-                await asyncio.sleep(self.ACTIVE_POLLING_INTERVAL)
+                await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
                 return
 
             try:
                 await asyncio.wait_for(
                     self.active_ota_update_present.wait(),
-                    timeout=self.IDLE_POLLING_INTERVAL,
+                    timeout=IDLE_POLLING_INTERVAL,
                 )
             except asyncio.TimeoutError:
                 return
@@ -407,7 +402,7 @@ class ECUStatusStorage:
                 #       to signal the agent that this ECU doesn't respond.
                 _timout = (
                     self._all_ecus_last_contact_timestamp.get(ecu_id, 0)
-                    + self.DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
+                    + DISCONNECTED_ECU_TIMEOUT_FACTOR * self.get_polling_interval()
                 )
                 if self.storage_last_updated_timestamp > _timout:
                     continue

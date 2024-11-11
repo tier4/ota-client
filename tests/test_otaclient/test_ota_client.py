@@ -30,7 +30,7 @@ import pytest_mock
 from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient.app.configs import config as otaclient_cfg
+from otaclient.app import ota_client
 from otaclient.app.ota_client import (
     OTAClient,
     OTAClientControlFlags,
@@ -40,12 +40,15 @@ from otaclient.app.ota_client import (
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control.configs import BootloaderType
 from otaclient.configs import ECUInfo
+from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.errors import OTAErrorRecoverable
 from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
+
+OTACLIENT_MODULE = ota_client.__name__
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -55,7 +58,7 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
 
     module_mocker.patch.object(
         _cfg,
-        "CERTS_DIR",
+        "CERT_DPATH",
         cfg.CERTS_DIR,
     )
 
@@ -137,8 +140,6 @@ class TestOTAUpdater:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, _delta_generate):
-        from otaclient.app.configs import BaseConfig
-
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
@@ -155,14 +156,12 @@ class TestOTAUpdater:
             spec=StandbySlotCreatorProtocol.calculate_and_prepare_delta,
             return_value=self._delta_bundle,
         )
-        self._create_standby.should_erase_standby_slot.return_value = False
+        self._create_standby.should_erase_standby_slot.return_value = False  # type: ignore
 
         # ------ mock otaclient cfg ------ #
-        _cfg = BaseConfig()
-        _cfg.MOUNT_POINT = str(self.slot_b)  # type: ignore
-        _cfg.ACTIVE_ROOTFS_PATH = str(self.slot_a)  # type: ignore
-        _cfg.RUN_DIR = str(self.otaclient_run_dir)  # type: ignore
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.cfg", _cfg)
+        mocker.patch(f"{OTACLIENT_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
+        mocker.patch(f"{OTACLIENT_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
+        mocker.patch(f"{OTACLIENT_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
 
         # ------ mock stats collector ------ #
         mocker.patch(
@@ -205,11 +204,11 @@ class TestOTAUpdater:
         otaclient_control_flags._can_reboot.is_set.assert_called_once()
         assert _updater.updating_version == str(cfg.UPDATE_VERSION)
         # assert boot controller is used
-        self._boot_control.pre_update.assert_called_once()
-        self._boot_control.post_update.assert_called_once()
+        self._boot_control.pre_update.assert_called_once()  # type: ignore
+        self._boot_control.post_update.assert_called_once()  # type: ignore
         # assert create standby module is used
-        self._create_standby.calculate_and_prepare_delta.assert_called_once()
-        self._create_standby.create_standby_slot.assert_called_once()
+        self._create_standby.calculate_and_prepare_delta.assert_called_once()  # type: ignore
+        self._create_standby.create_standby_slot.assert_called_once()  # type: ignore
         process_persists_handler.assert_called_once()
 
 
@@ -246,8 +245,8 @@ class TestOTAClient:
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
         )
         # patch boot_controller for otaclient initializing
-        self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
-        self.boot_controller.get_booted_ota_status.return_value = (
+        self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION  # type: ignore
+        self.boot_controller.get_booted_ota_status.return_value = (  # type: ignore
             api_types.StatusOta.SUCCESS
         )
 
@@ -274,7 +273,7 @@ class TestOTAClient:
         )
 
         # --- assert on update finished(before reboot) --- #
-        self.ota_updater.execute.assert_called_once()
+        self.ota_updater.execute.assert_called_once()  # type: ignore
         assert (
             self.ota_client.live_ota_status.get_ota_status()
             == api_types.StatusOta.UPDATING
@@ -283,7 +282,7 @@ class TestOTAClient:
     def test_update_interrupted(self):
         # inject exception
         _error = OTAErrorRecoverable("network disconnected", module=__name__)
-        self.ota_updater.execute.side_effect = _error
+        self.ota_updater.execute.side_effect = _error  # type: ignore
 
         # --- execution --- #
         self.ota_client.update(
@@ -293,7 +292,7 @@ class TestOTAClient:
         )
 
         # --- assertion on interrupted OTA update --- #
-        self.ota_updater.execute.assert_called_once()
+        self.ota_updater.execute.assert_called_once()  # type: ignore
 
         assert (
             self.ota_client.live_ota_status.get_ota_status()
@@ -329,7 +328,7 @@ class TestOTAClient:
         self.ota_client._update_executor = self.ota_updater
         self.ota_client.live_ota_status.set_ota_status(api_types.StatusOta.UPDATING)
         # let mocked updater return mocked_status_progress
-        self.ota_updater.get_update_status.return_value = self.MOCKED_STATUS_PROGRESS
+        self.ota_updater.get_update_status.return_value = self.MOCKED_STATUS_PROGRESS  # type: ignore
 
         # --- assertion --- #
         _status = self.ota_client.status()

@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import threading
 from functools import partial
@@ -22,7 +24,7 @@ from typing import Optional
 import pytest
 
 from otaclient.boot_control._common import OTAStatusFilesControl
-from otaclient.boot_control.configs import BaseConfig as cfg
+from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
@@ -47,13 +49,17 @@ class TestOTAStatusFilesControl:
         self.slot_b_ota_status_dir = tmp_path / "slot_b_ota_status_dir"
         self.slot_b_ota_status_dir.mkdir()
 
-        self.slot_a_status_file = self.slot_a_ota_status_dir / cfg.OTA_STATUS_FNAME
-        self.slot_b_status_file = self.slot_b_ota_status_dir / cfg.OTA_STATUS_FNAME
+        self.slot_a_status_file = (
+            self.slot_a_ota_status_dir / otaclient_cfg.OTA_STATUS_FNAME
+        )
+        self.slot_b_status_file = (
+            self.slot_b_ota_status_dir / otaclient_cfg.OTA_STATUS_FNAME
+        )
         self.slot_a_slot_in_use_file = (
-            self.slot_a_ota_status_dir / cfg.SLOT_IN_USE_FNAME
+            self.slot_a_ota_status_dir / otaclient_cfg.SLOT_IN_USE_FNAME
         )
         self.slot_b_slot_in_use_file = (
-            self.slot_b_ota_status_dir / cfg.SLOT_IN_USE_FNAME
+            self.slot_b_ota_status_dir / otaclient_cfg.SLOT_IN_USE_FNAME
         )
 
         self.finalize_switch_boot_flag = threading.Event()
