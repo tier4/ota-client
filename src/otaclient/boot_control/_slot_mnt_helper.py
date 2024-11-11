@@ -78,7 +78,8 @@ def ensure_umount(
     for _retry in range(MAX_RETRY_COUNT + 1):
         try:
             CMDHelperFuncs.umount(mnt_point, raise_exception=True)
-            break
+            if not CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=False):
+                break
         except CalledProcessError as e:
             logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
             logger.warning(f"{e.stderr}\n{e.stdout}")
