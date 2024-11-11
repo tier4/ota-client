@@ -39,6 +39,7 @@ from otaclient.boot_control._firmware_package import (
     PayloadType,
     load_firmware_package,
 )
+from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
@@ -46,7 +47,7 @@ from otaclient_common._io import cal_file_digest, file_sha256, write_str_to_file
 from otaclient_common.common import subprocess_call
 from otaclient_common.typing import StrOrPath
 
-from ._common import CMDHelperFuncs, OTAStatusFilesControl, SlotMountHelper
+from ._common import CMDHelperFuncs, OTAStatusFilesControl
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -176,7 +177,7 @@ EFIVARS_SYS_MOUNT_POINT = "/sys/firmware/efi/efivars/"
 @contextlib.contextmanager
 def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:  # pragma: no cover
     """Ensure the efivarfs is mounted as rw, and then umount it."""
-    if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT):
+    if CMDHelperFuncs.is_target_mounted(EFIVARS_SYS_MOUNT_POINT, raise_exception=False):
         options = "remount,rw,nosuid,nodev,noexec,relatime"
     else:
         logger.warning(
@@ -861,7 +862,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=uefi_control.standby_rootfs_devpath,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-                active_slot_dev=self._uefi_control.curent_rootfs_devpath,
+                active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
 

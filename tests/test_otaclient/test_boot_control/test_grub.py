@@ -237,8 +237,9 @@ class TestGrubControl:
         grub_ab_slot: tuple[Path, Path, Path],
         _grub_mkconfig_fsm: GrubMkConfigFSM,
     ):
-        from otaclient.boot_control._common import CMDHelperFuncs, SlotMountHelper
+        from otaclient.boot_control._common import CMDHelperFuncs
         from otaclient.boot_control._grub import GrubABPartitionDetector
+        from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 
         slot_a, slot_b, _ = grub_ab_slot
 

@@ -27,6 +27,7 @@ from typing import Any, Generator, Literal
 from typing_extensions import Self
 
 import otaclient.errors as ota_errors
+from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
@@ -36,7 +37,6 @@ from otaclient_common.typing import StrOrPath
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
-    SlotMountHelper,
 )
 from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
@@ -436,7 +436,7 @@ class RPIBootController(BootControllerProtocol):
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._rpiboot_control.standby_slot_dev,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-                active_slot_dev=self._rpiboot_control.active_slot_dev,
+                active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
             # init ota-status files

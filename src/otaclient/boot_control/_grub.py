@@ -43,6 +43,7 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient import errors as ota_errors
+from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_api.v2 import types as api_types
 from otaclient_common._io import (
@@ -55,7 +56,6 @@ from otaclient_common.common import subprocess_call, subprocess_check_output
 from ._common import (
     CMDHelperFuncs,
     OTAStatusFilesControl,
-    SlotMountHelper,
     cat_proc_cmdline,
 )
 from .configs import grub_cfg as boot_cfg
@@ -751,7 +751,7 @@ class GrubController(BootControllerProtocol):
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._boot_control.standby_root_dev,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-                active_slot_dev=self._boot_control.active_root_dev,
+                active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
             self._ota_status_control = OTAStatusFilesControl(
