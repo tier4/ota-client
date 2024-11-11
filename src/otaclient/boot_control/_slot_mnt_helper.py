@@ -34,7 +34,7 @@ RETRY_INTERVAL = 2
 
 
 def ensure_mount(
-    target: StrOrPath, mnt_point: StrOrPath, *, mount_func, raise_exception: bool = True
+    target: StrOrPath, mnt_point: StrOrPath, *, mount_func, raise_exception: bool
 ) -> None:  # pragma: no cover
     """Ensure the <target> mounted on <mnt_point> by our best.
 
@@ -91,7 +91,9 @@ def ensure_umount(
             continue
 
 
-def ensure_mointpoint(mnt_point: Path) -> None:  # pragma: no cover
+def ensure_mointpoint(
+    mnt_point: Path, *, ignore_error: bool
+) -> None:  # pragma: no cover
     """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
 
     If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
@@ -105,7 +107,7 @@ def ensure_mointpoint(mnt_point: Path) -> None:  # pragma: no cover
         return
 
     try:
-        ensure_umount(mnt_point, ignore_error=False)
+        ensure_umount(mnt_point, ignore_error=ignore_error)
     except Exception:
         logger.warning(
             f"{mnt_point} still has other mounts on it, "
@@ -147,13 +149,14 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount standby slot rootfs dev...")
-        ensure_mointpoint(self.standby_slot_mount_point)
+        ensure_mointpoint(self.standby_slot_mount_point, ignore_error=True)
         ensure_umount(self.standby_slot_dev, ignore_error=False)
 
         ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,
             mount_func=CMDHelperFuncs.mount_rw,
+            raise_exception=True,
         )
 
     def mount_active(self) -> None:
@@ -163,11 +166,12 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
-        ensure_mointpoint(self.active_slot_mount_point)
+        ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
         ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
             mount_func=CMDHelperFuncs.bind_mount_ro,
+            raise_exception=True,
         )
 
     def preserve_ota_folder_to_standby(self):
