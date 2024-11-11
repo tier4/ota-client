@@ -97,7 +97,7 @@ def ensure_mointpoint(mnt_point: Path) -> None:  # pragma: no cover
     If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
         we still keep use the mountpoint as later mount will override the previous one.
     """
-    if not mnt_point.is_dir():
+    if mnt_point.is_symlink() or not mnt_point.is_dir():
         mnt_point.unlink(missing_ok=True)
 
     if not mnt_point.exists():
