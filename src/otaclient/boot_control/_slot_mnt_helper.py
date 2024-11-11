@@ -21,7 +21,6 @@ import shutil
 from pathlib import Path
 from subprocess import CalledProcessError
 from time import sleep
-from typing import Optional
 
 from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.configs.cfg import cfg
@@ -36,7 +35,7 @@ RETRY_INTERVAL = 2
 
 def ensure_mount(
     target: StrOrPath, mnt_point: StrOrPath, *, mount_func, raise_exception: bool = True
-) -> None:
+) -> None:  # pragma: no cover
     """Ensure the <target> mounted on <mnt_point> by our best.
 
     Raises:
@@ -48,11 +47,15 @@ def ensure_mount(
             CMDHelperFuncs.is_target_mounted(target, raise_exception=True)
             return
         except CalledProcessError as e:
-            logger.error(f"retry#{_retry} failed to mout standby slot: {e!r}")
+            logger.error(
+                f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}"
+            )
             logger.error(f"{e.stderr=}\n{e.stdout=}")
 
             if _retry >= MAX_RETRY_COUNT:
-                logger.error("exceed max retry count on mounting, abort")
+                logger.error(
+                    f"exceed max retry count mounting {target} on {mnt_point}, abort"
+                )
                 if raise_exception:
                     raise
                 return
@@ -61,13 +64,15 @@ def ensure_mount(
             continue
 
 
-def ensure_umount(mnt_point: StrOrPath, *, ignore_error: bool) -> None:
+def ensure_umount(
+    mnt_point: StrOrPath, *, ignore_error: bool
+) -> None:  # pragma: no cover
     """Try to umount the <mnt_point> at our best.
 
     Raises:
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
-    if not CMDHelperFuncs.is_target_mounted(mnt_point):
+    if not CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=False):
         return
 
     for _retry in range(MAX_RETRY_COUNT + 1):
@@ -75,7 +80,7 @@ def ensure_umount(mnt_point: StrOrPath, *, ignore_error: bool) -> None:
             CMDHelperFuncs.umount(mnt_point, raise_exception=True)
             break
         except CalledProcessError as e:
-            logger.warning(f"retry#{_retry} failed to umount standby slot: {e!r}")
+            logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
             logger.warning(f"{e.stderr}\n{e.stdout}")
 
             if _retry >= MAX_RETRY_COUNT:
@@ -88,7 +93,7 @@ def ensure_umount(mnt_point: StrOrPath, *, ignore_error: bool) -> None:
             continue
 
 
-def ensure_mointpoint(mnt_point: Path) -> None:
+def ensure_mointpoint(mnt_point: Path) -> None:  # pragma: no cover
     """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
 
     If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
@@ -104,10 +109,13 @@ def ensure_mointpoint(mnt_point: Path) -> None:
     try:
         ensure_umount(mnt_point, ignore_error=False)
     except Exception:
-        logger.warning(f"still use {mnt_point} and override the previous mount")
+        logger.warning(
+            f"{mnt_point} still has other mounts on it, "
+            f"but still use {mnt_point} and override the previous mount"
+        )
 
 
-class SlotMountHelper:
+class SlotMountHelper:  # pragma: no cover
     """Helper class that provides methods for mounting slots."""
 
     def __init__(
@@ -135,7 +143,7 @@ class SlotMountHelper:
         )
 
     def mount_standby(self) -> None:
-        """Mount standby slot dev to <standby_slot_mount_point>.
+        """Mount standby slot dev rw to <standby_slot_mount_point>.
 
         Raises:
             CalledProcessedError on the last failed attemp.
@@ -182,9 +190,9 @@ class SlotMountHelper:
         self,
         *,
         erase_standby: bool = False,
-        fslabel: Optional[str] = None,
+        fslabel: str | None = None,
     ) -> None:
-        CMDHelperFuncs.umount(self.standby_slot_dev, raise_exception=False)
+        ensure_umount(self.standby_slot_dev, ignore_error=True)
         if erase_standby:
             return CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
 
