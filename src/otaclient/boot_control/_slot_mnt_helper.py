@@ -44,7 +44,7 @@ def ensure_mount(
     for _retry in range(MAX_RETRY_COUNT + 1):
         try:
             mount_func(target=target, mount_point=mnt_point)
-            CMDHelperFuncs.is_target_mounted(target, raise_exception=True)
+            CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=True)
             return
         except CalledProcessError as e:
             logger.error(
@@ -72,14 +72,11 @@ def ensure_umount(
     Raises:
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
-    if not CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=False):
-        return
-
     for _retry in range(MAX_RETRY_COUNT + 1):
         try:
-            CMDHelperFuncs.umount(mnt_point, raise_exception=True)
             if not CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=False):
                 break
+            CMDHelperFuncs.umount(mnt_point, raise_exception=True)
         except CalledProcessError as e:
             logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
             logger.warning(f"{e.stderr}\n{e.stdout}")
@@ -151,6 +148,8 @@ class SlotMountHelper:  # pragma: no cover
         """
         logger.debug("mount standby slot rootfs dev...")
         ensure_mointpoint(self.standby_slot_mount_point)
+        ensure_umount(self.standby_slot_dev, ignore_error=False)
+
         ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,
