@@ -22,7 +22,6 @@ import typing
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Dict
 
 import pytest
 import pytest_mock
@@ -48,7 +47,7 @@ from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
-OTACLIENT_MODULE = ota_core.__name__
+OTA_CORE_MODULE = ota_core.__name__
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -104,7 +103,7 @@ class TestOTAUpdater:
         # --- parse regulars.txt --- #
         # NOTE: since we don't prepare any local copy in the test,
         #       we need to download all the unique files
-        _donwload_list_dict: Dict[bytes, RegularInf] = {}
+        _donwload_list_dict: dict[bytes, RegularInf] = {}
         _new_delta = RegularDelta()
         _total_regulars_num, _total_donwload_files_size = 0, 0
         with open(_ota_image_dir / "regulars.txt", "r") as _f:
@@ -121,7 +120,7 @@ class TestOTAUpdater:
             )
 
         # --- parse dirs.txt --- #
-        _new_dirs: Dict[DirectoryInf, None] = OrderedDict()
+        _new_dirs: dict[DirectoryInf, None] = OrderedDict()
         with open(_ota_image_dir / "dirs.txt", "r") as _f:
             for _dir in map(parse_dirs_from_txt, _f):
                 _new_dirs[_dir] = None
@@ -159,14 +158,12 @@ class TestOTAUpdater:
         self._create_standby.should_erase_standby_slot.return_value = False  # type: ignore
 
         # ------ mock otaclient cfg ------ #
-        mocker.patch(f"{OTACLIENT_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
-        mocker.patch(f"{OTACLIENT_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
-        mocker.patch(f"{OTACLIENT_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
+        mocker.patch(f"{OTA_CORE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
+        mocker.patch(f"{OTA_CORE_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
+        mocker.patch(f"{OTA_CORE_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
 
         # ------ mock stats collector ------ #
-        mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.OTAUpdateStatsCollector", mocker.MagicMock()
-        )
+        mocker.patch(f"{OTA_CORE_MODULE}.OTAUpdateStatsCollector", mocker.MagicMock())
 
     def test_otaupdater(self, mocker: pytest_mock.MockerFixture):
         from otaclient.ota_core import OTAClientControlFlags, _OTAUpdater
@@ -258,9 +255,7 @@ class TestOTAClient:
         )
 
         # patch inject mocked updater
-        mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}._OTAUpdater", return_value=self.ota_updater
-        )
+        mocker.patch(f"{OTA_CORE_MODULE}._OTAUpdater", return_value=self.ota_updater)
         # inject otaclient version
         self.ota_client.OTACLIENT_VERSION = self.OTACLIENT_VERSION
 
@@ -374,16 +369,16 @@ class TestOTAServicer:
         #
         # ------ patching ------
         #
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.OTAClient", self.otaclient_cls)
+        mocker.patch(f"{OTA_CORE_MODULE}.OTAClient", self.otaclient_cls)
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_boot_controller",
+            f"{OTA_CORE_MODULE}.get_boot_controller",
             return_value=mocker.MagicMock(return_value=self.boot_controller),
         )
         mocker.patch(
-            f"{cfg.OTACLIENT_MODULE_PATH}.get_standby_slot_creator",
+            f"{OTA_CORE_MODULE}.get_standby_slot_creator",
             return_value=self.standby_slot_creator_cls,
         )
-        mocker.patch(f"{cfg.OTACLIENT_MODULE_PATH}.ecu_info", self.ECU_INFO)
+        mocker.patch(f"{OTA_CORE_MODULE}.ecu_info", self.ECU_INFO)
 
         #
         # ------ start OTAServicer instance ------
