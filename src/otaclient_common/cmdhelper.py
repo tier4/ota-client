@@ -446,6 +446,7 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     """
     cmd = ["reboot"]
     if args:
+        logger.info(f"will reboot with argument: {args=}")
         cmd.extend(args)
 
     try:
