@@ -24,10 +24,10 @@ from pathlib import Path
 import pytest
 import pytest_mock
 
+from otaclient._types import OTAStatus
 from otaclient.boot_control import _grub
 from otaclient.boot_control.configs import GrubControlConfig
 from otaclient.configs import DefaultOTAClientConfigs
-from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -349,7 +349,7 @@ class TestGrubControl:
         grub_controller = _grub.GrubController()
         assert (
             slot_a_ota_partition_dir / "status"
-        ).read_text() == api_types.StatusOta.INITIALIZED.name
+        ).read_text() == OTAStatus.INITIALIZED
         # assert ota-partition file points to slot_a ota-partition folder
         assert (
             os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
@@ -366,12 +366,8 @@ class TestGrubControl:
             erase_standby=False,  # NOTE: not used
         )
         # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
-        assert (
-            slot_a_ota_partition_dir / "status"
-        ).read_text() == api_types.StatusOta.FAILURE.name
-        assert (
-            slot_b_ota_partition_dir / "status"
-        ).read_text() == api_types.StatusOta.UPDATING.name
+        assert (slot_a_ota_partition_dir / "status").read_text() == OTAStatus.FAILURE
+        assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
@@ -394,107 +390,102 @@ class TestGrubControl:
         self._grub_reboot_mock.assert_called_once_with(0)
         self._cmdhelper_mock.reboot.assert_called_once()  # type: ignore
 
+    def test_grub_update_reboot(
+        self,
+        cfg_for_slot_b_as_current,
+        grub_ab_slot: tuple[Path, Path, Path],
+    ):
+        from otaclient.boot_control._grub import GrubController
 
-#     def test_grub_update_reboot(
-#         self,
-#         cfg_for_slot_b_as_current,
-#         grub_ab_slot: tuple[Path, Path, Path],
-#     ):
-#         from otaclient.boot_control._grub import GrubController
+        _, slot_b, boot_dir = grub_ab_slot
+        slot_b_ota_partition_dir = Path(
+            boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
+        )
 
-#         _, slot_b, boot_dir = grub_ab_slot
-#         slot_b_ota_partition_dir = Path(
-#             boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
-#         )
+        ###### stage 2 ######
+        # test init after first reboot
 
-#         ###### stage 2 ######
-#         # test init after first reboot
+        # NOTE: dummy ota-image doesn't have grub installed,
+        #       so we need to prepare /etc/default/grub by ourself
+        default_grub = slot_b / Path(cfg.DEFAULT_GRUB_FILE).relative_to("/")
+        default_grub.parent.mkdir(parents=True, exist_ok=True)
+        default_grub.write_text(self.DEFAULT_GRUB)
 
-#         # NOTE: dummy ota-image doesn't have grub installed,
-#         #       so we need to prepare /etc/default/grub by ourself
-#         default_grub = slot_b / Path(cfg.DEFAULT_GRUB_FILE).relative_to("/")
-#         default_grub.parent.mkdir(parents=True, exist_ok=True)
-#         default_grub.write_text(self.DEFAULT_GRUB)
+        logger.info("post-update completed, test init after first reboot...")
 
-#         logger.info("post-update completed, test init after first reboot...")
+        ### test pre-init ###
+        assert self._fsm.is_boot_switched
+        assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
+        # assert ota-partition file is not yet switched before first reboot init
+        assert (
+            os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
+        )
 
-#         ### test pre-init ###
-#         assert self._fsm.is_boot_switched
-#         assert (
-#             slot_b_ota_partition_dir / "status"
-#         ).read_text() == api_types.StatusOta.UPDATING.name
-#         # assert ota-partition file is not yet switched before first reboot init
-#         assert (
-#             os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
-#             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_A_ID_GRUB}"
-#         )
-
-#         ### test first reboot init ###
-#         _ = GrubController()
-#         # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
-#         assert (
-#             os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
-#             == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
-#         )
-#         assert (
-#             slot_b_ota_partition_dir / "status"
-#         ).read_text() == api_types.StatusOta.SUCCESS.name
-#         assert (slot_b_ota_partition_dir / "version").read_text() == cfg.UPDATE_VERSION
+        ### test first reboot init ###
+        _ = GrubController()
+        # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
+        assert (
+            os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
+            == f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
+        )
+        assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.SUCCESS
+        assert (slot_b_ota_partition_dir / "version").read_text() == cfg.UPDATE_VERSION
 
 
-# @pytest.mark.parametrize(
-#     "_input, default_entry, expected",
-#     (
-#         (
-#             # test point:
-#             #   1. GRUB_TIMEOUT should be set as predefined default value, and only present once,
-#             #   2. GRUB_DISABLE_SUBMENU should be updated as predefined default value,
-#             #   3. already presented options that should be preserved should present,
-#             #   4. all predefined default options should be set.
-#             #   5. GRUB_TIMEOUT_STYLE which specified multiple times should be merged into one,
-#             #      and take the latest specified value,
-#             #   6. GRUB_DEFAULT is updated as <default_entry>,
-#             #   7. allow '=' sign within option value,
-#             #   8. empty lines and comments are removed.
-#             """\
-# GRUB_DEFAULT=6
-# X_DUPLICATED_OPTIONS=100
-# GRUB_TIMEOUT_STYLE=hidden
-# GRUB_TIMEOUT=99
+@pytest.mark.parametrize(
+    "_input, default_entry, expected",
+    (
+        (
+            # test point:
+            #   1. GRUB_TIMEOUT should be set as predefined default value, and only present once,
+            #   2. GRUB_DISABLE_SUBMENU should be updated as predefined default value,
+            #   3. already presented options that should be preserved should present,
+            #   4. all predefined default options should be set.
+            #   5. GRUB_TIMEOUT_STYLE which specified multiple times should be merged into one,
+            #      and take the latest specified value,
+            #   6. GRUB_DEFAULT is updated as <default_entry>,
+            #   7. allow '=' sign within option value,
+            #   8. empty lines and comments are removed.
+            """\
+GRUB_DEFAULT=6
+X_DUPLICATED_OPTIONS=100
+GRUB_TIMEOUT_STYLE=hidden
+GRUB_TIMEOUT=99
 
-# # some comments here
-# GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
-# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
-# X_DUPLICATED_OPTIONS=200
-# GRUB_CMDLINE_LINUX=""
-# GRUB_DISABLE_SUBMENU=n
-# GRUB_TIMEOUT=60
-# GRUB_TIMEOUT=30
-# X_DUPLICATED_OPTIONS=1
-# X_OPTION_WITH_EQUAL_SIGN=a=b=c=d
-# """,
-#             999,
-#             """\
-# # This file is generated by otaclient, modification might not be preserved across OTA.
-# GRUB_DEFAULT=999
-# X_DUPLICATED_OPTIONS=1
-# GRUB_TIMEOUT_STYLE=menu
-# GRUB_TIMEOUT=0
-# GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
-# GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
-# GRUB_CMDLINE_LINUX=""
-# GRUB_DISABLE_SUBMENU=y
-# X_OPTION_WITH_EQUAL_SIGN=a=b=c=d
-# GRUB_DISABLE_OS_PROBER=true
-# GRUB_DISABLE_RECOVERY=true
-# """,
-#         ),
-#     ),
-# )
-# def test_update_grub_default(
-#     _input: str, default_entry: typing.Optional[int], expected: str
-# ):
-#     from otaclient.boot_control._grub import GrubHelper
+# some comments here
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+X_DUPLICATED_OPTIONS=200
+GRUB_CMDLINE_LINUX=""
+GRUB_DISABLE_SUBMENU=n
+GRUB_TIMEOUT=60
+GRUB_TIMEOUT=30
+X_DUPLICATED_OPTIONS=1
+X_OPTION_WITH_EQUAL_SIGN=a=b=c=d
+""",
+            999,
+            """\
+# This file is generated by otaclient, modification might not be preserved across OTA.
+GRUB_DEFAULT=999
+X_DUPLICATED_OPTIONS=1
+GRUB_TIMEOUT_STYLE=menu
+GRUB_TIMEOUT=0
+GRUB_DISTRIBUTOR=`lsb_release -i -s 2> /dev/null || echo Debian`
+GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+GRUB_CMDLINE_LINUX=""
+GRUB_DISABLE_SUBMENU=y
+X_OPTION_WITH_EQUAL_SIGN=a=b=c=d
+GRUB_DISABLE_OS_PROBER=true
+GRUB_DISABLE_RECOVERY=true
+""",
+        ),
+    ),
+)
+def test_update_grub_default(
+    _input: str, default_entry: typing.Optional[int], expected: str
+):
+    from otaclient.boot_control._grub import GrubHelper
 
-#     updated = GrubHelper.update_grub_default(_input, default_entry_idx=default_entry)
-#     assert updated == expected
+    updated = GrubHelper.update_grub_default(_input, default_entry_idx=default_entry)
+    assert updated == expected

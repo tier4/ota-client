@@ -23,9 +23,9 @@ from typing import Optional
 
 import pytest
 
+from otaclient._types import OTAStatus
 from otaclient.boot_control._common import OTAStatusFilesControl
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient_api.v2 import types as api_types
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -80,27 +80,27 @@ class TestOTAStatusFilesControl:
                 "",
                 False,
                 # output
-                api_types.StatusOta.INITIALIZED,
+                OTAStatus.INITIALIZED,
                 SLOT_A_ID,
             ),
             (
                 "test_force_initialize",
                 # input
-                api_types.StatusOta.SUCCESS,
+                OTAStatus.SUCCESS,
                 SLOT_A_ID,
                 True,
                 # output
-                api_types.StatusOta.INITIALIZED,
+                OTAStatus.INITIALIZED,
                 SLOT_A_ID,
             ),
             (
                 "test_normal_boot",
                 # input
-                api_types.StatusOta.SUCCESS,
+                OTAStatus.SUCCESS,
                 SLOT_A_ID,
                 False,
                 # output
-                api_types.StatusOta.SUCCESS,
+                OTAStatus.SUCCESS,
                 SLOT_A_ID,
             ),
         ),
@@ -108,17 +108,17 @@ class TestOTAStatusFilesControl:
     def test_ota_status_files_loading(
         self,
         test_case: str,
-        input_slot_a_status: Optional[api_types.StatusOta],
+        input_slot_a_status: Optional[OTAStatus],
         input_slot_a_slot_in_use: str,
         force_initialize: bool,
-        output_slot_a_status: api_types.StatusOta,
+        output_slot_a_status: OTAStatus,
         output_slot_a_slot_in_use: str,
     ):
         logger.info(f"{test_case=}")
         # ------ setup ------ #
         write_str_to_file_atomic(
             self.slot_a_status_file,
-            input_slot_a_status.name if input_slot_a_status else "",
+            input_slot_a_status if input_slot_a_status else "",
         )
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, input_slot_a_slot_in_use)
 
@@ -135,7 +135,7 @@ class TestOTAStatusFilesControl:
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
         # check slot a
-        assert read_str_from_file(self.slot_a_status_file) == output_slot_a_status.name
+        assert read_str_from_file(self.slot_a_status_file) == output_slot_a_status
         assert status_control.booted_ota_status == output_slot_a_status
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
@@ -162,20 +162,14 @@ class TestOTAStatusFilesControl:
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
         # slot_a: current slot
-        assert (
-            read_str_from_file(self.slot_a_status_file)
-            == api_types.StatusOta.FAILURE.name
-        )
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
             == status_control._load_current_slot_in_use()
             == self.slot_b
         )
         # slot_b: standby slot
-        assert (
-            read_str_from_file(self.slot_b_status_file)
-            == api_types.StatusOta.UPDATING.name
-        )
+        assert read_str_from_file(self.slot_b_status_file) == OTAStatus.UPDATING
         assert read_str_from_file(self.slot_b_slot_in_use_file) == self.slot_b
 
     @pytest.mark.parametrize(
@@ -199,13 +193,9 @@ class TestOTAStatusFilesControl:
         """First reboot after OTA from slot_a to slot_b."""
         logger.info(f"{test_case=}")
         # ------ setup ------ #
-        write_str_to_file_atomic(
-            self.slot_a_status_file, api_types.StatusOta.FAILURE.name
-        )
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.FAILURE)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_b)
-        write_str_to_file_atomic(
-            self.slot_b_status_file, api_types.StatusOta.UPDATING.name
-        )
+        write_str_to_file_atomic(self.slot_b_status_file, OTAStatus.UPDATING)
         write_str_to_file_atomic(self.slot_b_slot_in_use_file, self.slot_b)
 
         # ------ execution ------ #
@@ -226,10 +216,7 @@ class TestOTAStatusFilesControl:
         assert self.finalize_switch_boot_flag.is_set()
 
         # check slot a
-        assert (
-            read_str_from_file(self.slot_a_status_file)
-            == api_types.StatusOta.FAILURE.name
-        )
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
             == status_control._load_current_slot_in_use()
@@ -243,29 +230,19 @@ class TestOTAStatusFilesControl:
 
         # finalizing succeeded
         if finalizing_result:
-            assert status_control.booted_ota_status == api_types.StatusOta.SUCCESS
-            assert (
-                read_str_from_file(self.slot_b_status_file)
-                == api_types.StatusOta.SUCCESS.name
-            )
+            assert status_control.booted_ota_status == OTAStatus.SUCCESS
+            assert read_str_from_file(self.slot_b_status_file) == OTAStatus.SUCCESS
 
         else:
-            assert status_control.booted_ota_status == api_types.StatusOta.FAILURE
-            assert (
-                read_str_from_file(self.slot_b_status_file)
-                == api_types.StatusOta.FAILURE.name
-            )
+            assert status_control.booted_ota_status == OTAStatus.FAILURE
+            assert read_str_from_file(self.slot_b_status_file) == OTAStatus.FAILURE
 
     def test_accidentally_boots_back_to_standby(self):
         """slot_a should be active slot but boots back to slot_b."""
         # ------ setup ------ #
-        write_str_to_file_atomic(
-            self.slot_a_status_file, api_types.StatusOta.SUCCESS.name
-        )
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.SUCCESS)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
-        write_str_to_file_atomic(
-            self.slot_b_status_file, api_types.StatusOta.FAILURE.name
-        )
+        write_str_to_file_atomic(self.slot_b_status_file, OTAStatus.FAILURE)
         write_str_to_file_atomic(self.slot_b_slot_in_use_file, self.slot_a)
 
         # ------ execution ------ #
@@ -282,4 +259,4 @@ class TestOTAStatusFilesControl:
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
         # slot_b's status is read
-        assert status_control.booted_ota_status == api_types.StatusOta.FAILURE
+        assert status_control.booted_ota_status == OTAStatus.FAILURE
