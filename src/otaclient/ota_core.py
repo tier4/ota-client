@@ -609,7 +609,7 @@ class OTAClient:
             self.boot_controller = boot_controller
             self.create_standby_cls = create_standby_cls
             self.live_ota_status = LiveOTAStatus(
-                self.boot_controller.get_booted_ota_status()
+                api_types.StatusOta[self.boot_controller.get_booted_ota_status()]
             )
 
             self.current_version = self.boot_controller.load_version()
