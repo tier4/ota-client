@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import logging
 import sys
-from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn, Optional
+from typing import Literal, NoReturn
 
 from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
@@ -43,7 +42,7 @@ PartitionToken = Literal[
 
 def get_attrs_by_dev(
     attr: PartitionToken, dev: StrOrPath, *, raise_exception: bool = True
-) -> str:
+) -> str:  # pragma: no cover
     """Get <attr> from <dev>.
 
     This is implemented by calling:
@@ -64,7 +63,7 @@ def get_attrs_by_dev(
 
 def get_dev_by_token(
     token: PartitionToken, value: str, *, raise_exception: bool = True
-) -> Optional[list[str]]:
+) -> list[str] | None:  # pragma: no cover
     """Get a list of device(s) that matches the <token>=<value> pair.
 
     This is implemented by calling:
@@ -87,7 +86,7 @@ def get_dev_by_token(
 
 def get_current_rootfs_dev(
     active_root: StrOrPath, *, raise_exception: bool = True
-) -> str:
+) -> str:  # pragma: no cover
     """Get the devpath of current rootfs dev.
 
     This is implemented by calling
@@ -104,7 +103,9 @@ def get_current_rootfs_dev(
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
-def get_mount_point_by_dev(dev: str, *, raise_exception: bool = True) -> str:
+def get_mount_point_by_dev(
+    dev: str, *, raise_exception: bool = True
+) -> str:  # pragma: no cover
     """Get the FIRST mountpoint of the <dev>.
 
     This is implemented by calling:
@@ -125,7 +126,9 @@ def get_mount_point_by_dev(dev: str, *, raise_exception: bool = True) -> str:
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
-def get_dev_by_mount_point(mount_point: str, *, raise_exception: bool = True) -> str:
+def get_dev_by_mount_point(
+    mount_point: str, *, raise_exception: bool = True
+) -> str:  # pragma: no cover
     """Return the source dev of the given <mount_point>.
 
     This is implemented by calling:
@@ -143,7 +146,9 @@ def get_dev_by_mount_point(mount_point: str, *, raise_exception: bool = True) ->
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
-def is_target_mounted(target: StrOrPath, *, raise_exception: bool = False) -> bool:
+def is_target_mounted(
+    target: StrOrPath, *, raise_exception: bool = False
+) -> bool:  # pragma: no cover
     """Check if <target> is mounted or not. <target> can be a dev or a mount point.
 
     This is implemented by calling:
@@ -168,7 +173,9 @@ def is_target_mounted(target: StrOrPath, *, raise_exception: bool = False) -> bo
         return False
 
 
-def get_parent_dev(child_device: str, *, raise_exception: bool = True) -> str:
+def get_parent_dev(
+    child_device: str, *, raise_exception: bool = True
+) -> str:  # pragma: no cover
     """Get the parent devpath from <child_device>.
 
     When `/dev/nvme0n1p1` is specified as child_device, /dev/nvme0n1 is returned.
@@ -188,7 +195,9 @@ def get_parent_dev(child_device: str, *, raise_exception: bool = True) -> str:
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
-def get_device_tree(parent_dev: str, *, raise_exception: bool = True) -> list[str]:
+def get_device_tree(
+    parent_dev: str, *, raise_exception: bool = True
+) -> list[str]:  # pragma: no cover
     """Get the device tree of a parent device.
 
     For example, for sda with 3 partitions, we will get:
@@ -210,7 +219,9 @@ def get_device_tree(parent_dev: str, *, raise_exception: bool = True) -> list[st
     return raw_res.splitlines()
 
 
-def set_ext4_fslabel(dev: str, fslabel: str, *, raise_exception: bool = True):
+def set_ext4_fslabel(
+    dev: str, fslabel: str, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
     """Set <fslabel> to ext4 formatted <dev>.
 
     This is implemented by calling:
@@ -233,7 +244,7 @@ def mount(
     options: list[str] | None = None,
     params: list[str] | None = None,
     raise_exception: bool = True,
-) -> None:
+) -> None:  # pragma: no cover
     """Thin wrapper to call mount using subprocess.
 
     This will call the following:
@@ -255,7 +266,9 @@ def mount(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount_rw(target: str, mount_point: StrOrPath, *, raise_exception: bool = True):
+def mount_rw(
+    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
     This is implemented by calling:
@@ -282,7 +295,9 @@ def mount_rw(target: str, mount_point: StrOrPath, *, raise_exception: bool = Tru
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def bind_mount_ro(target: str, mount_point: StrOrPath, *, raise_exception: bool = True):
+def bind_mount_ro(
+    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-only.
 
     This is implemented by calling:
@@ -306,7 +321,9 @@ def bind_mount_ro(target: str, mount_point: StrOrPath, *, raise_exception: bool 
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def umount(target: StrOrPath, *, raise_exception: bool = True):
+def umount(
+    target: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
     """Try to umount the <target>.
 
     This is implemented by calling:
@@ -333,10 +350,10 @@ def umount(target: StrOrPath, *, raise_exception: bool = True):
 def mkfs_ext4(
     dev: str,
     *,
-    fslabel: Optional[str] = None,
-    fsuuid: Optional[str] = None,
+    fslabel: str | None = None,
+    fsuuid: str | None = None,
     raise_exception: bool = True,
-):
+) -> None:  # pragma: no cover
     """Create new ext4 formatted filesystem on <dev>, optionally with <fslabel>
         and/or <fsuuid>.
 
@@ -378,7 +395,9 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = True):
+def mount_ro(
+    *, target: str, mount_point: StrOrPath, raise_exception: bool = True
+) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
     If the target device is mounted, we bind mount the target device to mount_point.
@@ -386,7 +405,7 @@ def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = Tr
 
     Args:
         target (str): target to be mounted.
-        mount_point (str | Path): mount point to mount to.
+        mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
@@ -412,7 +431,7 @@ def mount_ro(*, target: str, mount_point: str | Path, raise_exception: bool = Tr
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def reboot(args: Optional[list[str]] = None) -> NoReturn:
+def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     """Reboot the system, with optional args passed to reboot command.
 
     This is implemented by calling:
