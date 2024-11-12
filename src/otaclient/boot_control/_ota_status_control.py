@@ -140,7 +140,7 @@ class OTAStatusFilesControl:
         logger.info(f"slot_in_use loaded from file: {_loaded_slot_in_use}")
 
         # check potential failed switching boot
-        if _loaded_slot_in_use and _loaded_slot_in_use != self.active_slot:
+        if _loaded_slot_in_use != self.active_slot:
             logger.warning(
                 f"boot into old slot {self.active_slot}, "
                 f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
