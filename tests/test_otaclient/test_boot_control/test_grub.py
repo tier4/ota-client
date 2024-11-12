@@ -390,18 +390,6 @@ class TestGrubControl:
         self._grub_reboot_mock.assert_called_once_with(0)
         self._cmdhelper_mock.reboot.assert_called_once()  # type: ignore
 
-    def test_grub_update_reboot(
-        self,
-        cfg_for_slot_b_as_current,
-        grub_ab_slot: tuple[Path, Path, Path],
-    ):
-        from otaclient.boot_control._grub import GrubController
-
-        _, slot_b, boot_dir = grub_ab_slot
-        slot_b_ota_partition_dir = Path(
-            boot_dir / f"{cfg.OTA_PARTITION_DIRNAME}.{cfg.SLOT_B_ID_GRUB}"
-        )
-
         ###### stage 2 ######
         # test init after first reboot
 
@@ -423,7 +411,7 @@ class TestGrubControl:
         )
 
         ### test first reboot init ###
-        _ = GrubController()
+        _ = _grub.GrubController()
         # assert ota-partition file switch to slot_b ota-partition folder after first reboot init
         assert (
             os.readlink(boot_dir / cfg.OTA_PARTITION_DIRNAME)
