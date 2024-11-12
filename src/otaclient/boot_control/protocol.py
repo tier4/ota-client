@@ -13,18 +13,22 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 from abc import abstractmethod
 from pathlib import Path
 from typing import Generator, Protocol
 
-from otaclient_api.v2 import types as api_types
+from typing_extensions import deprecated
+
+from otaclient._types import OTAStatus
 
 
 class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
 
     @abstractmethod
-    def get_booted_ota_status(self) -> api_types.StatusOta:
+    def get_booted_ota_status(self) -> OTAStatus:
         """Get the ota_status loaded from status file during otaclient starts up.
 
         This value is meant to be used only once during otaclient starts up,
@@ -35,6 +39,9 @@ class BootControllerProtocol(Protocol):
     def get_standby_slot_path(self) -> Path:
         """Get the Path points to the standby slot mount point."""
 
+    @deprecated(
+        "standby slot creator doesn't need to treat the files under /boot specially"
+    )
     @abstractmethod
     def get_standby_boot_dir(self) -> Path:
         """Get the Path points to the standby slot's boot folder.
