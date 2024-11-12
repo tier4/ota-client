@@ -23,12 +23,12 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Dict
 
-from otaclient.app.ota_client import OTAClientControlFlags, OTAServicer
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
+from otaclient.ota_core import OTAClientControlFlags, OTAServicer
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 

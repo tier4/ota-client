@@ -23,13 +23,13 @@ from typing import Set
 import pytest
 from pytest_mock import MockerFixture
 
-from otaclient.app.ota_client import OTAServicer
 from otaclient.grpc.api_v2 import ecu_status, servicer
 from otaclient.grpc.api_v2.servicer import (
     ECUStatusStorage,
     OTAClientAPIServicer,
     OTAProxyLauncher,
 )
+from otaclient.ota_core import OTAServicer
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
 from tests.utils import compare_message

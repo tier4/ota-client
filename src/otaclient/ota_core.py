@@ -62,8 +62,7 @@ from otaclient_common.downloader import (
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
-from .interface import OTAClientProtocol
-from .update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
+from .app.update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
 
 logger = logging.getLogger(__name__)
 
@@ -583,7 +582,7 @@ class _OTARollbacker:
             raise
 
 
-class OTAClient(OTAClientProtocol):
+class OTAClient:
     """
     Init params:
         boot_controller: boot control instance
