@@ -43,9 +43,9 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, Generator, List, Optional, Tuple
 
 from otaclient import errors as ota_errors
+from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_api.v2 import types as api_types
 from otaclient_common._io import (
     read_str_from_file,
     symlink_atomic,
@@ -859,16 +859,16 @@ class GrubController(BootControllerProtocol):
 
     # API
 
-    def get_standby_slot_path(self) -> Path:
+    def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def get_standby_boot_dir(self) -> Path:
+    def get_standby_boot_dir(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_boot_dir
 
-    def load_version(self) -> str:
+    def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> api_types.StatusOta:
+    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
 
     def on_operation_failure(self):

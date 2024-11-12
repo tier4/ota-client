@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Generator, Optional
 
 from otaclient import errors as ota_errors
+from otaclient._types import OTAStatus
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
@@ -33,7 +34,6 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_api.v2 import types as api_types
 from otaclient_common import replace_root
 from otaclient_common._io import cal_file_digest
 from otaclient_common.common import subprocess_run_wrapper
@@ -581,10 +581,10 @@ class JetsonCBootControl(BootControllerProtocol):
 
     # APIs
 
-    def get_standby_slot_path(self) -> Path:
+    def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def get_standby_boot_dir(self) -> Path:
+    def get_standby_boot_dir(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_boot_dir
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
@@ -718,8 +718,8 @@ class JetsonCBootControl(BootControllerProtocol):
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
-    def load_version(self) -> str:
+    def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
 
-    def get_booted_ota_status(self) -> api_types.StatusOta:
+    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
