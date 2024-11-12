@@ -21,10 +21,9 @@ from pathlib import Path
 
 from typing_extensions import deprecated
 
+from otaclient.boot_control.protocol import BootControllerProtocol
+from otaclient.configs import BootloaderType
 from otaclient_common._io import read_str_from_file
-
-from .configs import BootloaderType
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 

@@ -23,6 +23,7 @@ from string import Template
 import pytest
 import pytest_mock
 
+from otaclient._types import OTAStatus
 from otaclient.boot_control import _rpi_boot
 from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.boot_control._rpi_boot import RPIBootController
@@ -30,7 +31,6 @@ from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.boot_control.configs import RPIBootControlConfig, rpi_boot_cfg
 from otaclient.configs import DefaultOTAClientConfigs
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient_api.v2 import types as api_types
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -125,7 +125,7 @@ class TestRPIBootControl:
         ).relative_to("/")
         self.slot_a_ota_status_dir.mkdir(parents=True, exist_ok=True)
         slot_a_ota_status = self.slot_a_ota_status_dir / "status"
-        slot_a_ota_status.write_text(api_types.StatusOta.SUCCESS.name)
+        slot_a_ota_status.write_text(OTAStatus.SUCCESS)
         slot_a_version = self.slot_a_ota_status_dir / "version"
         slot_a_version.write_text(cfg.CURRENT_VERSION)
         slot_a_slot_in_use = self.slot_a_ota_status_dir / "slot_in_use"
@@ -283,12 +283,8 @@ class TestRPIBootControl:
         )
 
         # --- assertion --- #
-        assert (
-            self.slot_a_ota_status_dir / "status"
-        ).read_text() == api_types.StatusOta.FAILURE.name
-        assert (
-            self.slot_b_ota_status_dir / "status"
-        ).read_text() == api_types.StatusOta.UPDATING.name
+        assert (self.slot_a_ota_status_dir / "status").read_text() == OTAStatus.FAILURE
+        assert (self.slot_b_ota_status_dir / "status").read_text() == OTAStatus.UPDATING
         assert (
             (self.slot_a_ota_status_dir / "slot_in_use").read_text()
             == (self.slot_b_ota_status_dir / "slot_in_use").read_text()
@@ -353,4 +349,4 @@ class TestRPIBootControl:
         assert not (self.system_boot / rpi_boot_cfg.SWITCH_BOOT_FLAG_FILE).is_file()
         assert (
             self.slot_b_ota_status_dir / otaclient_cfg.OTA_STATUS_FNAME
-        ).read_text() == api_types.StatusOta.SUCCESS.name
+        ).read_text() == OTAStatus.SUCCESS

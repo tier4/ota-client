@@ -30,6 +30,7 @@ from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import ota_core
+from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control.configs import BootloaderType
 from otaclient.configs import ECUInfo
@@ -244,7 +245,7 @@ class TestOTAClient:
         # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION  # type: ignore
         self.boot_controller.get_booted_ota_status.return_value = (  # type: ignore
-            api_types.StatusOta.SUCCESS
+            OTAStatus.SUCCESS
         )
 
         self.ota_client = OTAClient(
