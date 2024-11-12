@@ -237,7 +237,6 @@ class TestGrubControl:
         grub_ab_slot: tuple[Path, Path, Path],
         _grub_mkconfig_fsm: GrubMkConfigFSM,
     ):
-        from otaclient.boot_control._common import CMDHelperFuncs
         from otaclient.boot_control._grub import GrubABPartitionDetector
         from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 
@@ -287,10 +286,8 @@ class TestGrubControl:
         # bind to test instance
         self._grub_reboot_mock = _grub_reboot_mock
 
-        ###### mocking CMDHelperFuncs ######
-        _cmdhelper_mock = typing.cast(
-            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
-        )
+        ###### mocking cmdhelper ######
+        _cmdhelper_mock = mocker.MagicMock()
         _cmdhelper_mock.reboot.side_effect = self._fsm.switch_boot  # type: ignore
         _cmdhelper_mock.get_attrs_by_dev = mocker.MagicMock(
             wraps=self._fsm.get_attrs_by_dev
@@ -306,13 +303,8 @@ class TestGrubControl:
         )
 
         ###### patching ######
-        # patch CMDHelper
-        # NOTE: also remember to patch CMDHelperFuncs in common
-        _cmdhelper_at_common_path = (
-            f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
-        )
-        _cmdhelper_at_grub_path = f"{cfg.GRUB_MODULE_PATH}.CMDHelperFuncs"
-        mocker.patch(_cmdhelper_at_common_path, _cmdhelper_mock)
+        # patch cmdhelper
+        _cmdhelper_at_grub_path = f"{cfg.GRUB_MODULE_PATH}.cmdhelper"
         mocker.patch(_cmdhelper_at_grub_path, _cmdhelper_mock)
         # patch _GrubABPartitionDetector
         _grub_ab_partition_detector_path = (

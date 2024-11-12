@@ -164,7 +164,7 @@ def test__detect_esp_dev(
     all_esp_devs, boot_parent_devpath, expected, mocker: MockerFixture
 ):
     mocker.patch(
-        f"{MODULE}.CMDHelperFuncs.get_dev_by_token",
+        f"{MODULE}.cmdhelper.get_dev_by_token",
         mocker.MagicMock(return_value=all_esp_devs),
     )
 
