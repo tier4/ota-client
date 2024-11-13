@@ -30,11 +30,15 @@ The flow of this package working is as follow:
 """
 
 
+from __future__ import annotations
+
 from abc import abstractmethod
+from queue import Queue
 from typing import Protocol
 
 from ota_metadata.legacy.parser import OTAMetadata
 from otaclient.app.update_stats import OTAUpdateStatsCollector
+from otaclient.status_monitor import StatusReport
 
 from .common import DeltaBundle
 
@@ -51,7 +55,8 @@ class StandbySlotCreatorProtocol(Protocol):
         boot_dir: str,
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
-        stats_collector: OTAUpdateStatsCollector,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
     ) -> None: ...
 
     @abstractmethod
