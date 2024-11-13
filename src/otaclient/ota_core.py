@@ -396,11 +396,20 @@ class _OTAUpdater:
 
     def _execute_update(self):
         """Implementation of OTA updating."""
-        logger.info(f"execute local update: {self.updating_version=},{self.url_base=}")
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
 
         # ------ init, processing metadata ------ #
         logger.debug("process metadata.jwt...")
-        self.update_phase = api_types.UpdatePhase.PROCESSING_METADATA
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
         try:
             # TODO(20240619): ota_metadata should not be responsible for downloading anything
             otameta = ota_metadata_parser.OTAMetadata(
@@ -431,7 +440,7 @@ class _OTAUpdater:
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
-            self.updating_version,
+            self.update_version,
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=self._create_standby_cls.should_erase_standby_slot(),
         )
@@ -444,12 +453,19 @@ class _OTAUpdater:
             ota_metadata=otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-            active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
-            stats_collector=self._update_stats_collector,
+            stats_report_queue=self._status_report_queue,
+            session_id=self.session_id,
+        )
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
         )
 
-        self.update_phase = api_types.UpdatePhase.CALCULATING_DELTA
-        self._update_stats_collector.delta_calculation_started()
         try:
             delta_bundle = self._calculate_delta(standby_slot_creator)
         except Exception as e:
@@ -458,33 +474,64 @@ class _OTAUpdater:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
-        self._update_stats_collector.delta_calculation_finished()
 
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        self.update_phase = api_types.UpdatePhase.DOWNLOADING_OTA_FILES
-        self._update_stats_collector.download_started()
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
         finally:
             del delta_bundle
-        self._update_stats_collector.download_finished()
+            self._downloader_pool.shutdown()
 
-        self.update_phase = api_types.UpdatePhase.APPLYING_UPDATE
-        self._update_stats_collector.apply_update_started()
+        # ------ apply update ------ #
         logger.info("start to apply changes to standby slot...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.APPLYING_UPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         standby_slot_creator.create_standby_slot()
-        self._update_stats_collector.apply_update_finished()
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
-        self.update_phase = api_types.UpdatePhase.PROCESSING_POSTUPDATE
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         # NOTE(20240219): move persist file handling here
         self._process_persistents(otameta)
 
         # boot controller postupdate
         next(_postupdate_gen := self._boot_controller.post_update())
 
+        # ------ finalizing update ------ #
         logger.info("local update finished, wait on all subecs...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.FINALIZING_UPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         wait_and_log(
             flag=self._control_flags._can_reboot,
             message="permit reboot flag",
@@ -496,58 +543,6 @@ class _OTAUpdater:
         next(_postupdate_gen, None)  # reboot
 
     # API
-
-    def shutdown(self):
-        self._shutdown = True
-        self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self._downloader_pool.shutdown()
-        self._update_stats_collector.shutdown_collector()
-
-    def get_update_status(self) -> api_types.UpdateStatus:
-        """
-        Returns:
-            A tuple contains the version and the update_progress.
-        """
-        cur_time = int(time.time())
-        if (
-            self._shutdown
-            or cur_time - self._last_status_query_timestamp < self.status_query_interval
-        ):
-            return self._update_status
-
-        collector = self._update_stats_collector
-        update_stats = api_types.UpdateStatus(
-            # from OTA image metadata
-            update_firmware_version=self.updating_version,
-            total_files_size_uncompressed=self.total_files_size_uncompressed,
-            total_files_num=self.total_files_num,
-            total_download_files_num=self.total_download_files_num,
-            total_download_files_size=self.total_download_fiies_size,
-            # from self
-            phase=self.update_phase,
-            total_remove_files_num=self.total_remove_files_num,
-            # from downloader pool
-            downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
-            # from collector
-            update_start_timestamp=collector.update_started_timestamp,
-            total_elapsed_time=api_types.Duration(seconds=collector.total_elapsed_time),
-            processed_files_num=collector.processed_files_num,
-            processed_files_size=collector.processed_files_size,
-            delta_generating_elapsed_time=api_types.Duration(
-                seconds=collector.delta_calculation_elapsed_time
-            ),
-            downloaded_files_num=collector.downloaded_files_num,
-            downloaded_files_size=collector.downloaded_files_size,
-            downloading_elapsed_time=api_types.Duration(
-                seconds=collector.download_elapsed_time
-            ),
-            downloading_errors=collector.downloading_errors,
-            update_applying_elapsed_time=api_types.Duration(
-                seconds=collector.apply_update_elapsed_time
-            ),
-        )
-        self._update_status, self._last_status_query_timestamp = update_stats, cur_time
-        return update_stats
 
     def execute(self) -> None:
         """Main entry for executing local OTA update.
@@ -564,8 +559,6 @@ class _OTAUpdater:
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
-        finally:
-            self.shutdown()
 
 
 class _OTARollbacker:
