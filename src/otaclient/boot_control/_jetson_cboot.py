@@ -34,12 +34,11 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import replace_root
+from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest
 from otaclient_common.common import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
-from ._common import CMDHelperFuncs, OTAStatusFilesControl
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -56,6 +55,7 @@ from ._jetson_common import (
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
+from ._ota_status_control import OTAStatusFilesControl
 from .configs import cboot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
@@ -361,10 +361,10 @@ class _CBootControl:
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
-                CMDHelperFuncs.get_current_rootfs_dev()
+                cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
             )
             self.parent_devpath = parent_devpath = Path(
-                CMDHelperFuncs.get_parent_dev(current_rootfs_devpath)
+                cmdhelper.get_parent_dev(current_rootfs_devpath)
             )
         except Exception as e:
             _err_msg = f"failed to detect rootfs: {e!r}"
@@ -379,10 +379,10 @@ class _CBootControl:
                 parent_devpath=parent_devpath,
                 partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
             )
-            self.standby_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            self.standby_rootfs_dev_partuuid = cmdhelper.get_attrs_by_dev(
                 "PARTUUID", self.standby_rootfs_devpath
             ).strip()
-            current_rootfs_dev_partuuid = CMDHelperFuncs.get_attrs_by_dev(
+            current_rootfs_dev_partuuid = cmdhelper.get_attrs_by_dev(
                 "PARTUUID", current_rootfs_devpath
             ).strip()
         except Exception as e:
@@ -678,7 +678,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info(f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
             yield  # hand over control back to otaclient
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
@@ -704,7 +704,7 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info("jetson-cboot: post-rollback setup...")
             self._mp_control.umount_all(ignore_error=True)
             self._cboot_control.switch_boot_to_standby()
-            CMDHelperFuncs.reboot()
+            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
             logger.error(_err_msg)

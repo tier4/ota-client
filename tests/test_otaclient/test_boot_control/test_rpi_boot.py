@@ -25,7 +25,6 @@ import pytest_mock
 
 from otaclient._types import OTAStatus
 from otaclient.boot_control import _rpi_boot
-from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.boot_control._rpi_boot import RPIBootController
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.boot_control.configs import RPIBootControlConfig, rpi_boot_cfg
@@ -54,10 +53,7 @@ CMDLINE_TXT_SLOT_B = "cmdline_txt_slot_b"
 # module path
 RPI_BOOT_MODULE_PATH = _rpi_boot.__name__
 rpi_boot__RPIBootControl_MODULE = f"{RPI_BOOT_MODULE_PATH}._RPIBootControl"
-rpi_boot_RPIBoot_CMDHelperFuncs_MODULE = f"{RPI_BOOT_MODULE_PATH}.CMDHelperFuncs"
-boot_control_common_CMDHelperFuncs_MODULE = (
-    f"{cfg.BOOT_CONTROL_COMMON_MODULE_PATH}.CMDHelperFuncs"
-)
+rpi_boot_RPIBoot_cmdhelper_MODULE = f"{RPI_BOOT_MODULE_PATH}.cmdhelper"
 
 # image version
 VERSION = "rpi_boot_test"
@@ -81,7 +77,7 @@ class RPIBootABPartitionFSM:
             self.active_slot_dev,
         )
 
-    def get_current_rootfs_dev(self):
+    def get_current_rootfs_dev(self, _):
         return self.active_slot_dev
 
     def get_parent_dev(self, *args, **kwags):
@@ -178,11 +174,8 @@ class TestRPIBootControl:
         # start the test FSM
         self.fsm = fsm = RPIBootABPartitionFSM()
 
-        # ------ patch CMDHelperFuncs ------ #
-        # NOTE: also remember to patch CMDHelperFuncs in common
-        self.cmdhelper_mock = cmdhelper_mock = typing.cast(
-            CMDHelperFuncs, mocker.MagicMock(spec=CMDHelperFuncs)
-        )
+        # ------ patch cmdhelper ------ #
+        self.cmdhelper_mock = cmdhelper_mock = mocker.MagicMock()
         # NOTE: this is for system-boot mount check in _RPIBootControl;
         cmdhelper_mock.is_target_mounted = mocker.Mock(return_value=True)
         cmdhelper_mock.get_current_rootfs_dev = mocker.Mock(
@@ -192,11 +185,7 @@ class TestRPIBootControl:
         cmdhelper_mock.get_device_tree = mocker.Mock(wraps=fsm.get_device_tree)
         cmdhelper_mock.get_attrs_by_dev = mocker.Mock(wraps=fsm.get_attrs_by_dev)
 
-        mocker.patch(rpi_boot_RPIBoot_CMDHelperFuncs_MODULE, self.cmdhelper_mock)
-        mocker.patch(
-            boot_control_common_CMDHelperFuncs_MODULE,
-            self.cmdhelper_mock,
-        )
+        mocker.patch(rpi_boot_RPIBoot_cmdhelper_MODULE, self.cmdhelper_mock)
 
         # ------ patch _RPIBootControl ------ #
         def _update_firmware(*, target_slot, **kwargs):

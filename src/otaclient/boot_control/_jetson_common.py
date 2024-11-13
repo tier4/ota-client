@@ -29,12 +29,11 @@ from typing import Any, NamedTuple, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
-from otaclient_common import replace_root
+from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common.common import copytree_identical
 from otaclient_common.typing import StrOrPath
 
-from ._common import CMDHelperFuncs
 from .configs import jetson_common_cfg
 
 logger = logging.getLogger(__name__)
@@ -410,8 +409,8 @@ def copy_standby_slot_boot_to_internal_emmc(
     internal_emmc_mp.mkdir(exist_ok=True, parents=True)
 
     try:
-        CMDHelperFuncs.umount(internal_emmc_devpath, raise_exception=False)
-        CMDHelperFuncs.mount_rw(
+        cmdhelper.umount(internal_emmc_devpath, raise_exception=False)
+        cmdhelper.mount_rw(
             target=str(internal_emmc_devpath),
             mount_point=internal_emmc_mp,
         )
@@ -429,7 +428,7 @@ def copy_standby_slot_boot_to_internal_emmc(
         logger.error(_msg)
         raise ValueError(_msg) from e
     finally:
-        CMDHelperFuncs.umount(internal_emmc_mp, raise_exception=False)
+        cmdhelper.umount(internal_emmc_mp, raise_exception=False)
 
 
 def preserve_ota_config_files_to_standby(
