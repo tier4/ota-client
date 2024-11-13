@@ -241,13 +241,6 @@ class _OTAUpdater:
         _path = f"{_url_base.path.rstrip('/')}/"
         self.url_base = _url_base._replace(path=_path).geturl()
 
-        # ------ information from OTA image meta and delta generation ------ #
-        self.total_files_size_uncompressed = 0
-        self.total_files_num = 0
-        self.total_download_files_num = 0
-        self.total_download_fiies_size = 0
-        self.total_remove_files_num = 0
-
         # ------ setup downloader ------ #
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
@@ -264,10 +257,18 @@ class _OTAUpdater:
     ) -> DeltaBundle:
         logger.info("start to calculate and prepare delta...")
         delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
+
         # update dynamic information
-        self.total_download_files_num = len(delta_bundle.download_list)
-        self.total_download_fiies_size = delta_bundle.total_download_files_size
-        self.total_remove_files_num = len(delta_bundle.rm_delta)
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    total_download_files_num=len(delta_bundle.download_list),
+                    total_download_files_size=delta_bundle.total_download_files_size,
+                    total_remove_files_num=len(delta_bundle.rm_delta),
+                ),
+                session_id=self.session_id,
+            )
+        )
         return delta_bundle
 
     def _download_files(
@@ -439,8 +440,16 @@ class _OTAUpdater:
                 run_dir=Path(cfg.RUN_DIR),
                 ca_chains_store=self.ca_chains_store,
             )
-            self.total_files_num = otameta.total_files_num
-            self.total_files_size_uncompressed = otameta.total_files_size_uncompressed
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=SetUpdateMetaReport(
+                        image_file_entries=otameta.total_files_num,
+                        image_size_uncompressed=otameta.total_files_size_uncompressed,
+                        metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+                    ),
+                    session_id=self.session_id,
+                )
+            )
         except ota_metadata_parser.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
