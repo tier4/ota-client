@@ -30,14 +30,12 @@ import otaclient.errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
+from otaclient_common import cmdhelper
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common.linux import subprocess_run_wrapper
 from otaclient_common.typing import StrOrPath
 
-from ._common import (
-    CMDHelperFuncs,
-    OTAStatusFilesControl,
-)
+from ._ota_status_control import OTAStatusFilesControl
 from .configs import rpi_boot_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
@@ -129,7 +127,7 @@ class _RPIBootControl:
 
         try:
             # ------ detect active slot ------ #
-            active_slot_dev = CMDHelperFuncs.get_current_rootfs_dev()
+            active_slot_dev = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
         except Exception as e:
@@ -140,11 +138,11 @@ class _RPIBootControl:
         try:
             # detect the parent device of boot device
             #   i.e., for /dev/sda2 here we get /dev/sda
-            parent_dev = CMDHelperFuncs.get_parent_dev(str(self.active_slot_dev))
+            parent_dev = cmdhelper.get_parent_dev(str(self.active_slot_dev))
 
             # get device tree, for /dev/sda device, we will get:
             #   ["/dev/sda", "/dev/sda1", "/dev/sda2", "/dev/sda3"]
-            device_tree = CMDHelperFuncs.get_device_tree(parent_dev)
+            device_tree = cmdhelper.get_device_tree(parent_dev)
             logger.info(device_tree)
 
             # NOTE that we allow extra partitions presented after sd<x>3.
@@ -156,14 +154,12 @@ class _RPIBootControl:
 
         # check system-boot partition mount
         system_boot_partition = device_tree[1]
-        if not CMDHelperFuncs.is_target_mounted(
-            self.system_boot_mp, raise_exception=False
-        ):
+        if not cmdhelper.is_target_mounted(self.system_boot_mp, raise_exception=False):
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
 
             try:
-                CMDHelperFuncs.mount(
+                cmdhelper.mount(
                     system_boot_partition,
                     self.system_boot_mp,
                     options=["defaults"],
@@ -217,7 +213,7 @@ class _RPIBootControl:
         If mismatched, try to correct the problem.
         """
         fslabel = self.active_slot
-        actual_fslabel = CMDHelperFuncs.get_attrs_by_dev(
+        actual_fslabel = cmdhelper.get_attrs_by_dev(
             "LABEL", self.active_slot_dev, raise_exception=False
         )
         if actual_fslabel == fslabel:
@@ -230,7 +226,7 @@ class _RPIBootControl:
             )
         )
         try:
-            CMDHelperFuncs.set_ext4_fslabel(self.active_slot_dev, fslabel)
+            cmdhelper.set_ext4_fslabel(self.active_slot_dev, fslabel)
             os.sync()
         except subprocess.CalledProcessError as e:
             logger.error(
@@ -302,7 +298,7 @@ class _RPIBootControl:
 
         try:
             for _mp, _src in mounts.items():
-                CMDHelperFuncs.mount(
+                cmdhelper.mount(
                     _src,
                     _mp,
                     options=["bind"],
@@ -312,7 +308,7 @@ class _RPIBootControl:
             # NOTE: passthrough the mount failure to caller
         finally:
             for _mp in mounts:
-                CMDHelperFuncs.umount(_mp, raise_exception=False)
+                cmdhelper.umount(_mp, raise_exception=False)
 
     def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):
         """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img
@@ -419,7 +415,7 @@ class _RPIBootControl:
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
             # NOTE: "0 tryboot" is a single param.
-            CMDHelperFuncs.reboot(args=["0 tryboot"])
+            cmdhelper.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
             logger.exception(_err_msg)

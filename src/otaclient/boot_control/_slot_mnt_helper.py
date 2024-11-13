@@ -22,9 +22,8 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from time import sleep
 
-from otaclient.boot_control._common import CMDHelperFuncs
 from otaclient.configs.cfg import cfg
-from otaclient_common import replace_root
+from otaclient_common import cmdhelper, replace_root
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,7 @@ def ensure_mount(
     for _retry in range(MAX_RETRY_COUNT + 1):
         try:
             mount_func(target=target, mount_point=mnt_point)
-            CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=True)
+            cmdhelper.is_target_mounted(mnt_point, raise_exception=True)
             return
         except CalledProcessError as e:
             logger.error(
@@ -74,9 +73,9 @@ def ensure_umount(
     """
     for _retry in range(MAX_RETRY_COUNT + 1):
         try:
-            if not CMDHelperFuncs.is_target_mounted(mnt_point, raise_exception=False):
+            if not cmdhelper.is_target_mounted(mnt_point, raise_exception=False):
                 break
-            CMDHelperFuncs.umount(mnt_point, raise_exception=True)
+            cmdhelper.umount(mnt_point, raise_exception=True)
         except CalledProcessError as e:
             logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
             logger.warning(f"{e.stderr}\n{e.stdout}")
@@ -155,7 +154,7 @@ class SlotMountHelper:  # pragma: no cover
         ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,
-            mount_func=CMDHelperFuncs.mount_rw,
+            mount_func=cmdhelper.mount_rw,
             raise_exception=True,
         )
 
@@ -170,7 +169,7 @@ class SlotMountHelper:  # pragma: no cover
         ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
-            mount_func=CMDHelperFuncs.bind_mount_ro,
+            mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
         )
 
@@ -198,12 +197,12 @@ class SlotMountHelper:  # pragma: no cover
     ) -> None:
         ensure_umount(self.standby_slot_dev, ignore_error=True)
         if erase_standby:
-            return CMDHelperFuncs.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
+            return cmdhelper.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
 
         # TODO: in the future if in-place update mode is implemented, do a
         #   fschck over the standby slot file system.
         if fslabel:
-            CMDHelperFuncs.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
+            cmdhelper.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")

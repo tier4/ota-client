@@ -24,7 +24,7 @@ from typing import Optional
 import pytest
 
 from otaclient._types import OTAStatus
-from otaclient.boot_control._common import OTAStatusFilesControl
+from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
