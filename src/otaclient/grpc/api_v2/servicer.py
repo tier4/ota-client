@@ -27,7 +27,6 @@ from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
 from otaclient.grpc.api_v2.types import convert_from_apiv2_update_request
 from otaclient.ota_core import OTAClient, OTAClientControlFlags
 from otaclient_api.v2 import types as api_types
