@@ -21,9 +21,9 @@ import logging
 import os
 import sys
 import time
+import traceback
 from abc import abstractmethod
 from pathlib import Path
-import traceback
 from typing import Callable, Protocol
 
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
