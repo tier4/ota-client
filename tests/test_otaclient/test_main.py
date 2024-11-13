@@ -23,7 +23,6 @@ from pytest import LogCaptureFixture
 from pytest_mock import MockerFixture
 
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from tests.conftest import TestConfiguration as cfg
 
 FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
 MAIN_MODULE = "otaclient.main"
