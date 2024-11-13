@@ -731,7 +731,15 @@ class OTAClient:
             return
 
         new_session_id = self._gen_session_id(request.version)
-        logger.info(f"{new_session_id=}")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=new_session_id,
+            )
+        )
+        logger.info(f"start new OTA update session: {new_session_id=}")
 
         try:
             logger.info("[update] entering local update...")
@@ -766,6 +774,17 @@ class OTAClient:
     def rollback(self):
         if self.is_busy:
             return
+
+        new_session_id = self._gen_session_id("___rollback")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.ROLLBACKING,
+                ),
+                session_id=new_session_id,
+            )
+        )
+        logger.info(f"start new OTA rollback session: {new_session_id=}")
 
         try:
             logger.info("[rollback] entering...")
