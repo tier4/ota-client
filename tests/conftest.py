@@ -62,7 +62,6 @@ class TestConfiguration:
     OTACLIENT_MODULE_PATH = "otaclient.app.ota_client"
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "ota_metadata.legacy.parser"
-    MAIN_MODULE_PATH = "otaclient.app.main"
 
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
