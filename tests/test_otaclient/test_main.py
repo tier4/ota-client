@@ -26,15 +26,17 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from tests.conftest import TestConfiguration as cfg
 
 FIRST_LINE_LOG = "d3b6bdb | 2021-10-27 09:36:48 +0900 | Initial commit"
+MAIN_MODULE = "otaclient.main"
+UTILS_MODULE = "otaclient.utils"
 
 
 class TestMain:
     @pytest.fixture(autouse=True)
     def patch_main(self, mocker: MockerFixture, tmp_path: Path):
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.launch_otaclient_grpc_server")
+        mocker.patch(f"{MAIN_MODULE}.launch_otaclient_grpc_server")
 
         self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
-        mocker.patch(f"{cfg.MAIN_MODULE_PATH}.sys.exit", self._sys_exit_mocker)
+        mocker.patch(f"{UTILS_MODULE}.sys.exit", self._sys_exit_mocker)
 
     @pytest.fixture
     def background_process(self):
