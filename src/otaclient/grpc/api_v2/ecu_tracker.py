@@ -46,9 +46,6 @@ class ECUTracker:
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
         self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._polling_local_ecu_status())
-        for ecu_contact in ecu_info.secondaries:
-            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
@@ -75,3 +72,8 @@ class ECUTracker:
             if status_report:
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
             await self._polling_waiter()
+
+    def start(self) -> None:
+        asyncio.create_task(self._polling_local_ecu_status())
+        for ecu_contact in ecu_info.secondaries:
+            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
