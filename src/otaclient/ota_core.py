@@ -15,20 +15,19 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import errno
-import gc
 import json
 import logging
+import os
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
+from queue import Queue
 from typing import Any, Iterator, Optional, Type
 from urllib.parse import urlparse
 
@@ -41,8 +40,8 @@ from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
     load_ca_cert_chains,
 )
-from otaclient import __version__
 from otaclient import errors as ota_errors
+from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.create_standby import (
@@ -50,8 +49,15 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
-from otaclient.utils import wait_and_log
-from otaclient_api.v2 import types as api_types
+from otaclient.status_monitor import (
+    OTAStatusChangeReport,
+    OTAUpdatePhaseChangeReport,
+    SetOTAClientMetaReport,
+    SetUpdateMetaReport,
+    StatusReport,
+    UpdateProgressReport,
+)
+from otaclient.utils import get_traceback, wait_and_log
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -62,37 +68,15 @@ from otaclient_common.downloader import (
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
-from .app.update_stats import OperationRecord, OTAUpdateStatsCollector, ProcessOperation
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATUS_QUERY_INTERVAL = 1
 WAIT_BEFORE_REBOOT = 6
+DOWNLOAD_STATS_REPORT_BATCH = 300
+DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
-class LiveOTAStatus:
-    def __init__(self, ota_status: api_types.StatusOta) -> None:
-        self.live_ota_status = ota_status
-
-    def get_ota_status(self) -> api_types.StatusOta:
-        return self.live_ota_status
-
-    def set_ota_status(self, _status: api_types.StatusOta):
-        self.live_ota_status = _status
-
-    def request_update(self) -> bool:
-        return self.live_ota_status in [
-            api_types.StatusOta.INITIALIZED,
-            api_types.StatusOta.SUCCESS,
-            api_types.StatusOta.FAILURE,
-            api_types.StatusOta.ROLLBACK_FAILURE,
-        ]
-
-    def request_rollback(self) -> bool:
-        return self.live_ota_status in [
-            api_types.StatusOta.SUCCESS,
-            api_types.StatusOta.ROLLBACK_FAILURE,
-        ]
+class OTAClientError(Exception): ...
 
 
 class OTAClientControlFlags:
@@ -182,14 +166,12 @@ class _OTAUpdater:
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
         control_flags: OTAClientControlFlags,
-        status_query_interval: int = DEFAULT_STATUS_QUERY_INTERVAL,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
     ) -> None:
         self.ca_chains_store = ca_chains_store
-
-        self._shutdown = False
-        self._update_status = api_types.UpdateStatus()
-        self._last_status_query_timestamp = 0
-        self.status_query_interval = status_query_interval
+        self.session_id = session_id
+        self._status_report_queue = status_report_queue
 
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
@@ -233,9 +215,26 @@ class _OTAUpdater:
         self._create_standby_cls = create_standby_cls
 
         # ------ init update status ------ #
-        self.update_phase = api_types.UpdatePhase.INITIALIZING
-        self.updating_version: str = version
-        self.failure_reason = ""
+        self.update_version = version
+        self.update_start_timestamp = int(time.time())
+
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.INITIALIZING,
+                    trigger_timestamp=self.update_start_timestamp,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    update_firmware_version=version,
+                ),
+                session_id=self.session_id,
+            )
+        )
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -258,10 +257,6 @@ class _OTAUpdater:
             proxies=proxies,
         )
         self._downloader_mapper: dict[int, Downloader] = {}
-
-        # ------ start stats collector ------ #
-        self._update_stats_collector = OTAUpdateStatsCollector()
-        self._update_stats_collector.start_collector()
 
     def _calculate_delta(
         self,
@@ -332,24 +327,50 @@ class _OTAUpdater:
                 max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
             ),
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(_download_file, download_list):
-                if _download_exception_handler(_fut):  # donwload succeeded
-                    err_count, file_size, _ = _fut.result()
-                    self._update_stats_collector.report_stat(
-                        OperationRecord(
-                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            errors=err_count,
-                            processed_file_size=file_size,
-                            processed_file_num=1,
+            _next_commit_before, _report_batch_cnt = 0, 0
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+            )
+
+            for _done_count, _fut in enumerate(
+                _mapper.ensure_tasks(_download_file, download_list), start=1
+            ):
+                _now = time.time()
+
+                if _download_exception_handler(_fut):
+                    err_count, file_size, downloaded_bytes = _fut.result()
+
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += file_size
+                    _merged_payload.errors += err_count
+                    _merged_payload.downloaded_bytes += downloaded_bytes
+                else:
+                    _merged_payload.errors += 1
+
+                if (
+                    _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
+                ) > _report_batch_cnt or _now > _next_commit_before:
+                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
+                    _report_batch_cnt = _this_batch
+
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=_merged_payload,
+                            session_id=self.session_id,
                         )
                     )
-                else:  # download failed, but exceptions can be handled
-                    self._update_stats_collector.report_stat(
-                        OperationRecord(
-                            op=ProcessOperation.DOWNLOAD_REMOTE_COPY,
-                            errors=1,
-                        ),
+
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
                     )
+
+            # for left-over items that cannot fill up the batch
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
+            )
 
         # release the downloader instances
         self._downloader_pool.release_all_instances()
@@ -672,7 +693,6 @@ class OTAClient:
         failure_type: FailureType,
     ) -> None:
         try:
-            self._live_ota_status = ota_status
             _traceback = get_traceback(exc)
 
             logger.error(failure_reason)
@@ -705,6 +725,9 @@ class OTAClient:
         if self.is_busy:
             return
 
+        new_session_id = self._gen_session_id(request.version)
+        logger.info(f"{new_session_id=}")
+
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -724,8 +747,10 @@ class OTAClient:
                 control_flags=self.control_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
+                session_id=new_session_id,
             ).execute()
         except ota_errors.OTAError as e:
+            self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
@@ -742,6 +767,7 @@ class OTAClient:
             self._live_ota_status = OTAStatus.ROLLBACKING
             _OTARollbacker(boot_controller=self.boot_controller).execute()
         except ota_errors.OTAError as e:
+            self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
