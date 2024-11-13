@@ -620,6 +620,7 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._live_ota_status = OTAStatus.INITIALIZED
+        self.started = False
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
@@ -673,6 +674,9 @@ class OTAClient:
             logger.error(_err_msg)
 
             self.ca_chains_store = CACertChainStore()
+
+        self.started = True
+        logger.info("otaclient started")
 
     def _gen_session_id(self, update_version: str = "") -> str:
         """Generate a unique session_id for the new OTA session.
