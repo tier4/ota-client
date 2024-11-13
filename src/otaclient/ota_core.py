@@ -473,8 +473,9 @@ class _OTAUpdater:
         standby_slot_creator = self._create_standby_cls(
             ota_metadata=otameta,
             boot_dir=str(self._boot_controller.get_standby_boot_dir()),
+            active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-            stats_report_queue=self._status_report_queue,
+            status_report_queue=self._status_report_queue,
             session_id=self.session_id,
         )
         self._status_report_queue.put_nowait(
