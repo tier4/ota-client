@@ -43,10 +43,16 @@ class OTAClientAPIServicer:
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
-    def __init__(self):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+    def __init__(
+        self,
+        otaclient_inst: OTAServicer,
+        *,
+        control_flag: OTAClientControlFlags,
+        executor: ThreadPoolExecutor,
+    ):
+        self._executor = executor
         self._run_in_executor = partial(
-            asyncio.get_running_loop().run_in_executor, self._executor
+            asyncio.get_running_loop().run_in_executor, executor
         )
 
         self.sub_ecus = ecu_info.secondaries
@@ -54,12 +60,8 @@ class OTAClientAPIServicer:
         self.listen_port = cfg.OTA_API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_wrapper = OTAServicer(
-            executor=self._executor,
-            control_flags=self._otaclient_control_flags,
-            proxy=proxy_info.get_proxy_for_local_ota(),
-        )
+        self._otaclient_control_flags = control_flag
+        self._otaclient_wrapper = otaclient_inst
 
         # ecu status tracking
         self._ecu_status_storage = ECUStatusStorage()
@@ -77,7 +79,7 @@ class OTAClientAPIServicer:
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if proxy_info.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(
-                executor=self._executor,
+                executor=executor,
                 subprocess_ctx=OTAProxyContext(),
             )
             asyncio.create_task(self._otaproxy_lifecycle_managing())

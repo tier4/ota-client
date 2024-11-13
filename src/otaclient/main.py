@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import grpc.aio
 
 from otaclient import __version__
-from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient.log_setting import configure_logging
+from otaclient.ota_core import OTAClientControlFlags, OTAServicer
 from otaclient.utils import check_other_otaclient, create_otaclient_rundir
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
@@ -35,7 +37,20 @@ logger = logging.getLogger(__name__)
 
 
 def create_otaclient_grpc_server():
-    service_stub = OTAClientAPIServicer()
+    _executor = ThreadPoolExecutor(thread_name_prefix="otaclient_main")
+    _control_flag = OTAClientControlFlags()
+
+    otaclient_inst = OTAServicer(
+        executor=_executor,
+        control_flags=_control_flag,
+        proxy=proxy_info.get_proxy_for_local_ota(),
+    )
+    service_stub = OTAClientAPIServicer(
+        otaclient_inst,
+        control_flag=_control_flag,
+        executor=_executor,
+    )
+
     ota_client_service_v2 = OtaClientServiceV2(service_stub)
 
     server = grpc.aio.server()
