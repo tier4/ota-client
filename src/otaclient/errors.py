@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
-import traceback
 from enum import Enum, unique
 from typing import ClassVar
 
 from otaclient._types import FailureType
+from otaclient.utils import get_traceback
 
 
 @unique
@@ -86,10 +86,7 @@ class OTAError(Exception):
     def failure_errcode_str(self) -> str:
         return f"{self.ERROR_PREFIX}{self.failure_errcode.to_errcode_str()}"
 
-    def get_failure_traceback(self, *, splitter="\n") -> str:
-        return splitter.join(
-            traceback.format_exception(type(self), self, self.__traceback__)
-        )
+    get_failure_traceback = get_traceback
 
     def get_failure_reason(self) -> str:
         """Return failure_reason str."""
