@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 
-from otaclient._types import OTAClientStatus, OTAStatus, UpdateTiming
+from otaclient._types import OTAClientStatus, OTAStatus, UpdateRequestV2, UpdateTiming
 from otaclient_api.v2 import types as api_types
 from otaclient_common.proto_wrapper import Duration
 
@@ -48,7 +48,7 @@ def _calculate_elapsed_time(
     return _res
 
 
-def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
+def convert_to_apiv2_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
     base_res = api_types.StatusResponseEcuV2(
         ecu_id=_in.ecu_id,
         otaclient_version=_in.otaclient_version,
@@ -101,3 +101,13 @@ def convert_status(_in: OTAClientStatus) -> api_types.StatusResponseEcuV2:
 
     base_res.update_status = update_status
     return base_res
+
+
+def convert_from_apiv2_update_request(
+    _in: api_types.UpdateRequestEcu,
+) -> UpdateRequestV2:
+    return UpdateRequestV2(
+        version=_in.version,
+        url_base=_in.url,
+        cookies_json=_in.cookies,
+    )
