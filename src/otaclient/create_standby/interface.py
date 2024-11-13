@@ -37,7 +37,6 @@ from queue import Queue
 from typing import Protocol
 
 from ota_metadata.legacy.parser import OTAMetadata
-from otaclient.app.update_stats import OTAUpdateStatsCollector
 from otaclient.status_monitor import StatusReport
 
 from .common import DeltaBundle
@@ -45,8 +44,6 @@ from .common import DeltaBundle
 
 class StandbySlotCreatorProtocol(Protocol):
     """Protocol that describes standby slot creating mechanism."""
-
-    stats_collector: OTAUpdateStatsCollector
 
     def __init__(
         self,
