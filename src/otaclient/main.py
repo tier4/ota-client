@@ -79,7 +79,10 @@ async def create_otaclient_grpc_server():
 async def launch_otaclient_grpc_server():
     server = await create_otaclient_grpc_server()
     await server.start()
-    await server.wait_for_termination()
+    try:
+        await server.wait_for_termination()
+    finally:
+        await server.stop(1)
 
 
 def main():
