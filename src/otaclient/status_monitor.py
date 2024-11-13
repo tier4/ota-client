@@ -89,6 +89,7 @@ class OTAStatusChangeReport:
     # only used when new_ota_status is failure
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
+    failure_traceback: str = ""
 
 
 @dataclass
@@ -130,9 +131,11 @@ def _on_session_finished(
     if payload.new_ota_status in [OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE]:
         status_storage.failure_type = payload.failure_type
         status_storage.failure_reason = payload.failure_reason
+        status_storage.failure_traceback = payload.failure_traceback
     else:
         status_storage.failure_type = FailureType.NO_FAILURE
         status_storage.failure_reason = ""
+        status_storage.failure_traceback = ""
 
 
 def _on_new_ota_session(
