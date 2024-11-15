@@ -29,7 +29,7 @@ from typing_extensions import Self
 
 from ota_proxy import OTAProxyContextProto, subprocess_otaproxy_launcher
 from ota_proxy import config as local_otaproxy_cfg
-from otaclient import log_setting
+from otaclient import _logging
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common import cmdhelper
 from otaclient_common.common import ensure_otaproxy_start
@@ -78,7 +78,7 @@ class OTAProxyContext(OTAProxyContextProto):
         # NOTE: on otaproxy subprocess, we first set log level of the root logger
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
         #       and then set the ota_proxy logger to DEFAULT_LOG_LEVEL
-        log_setting.configure_logging()
+        _logging.configure_logging()
         otaproxy_logger = logging.getLogger("ota_proxy")
         otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
         self.logger = otaproxy_logger

@@ -49,7 +49,7 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
-from otaclient.status_monitor import (
+from otaclient._status_monitor import (
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
     SetOTAClientMetaReport,

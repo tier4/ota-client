@@ -37,7 +37,7 @@ from queue import Queue
 from typing import Protocol
 
 from ota_metadata.legacy.parser import OTAMetadata
-from otaclient.status_monitor import StatusReport
+from otaclient._status_monitor import StatusReport
 
 from .common import DeltaBundle
 
