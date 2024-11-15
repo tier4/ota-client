@@ -24,8 +24,8 @@ from queue import Queue
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient.configs.cfg import cfg
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
+from otaclient.configs.cfg import cfg
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,

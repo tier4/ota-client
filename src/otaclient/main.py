@@ -25,12 +25,12 @@ import grpc.aio
 
 from otaclient import __version__
 from otaclient._logging import configure_logging
+from otaclient._status_monitor import OTAClientStatusCollector
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient.ota_core import OTAClient, OTAClientControlFlags
-from otaclient._status_monitor import OTAClientStatusCollector
 from otaclient.utils import check_other_otaclient, create_otaclient_rundir
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2

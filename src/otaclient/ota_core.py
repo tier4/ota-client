@@ -41,14 +41,6 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
-from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
-from otaclient.boot_control import BootControllerProtocol, get_boot_controller
-from otaclient.configs.cfg import cfg, ecu_info
-from otaclient.create_standby import (
-    StandbySlotCreatorProtocol,
-    get_standby_slot_creator,
-)
-from otaclient.create_standby.common import DeltaBundle
 from otaclient._status_monitor import (
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
@@ -57,6 +49,14 @@ from otaclient._status_monitor import (
     StatusReport,
     UpdateProgressReport,
 )
+from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
+from otaclient.boot_control import BootControllerProtocol, get_boot_controller
+from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.create_standby import (
+    StandbySlotCreatorProtocol,
+    get_standby_slot_creator,
+)
+from otaclient.create_standby.common import DeltaBundle
 from otaclient.utils import get_traceback, wait_and_log
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
