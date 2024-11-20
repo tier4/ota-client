@@ -21,24 +21,23 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
-import grpc.aio
-
 from otaclient import __version__
-from otaclient._logging import configure_logging
-from otaclient._status_monitor import OTAClientStatusCollector
-from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
-from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
-from otaclient.ota_core import OTAClient, OTAClientControlFlags
-from otaclient.utils import check_other_otaclient, create_otaclient_rundir
-from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
-from otaclient_api.v2.api_stub import OtaClientServiceV2
 
 logger = logging.getLogger(__name__)
 
 
 async def create_otaclient_grpc_server():
+    import grpc.aio
+
+    from otaclient._status_monitor import OTAClientStatusCollector
+    from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+    from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
+    from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
+    from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
+    from otaclient.ota_core import OTAClient, OTAClientControlFlags
+    from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
+    from otaclient_api.v2.api_stub import OtaClientServiceV2
+
     _executor = ThreadPoolExecutor(thread_name_prefix="otaclient_main")
     _control_flag = OTAClientControlFlags()
 
@@ -83,7 +82,11 @@ async def launch_otaclient_grpc_server():
         await server.stop(1)
 
 
-def main():
+def main() -> None:
+    from otaclient._logging import configure_logging
+    from otaclient.configs.cfg import cfg, ecu_info
+    from otaclient.utils import check_other_otaclient, create_otaclient_rundir
+
     # configure logging before any code being executed
     configure_logging()
 
