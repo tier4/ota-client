@@ -676,6 +676,7 @@ class OTAClient:
             )
         )
 
+        self.ca_chains_store = None
         try:
             self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
@@ -736,6 +737,10 @@ class OTAClient:
         return self._live_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]
 
     def update(self, request: UpdateRequestV2) -> None:
+        """
+        NOTE that update API will not raise any exceptions. The failure information
+            is available via status API.
+        """
         if self.is_busy:
             return
 
@@ -780,7 +785,7 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
-    def rollback(self):
+    def rollback(self) -> None:
         if self.is_busy:
             return
 
