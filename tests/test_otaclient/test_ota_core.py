@@ -19,7 +19,6 @@ import shutil
 from collections import OrderedDict
 from pathlib import Path
 from queue import Queue
-from typing import Any, Generator
 
 import pytest
 import pytest_mock
@@ -29,7 +28,6 @@ from ota_metadata.legacy.types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import ota_core
 from otaclient._status_monitor import (
-    TERMINATE_SENTINEL,
     OTAClientStatusCollector,
     OTAStatusChangeReport,
     StatusReport,
