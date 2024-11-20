@@ -59,21 +59,6 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
     )
 
 
-@pytest.fixture(scope="class")
-def ota_status_collector() -> (
-    Generator[tuple[OTAClientStatusCollector, Queue[StatusReport]], Any, None]
-):
-    _report_queue: Queue[StatusReport] = Queue()
-    _status_collector = OTAClientStatusCollector(_report_queue)
-    _collector_thread = _status_collector.start()
-
-    try:
-        yield _status_collector, _report_queue
-    finally:
-        _report_queue.put_nowait(TERMINATE_SENTINEL)
-        _collector_thread.join()
-
-
 class TestOTAUpdater:
     """
     NOTE: the boot_control and create_standby are mocked, only testing
