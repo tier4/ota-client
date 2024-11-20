@@ -35,8 +35,6 @@ from otaclient.utils import check_other_otaclient, create_otaclient_rundir
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_api.v2.api_stub import OtaClientServiceV2
 
-# configure logging before any code being executed
-configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -86,6 +84,9 @@ async def launch_otaclient_grpc_server():
 
 
 def main():
+    # configure logging before any code being executed
+    configure_logging()
+
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
