@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Generator, NoReturn, Optional
+from typing import NoReturn, Optional
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus

@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 from subprocess import CalledProcessError
-from typing import ClassVar, Dict, Generator, List, NoReturn, Optional, Tuple
+from typing import ClassVar, Dict, List, NoReturn, Optional, Tuple
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
