@@ -523,7 +523,6 @@ class RPIBootController(BootControllerProtocol):
             logger.info("rpi_boot: post-rollback setup...")
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
-            self._rpiboot_control.reboot_tryboot()
         except Exception as e:
             _err_msg = f"failed on post_rollback: {e!r}"
             logger.error(_err_msg)

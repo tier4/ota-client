@@ -1098,7 +1098,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.info("jetson-uefi: post-rollback setup...")
             self._mp_control.umount_all(ignore_error=True)
             self._uefi_control.switch_boot_to_standby()
-            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"jetson-uefi: failed on post_rollback: {e!r}"
             logger.error(_err_msg)
