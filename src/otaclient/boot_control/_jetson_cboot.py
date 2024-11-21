@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Generator, NoReturn, Optional
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
@@ -616,7 +616,7 @@ class JetsonCBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> None:
         try:
             logger.info("jetson-cboot: post-update ...")
             # ------ update extlinux.conf ------ #
@@ -677,10 +677,18 @@ class JetsonCBootControl(BootControllerProtocol):
             self._mp_control.umount_all(ignore_error=True)
             logger.info(f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}")
             logger.info("post update finished, wait for reboot ...")
-            yield  # hand over control back to otaclient
-            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
+
+    def finalizing_update(self) -> NoReturn:
+        try:
+            cmdhelper.reboot()
+        except Exception as e:
+            _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostUpdateFailed(
                 _err_msg, module=__name__
@@ -711,6 +719,8 @@ class JetsonCBootControl(BootControllerProtocol):
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+    finalizing_rollback = finalizing_update
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""

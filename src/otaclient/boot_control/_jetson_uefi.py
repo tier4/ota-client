@@ -27,7 +27,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, ClassVar, Generator, Literal
+from typing import Any, ClassVar, Generator, Literal, NoReturn
 
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -982,7 +982,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> None:
         try:
             logger.info("jetson-uefi: post-update ...")
             # ------ update extlinux.conf ------ #
@@ -1063,10 +1063,18 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
             logger.info("post update finished, wait for reboot ...")
-            yield  # hand over control back to otaclient
-            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"jetson-uefi: failed on post_update: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
+
+    def finalizing_update(self) -> NoReturn:
+        try:
+            cmdhelper.reboot()
+        except Exception as e:
+            _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostUpdateFailed(
                 _err_msg, module=__name__
@@ -1097,6 +1105,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+    finalizing_rollback = finalizing_update
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""

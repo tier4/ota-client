@@ -22,7 +22,7 @@ import os
 import subprocess
 from pathlib import Path
 from string import Template
-from typing import Any, Generator, Literal
+from typing import Any, Generator, Literal, NoReturn
 
 from typing_extensions import Self
 
@@ -531,7 +531,7 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> None:
         try:
             logger.info("rpi_boot: post-update setup...")
             self._mp_control.preserve_ota_folder_to_standby()
@@ -542,14 +542,24 @@ class RPIBootController(BootControllerProtocol):
             )
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
-            yield  # hand over control back to otaclient
-            self._rpiboot_control.reboot_tryboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostUpdateFailed(
                 _err_msg, module=__name__
             ) from e
+
+    def finalizing_update(self) -> NoReturn:
+        try:
+            self._rpiboot_control.reboot_tryboot()
+        except Exception as e:
+            _err_msg = f"reboot failed: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
+
+    finalizing_rollback = finalizing_update
 
     def on_operation_failure(self):
         """Failure registering and cleanup at failure."""
