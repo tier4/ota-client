@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Generator, Protocol
+from typing import Protocol
 
 from typing_extensions import deprecated
 
@@ -56,22 +56,39 @@ class BootControllerProtocol(Protocol):
         """
 
     @abstractmethod
+    def load_version(self) -> str:
+        """Read the version info from the current slot."""
+
+    @abstractmethod
+    def on_operation_failure(self) -> None:
+        """Cleanup by boot_control implementation when OTA failed."""
+
+    #
+    # ------ update ------ #
+    #
+
+    @abstractmethod
     def pre_update(
         self, version: str, *, standby_as_ref: bool, erase_standby: bool
     ): ...
 
     @abstractmethod
-    def pre_rollback(self): ...
+    def post_update(self) -> None: ...
 
     @abstractmethod
-    def post_update(self) -> Generator[None, None, None]: ...
+    def finalizing_update(self) -> None:
+        """Normally this method only reboots the device."""
+
+    #
+    # ------ rollback ------ #
+    #
+
+    @abstractmethod
+    def pre_rollback(self) -> None: ...
 
     @abstractmethod
     def post_rollback(self): ...
 
     @abstractmethod
-    def load_version(self) -> str:
-        """Read the version info from the current slot."""
-
-    @abstractmethod
-    def on_operation_failure(self): ...
+    def finalizing_rollback(self) -> None:
+        """Normally this method only reboots the device."""
