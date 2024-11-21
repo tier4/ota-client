@@ -120,6 +120,7 @@ class OTAClientStatus:
     update_timing: Optional[UpdateTiming] = None
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
+    failure_traceback: str = ""
 
 
 @dataclass

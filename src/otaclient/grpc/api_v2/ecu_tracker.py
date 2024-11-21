@@ -19,10 +19,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from otaclient._status_monitor import OTAClientStatusCollector
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient.ota_core import OTAServicer
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
@@ -35,9 +35,9 @@ class ECUTracker:
         self,
         ecu_status_storage: ECUStatusStorage,
         *,
-        otaclient_wrapper: OTAServicer,
+        local_status_collector: OTAClientStatusCollector,
     ) -> None:
-        self._otaclient_wrapper = otaclient_wrapper  # for local ECU status polling
+        self._local_status_collector = local_status_collector
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -46,9 +46,6 @@ class ECUTracker:
         #       allow us to stop background task without changing codes.
         #       In normal running this event will never be set.
         self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
-        asyncio.create_task(self._polling_local_ecu_status())
-        for ecu_contact in ecu_info.secondaries:
-            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
@@ -71,6 +68,12 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            status_report = await self._otaclient_wrapper.get_status()
-            await self._ecu_status_storage.update_from_local_ecu(status_report)
+            status_report = self._local_status_collector.otaclient_status
+            if status_report:
+                await self._ecu_status_storage.update_from_local_ecu(status_report)
             await self._polling_waiter()
+
+    def start(self) -> None:
+        asyncio.create_task(self._polling_local_ecu_status())
+        for ecu_contact in ecu_info.secondaries:
+            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))

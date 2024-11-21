@@ -27,8 +27,8 @@ from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
-from otaclient.ota_core import OTAClientControlFlags, OTAServicer
+from otaclient.grpc.api_v2.types import convert_from_apiv2_update_request
+from otaclient.ota_core import OTAClient, OTAClientControlFlags
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
@@ -43,10 +43,17 @@ class OTAClientAPIServicer:
 
     OTAPROXY_SHUTDOWN_DELAY = cfg.OTAPROXY_MINIMUM_SHUTDOWN_INTERVAL
 
-    def __init__(self):
-        self._executor = ThreadPoolExecutor(thread_name_prefix="otaclient_service_stub")
+    def __init__(
+        self,
+        otaclient_inst: OTAClient,
+        ecu_status_storage: ECUStatusStorage,
+        *,
+        control_flag: OTAClientControlFlags,
+        executor: ThreadPoolExecutor,
+    ):
+        self._executor = executor
         self._run_in_executor = partial(
-            asyncio.get_running_loop().run_in_executor, self._executor
+            asyncio.get_running_loop().run_in_executor, executor
         )
 
         self.sub_ecus = ecu_info.secondaries
@@ -54,20 +61,10 @@ class OTAClientAPIServicer:
         self.listen_port = cfg.OTA_API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        self._otaclient_control_flags = OTAClientControlFlags()
-        self._otaclient_wrapper = OTAServicer(
-            executor=self._executor,
-            control_flags=self._otaclient_control_flags,
-            proxy=proxy_info.get_proxy_for_local_ota(),
-        )
+        self._otaclient_control_flags = control_flag
+        self._otaclient_inst = otaclient_inst
 
-        # ecu status tracking
-        self._ecu_status_storage = ECUStatusStorage()
-        self._ecu_status_tracker = ECUTracker(
-            self._ecu_status_storage,
-            otaclient_wrapper=self._otaclient_wrapper,
-        )
-
+        self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
         # otaproxy lifecycle and dependency managing
@@ -77,7 +74,7 @@ class OTAClientAPIServicer:
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if proxy_info.enable_local_ota_proxy:
             self._otaproxy_launcher = OTAProxyLauncher(
-                executor=self._executor,
+                executor=executor,
                 subprocess_ctx=OTAProxyContext(),
             )
             asyncio.create_task(self._otaproxy_lifecycle_managing())
@@ -193,11 +190,35 @@ class OTAClientAPIServicer:
 
         # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            _resp_ecu = await self._otaclient_wrapper.dispatch_update(update_req_ecu)
-            # local otaclient accepts the update request
-            if _resp_ecu.result == api_types.FailureType.NO_FAILURE:
+            if not self._otaclient_inst.started:
+                logger.error("otaclient is not running, abort")
+                response.add_ecu(
+                    api_types.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.UNRECOVERABLE,
+                    )
+                )
+            elif self._otaclient_inst.is_busy:
+                response.add_ecu(
+                    api_types.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                    )
+                )
+            else:
+                self._run_in_executor(
+                    self._otaclient_inst.update,
+                    convert_from_apiv2_update_request(update_req_ecu),
+                ).add_done_callback(
+                    lambda _: logger.info("update execution thread finished")
+                )
                 update_acked_ecus.add(self.my_ecu_id)
-            response.add_ecu(_resp_ecu)
+                response.add_ecu(
+                    api_types.UpdateResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.NO_FAILURE,
+                    )
+                )
 
         # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
@@ -207,7 +228,6 @@ class OTAClientAPIServicer:
                     update_acked_ecus
                 )
             )
-
         return response
 
     async def rollback(
@@ -255,11 +275,32 @@ class OTAClientAPIServicer:
             tasks.clear()
 
         # second: dispatch rollback request to local if required
-        if rollback_req := request.find_ecu(self.my_ecu_id):
-            response.add_ecu(
-                await self._otaclient_wrapper.dispatch_rollback(rollback_req)
-            )
-
+        if request.find_ecu(self.my_ecu_id):
+            if not self._otaclient_inst.started:
+                logger.error("otaclient is not running, abort")
+                response.add_ecu(
+                    api_types.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.UNRECOVERABLE,
+                    )
+                )
+            elif self._otaclient_inst.is_busy:
+                response.add_ecu(
+                    api_types.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                    )
+                )
+            else:
+                self._run_in_executor(self._otaclient_inst.rollback).add_done_callback(
+                    lambda _: logger.info("rollback execution thread finished")
+                )
+                response.add_ecu(
+                    api_types.RollbackResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.NO_FAILURE,
+                    )
+                )
         return response
 
     async def status(self, _=None) -> api_types.StatusResponse:

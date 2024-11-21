@@ -21,6 +21,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 from abc import abstractmethod
 from pathlib import Path
 from typing import Callable, Protocol
@@ -82,3 +83,8 @@ def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient"):
     """
     run_dir = Path(run_dir)
     run_dir.mkdir(exist_ok=True, parents=True)
+
+
+def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:
+    """Format the <exc> traceback as string."""
+    return splitter.join(traceback.format_exception(type(exc), exc, exc.__traceback__))

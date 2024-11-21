@@ -23,13 +23,17 @@ from typing import Set
 import pytest
 from pytest_mock import MockerFixture
 
+from otaclient.configs._ecu_info import ECUInfo
+from otaclient.configs._proxy_info import ProxyInfo
 from otaclient.grpc.api_v2 import ecu_status, servicer
+from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
 from otaclient.grpc.api_v2.servicer import (
     ECUStatusStorage,
     OTAClientAPIServicer,
     OTAProxyLauncher,
 )
-from otaclient.ota_core import OTAServicer
+from otaclient.grpc.api_v2.types import convert_from_apiv2_update_request
+from otaclient.ota_core import OTAClient, OTAClientControlFlags
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import OTAClientCall
 from tests.utils import compare_message
@@ -45,7 +49,9 @@ class TestOTAClientServiceStub:
     ENSURE_NEXT_CHECKING_ROUND = 1.2
 
     @staticmethod
-    async def _subecu_accept_update_request(ecu_id, *args, **kwargs):
+    async def _subecu_accept_update_request(
+        ecu_id, *args, **kwargs
+    ) -> api_types.UpdateResponse:
         return api_types.UpdateResponse(
             ecu=[
                 api_types.UpdateResponseEcu(
@@ -56,7 +62,10 @@ class TestOTAClientServiceStub:
 
     @pytest.fixture(autouse=True)
     async def setup_test(
-        self, mocker: MockerFixture, ecu_info_fixture, proxy_info_fixture
+        self,
+        mocker: MockerFixture,
+        ecu_info_fixture: ECUInfo,
+        proxy_info_fixture: ProxyInfo,
     ):
         threadpool = ThreadPoolExecutor()
 
@@ -74,6 +83,7 @@ class TestOTAClientServiceStub:
         )
 
         # ------ init and setup the ecu_storage ------ #
+        self.control_flag = OTAClientControlFlags()
         self.ecu_storage = ECUStatusStorage()
         self.ecu_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         # NOTE: disable internal overall ecu status generation task as we
@@ -82,8 +92,11 @@ class TestOTAClientServiceStub:
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)  # ensure the task stopping
 
         # --- mocker --- #
-        self.otaclient_api_types = mocker.MagicMock(spec=OTAServicer)
-        self.ecu_status_tracker = mocker.MagicMock()
+        self.otaclient_inst = mocker.MagicMock(spec=OTAClient)
+        type(self.otaclient_inst).started = mocker.PropertyMock(return_value=True)
+        type(self.otaclient_inst).is_busy = mocker.PropertyMock(return_value=False)
+
+        self.ecu_status_tracker = mocker.MagicMock(spec=ECUTracker)
         self.otaproxy_launcher = mocker.MagicMock(spec=OTAProxyLauncher)
         # mock OTAClientCall, make update_call return success on any update dispatches to subECUs
         self.otaclient_call = mocker.AsyncMock(spec=OTAClientCall)
@@ -101,21 +114,18 @@ class TestOTAClientServiceStub:
             mocker.MagicMock(return_value=self.ecu_storage),
         )
         mocker.patch(
-            f"{SERVICER_MODULE}.OTAServicer",
-            mocker.MagicMock(return_value=self.otaclient_api_types),
-        )
-        mocker.patch(
-            f"{SERVICER_MODULE}.ECUTracker",
-            mocker.MagicMock(return_value=self.ecu_status_tracker),
-        )
-        mocker.patch(
             f"{SERVICER_MODULE}.OTAProxyLauncher",
             mocker.MagicMock(return_value=self.otaproxy_launcher),
         )
         mocker.patch(f"{SERVICER_MODULE}.OTAClientCall", self.otaclient_call)
 
         # --- start the OTAClientServiceStub --- #
-        self.otaclient_service_stub = OTAClientAPIServicer()
+        self.otaclient_service_stub = OTAClientAPIServicer(
+            otaclient_inst=self.otaclient_inst,
+            ecu_status_storage=self.ecu_storage,
+            control_flag=self.control_flag,
+            executor=threadpool,
+        )
 
         try:
             yield
@@ -168,7 +178,7 @@ class TestOTAClientServiceStub:
         self.otaproxy_launcher.cleanup_cache_dir.assert_called_once()
 
     async def test__otaclient_control_flags_managing(self):
-        otaclient_control_flags = self.otaclient_service_stub._otaclient_control_flags
+        otaclient_control_flags = self.control_flag
         # there are child ECUs in UPDATING
         self.ecu_storage.in_update_child_ecus_id = {"p1", "p2"}
         await asyncio.sleep(self.ENSURE_NEXT_CHECKING_ROUND)
@@ -247,48 +257,42 @@ class TestOTAClientServiceStub:
         update_target_ids: Set[str],
         expected: api_types.UpdateResponse,
     ):
-        # --- setup --- #
-        self.otaclient_api_types.dispatch_update.return_value = (
-            api_types.UpdateResponseEcu(
-                ecu_id=self.ecu_info.ecu_id, result=api_types.FailureType.NO_FAILURE
-            )
-        )
-
         # --- execution --- #
         resp = await self.otaclient_service_stub.update(update_request)
 
         # --- assertion --- #
         compare_message(resp, expected)
+
         self.otaclient_call.update_call.assert_called()
         self.ecu_storage.on_ecus_accept_update_request.assert_called_once_with(  # type: ignore
             update_target_ids
         )
+        # assert otaclient_inst receives the update request if we have update request for self ECU
+        if update_request.if_contains_ecu("autoware"):
+            _update_request_ecu = update_request.find_ecu("autoware")
+            assert _update_request_ecu
 
-    async def test_update_local_ecu_busy(self):
-        # --- preparation --- #
-        self.otaclient_api_types.dispatch_update.return_value = (
-            api_types.UpdateResponseEcu(
-                ecu_id="autoware", result=api_types.FailureType.RECOVERABLE
+            self.otaclient_inst.update.assert_called_once_with(
+                convert_from_apiv2_update_request(_update_request_ecu)
             )
-        )
+
+    async def test_update_local_ecu_busy(
+        self,
+        mocker: MockerFixture,
+    ):
+        # --- preparation --- #
+        is_busy_mock = mocker.PropertyMock(return_value=True)  # is busy
+        type(self.otaclient_inst).is_busy = is_busy_mock
+
         update_request_ecu = api_types.UpdateRequestEcu(
             ecu_id="autoware", version="version", url="url", cookies="cookies"
         )
 
         # --- execution --- #
-        resp = await self.otaclient_service_stub.update(
+        await self.otaclient_service_stub.update(
             api_types.UpdateRequest(ecu=[update_request_ecu])
         )
 
         # --- assertion --- #
-        assert resp == api_types.UpdateResponse(
-            ecu=[
-                api_types.UpdateResponseEcu(
-                    ecu_id="autoware",
-                    result=api_types.FailureType.RECOVERABLE,
-                )
-            ]
-        )
-        self.otaclient_api_types.dispatch_update.assert_called_once_with(
-            update_request_ecu
-        )
+        # assert otaclient_inst doesn't receive the update request
+        self.otaclient_inst.update.assert_not_called()

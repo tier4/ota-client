@@ -25,8 +25,7 @@ from typing import Generator
 
 import pytest
 
-from otaclient._types import FailureType, OTAStatus, UpdatePhase
-from otaclient.status_monitor import (
+from otaclient._status_monitor import (
     TERMINATE_SENTINEL,
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -36,6 +35,7 @@ from otaclient.status_monitor import (
     StatusReport,
     UpdateProgressReport,
 )
+from otaclient._types import FailureType, OTAStatus, UpdatePhase
 
 
 class TestStatusMonitor:

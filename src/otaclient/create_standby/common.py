@@ -26,17 +26,14 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from queue import Queue
 from threading import Event, Lock
 from typing import Any, Dict, Iterator, List, Optional, OrderedDict, Set, Tuple, Union
 from weakref import WeakKeyDictionary, WeakValueDictionary
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import DirectoryInf, RegularInf
-from otaclient.app.update_stats import (
-    OperationRecord,
-    OTAUpdateStatsCollector,
-    ProcessOperation,
-)
+from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
 
@@ -237,9 +234,12 @@ class DeltaGenerator:
         ota_metadata: OTAMetadata,
         delta_src: Path,
         local_copy_dir: Path,
-        stats_collector: OTAUpdateStatsCollector,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
     ) -> None:
         self._ota_metadata = ota_metadata
+        self._status_report_queue = status_report_queue
+        self.session_id = session_id
 
         # delta
         self._new = RegularDelta()
@@ -248,7 +248,6 @@ class DeltaGenerator:
         self._new_hash_size_dict: Dict[bytes, int] = {}
         self._download_list: List[RegularInf] = []
 
-        self._stats_collector = stats_collector
         self._delta_src_mount_point = delta_src
         self._local_copy_dir = local_copy_dir
 
@@ -311,12 +310,15 @@ class DeltaGenerator:
             tmp_f.unlink(missing_ok=True)
 
         # report to the ota update stats collector
-        self._stats_collector.report_stat(
-            OperationRecord(
-                op=ProcessOperation.PREPARE_LOCAL_COPY,
-                processed_file_size=fpath.stat().st_size,
-                processed_file_num=1,
-            ),
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                    processed_file_size=fpath.stat().st_size,
+                    processed_file_num=1,
+                ),
+                session_id=self.session_id,
+            )
         )
 
     def _process_delta_src(self):

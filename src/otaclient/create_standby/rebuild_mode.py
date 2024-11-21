@@ -18,16 +18,13 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
-from typing import Set, Tuple
+from queue import Queue
 
 from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
 from ota_metadata.legacy.types import RegularInf
-from otaclient.app.update_stats import (
-    OperationRecord,
-    OTAUpdateStatsCollector,
-    ProcessOperation,
-)
+from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
@@ -39,6 +36,9 @@ from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)
 
+PROCESS_FILES_BATCH = 1000
+PROCESS_FILES_REPORT_INTERVAL = 1  # second
+
 
 class RebuildMode(StandbySlotCreatorProtocol):
     def __init__(
@@ -48,10 +48,12 @@ class RebuildMode(StandbySlotCreatorProtocol):
         boot_dir: str,
         standby_slot_mount_point: str,
         active_slot_mount_point: str,
-        stats_collector: OTAUpdateStatsCollector,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
     ) -> None:
         self._ota_metadata = ota_metadata
-        self.stats_collector = stats_collector
+        self._status_report_queue = status_report_queue
+        self.session_id = session_id
 
         # path configuration
         self.boot_dir = Path(boot_dir)
@@ -69,7 +71,8 @@ class RebuildMode(StandbySlotCreatorProtocol):
             ota_metadata=self._ota_metadata,
             delta_src=self.active_slot_mp,
             local_copy_dir=self._ota_tmp,
-            stats_collector=self.stats_collector,
+            status_report_queue=self._status_report_queue,
+            session_id=self.session_id,
         )
         delta_bundle = delta_calculator.calculate_and_process_delta()
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
@@ -100,12 +103,50 @@ class RebuildMode(StandbySlotCreatorProtocol):
             max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
+            _next_commit_before, _batch_cnt = 0, 0
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.APPLY_DELTA
+            )
             try:
-                for _ in _mapper.ensure_tasks(
-                    _task,
-                    self.delta_bundle.new_delta.items(),
+                for _done_count, _done in enumerate(
+                    _mapper.ensure_tasks(
+                        _task,
+                        self.delta_bundle.new_delta.items(),
+                    )
                 ):
-                    pass
+                    _now = time.time()
+                    if _done.exception():
+                        continue
+
+                    stat_report = _done.result()
+                    _merged_payload.processed_file_num += stat_report.processed_file_num
+                    _merged_payload.processed_file_size += (
+                        stat_report.processed_file_size
+                    )
+
+                    if (
+                        _this_batch := _done_count // PROCESS_FILES_BATCH
+                    ) > _batch_cnt or _now > _next_commit_before:
+                        _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
+                        _batch_cnt = _this_batch
+
+                        self._status_report_queue.put_nowait(
+                            StatusReport(
+                                payload=_merged_payload,
+                                session_id=self.session_id,
+                            )
+                        )
+                        _merged_payload = UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.APPLY_DELTA
+                        )
+
+                # commit left-over items that cannot fill the batch
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
+                    )
+                )
             except ValueError as e:
                 logger.error(f"failed to start file process threadpool: {e!r}")
                 raise
@@ -113,10 +154,14 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 logger.error(f"failed to finish up file processing: {e!r}")
                 raise
 
-    def _process_regular(self, _input: Tuple[bytes, Set[RegularInf]]):
+    def _process_regular(
+        self, _input: tuple[bytes, set[RegularInf]]
+    ) -> UpdateProgressReport:
         _hash, _regs_set = _input
         _hash_str = _hash.hex()
-        stat_report = OperationRecord(op=ProcessOperation.APPLY_DELTA)
+        stat_report = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.APPLY_DELTA
+        )
 
         _local_copy = self._ota_tmp / _hash_str
         _f_size = _local_copy.stat().st_size
@@ -165,8 +210,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 stat_report.processed_file_num += 1
                 stat_report.processed_file_size += _f_size
 
-        # report the stats to the stats_collector
-        self.stats_collector.report_stat(stat_report)
+        return stat_report
 
     def _save_meta(self):
         """Save metadata to META_FOLDER."""

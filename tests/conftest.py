@@ -22,10 +22,17 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import Process
 from pathlib import Path
+from queue import Queue
+from typing import Any, Generator
 
 import pytest
 import pytest_mock
 
+from otaclient._status_monitor import (
+    TERMINATE_SENTINEL,
+    OTAClientStatusCollector,
+    StatusReport,
+)
 from otaclient.configs import ECUInfo, ProxyInfo
 from otaclient.configs._ecu_info import parse_ecu_info
 from otaclient.configs._proxy_info import parse_proxy_info
@@ -253,3 +260,18 @@ def proxy_info_fixture(tmp_path: Path) -> ProxyInfo:
     _yaml_f = tmp_path / "proxy_info.yaml"
     _yaml_f.write_text(PROXY_INFO_YAML)
     return parse_proxy_info(_yaml_f)
+
+
+@pytest.fixture(scope="class")
+def ota_status_collector() -> (
+    Generator[tuple[OTAClientStatusCollector, Queue[StatusReport]], Any, None]
+):
+    _report_queue: Queue[StatusReport] = Queue()
+    _status_collector = OTAClientStatusCollector(_report_queue)
+    _collector_thread = _status_collector.start()
+
+    try:
+        yield _status_collector, _report_queue
+    finally:
+        _report_queue.put_nowait(TERMINATE_SENTINEL)
+        _collector_thread.join()

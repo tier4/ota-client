@@ -13,17 +13,26 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import logging
 import shutil
 import time
 import typing
 from pathlib import Path
+from queue import Queue
 
 import pytest
 from pytest_mock import MockerFixture
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import ota_core
+from otaclient._status_monitor import (
+    OTAClientStatusCollector,
+    OTAStatusChangeReport,
+    StatusReport,
+)
+from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import common, rebuild_mode
@@ -44,6 +53,8 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
     NOTE: the boot_control is mocked, only testing
           create_standby and the logics directly implemented by OTAUpdater
     """
+
+    SESSION_ID = "session_id"
 
     @pytest.fixture
     def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
@@ -88,7 +99,13 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         mocker.patch(f"{REBUILD_MODE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
         mocker.patch(f"{REBUILD_MODE_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
 
-    def test_update_with_rebuild_mode(self, mocker: MockerFixture):
+    def test_update_with_rebuild_mode(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: MockerFixture,
+    ):
+        status_collector, status_report_queue = ota_status_collector
+
         # ------ execution ------ #
         otaclient_control_flags = typing.cast(
             OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
@@ -107,31 +124,35 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
             boot_controller=self._boot_control,
             create_standby_cls=RebuildMode,
             control_flags=otaclient_control_flags,
+            status_report_queue=status_report_queue,
+            session_id=self.SESSION_ID,
         )
         _updater._process_persistents = persist_handler = mocker.MagicMock()
-        # NOTE: mock the shutdown method as we need to assert before the
-        #       updater is closed.
-        _updater_shutdown = _updater.shutdown
-        _updater.shutdown = mocker.MagicMock()
 
+        # update OTA status to update and assign session_id before execution
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=self.SESSION_ID,
+            )
+        )
         _updater.execute()
         time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
         persist_handler.assert_called_once()
-        # --- assert update finished
-        _updater.shutdown.assert_called_once()
-        otaclient_control_flags._can_reboot.is_set.assert_called_once()  # type: ignore
+
+        otaclient_control_flags._can_reboot.is_set.assert_called_once()
         # --- ensure the update stats are collected
-        collector = _updater._update_stats_collector
-        assert collector.processed_files_num
-        assert collector.processed_files_size
-        assert collector.downloaded_files_num
-        assert collector.downloaded_files_size
-        assert collector.download_elapsed_time
-        assert collector.delta_calculation_elapsed_time
-        assert collector.total_elapsed_time
-        assert collector.apply_update_elapsed_time
+        collected_status = status_collector.otaclient_status
+        assert collected_status
+        assert (_update_progress := collected_status.update_progress)
+        assert _update_progress.processed_files_num
+        assert _update_progress.processed_files_size
+        assert _update_progress.downloaded_files_num
+        assert _update_progress.downloaded_files_size
 
         # --- check slot creating result, ensure slot_a and slot_b is the same --- #
         # NOTE: merge contents from slot_b_boot_dir to slot_b
@@ -151,6 +172,3 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         shutil.rmtree(self.slot_b / "opt/ota", ignore_errors=True)
         # --- check standby slot, ensure it is correctly populated
         compare_dir(Path(cfg.OTA_IMAGE_DIR) / "data", self.slot_b)
-
-        # ------ finally close the updater ------ #
-        _updater_shutdown()

@@ -45,7 +45,9 @@ import time
 from itertools import chain
 from typing import Dict, Iterable, Optional, Set, TypeVar
 
+from otaclient._types import OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.grpc.api_v2.types import convert_to_apiv2_status
 from otaclient_api.v2 import types as api_types
 
 logger = logging.getLogger(__name__)
@@ -300,13 +302,13 @@ class ECUStatusStorage:
                 self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
                 self._all_ecus_status_v2.pop(ecu_id, None)
 
-    async def update_from_local_ecu(self, ecu_status: api_types.StatusResponseEcuV2):
+    async def update_from_local_ecu(self, local_status: OTAClientStatus):
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
         async with self._writer_lock:
             self.storage_last_updated_timestamp = cur_timestamp = int(time.time())
 
-            ecu_id = ecu_status.ecu_id
-            self._all_ecus_status_v2[ecu_id] = ecu_status
+            ecu_id = self.my_ecu_id
+            self._all_ecus_status_v2[ecu_id] = convert_to_apiv2_status(local_status)
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
     async def on_ecus_accept_update_request(self, ecus_accept_update: Set[str]):

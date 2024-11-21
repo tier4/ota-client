@@ -23,7 +23,10 @@ import pytest
 import pytest_mock
 from pytest_mock import MockerFixture
 
+from otaclient import __version__
+from otaclient import _types as _internal_types
 from otaclient.configs import DefaultOTAClientConfigs
+from otaclient.configs._ecu_info import ECUInfo
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from tests.utils import compare_message
@@ -38,7 +41,7 @@ class TestECUStatusStorage:
     SAFE_INTERVAL_FOR_PROPERTY_UPDATE = 2
 
     @pytest.fixture(autouse=True)
-    async def setup_test(self, mocker: MockerFixture, ecu_info_fixture):
+    async def setup_test(self, mocker: MockerFixture, ecu_info_fixture: ECUInfo):
         # ------ load test ecu_info.yaml ------ #
         self.ecu_info = ecu_info = ecu_info_fixture
 
@@ -65,11 +68,10 @@ class TestECUStatusStorage:
             # case 1
             (
                 # local ECU's status report
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.SUCCESS,
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.SUCCESS,
                     firmware_version="123.x",
-                    failure_type=api_types.FailureType.NO_FAILURE,
+                    failure_type=_internal_types.FailureType.NO_FAILURE,
                 ),
                 # sub ECU's status report
                 [
@@ -134,6 +136,7 @@ class TestECUStatusStorage:
                             ota_status=api_types.StatusOta.SUCCESS,
                             failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
+                            otaclient_version=__version__,
                         ),
                         api_types.StatusResponseEcuV2(
                             ecu_id="p1",
@@ -147,22 +150,24 @@ class TestECUStatusStorage:
             # case 2
             (
                 # local ecu status report
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.UPDATING,
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.UPDATING,
                     firmware_version="123.x",
-                    failure_type=api_types.FailureType.NO_FAILURE,
-                    update_status=api_types.UpdateStatus(
+                    failure_type=_internal_types.FailureType.NO_FAILURE,
+                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                    update_meta=_internal_types.UpdateMeta(
                         update_firmware_version="789.x",
-                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
-                        total_elapsed_time=api_types.Duration(seconds=123),
-                        total_files_num=123456,
-                        processed_files_num=123,
-                        processed_files_size=456,
-                        downloaded_bytes=789,
+                        image_file_entries=123456,
+                        image_size_uncompressed=123456,
+                    ),
+                    update_progress=_internal_types.UpdateProgress(
                         downloaded_files_num=100,
                         downloaded_files_size=400,
+                        downloaded_bytes=789,
+                        processed_files_num=123,
+                        processed_files_size=456,
                     ),
+                    update_timing=_internal_types.UpdateTiming(),
                 ),
                 # sub ECUs' status report
                 [
@@ -215,16 +220,18 @@ class TestECUStatusStorage:
                             status=api_types.Status(
                                 status=api_types.StatusOta.UPDATING,
                                 version="123.x",
+                                # NOTE: also see convert_to_v1_StatusProgress for more details.
                                 progress=api_types.StatusProgress(
                                     phase=api_types.StatusProgressPhase.REGULAR,
                                     total_regular_files=123456,
+                                    total_regular_file_size=123456,
+                                    files_processed_copy=23,
                                     files_processed_download=100,
                                     file_size_processed_download=400,
-                                    files_processed_copy=23,
+                                    # NOTE: processed_files_size(456) - downloaded_files_size(400)
                                     file_size_processed_copy=56,
                                     download_bytes=789,
                                     regular_files_processed=123,
-                                    total_elapsed_time=api_types.Duration(seconds=123),
                                 ),
                             ),
                         ),
@@ -259,14 +266,15 @@ class TestECUStatusStorage:
                     ecu_v2=[
                         api_types.StatusResponseEcuV2(
                             ecu_id="autoware",
+                            otaclient_version=__version__,
                             ota_status=api_types.StatusOta.UPDATING,
                             failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
                             update_status=api_types.UpdateStatus(
                                 update_firmware_version="789.x",
                                 phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
-                                total_elapsed_time=api_types.Duration(seconds=123),
                                 total_files_num=123456,
+                                total_files_size_uncompressed=123456,
                                 processed_files_num=123,
                                 processed_files_size=456,
                                 downloaded_bytes=789,
@@ -298,7 +306,7 @@ class TestECUStatusStorage:
     )
     async def test_export(
         self,
-        local_ecu_status: api_types.StatusResponseEcuV2,
+        local_ecu_status: _internal_types.OTAClientStatus,
         sub_ecus_status: list[api_types.StatusResponse],
         expected: api_types.StatusResponse,
     ):
@@ -306,6 +314,10 @@ class TestECUStatusStorage:
         await self.ecu_storage.update_from_local_ecu(local_ecu_status)
         for ecu_status_report in sub_ecus_status:
             await self.ecu_storage.update_from_child_ecu(ecu_status_report)
+
+        await asyncio.sleep(
+            self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE
+        )  # wait for status report generation  # wait for status updated
 
         # --- execution --- #
         exported = await self.ecu_storage.export()
@@ -319,12 +331,9 @@ class TestECUStatusStorage:
             # case 1:
             (
                 # local ECU status: UPDATING, requires network
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.UPDATING,
-                    update_status=api_types.UpdateStatus(
-                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES
-                    ),
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.UPDATING,
+                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
                 ),
                 # sub ECUs status
                 [
@@ -367,9 +376,8 @@ class TestECUStatusStorage:
             # case 2:
             (
                 # local ECU status: SUCCESS
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.SUCCESS,
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.SUCCESS
                 ),
                 # sub ECUs status
                 [
@@ -414,7 +422,7 @@ class TestECUStatusStorage:
     )
     async def test_overall_ecu_status_report_generation(
         self,
-        local_ecu_status: api_types.StatusResponseEcuV2,
+        local_ecu_status: _internal_types.OTAClientStatus,
         sub_ecus_status: list[api_types.StatusResponse],
         properties_dict: dict[str, Any],
     ):
@@ -440,9 +448,8 @@ class TestECUStatusStorage:
             #   based on the status change of ECUs that accept update request.
             (
                 # local ECU status: FAILED
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.FAILURE,
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.FAILURE
                 ),
                 # sub ECUs status
                 [
@@ -491,12 +498,9 @@ class TestECUStatusStorage:
             #   based on the status change of ECUs that accept update request.
             (
                 # local ECU status: UPDATING
-                api_types.StatusResponseEcuV2(
-                    ecu_id="autoware",
-                    ota_status=api_types.StatusOta.UPDATING,
-                    update_status=api_types.UpdateStatus(
-                        phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
-                    ),
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.UPDATING,
+                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
                 ),
                 # sub ECUs status
                 [
@@ -539,7 +543,7 @@ class TestECUStatusStorage:
     )
     async def test_on_receive_update_request(
         self,
-        local_ecu_status: api_types.StatusResponseEcuV2,
+        local_ecu_status: _internal_types.OTAClientStatus,
         sub_ecus_status: list[api_types.StatusResponse],
         ecus_accept_update_request: list[str],
         properties_dict: dict[str, Any],

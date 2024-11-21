@@ -33,6 +33,7 @@ class TestMain:
     @pytest.fixture(autouse=True)
     def patch_main(self, mocker: MockerFixture, tmp_path: Path):
         mocker.patch(f"{MAIN_MODULE}.launch_otaclient_grpc_server")
+        mocker.patch("otaclient._logging.configure_logging")
 
         self._sys_exit_mocker = mocker.MagicMock(side_effect=ValueError)
         mocker.patch(f"{UTILS_MODULE}.sys.exit", self._sys_exit_mocker)

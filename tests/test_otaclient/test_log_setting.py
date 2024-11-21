@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import logging
 
-from otaclient import log_setting
+from otaclient import _logging
 
-MODULE = log_setting.__name__
+MODULE = _logging.__name__
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +27,7 @@ def test_server_logger():
     test_log_msg = "emit one logging entry"
 
     # ------ setup test ------ #
-    _handler = log_setting._LogTeeHandler()
+    _handler = _logging._LogTeeHandler()
     logger.addHandler(_handler)
 
     # ------ execution ------ #
