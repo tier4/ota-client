@@ -179,7 +179,7 @@ _UNRECOVERABLE_DEFAULT_DESC = (
 
 
 class OTAErrorUnrecoverable(OTAError):
-    failure_type = FailureType.RECOVERABLE
+    failure_type = FailureType.UNRECOVERABLE
     failure_errcode = OTAErrorCode.E_OTA_ERR_UNRECOVERABLE
     failure_description = _UNRECOVERABLE_DEFAULT_DESC
 
