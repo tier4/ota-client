@@ -598,6 +598,7 @@ class _OTARollbacker:
         try:
             self._boot_controller.pre_rollback()
             self._boot_controller.post_rollback()
+            self._boot_controller.finalizing_rollback()
         except ota_errors.OTAError as e:
             logger.error(f"rollback failed: {e!r}")
             self._boot_controller.on_operation_failure()
