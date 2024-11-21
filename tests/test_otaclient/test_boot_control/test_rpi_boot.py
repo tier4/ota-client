@@ -19,6 +19,7 @@ import shutil
 import typing
 from pathlib import Path
 from string import Template
+from typing import Any
 
 import pytest
 import pytest_mock
@@ -262,10 +263,10 @@ class TestRPIBootControl:
         mocker.patch(f"{MODULE}.cfg", _mock_otaclient_cfg)
 
         # ------ boot_controller_inst1.stage1: init ------ #
-        rpi_boot_controller1 = RPIBootController()
+        rpi_boot_controller = RPIBootController()
 
         # ------ boot_controller_inst1.stage2: pre_update ------ #
-        rpi_boot_controller1.pre_update(
+        rpi_boot_controller.pre_update(
             version=VERSION,
             standby_as_ref=False,
             erase_standby=False,
@@ -299,9 +300,9 @@ class TestRPIBootControl:
         shutil.copy(os.path.realpath(_initrd_img), self.slot_b_boot_dir)
 
         # ------ boot_controller_inst1.stage3: post_update, reboot switch boot ------ #
-        _post_updater = rpi_boot_controller1.post_update()
-        next(_post_updater)
-        next(_post_updater, None)  # actual reboot here
+        rpi_boot_controller: Any  # for typing only
+        rpi_boot_controller.post_update()
+        rpi_boot_controller.finalizing_update()
 
         # --- assertion --- #
         self.reboot_tryboot_mock.assert_called_once()

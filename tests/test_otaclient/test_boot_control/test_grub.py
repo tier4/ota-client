@@ -20,6 +20,7 @@ import os
 import shutil
 import typing
 from pathlib import Path
+from typing import Any
 
 import pytest
 import pytest_mock
@@ -368,10 +369,12 @@ class TestGrubControl:
         shutil.copy(slot_a_ota_partition_dir / _initrd, slot_b / "boot")
 
         logger.info("pre-update completed, entering post-update...")
+
         # test post-update
-        _post_updater = grub_controller.post_update()
-        next(_post_updater)
-        next(_post_updater, None)
+        grub_controller: Any  # for typing
+        grub_controller.post_update()
+        grub_controller.finalizing_update()
+
         assert (
             slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
         ).read_text().strip() == self.FSTAB_UPDATED.strip()
