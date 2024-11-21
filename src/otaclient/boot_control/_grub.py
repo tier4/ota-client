@@ -40,7 +40,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 from subprocess import CalledProcessError
-from typing import ClassVar, Dict, Generator, List, Optional, Tuple
+from typing import ClassVar, Dict, List, NoReturn, Optional, Tuple
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
@@ -895,7 +895,7 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> Generator[None, None, None]:
+    def post_update(self) -> None:
         try:
             logger.info("grub_boot: post-update setup...")
             # ------ update fstab ------ #
@@ -916,11 +916,18 @@ class GrubController(BootControllerProtocol):
             # ------ pre-reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
             self._boot_control.grub_reboot_to_standby()
-
-            yield  # hand over control to otaclient
-            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.BootControlPostUpdateFailed(
+                _err_msg, module=__name__
+            ) from e
+
+    def finalizing_update(self) -> NoReturn:
+        try:
+            cmdhelper.reboot()
+        except Exception as e:
+            _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostUpdateFailed(
                 _err_msg, module=__name__
@@ -944,10 +951,11 @@ class GrubController(BootControllerProtocol):
             logger.info("grub_boot: post-rollback setup...")
             self._boot_control.grub_reboot_to_standby()
             self._mp_control.umount_all(ignore_error=True)
-            cmdhelper.reboot()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+    finalizing_rollback = finalizing_update

@@ -548,9 +548,7 @@ class _OTAUpdater:
         )
         # NOTE(20240219): move persist file handling here
         self._process_persistents(otameta)
-
-        # boot controller postupdate
-        next(_postupdate_gen := self._boot_controller.post_update())
+        self._boot_controller.post_update()
 
         # ------ finalizing update ------ #
         logger.info("local update finished, wait on all subecs...")
@@ -571,7 +569,7 @@ class _OTAUpdater:
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
-        next(_postupdate_gen, None)  # reboot
+        self._boot_controller.finalizing_update()
 
     # API
 
@@ -600,6 +598,7 @@ class _OTARollbacker:
         try:
             self._boot_controller.pre_rollback()
             self._boot_controller.post_rollback()
+            self._boot_controller.finalizing_rollback()
         except ota_errors.OTAError as e:
             logger.error(f"rollback failed: {e!r}")
             self._boot_controller.on_operation_failure()
