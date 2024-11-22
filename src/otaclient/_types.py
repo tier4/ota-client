@@ -136,14 +136,17 @@ class ReqHandleRes(StrEnum):
 
 
 @dataclass
-class ReqResponse:
+class IPCResponse:
     res: ReqHandleRes
     session_id: str
     msg: str = ""
 
 
+class IPCRequest: ...
+
+
 @dataclass
-class UpdateRequestV2:
+class UpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
     version: str
@@ -152,7 +155,7 @@ class UpdateRequestV2:
     session_id: str
 
 
-class RollbackRequestV2:
+class RollbackRequestV2(IPCRequest):
     """Compatbile with OTA API version 2."""
 
     session_id: str

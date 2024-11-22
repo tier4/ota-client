@@ -18,21 +18,31 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
+import multiprocessing.queues as mp_queue
+import multiprocessing.synchronize as mp_sync
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from queue import Empty
 from typing import Dict
 
+from otaclient._types import (
+    IPCRequest,
+    IPCResEnum,
+    IPCResponse,
+    RollbackRequestV2,
+    UpdateRequestV2,
+)
+from otaclient._utils import gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient.grpc.api_v2.types import convert_from_apiv2_update_request
-from otaclient.ota_core import OTAClient, OTAClientControlFlags
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
+
+WAIT_FOR_ACK_TIMEOUT = 6  # seconds
 
 
 class OTAClientAPIServicer:
@@ -45,10 +55,10 @@ class OTAClientAPIServicer:
 
     def __init__(
         self,
-        otaclient_inst: OTAClient,
         ecu_status_storage: ECUStatusStorage,
+        ipc_queue: mp_queue.Queue[IPCRequest | IPCResponse],
         *,
-        control_flag: OTAClientControlFlags,
+        control_flag: mp_sync.Event,
         executor: ThreadPoolExecutor,
     ):
         self._executor = executor
@@ -61,8 +71,8 @@ class OTAClientAPIServicer:
         self.listen_port = cfg.OTA_API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        self._otaclient_control_flags = control_flag
-        self._otaclient_inst = otaclient_inst
+        self._otaclient_control_flag = control_flag
+        self._ipc_queue = ipc_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -77,70 +87,73 @@ class OTAClientAPIServicer:
                 executor=executor,
                 subprocess_ctx=OTAProxyContext(),
             )
-            asyncio.create_task(self._otaproxy_lifecycle_managing())
-            asyncio.create_task(self._otaclient_control_flags_managing())
+            asyncio.create_task(self._otaclient_control_flag_managing())
         else:
             # if otaproxy is not enabled, no dependency relationship will be formed,
             # always allow local otaclient to reboot
-            self._otaclient_control_flags.set_can_reboot_flag()
+            self._otaclient_control_flag.set()
 
     # internal
 
-    async def _otaproxy_lifecycle_managing(self):
-        """Task entry for managing otaproxy's launching/shutdown.
-
-        NOTE: cache_dir cleanup is handled here, when all ECUs are in SUCCESS ota_status,
-              cache_dir will be removed.
-        """
-        otaproxy_last_launched_timestamp = 0
-        while not self._debug_status_checking_shutdown_event.is_set():
-            cur_timestamp = int(time.time())
-            any_requires_network = self._ecu_status_storage.any_requires_network
-            if self._otaproxy_launcher.is_running:
-                # NOTE: do not shutdown otaproxy too quick after it just starts!
-                #       If otaproxy just starts less than <OTAPROXY_SHUTDOWN_DELAY> seconds,
-                #       skip the shutdown this time.
-                if (
-                    not any_requires_network
-                    and cur_timestamp
-                    > otaproxy_last_launched_timestamp + self.OTAPROXY_SHUTDOWN_DELAY
-                ):
-                    await self._otaproxy_launcher.stop()
-                    otaproxy_last_launched_timestamp = 0
-            else:  # otaproxy is not running
-                if any_requires_network:
-                    await self._otaproxy_launcher.start(init_cache=False)
-                    otaproxy_last_launched_timestamp = cur_timestamp
-                # when otaproxy is not running and any_requires_network is False,
-                # cleanup the cache dir when all ECUs are in SUCCESS ota_status
-                elif self._ecu_status_storage.all_success:
-                    self._otaproxy_launcher.cleanup_cache_dir()
-            await self._polling_waiter()
-
-    async def _otaclient_control_flags_managing(self):
+    async def _otaclient_control_flag_managing(self):
         """Task entry for set/clear otaclient control flags.
 
         Prevent self ECU from rebooting when their is at least one ECU
         under UPDATING ota_status.
         """
         while not self._debug_status_checking_shutdown_event.is_set():
-            _can_reboot = self._otaclient_control_flags.is_can_reboot_flag_set()
+            _can_reboot = self._otaclient_control_flag.is_set()
             if not self._ecu_status_storage.in_update_child_ecus_id:
                 if not _can_reboot:
                     logger.info(
                         "local otaclient can reboot as no child ECU is in UPDATING ota_status"
                     )
-                self._otaclient_control_flags.set_can_reboot_flag()
+                self._otaclient_control_flag.set()
             else:
                 if _can_reboot:
                     logger.info(
                         f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_child_ecus_id}"
                         " are in UPDATING ota_status"
                     )
-                self._otaclient_control_flags.clear_can_reboot_flag()
+                self._otaclient_control_flag.clear()
             await self._polling_waiter()
 
-    # API stub
+    # API servicer
+
+    def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
+        self._ipc_queue.put_nowait(request)
+        try:
+            _req_response = self._ipc_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            assert isinstance(_req_response, IPCResponse), "unexpected msg"
+            assert (
+                _req_response.session_id == request.session_id
+            ), "mismatched session_id"
+
+            if _req_response.res == IPCResEnum.ACCEPT:
+                return api_types.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            else:
+                logger.error(
+                    f"local otaclient doesn't accept upate request: {_req_response.msg}"
+                )
+                return api_types.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
+        except AssertionError as e:
+            logger.error(f"local otaclient response with unexpected msg: {e!r}")
+            return api_types.UpdateResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+            )
+        except Exception as e:  # failed to get ACK from otaclient within timeout
+            logger.error(f"local otaclient failed to ACK request: {e!r}")
+            return api_types.UpdateResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
 
     async def update(
         self, request: api_types.UpdateRequest
@@ -190,35 +203,19 @@ class OTAClientAPIServicer:
 
         # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            if not self._otaclient_inst.started:
-                logger.error("otaclient is not running, abort")
-                response.add_ecu(
-                    api_types.UpdateResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.UNRECOVERABLE,
-                    )
+            new_session_id = gen_session_id(update_req_ecu.version)
+            _resp = self._local_update(
+                UpdateRequestV2(
+                    version=update_req_ecu.version,
+                    url_base=update_req_ecu.url,
+                    cookies_json=update_req_ecu.cookies,
+                    session_id=new_session_id,
                 )
-            elif self._otaclient_inst.is_busy:
-                response.add_ecu(
-                    api_types.UpdateResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.RECOVERABLE,
-                    )
-                )
-            else:
-                self._run_in_executor(
-                    self._otaclient_inst.update,
-                    convert_from_apiv2_update_request(update_req_ecu),
-                ).add_done_callback(
-                    lambda _: logger.info("update execution thread finished")
-                )
+            )
+
+            if _resp.result == api_types.FailureType.NO_FAILURE:
                 update_acked_ecus.add(self.my_ecu_id)
-                response.add_ecu(
-                    api_types.UpdateResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.NO_FAILURE,
-                    )
-                )
+            response.add_ecu(_resp)
 
         # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
@@ -229,6 +226,45 @@ class OTAClientAPIServicer:
                 )
             )
         return response
+
+    def _local_rollback(
+        self, rollback_request: RollbackRequestV2
+    ) -> api_types.RollbackResponseEcu:
+        self._ipc_queue.put_nowait(rollback_request)
+        try:
+            _req_response = self._ipc_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            assert isinstance(
+                _req_response, IPCResponse
+            ), f"unexpected response: {type(_req_response)}"
+            assert (
+                _req_response.session_id == rollback_request.session_id
+            ), "mismatched session_id"
+
+            if _req_response.res == IPCResEnum.ACCEPT:
+                return api_types.RollbackResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            else:
+                logger.error(
+                    f"local otaclient doesn't accept upate request: {_req_response.msg}"
+                )
+                return api_types.RollbackResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
+        except AssertionError as e:
+            logger.error(f"local otaclient response with unexpected msg: {e!r}")
+            return api_types.RollbackResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+            )
+        except Exception as e:  # failed to get ACK from otaclient within timeout
+            logger.error(f"local otaclient failed to ACK request: {e!r}")
+            return api_types.RollbackResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
 
     async def rollback(
         self, request: api_types.RollbackRequest
@@ -276,31 +312,10 @@ class OTAClientAPIServicer:
 
         # second: dispatch rollback request to local if required
         if request.find_ecu(self.my_ecu_id):
-            if not self._otaclient_inst.started:
-                logger.error("otaclient is not running, abort")
-                response.add_ecu(
-                    api_types.RollbackResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.UNRECOVERABLE,
-                    )
-                )
-            elif self._otaclient_inst.is_busy:
-                response.add_ecu(
-                    api_types.RollbackResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.RECOVERABLE,
-                    )
-                )
-            else:
-                self._run_in_executor(self._otaclient_inst.rollback).add_done_callback(
-                    lambda _: logger.info("rollback execution thread finished")
-                )
-                response.add_ecu(
-                    api_types.RollbackResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.NO_FAILURE,
-                    )
-                )
+            new_session_id = gen_session_id("__rollback")
+            response.add_ecu(
+                self._local_rollback(RollbackRequestV2(session_id=new_session_id))
+            )
         return response
 
     async def status(self, _=None) -> api_types.StatusResponse:
