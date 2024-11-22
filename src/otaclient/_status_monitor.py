@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import logging
 import queue
 import time
@@ -34,11 +35,13 @@ from otaclient._types import (
     UpdateProgress,
     UpdateTiming,
 )
+from otaclient._utils import SharedOTAClientStatusWriter
 
 logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
 _status_report_queue: queue.Queue | None = None
+_shm_status: SharedOTAClientStatusWriter | None = None
 
 
 def _global_shutdown():
@@ -47,6 +50,9 @@ def _global_shutdown():
 
     if _status_report_queue:
         _status_report_queue.put_nowait(TERMINATE_SENTINEL)
+
+    if _shm_status:
+        _shm_status.atexit(unlink=True)
 
 
 atexit.register(_global_shutdown)
@@ -220,6 +226,7 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 #
 
 TERMINATE_SENTINEL = cast(StatusReport, object())
+SHM_PUSH_INTERVAL = 1
 
 
 class OTAClientStatusCollector:
@@ -227,17 +234,26 @@ class OTAClientStatusCollector:
     def __init__(
         self,
         msg_queue: queue.Queue[StatusReport],
+        shm_status: SharedOTAClientStatusWriter,
         *,
         min_collect_interval: int = 1,
-        min_push_interval: int = 1,
+        shm_push_interval: int = SHM_PUSH_INTERVAL,
     ) -> None:
         self.min_collect_interval = min_collect_interval
-        self.min_push_interval = min_push_interval
+        self.shm_push_interval = shm_push_interval
 
         self._input_queue = msg_queue
         self._status = None
+        self._shm_status = shm_status
+        self._next_shm_push = 0
 
-    def load_report(self, report: StatusReport):
+        # register the shm_status to global for cleanup atexit
+        global _shm_status
+        _shm_status = shm_status
+
+    def load_report(self, report: StatusReport) -> None:
+        _now = int(time.time())
+
         if self._status is None:
             self._status = OTAClientStatus()
         status_storage = self._status
@@ -268,6 +284,12 @@ class OTAClientStatusCollector:
             return _on_update_progress(status_storage, payload)
         if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
+
+        # ------ push status to shm ------ #
+        if _now > self._next_shm_push:
+            with contextlib.suppress(Exception):
+                self._shm_status.write_msg(self._status)
+                self._next_shm_push = _now + self.shm_push_interval
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
