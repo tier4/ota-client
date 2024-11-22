@@ -19,7 +19,6 @@ import errno
 import json
 import logging
 import multiprocessing.synchronize as mp_sync
-import os
 import threading
 import time
 from concurrent.futures import Future
@@ -50,7 +49,13 @@ from otaclient._status_monitor import (
     StatusReport,
     UpdateProgressReport,
 )
-from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
+from otaclient._types import (
+    FailureType,
+    OTAStatus,
+    RollbackRequestV2,
+    UpdatePhase,
+    UpdateRequestV2,
+)
 from otaclient._utils import get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info
@@ -664,17 +669,6 @@ class OTAClient:
         self.started = True
         logger.info("otaclient started")
 
-    def _gen_session_id(self, update_version: str = "") -> str:
-        """Generate a unique session_id for the new OTA session.
-
-        token schema:
-            <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
-        """
-        _time_factor = str(int(time.time()))
-        _random_factor = os.urandom(4).hex()
-
-        return f"{update_version}-{_time_factor}-{_random_factor}"
-
     def _on_failure(
         self,
         exc: Exception,
@@ -720,7 +714,7 @@ class OTAClient:
         if self.is_busy:
             return
 
-        new_session_id = self._gen_session_id(request.version)
+        new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -761,11 +755,11 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
-    def rollback(self) -> None:
+    def rollback(self, request: RollbackRequestV2) -> None:
         if self.is_busy:
             return
 
-        new_session_id = self._gen_session_id("___rollback")
+        new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
