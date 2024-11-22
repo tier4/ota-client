@@ -127,7 +127,7 @@ class OTAClientStatus:
 #
 
 
-class ReqHandleRes(StrEnum):
+class IPCResEnum(StrEnum):
     ACCEPT = "ACCEPT"
     REJECT_BUSY = "REJECT_BUSY"
     """The request has been rejected due to otaclient is busy."""
@@ -137,7 +137,7 @@ class ReqHandleRes(StrEnum):
 
 @dataclass
 class IPCResponse:
-    res: ReqHandleRes
+    res: IPCResEnum
     session_id: str
     msg: str = ""
 
@@ -155,6 +155,7 @@ class UpdateRequestV2(IPCRequest):
     session_id: str
 
 
+@dataclass
 class RollbackRequestV2(IPCRequest):
     """Compatbile with OTA API version 2."""
 
