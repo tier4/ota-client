@@ -43,16 +43,18 @@ import asyncio
 import logging
 import time
 from itertools import chain
-from typing import Dict, Iterable, Optional, Set, TypeVar
+from typing import TYPE_CHECKING, Dict, Iterable, Optional
 
 from otaclient._types import OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.types import convert_to_apiv2_status
 from otaclient_api.v2 import types as api_types
+from otaclient_common.typing import T
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
+if TYPE_CHECKING:
+    import multiprocessing.synchronize as mp_sync
 
 # NOTE(20230522):
 #   ECU will be treated as disconnected if we cannot get in touch with it
@@ -83,7 +85,12 @@ class _OrderedSet(Dict[T, None]):
 
 class ECUStatusStorage:
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        all_ecus_succeeded: mp_sync.Event,
+        any_requires_network: mp_sync.Event,
+    ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
         # ECU status storage
@@ -127,10 +134,12 @@ class ECUStatusStorage:
 
         self.in_update_ecus_id = set()
         self.in_update_child_ecus_id = set()
-        self.any_requires_network = False
 
         self.success_ecus_id = set()
-        self.all_success = False
+
+        # exposed external events
+        self.any_requires_network: mp_sync.Event = any_requires_network
+        self.all_success: mp_sync.Event = all_ecus_succeeded
 
         # property update task
         # NOTE: _debug_properties_update_shutdown_event is for test only,
@@ -213,7 +222,7 @@ class ECUStatusStorage:
             )
 
         # check if any ECUs in the tracked tracked active ECUs set require network
-        self.any_requires_network = any(
+        if any(
             (
                 status.requires_network
                 for status in chain(
@@ -222,7 +231,10 @@ class ECUStatusStorage:
                 if status.ecu_id in self._tracked_active_ecus
                 and status.ecu_id not in lost_ecus
             )
-        )
+        ):
+            self.any_requires_network.set()
+        else:
+            self.any_requires_network.clear()
 
         # check if all tracked active_ota_ecus are in SUCCESS ota_status
         _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
@@ -236,7 +248,11 @@ class ECUStatusStorage:
             and status.ecu_id not in lost_ecus
         }
         # NOTE: all_success doesn't count the lost ECUs
-        self.all_success = len(self.success_ecus_id) == len(self._tracked_active_ecus)
+        if len(self.success_ecus_id) == len(self._tracked_active_ecus):
+            self.all_success.set()
+        else:
+            self.all_success.clear()
+
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
             if not _old_all_success and self.all_success:
@@ -311,7 +327,7 @@ class ECUStatusStorage:
             self._all_ecus_status_v2[ecu_id] = convert_to_apiv2_status(local_status)
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
-    async def on_ecus_accept_update_request(self, ecus_accept_update: Set[str]):
+    async def on_ecus_accept_update_request(self, ecus_accept_update: set[str]):
         """Update overall ECU status report directly on ECU(s) accept OTA update request.
 
         for the ECUs that accepts OTA update request, we:
@@ -335,8 +351,8 @@ class ECUStatusStorage:
             self.in_update_ecus_id.update(ecus_accept_update)
             self.in_update_child_ecus_id = self.in_update_ecus_id - {self.my_ecu_id}
 
-            self.any_requires_network = True
-            self.all_success = False
+            self.any_requires_network.set()
+            self.all_success.clear()
             self.success_ecus_id -= ecus_accept_update
 
             self.active_ota_update_present.set()
