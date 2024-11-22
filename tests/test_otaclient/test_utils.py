@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-from otaclient.utils import wait_and_log
+from otaclient._utils import wait_and_log
 
 logger = logging.getLogger(__name__)
 

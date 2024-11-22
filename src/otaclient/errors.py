@@ -20,7 +20,7 @@ from enum import Enum, unique
 from typing import ClassVar
 
 from otaclient._types import FailureType
-from otaclient.utils import get_traceback
+from otaclient._utils import get_traceback
 
 
 @unique

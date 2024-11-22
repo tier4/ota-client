@@ -57,7 +57,7 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
-from otaclient.utils import get_traceback, wait_and_log
+from otaclient._utils import get_traceback, wait_and_log
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,

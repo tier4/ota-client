@@ -85,7 +85,7 @@ async def launch_otaclient_grpc_server():
 def main() -> None:
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import cfg, ecu_info
-    from otaclient.utils import check_other_otaclient, create_otaclient_rundir
+    from otaclient._utils import check_other_otaclient, create_otaclient_rundir
 
     # configure logging before any code being executed
     configure_logging()
