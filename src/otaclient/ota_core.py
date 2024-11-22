@@ -18,6 +18,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import multiprocessing.synchronize as mp_sync
 import os
 import threading
 import time
@@ -50,6 +51,7 @@ from otaclient._status_monitor import (
     UpdateProgressReport,
 )
 from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
+from otaclient._utils import get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.create_standby import (
@@ -57,7 +59,6 @@ from otaclient.create_standby import (
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
-from otaclient._utils import get_traceback, wait_and_log
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -77,30 +78,6 @@ DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
 class OTAClientError(Exception): ...
-
-
-class OTAClientControlFlags:
-    """
-    When self ECU's otaproxy is enabled, all the child ECUs of this ECU
-        and self ECU OTA update will depend on its otaproxy, we need to
-        control when otaclient can start its downloading/reboot with considering
-        whether local otaproxy is started/required.
-    """
-
-    def __init__(self) -> None:
-        self._can_reboot = threading.Event()
-
-    def is_can_reboot_flag_set(self) -> bool:
-        return self._can_reboot.is_set()
-
-    def wait_can_reboot_flag(self):
-        self._can_reboot.wait()
-
-    def set_can_reboot_flag(self):
-        self._can_reboot.set()
-
-    def clear_can_reboot_flag(self):
-        self._can_reboot.clear()
 
 
 def _download_exception_handler(_fut: Future[Any]) -> bool:
@@ -165,7 +142,7 @@ class _OTAUpdater:
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        control_flags: OTAClientControlFlags,
+        control_flag: mp_sync.Event,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
@@ -210,7 +187,7 @@ class _OTAUpdater:
             proxies["http"] = upper_otaproxy
 
         # ------ init updater implementation ------ #
-        self._control_flags = control_flags
+        self._control_flag = control_flag
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
@@ -562,7 +539,7 @@ class _OTAUpdater:
             )
         )
         wait_and_log(
-            flag=self._control_flags._can_reboot,
+            flag=self._control_flag,
             message="permit reboot flag",
             log_func=logger.info,
         )
@@ -611,20 +588,20 @@ class OTAClient:
         boot_controller: boot control instance
         create_standby_cls: type of create standby slot mechanism to use
         my_ecu_id: ECU id of the device running this otaclient instance
-        control_flags: flags used by otaclient and ota_service stub for synchronization
+        control_flag: flags used by otaclient and ota_service stub for synchronization
         proxy: upper otaproxy URL
     """
 
     def __init__(
         self,
         *,
-        control_flags: OTAClientControlFlags,
+        control_flag: mp_sync.Event,
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
-        self.control_flags = control_flags
+        self.control_flag = control_flag
 
         self._status_report_queue = status_report_queue
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -770,7 +747,7 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
-                control_flags=self.control_flags,
+                control_flag=self.control_flag,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
