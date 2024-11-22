@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common.typing import StrEnum
 
@@ -123,6 +122,26 @@ class OTAClientStatus:
     failure_traceback: str = ""
 
 
+#
+# ------ OTA requests IPC ------ #
+#
+
+
+class ReqHandleRes(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT_BUSY = "REJECT_BUSY"
+    """The request has been rejected due to otaclient is busy."""
+    REJECT_OTHER = "REJECT_OTHER"
+    """The request has been rejected for other reason."""
+
+
+@dataclass
+class ReqResponse:
+    res: ReqHandleRes
+    session_id: str
+    msg: str = ""
+
+
 @dataclass
 class UpdateRequestV2:
     """Compatible with OTA API version 2."""
@@ -130,7 +149,10 @@ class UpdateRequestV2:
     version: str
     url_base: str
     cookies_json: str
+    session_id: str
 
 
 class RollbackRequestV2:
     """Compatbile with OTA API version 2."""
+
+    session_id: str
