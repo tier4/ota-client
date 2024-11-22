@@ -145,10 +145,16 @@ def otaproxy_control_thread(
     all_ecus_succeeded: mp_sync.Event,
 ) -> None:  # pragma: no cover
     from ota_proxy.config import config
+    from otaclient._otaproxy_ctx import (
+        otaproxy_running,
+        shutdown_otaproxy_server,
+        start_otaproxy_server,
+    )
 
-    # TODO: use the otaproxy base_dir config from otaclient.configs
     ota_cache_dir = Path(config.BASE_DIR)
     next_ota_cache_dir_checkpoint = 0
+
+    atexit.register(shutdown_otaproxy_server)
 
     while not _global_shutdown:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
@@ -167,7 +173,7 @@ def otaproxy_control_thread(
                     "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
                 )
                 next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
-                shutil.rmtree(ota_cache_dir)
+                shutil.rmtree(ota_cache_dir, ignore_errors=True)
 
         elif _otaproxy_should_run and not _otaproxy_running:
             start_otaproxy_server(init_cache=False)
