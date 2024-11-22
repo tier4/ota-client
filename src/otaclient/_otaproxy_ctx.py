@@ -15,17 +15,13 @@
 
 The API exposed by this module is meant to be controlled by otaproxy managing thread only.
 See otaclient.main.otaproxy_control_thread for more details.
-
-A atexit hook is installed to ensure the otaproxy process is terminated on otaclient shutdown.
 """
 
 
 from __future__ import annotations
 
-import atexit
 import logging
 import multiprocessing.context as mp_ctx
-import shutil
 import sys
 from pathlib import Path
 from typing import Any, Optional, Type
@@ -162,17 +158,6 @@ class OTAProxyContext(OTAProxyContextProto):
         self._umount_external_cache_storage()
 
 
-def cleanup_cache_dir():
-    """Cleanup the OTA cache dir.
-
-    NOTE: this method should only be called when all ECUs in the cluster
-            are in SUCCESS ota_status(overall_ecu_status.all_success==True).
-    """
-    if (cache_dir := Path(local_otaproxy_cfg.BASE_DIR)).is_dir():
-        logger.info("cleanup ota_cache on success")
-        shutil.rmtree(cache_dir, ignore_errors=True)
-
-
 def otaproxy_running() -> bool:
     return _otaproxy_p is not None and _otaproxy_p.is_alive()
 
@@ -218,6 +203,3 @@ def shutdown_otaproxy_server() -> None:
         _otaproxy_p.join()
     _otaproxy_p = None
     logger.info("otaproxy closed")
-
-
-atexit.register(shutdown_otaproxy_server)
