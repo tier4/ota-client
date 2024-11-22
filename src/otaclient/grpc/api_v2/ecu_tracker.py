@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import asyncio
 import logging
 
-from otaclient._status_monitor import OTAClientStatusCollector
+from otaclient._utils import SharedOTAClientStatusReader
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
@@ -34,10 +35,10 @@ class ECUTracker:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        *,
-        local_status_collector: OTAClientStatusCollector,
+        /,
+        local_ecu_status_reader: SharedOTAClientStatusReader,
     ) -> None:
-        self._local_status_collector = local_status_collector
+        self._local_ecu_status_reader = local_ecu_status_reader
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -68,8 +69,8 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            status_report = self._local_status_collector.otaclient_status
-            if status_report:
+            with contextlib.suppress(Exception):
+                status_report = self._local_ecu_status_reader.sync_msg()
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
             await self._polling_waiter()
 
