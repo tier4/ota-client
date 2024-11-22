@@ -98,3 +98,15 @@ class SharedOTAClientStatusWriter(MPSharedStatusWriter[OTAClientStatus]):
 
 class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
     """Util for reading OTAClientStatus from shm."""
+
+
+def gen_session_id(update_version: str) -> str:
+    """Generate a unique session_id for the new OTA session.
+
+    token schema:
+        <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
+    """
+    _time_factor = str(int(time.time()))
+    _random_factor = os.urandom(4).hex()
+
+    return f"{update_version}-{_time_factor}-{_random_factor}"
