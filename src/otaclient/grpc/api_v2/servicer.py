@@ -20,10 +20,6 @@ import asyncio
 import logging
 import multiprocessing.queues as mp_queue
 import multiprocessing.synchronize as mp_sync
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-from queue import Empty
-from typing import Dict
 
 from otaclient._types import (
     IPCRequest,
@@ -35,7 +31,6 @@ from otaclient._types import (
 from otaclient._utils import gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
@@ -59,13 +54,7 @@ class OTAClientAPIServicer:
         ipc_queue: mp_queue.Queue[IPCRequest | IPCResponse],
         *,
         control_flag: mp_sync.Event,
-        executor: ThreadPoolExecutor,
     ):
-        self._executor = executor
-        self._run_in_executor = partial(
-            asyncio.get_running_loop().run_in_executor, executor
-        )
-
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = cfg.OTA_API_SERVER_PORT
@@ -83,10 +72,6 @@ class OTAClientAPIServicer:
         #       In normal running this event will never be set.
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if proxy_info.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(
-                executor=executor,
-                subprocess_ctx=OTAProxyContext(),
-            )
             asyncio.create_task(self._otaclient_control_flag_managing())
         else:
             # if otaproxy is not enabled, no dependency relationship will be formed,
@@ -163,7 +148,7 @@ class OTAClientAPIServicer:
         response = api_types.UpdateResponse()
 
         # first: dispatch update request to all directly connected subECUs
-        tasks: Dict[asyncio.Task, ECUContact] = {}
+        tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
@@ -273,7 +258,7 @@ class OTAClientAPIServicer:
         response = api_types.RollbackResponse()
 
         # first: dispatch rollback request to all directly connected subECUs
-        tasks: Dict[asyncio.Task, ECUContact] = {}
+        tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
