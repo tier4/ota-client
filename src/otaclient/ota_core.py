@@ -18,6 +18,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import multiprocessing.queues as mp_queue
 import multiprocessing.synchronize as mp_sync
 import threading
 import time
@@ -27,8 +28,8 @@ from hashlib import sha256
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from queue import Queue
-from typing import Any, Iterator, Optional, Type
+from queue import Empty, Queue
+from typing import Any, Iterator, NoReturn, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
@@ -51,6 +52,9 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import (
     FailureType,
+    IPCRequest,
+    IPCResEnum,
+    IPCResponse,
     OTAStatus,
     RollbackRequestV2,
     UpdatePhase,
@@ -80,6 +84,9 @@ DEFAULT_STATUS_QUERY_INTERVAL = 1
 WAIT_BEFORE_REBOOT = 6
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
+
+OP_CHECK_INTERVAL = 1  # second
+HOLD_REQ_HANDLING_ON_ACK_REQUEST = 8  # seconds
 
 
 class OTAClientError(Exception): ...
@@ -711,9 +718,6 @@ class OTAClient:
         NOTE that update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if self.is_busy:
-            return
-
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -733,7 +737,6 @@ class OTAClient:
                     module=__name__,
                 )
 
-            self._live_ota_status = OTAStatus.UPDATING
             _OTAUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
@@ -756,9 +759,6 @@ class OTAClient:
             )
 
     def rollback(self, request: RollbackRequestV2) -> None:
-        if self.is_busy:
-            return
-
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -768,17 +768,74 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA rollback session: {new_session_id=}")
 
+        logger.info(f"start new OTA rollback session: {new_session_id=}")
         try:
             logger.info("[rollback] entering...")
             self._live_ota_status = OTAStatus.ROLLBACKING
             _OTARollbacker(boot_controller=self.boot_controller).execute()
         except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
+
+    def main(self, op_queue: mp_queue.Queue[IPCRequest | IPCResponse]) -> NoReturn:
+        """Main loop of ota_core process."""
+        _allow_request_after = 0
+        while True:
+            _now = int(time.time())
+            try:
+                request = op_queue.get(timeout=OP_CHECK_INTERVAL)
+            except Empty:
+                continue
+
+            if _now < _allow_request_after or self.is_busy:
+                _err_msg = (
+                    f"otaclient is busy at {self._live_ota_status} or "
+                    f"request too quickly({_allow_request_after=}), "
+                    f"reject {request}"
+                )
+                logger.warning(_err_msg)
+                op_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_BUSY,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
+            elif isinstance(request, UpdateRequestV2):
+                self._live_ota_status = OTAStatus.UPDATING
+                self.update(request)
+                op_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+            elif (
+                isinstance(request, RollbackRequestV2)
+                and self._live_ota_status == OTAStatus.SUCCESS
+            ):
+                self._live_ota_status = OTAStatus.FAILURE
+                self.rollback(request)
+                op_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+            else:
+                _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
+                logger.error(_err_msg)
+                op_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
