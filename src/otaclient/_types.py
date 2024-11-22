@@ -142,7 +142,9 @@ class IPCResponse:
     msg: str = ""
 
 
-class IPCRequest: ...
+@dataclass
+class IPCRequest:
+    session_id: str
 
 
 @dataclass
@@ -152,11 +154,8 @@ class UpdateRequestV2(IPCRequest):
     version: str
     url_base: str
     cookies_json: str
-    session_id: str
 
 
 @dataclass
 class RollbackRequestV2(IPCRequest):
     """Compatbile with OTA API version 2."""
-
-    session_id: str
