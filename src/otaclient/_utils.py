@@ -26,7 +26,9 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Callable, Protocol
 
+from otaclient._types import OTAClientStatus
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common.shm_status import MPSharedStatusReader, MPSharedStatusWriter
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -88,3 +90,11 @@ def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient"):
 def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:
     """Format the <exc> traceback as string."""
     return splitter.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+
+class SharedOTAClientStatusWriter(MPSharedStatusWriter[OTAClientStatus]):
+    """Util for writing OTAClientStatus to shm."""
+
+
+class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
+    """Util for reading OTAClientStatus from shm."""
