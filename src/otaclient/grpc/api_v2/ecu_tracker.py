@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import contextlib
 import logging
 
@@ -28,6 +29,20 @@ from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
+
+_otaclient_shutdown = False
+_shm_status: SharedOTAClientStatusReader | None = None
+
+
+def _global_shutdown():
+    global _otaclient_shutdown
+    _otaclient_shutdown = True
+
+    if _shm_status:
+        _shm_status.atexit()
+
+
+atexit.register(_global_shutdown)
 
 
 class ECUTracker:
@@ -42,15 +57,12 @@ class ECUTracker:
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
-        # launch ECU trackers for all defined ECUs
-        # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
-        #       allow us to stop background task without changing codes.
-        #       In normal running this event will never be set.
-        self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
+        global _shm_status
+        _shm_status = local_ecu_status_reader
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
-        while not self._debug_ecu_status_polling_shutdown_event.is_set():
+        while not _otaclient_shutdown:
             try:
                 _ecu_resp = await OTAClientCall.status_call(
                     ecu_contact.ecu_id,
@@ -68,7 +80,7 @@ class ECUTracker:
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
-        while not self._debug_ecu_status_polling_shutdown_event.is_set():
+        while not _otaclient_shutdown:
             with contextlib.suppress(Exception):
                 status_report = self._local_ecu_status_reader.sync_msg()
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
