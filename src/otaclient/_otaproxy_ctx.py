@@ -11,30 +11,36 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Control of the launch/shutdown of otaproxy according to sub ECUs' status."""
+"""Control of the otaproxy server startup/shutdown.
+
+The API exposed by this module is meant to be controlled by otaproxy managing thread only.
+See otaclient.main.otaproxy_control_thread for more details.
+
+A atexit hook is installed to ensure the otaproxy process is terminated on otaclient shutdown.
+"""
 
 
 from __future__ import annotations
 
-import asyncio
+import atexit
 import logging
+import multiprocessing.context as mp_ctx
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional, Type
+from typing import Any, Optional, Type
 
 from typing_extensions import Self
 
 from ota_proxy import OTAProxyContextProto, subprocess_otaproxy_launcher
 from ota_proxy import config as local_otaproxy_cfg
-from otaclient import _logging
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common import cmdhelper
 from otaclient_common.common import ensure_otaproxy_start
 
 logger = logging.getLogger(__name__)
+
+_otaproxy_p: mp_ctx.SpawnProcess | None = None
 
 
 class OTAProxyContext(OTAProxyContextProto):
@@ -57,10 +63,8 @@ class OTAProxyContext(OTAProxyContextProto):
         self._external_cache_dev_mp = external_cache_dev_mp
         self._external_cache_data_dir = external_cache_path
 
-        self.logger = logging.getLogger("ota_proxy")
-
     @property
-    def extra_kwargs(self) -> Dict[str, Any]:
+    def extra_kwargs(self) -> dict[str, Any]:
         """Inject kwargs to otaproxy startup entry.
 
         Currently only inject <external_cache> if external cache storage is used.
@@ -74,14 +78,14 @@ class OTAProxyContext(OTAProxyContextProto):
 
     def _subprocess_init(self):
         """Initializing the subprocess before launching it."""
+        from otaclient._logging import configure_logging
+
         # configure logging for otaproxy subprocess
         # NOTE: on otaproxy subprocess, we first set log level of the root logger
         #       to CRITICAL to filter out third_party libs' logging(requests, urllib3, etc.),
         #       and then set the ota_proxy logger to DEFAULT_LOG_LEVEL
-        _logging.configure_logging()
+        configure_logging()
         otaproxy_logger = logging.getLogger("ota_proxy")
-        otaproxy_logger.setLevel(cfg.DEFAULT_LOG_LEVEL)
-        self.logger = otaproxy_logger
 
         # wait for upper otaproxy if any
         if self.upper_proxy:
@@ -104,7 +108,7 @@ class OTAProxyContext(OTAProxyContextProto):
             )
         _cache_dev = _cache_dev[0]
 
-        self.logger.info(f"external cache dev detected at {_cache_dev}")
+        logger.info(f"external cache dev detected at {_cache_dev}")
         self._external_cache_dev = _cache_dev
 
         # try to unmount the mount_point and cache_dev unconditionally
@@ -112,7 +116,6 @@ class OTAProxyContext(OTAProxyContextProto):
         cmdhelper.umount(_cache_dev, raise_exception=False)
         _mp.mkdir(parents=True, exist_ok=True)
 
-        # try to mount cache_dev ro
         try:
             cmdhelper.mount_ro(
                 target=_cache_dev, mount_point=self._external_cache_dev_mp
@@ -142,7 +145,7 @@ class OTAProxyContext(OTAProxyContextProto):
             return self
         except Exception as e:
             # if subprocess init failed, directly let the process exit
-            self.logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
+            logger.error(f"otaproxy subprocess init failed, exit: {e!r}")
             sys.exit(1)
 
     def __exit__(
@@ -153,98 +156,68 @@ class OTAProxyContext(OTAProxyContextProto):
     ) -> Optional[bool]:
         if __exc_type:
             _exc = __exc_value if __exc_value else __exc_type()
-            self.logger.warning(f"exception during otaproxy shutdown: {_exc!r}")
+            logger.warning(f"exception during otaproxy shutdown: {_exc!r}")
         # otaproxy post-shutdown cleanup:
         #   1. umount external cache storage
         self._umount_external_cache_storage()
 
 
-class OTAProxyLauncher:
-    """Launcher of start/stop otaproxy in subprocess."""
+def cleanup_cache_dir():
+    """Cleanup the OTA cache dir.
 
-    def __init__(
-        self, *, executor: ThreadPoolExecutor, subprocess_ctx: OTAProxyContextProto
-    ) -> None:
-        self.enabled = proxy_info.enable_local_ota_proxy
-        self.upper_otaproxy = (
-            str(proxy_info.upper_ota_proxy) if proxy_info.upper_ota_proxy else ""
+    NOTE: this method should only be called when all ECUs in the cluster
+            are in SUCCESS ota_status(overall_ecu_status.all_success==True).
+    """
+    if (cache_dir := Path(local_otaproxy_cfg.BASE_DIR)).is_dir():
+        logger.info("cleanup ota_cache on success")
+        shutil.rmtree(cache_dir, ignore_errors=True)
+
+
+def otaproxy_running() -> bool:
+    return _otaproxy_p is not None and _otaproxy_p.is_alive()
+
+
+def start_otaproxy_server(
+    *, init_cache: bool, enable_external_cache: bool = True
+) -> None:
+    global _otaproxy_p
+    if _otaproxy_p and _otaproxy_p.is_alive():
+        logger.warning("otaproxy is already running, abort")
+        return
+
+    _subprocess_entry = subprocess_otaproxy_launcher(
+        OTAProxyContext(
+            external_cache_enabled=enable_external_cache,
         )
-        self.subprocess_ctx = subprocess_ctx
+    )
+    host, port = (
+        str(proxy_info.local_ota_proxy_listen_addr),
+        proxy_info.local_ota_proxy_listen_port,
+    )
+    upper_proxy = str(proxy_info.upper_ota_proxy or "")
+    logger.info(f"will launch otaproxy at http://{host}:{port}, with {upper_proxy=}")
 
-        self._lock = asyncio.Lock()
-        # process start/shutdown will be dispatched to thread pool
-        self._run_in_executor = partial(
-            asyncio.get_event_loop().run_in_executor, executor
-        )
-        self._otaproxy_subprocess = None
+    _otaproxy_p = _subprocess_entry(
+        host=host,
+        port=port,
+        init_cache=init_cache,
+        cache_dir=local_otaproxy_cfg.BASE_DIR,
+        cache_db_f=local_otaproxy_cfg.DB_FILE,
+        upper_proxy=upper_proxy,
+        enable_cache=proxy_info.enable_local_ota_proxy_cache,
+        enable_https=proxy_info.gateway_otaproxy,
+    )
+    logger.info("otaproxy started")
 
-    @property
-    def is_running(self) -> bool:
-        return (
-            self.enabled
-            and self._otaproxy_subprocess is not None
-            and self._otaproxy_subprocess.is_alive()
-        )
 
-    # API
+def shutdown_otaproxy_server() -> None:
+    global _otaproxy_p
+    if _otaproxy_p and _otaproxy_p.is_alive():
+        logger.info("shuting down otaproxy server process...")
+        _otaproxy_p.terminate()
+        _otaproxy_p.join()
+    _otaproxy_p = None
+    logger.info("otaproxy closed")
 
-    def cleanup_cache_dir(self):
-        """
-        NOTE: this method should only be called when all ECUs in the cluster
-              are in SUCCESS ota_status(overall_ecu_status.all_success==True).
-        """
-        if (cache_dir := Path(local_otaproxy_cfg.BASE_DIR)).is_dir():
-            logger.info("cleanup ota_cache on success")
-            shutil.rmtree(cache_dir, ignore_errors=True)
 
-    async def start(self, *, init_cache: bool) -> Optional[int]:
-        """Start the otaproxy in a subprocess."""
-        if not self.enabled or self._lock.locked() or self.is_running:
-            return
-
-        async with self._lock:
-            # launch otaproxy server process
-            _subprocess_entry = subprocess_otaproxy_launcher(
-                subprocess_ctx=self.subprocess_ctx
-            )
-
-            otaproxy_subprocess = await self._run_in_executor(
-                partial(
-                    _subprocess_entry,
-                    host=str(proxy_info.local_ota_proxy_listen_addr),
-                    port=proxy_info.local_ota_proxy_listen_port,
-                    init_cache=init_cache,
-                    cache_dir=local_otaproxy_cfg.BASE_DIR,
-                    cache_db_f=local_otaproxy_cfg.DB_FILE,
-                    upper_proxy=self.upper_otaproxy,
-                    enable_cache=proxy_info.enable_local_ota_proxy_cache,
-                    enable_https=proxy_info.gateway_otaproxy,
-                )
-            )
-            self._otaproxy_subprocess = otaproxy_subprocess
-            logger.info(
-                f"otaproxy({otaproxy_subprocess.pid=}) started at "
-                f"{proxy_info.local_ota_proxy_listen_addr}:{proxy_info.local_ota_proxy_listen_port}"
-            )
-            return otaproxy_subprocess.pid
-
-    async def stop(self):
-        """Stop the otaproxy subprocess.
-
-        NOTE: This method only shutdown the otaproxy process, it will not cleanup the
-              cache dir. cache dir cleanup is handled by other mechanism.
-              Check cleanup_cache_dir API for more details.
-        """
-        if not self.enabled or self._lock.locked() or not self.is_running:
-            return
-
-        def _shutdown():
-            if self._otaproxy_subprocess and self._otaproxy_subprocess.is_alive():
-                logger.info("shuting down otaproxy server process...")
-                self._otaproxy_subprocess.terminate()
-                self._otaproxy_subprocess.join()
-            self._otaproxy_subprocess = None
-
-        async with self._lock:
-            await self._run_in_executor(_shutdown)
-            logger.info("otaproxy closed")
+atexit.register(shutdown_otaproxy_server)
