@@ -26,26 +26,6 @@ from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
-INIT_TEMPLATE = """\
-# Copyright 2022 TIER IV, INC. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-__version__ = version = "${api_version}"
-__version_tuple__ = version_tuple = tuple(version.split("."))
-
-__all__ = ["version", "__version__", "version_tuple", "__version_tuple__"]
-"""
 OUTPUT_BASE = "src"
 
 
@@ -81,12 +61,6 @@ def _protoc_compile(
     subprocess.check_call(cmd, cwd=work_dir)
 
 
-def _generate__init__(api_version: str, *, output_dir: str | Path):
-    template = string.Template(INIT_TEMPLATE)
-    init_file = Path(output_dir) / "__init__.py"
-    init_file.write_text(template.substitute(api_version=api_version))
-
-
 class CustomBuildHook(BuildHookInterface):
     """
     Configs:
@@ -101,7 +75,6 @@ class CustomBuildHook(BuildHookInterface):
 
             output_package = config["output_package"]
             extra_imports = config.get("extra_imports", [])
-            api_version = config.get("api_version", "0.0.0")
 
             # ------ load consts ------ #
             output_base = OUTPUT_BASE
@@ -127,7 +100,4 @@ class CustomBuildHook(BuildHookInterface):
                 output_base=output_base,
                 output_package=output_package,
                 work_dir=work_dir,
-            )
-            _generate__init__(
-                api_version=api_version, output_dir=Path(output_base) / output_package
             )
