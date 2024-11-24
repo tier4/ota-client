@@ -20,6 +20,8 @@ import json
 import logging
 import multiprocessing.queues as mp_queue
 import multiprocessing.synchronize as mp_sync
+import signal
+import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -29,7 +31,7 @@ from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Any, Iterator, NoReturn, Optional, Type
+from typing import Any, Callable, Iterator, NoReturn, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
@@ -43,6 +45,7 @@ from ota_metadata.utils.cert_store import (
 )
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
+    OTAClientStatusCollector,
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
     SetOTAClientMetaReport,
@@ -60,7 +63,7 @@ from otaclient._types import (
     UpdatePhase,
     UpdateRequestV2,
 )
-from otaclient._utils import get_traceback, wait_and_log
+from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.create_standby import (
@@ -839,3 +842,38 @@ class OTAClient:
                         session_id=request.session_id,
                     )
                 )
+
+
+def _sign_handler(signame, frame) -> NoReturn:
+    logger.info(f"ota_core process receives {signame=}, exits ...")
+    sys.exit(1)
+
+
+def ota_core_process(
+    shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
+    control_flag: mp_sync.Event,
+    op_queue: mp_queue.Queue[IPCRequest | IPCResponse],
+):
+    from otaclient._logging import configure_logging
+    from otaclient.configs.cfg import proxy_info
+    from otaclient.ota_core import OTAClient
+
+    signal.signal(signal.SIGTERM, _sign_handler)
+    signal.signal(signal.SIGINT, _sign_handler)
+    configure_logging()
+
+    shm_writer = shm_writer_factory()
+
+    _local_status_report_queue = Queue()
+    _status_monitor = OTAClientStatusCollector(
+        msg_queue=_local_status_report_queue,
+        shm_status=shm_writer,
+    )
+    _status_monitor.start()
+
+    _ota_core = OTAClient(
+        control_flag=control_flag,
+        proxy=proxy_info.get_proxy_for_local_ota(),
+        status_report_queue=_local_status_report_queue,
+    )
+    _ota_core.main(op_queue)
