@@ -45,7 +45,7 @@ _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown() -> None:
+def _on_shutdown(sys_exit: bool = False):
     global _ota_core_p, _grpc_server_p, _shm
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -62,11 +62,14 @@ def _on_shutdown() -> None:
         _shm.unlink()
         _shm = None
 
+    if sys_exit:
+        sys.exit(1)
+
 
 def _signal_handler(signame, _) -> None:
     print(f"otaclient receives {signame=}, shutting down ...")
-    _on_shutdown()
-    sys.exit(1)
+    # do not sys.exit when we are already shutting down
+    _on_shutdown(sys_exit=True)
 
 
 def main() -> None:
