@@ -103,6 +103,7 @@ def main() -> None:
     # shared queues and flags
     local_otaclient_control_flag = mp_ctx.Event()
     local_otaclient_op_queue = mp_ctx.Queue()
+    local_otaclient_resp_queue = mp_ctx.Queue()
     all_ecus_succeeded = mp_ctx.Event()
     any_requires_network = mp_ctx.Event()
 
@@ -112,6 +113,7 @@ def main() -> None:
             partial(SharedOTAClientStatusWriter, name=_shm.name, key=_key),
             local_otaclient_control_flag,
             local_otaclient_op_queue,
+            local_otaclient_resp_queue,
         ),
         name="otaclient_ota_core",
     )
@@ -123,6 +125,7 @@ def main() -> None:
             partial(SharedOTAClientStatusReader, name=_shm.name, key=_key),
             local_otaclient_control_flag,
             local_otaclient_op_queue,
+            local_otaclient_resp_queue,
             all_ecus_succeeded,
             any_requires_network,
         ),
