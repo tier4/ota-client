@@ -20,6 +20,7 @@ import asyncio
 import atexit
 import contextlib
 import logging
+from collections import defaultdict
 
 from otaclient._utils import SharedOTAClientStatusReader
 from otaclient.configs import ECUContact
@@ -32,6 +33,9 @@ logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
 _shm_status: SharedOTAClientStatusReader | None = None
+# actively polling ECUs status until we get the first valid response
+#   when otaclient is just starting.
+_active_polling_interval_on_startup = 1
 
 
 def _global_shutdown():
@@ -56,12 +60,14 @@ class ECUTracker:
         self._local_ecu_status_reader = local_ecu_status_reader
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
+        self._startup_matrix: defaultdict[str, bool] = defaultdict(lambda: True)
 
         global _shm_status
         _shm_status = local_ecu_status_reader
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
+        this_ecu_id = ecu_contact.ecu_id
         while not _otaclient_shutdown:
             try:
                 _ecu_resp = await OTAClientCall.status_call(
@@ -71,20 +77,36 @@ class ECUTracker:
                     timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=api_types.StatusRequest(),
                 )
+                if self._startup_matrix[this_ecu_id] and (
+                    _ecu_resp.find_ecu_v2(this_ecu_id)
+                    or _ecu_resp.find_ecu(this_ecu_id)
+                ):
+                    self._startup_matrix[this_ecu_id] = False
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
             except ECUNoResponse as e:
                 logger.debug(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
                 )
-            await self._polling_waiter()
+
+            if self._startup_matrix[this_ecu_id]:
+                await asyncio.sleep(_active_polling_interval_on_startup)
+            else:
+                await self._polling_waiter()
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
+        my_ecu_id = ecu_info.ecu_id
         while not _otaclient_shutdown:
             with contextlib.suppress(Exception):
                 status_report = self._local_ecu_status_reader.sync_msg()
+                if status_report:
+                    self._startup_matrix[my_ecu_id] = False
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
-            await self._polling_waiter()
+
+            if self._startup_matrix[my_ecu_id]:
+                await asyncio.sleep(_active_polling_interval_on_startup)
+            else:
+                await self._polling_waiter()
 
     def start(self) -> None:
         asyncio.create_task(self._polling_local_ecu_status())
