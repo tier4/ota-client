@@ -197,7 +197,6 @@ def start_otaproxy_server(*, init_cache: bool, enable_external_cache: bool = Tru
 
 def otaproxy_control_thread(
     *,
-    shutdown_event: threading.Event,
     any_requires_network: mp_sync.Event,
     all_ecus_succeeded: mp_sync.Event,
 ) -> None:  # pragma: no cover
@@ -209,14 +208,13 @@ def otaproxy_control_thread(
             logger.info("shuting down otaproxy server process...")
             _otaproxy_p.terminate()
             _otaproxy_p.join()
-        logger.info("otaproxy closed")
 
     atexit.register(shutdown_otaproxy_server)
 
     ota_cache_dir = Path(local_otaproxy_cfg.BASE_DIR)
     next_ota_cache_dir_checkpoint = 0
 
-    while not shutdown_event.is_set():
+    while True:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
 
         _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
@@ -234,13 +232,15 @@ def otaproxy_control_thread(
                 )
                 next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
                 shutil.rmtree(ota_cache_dir, ignore_errors=True)
+            continue
 
-        elif _otaproxy_should_run and not _otaproxy_running:
+        if _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
             #   will still init the cache even init_cache is False.
             _otaproxy_p = start_otaproxy_server(init_cache=False)
             time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
+            continue
 
-        elif not _otaproxy_should_run and _otaproxy_running:
+        if not _otaproxy_should_run and _otaproxy_running:
             shutdown_otaproxy_server()
             _otaproxy_p = None

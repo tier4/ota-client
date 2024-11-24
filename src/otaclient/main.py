@@ -33,6 +33,8 @@ from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusW
 
 logger = logging.getLogger(__name__)
 
+_on_shutdown_triggered = False
+
 HEALTH_CHECK_INTERAVL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
@@ -65,7 +67,13 @@ def main() -> None:
     _ota_core_p, _grpc_server_p = None, None
     shm = None
 
-    def _on_shutdown(signame=None, _=None) -> NoReturn:
+    def _on_shutdown(signame=None, _=None):
+        global _on_shutdown_triggered
+
+        if _on_shutdown_triggered:
+            return
+        _on_shutdown_triggered = True
+
         if signame:
             logger.info(
                 f"otaclient main process receives {signame=}, shutting down ..."
@@ -124,8 +132,7 @@ def main() -> None:
     )
     _grpc_server_p.start()
 
-    # we only setup the resources in main process
-    del _key, local_otaclient_control_flag, local_otaclient_op_queue
+    del _key
 
     # ------ setup main process ------ #
 
