@@ -39,6 +39,7 @@ def grpc_server_process(
     from otaclient._logging import configure_logging
 
     configure_logging()
+    logger.info("otaclient OTA API grpc server started")
 
     shm_reader = shm_reader_factory()
     atexit.register(shm_reader.atexit)
@@ -71,8 +72,10 @@ def grpc_server_process(
         v2_grpc.add_OtaClientServiceServicer_to_server(
             server=server, servicer=ota_client_service_v2
         )
-        server.add_insecure_port(f"{ecu_info.ip_addr}:{cfg.OTA_API_SERVER_PORT}")
+        _address_info = f"{ecu_info.ip_addr}:{cfg.OTA_API_SERVER_PORT}"
+        server.add_insecure_port(_address_info)
 
+        logger.info(f"launch grpc API server at {_address_info}")
         await server.start()
         try:
             await server.wait_for_termination()
