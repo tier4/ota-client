@@ -162,13 +162,19 @@ class _OTAUpdater:
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
+        self.update_version = version
+        self.update_start_timestamp = int(time.time())
+        self.ca_chains_store = ca_chains_store
+        self.session_id = session_id
+        self._status_report_queue = status_report_queue
+
         status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.INITIALIZING,
                     trigger_timestamp=self.update_start_timestamp,
                 ),
-                session_id=self.session_id,
+                session_id=session_id,
             )
         )
         status_report_queue.put_nowait(
@@ -176,13 +182,9 @@ class _OTAUpdater:
                 payload=SetUpdateMetaReport(
                     update_firmware_version=version,
                 ),
-                session_id=self.session_id,
+                session_id=session_id,
             )
         )
-
-        self.ca_chains_store = ca_chains_store
-        self.session_id = session_id
-        self._status_report_queue = status_report_queue
 
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
@@ -212,10 +214,6 @@ class _OTAUpdater:
         self._control_flag = control_flag
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
-
-        # ------ init update status ------ #
-        self.update_version = version
-        self.update_start_timestamp = int(time.time())
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
