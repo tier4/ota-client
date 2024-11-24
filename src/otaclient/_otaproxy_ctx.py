@@ -14,15 +14,21 @@
 """Control of the otaproxy server startup/shutdown.
 
 The API exposed by this module is meant to be controlled by otaproxy managing thread only.
-See otaclient.main.otaproxy_control_thread for more details.
+
+TODO: simplify this module!
 """
 
 
 from __future__ import annotations
 
+import atexit
 import logging
 import multiprocessing.context as mp_ctx
+import multiprocessing.synchronize as mp_sync
+import shutil
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional, Type
 
@@ -37,6 +43,13 @@ from otaclient_common.common import ensure_otaproxy_start
 logger = logging.getLogger(__name__)
 
 _otaproxy_p: mp_ctx.SpawnProcess | None = None
+
+OTAPROXY_CHECK_INTERVAL = 3
+OTAPROXY_MIN_STARTUP_TIME = 60
+"""Keep otaproxy running at least 60 seconds after startup."""
+OTA_CACHE_DIR_CHECK_INTERVAL = 60
+SHUTDOWN_AFTER_CORE_EXIT = 16
+SHUTDOWN_AFTER_API_SERVER_EXIT = 3
 
 
 class OTAProxyContext(OTAProxyContextProto):
@@ -203,3 +216,48 @@ def shutdown_otaproxy_server() -> None:
         _otaproxy_p.join()
     _otaproxy_p = None
     logger.info("otaproxy closed")
+
+
+def otaproxy_control_thread(
+    *,
+    shutdown_event: threading.Event,
+    any_requires_network: mp_sync.Event,
+    all_ecus_succeeded: mp_sync.Event,
+) -> None:  # pragma: no cover
+    from ota_proxy.config import config
+    from otaclient._otaproxy_ctx import (
+        otaproxy_running,
+        shutdown_otaproxy_server,
+        start_otaproxy_server,
+    )
+
+    ota_cache_dir = Path(config.BASE_DIR)
+    next_ota_cache_dir_checkpoint = 0
+
+    atexit.register(shutdown_otaproxy_server)
+
+    while not shutdown_event.is_set():
+        time.sleep(OTAPROXY_CHECK_INTERVAL)
+
+        _otaproxy_running = otaproxy_running()
+        _otaproxy_should_run = any_requires_network.is_set()
+
+        if not _otaproxy_should_run and not _otaproxy_running:
+            _now = time.time()
+            if (
+                _now > next_ota_cache_dir_checkpoint
+                and all_ecus_succeeded.is_set()
+                and ota_cache_dir.is_dir()
+            ):
+                logger.info(
+                    "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
+                )
+                next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
+                shutil.rmtree(ota_cache_dir, ignore_errors=True)
+
+        elif _otaproxy_should_run and not _otaproxy_running:
+            start_otaproxy_server(init_cache=False)
+            time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
+
+        elif not _otaproxy_should_run and _otaproxy_running:
+            shutdown_otaproxy_server()
