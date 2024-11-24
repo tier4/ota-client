@@ -815,9 +815,19 @@ class OTAClient:
                         session_id=request.session_id,
                     )
                 )
-            elif isinstance(request, UpdateRequestV2):
+                continue
+
+            if isinstance(request, UpdateRequestV2):
                 self._live_ota_status = OTAStatus.UPDATING
-                self.update(request)
+
+                _update_thread = threading.Thread(
+                    target=self.update,
+                    args=[request],
+                    daemon=True,
+                    name="ota_update_executor",
+                )
+                _update_thread.start()
+
                 resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
@@ -825,12 +835,22 @@ class OTAClient:
                     )
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
-            elif (
+                continue
+
+            if (
                 isinstance(request, RollbackRequestV2)
                 and self._live_ota_status == OTAStatus.SUCCESS
             ):
                 self._live_ota_status = OTAStatus.FAILURE
-                self.rollback(request)
+
+                _rollback_thread = threading.Thread(
+                    target=self.rollback,
+                    args=[request],
+                    daemon=True,
+                    name="ota_rollback_executor",
+                )
+                _rollback_thread.start()
+
                 resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
@@ -838,16 +858,17 @@ class OTAClient:
                     )
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
-            else:
-                _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
-                logger.error(_err_msg)
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.REJECT_OTHER,
-                        msg=_err_msg,
-                        session_id=request.session_id,
-                    )
+                continue
+
+            _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
+            logger.error(_err_msg)
+            resp_queue.put_nowait(
+                IPCResponse(
+                    res=IPCResEnum.REJECT_OTHER,
+                    msg=_err_msg,
+                    session_id=request.session_id,
                 )
+            )
 
 
 def _sign_handler(signame, frame) -> NoReturn:
