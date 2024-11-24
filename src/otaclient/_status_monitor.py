@@ -39,14 +39,10 @@ from otaclient._utils import SharedOTAClientStatusWriter
 
 logger = logging.getLogger(__name__)
 
-_otaclient_shutdown = False
 _status_report_queue: queue.Queue | None = None
 
 
 def _global_shutdown():
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
     if _status_report_queue:
         _status_report_queue.put_nowait(TERMINATE_SENTINEL)
 
@@ -287,7 +283,7 @@ class OTAClientStatusCollector:
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
-        while not _otaclient_shutdown:
+        while True:
             try:
                 report = self._input_queue.get_nowait()
                 if report is TERMINATE_SENTINEL:
