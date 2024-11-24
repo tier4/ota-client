@@ -89,7 +89,8 @@ DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 OP_CHECK_INTERVAL = 1  # second
-HOLD_REQ_HANDLING_ON_ACK_REQUEST = 8  # seconds
+HOLD_REQ_HANDLING_ON_ACK_REQUEST = 6  # seconds
+WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 
 class OTAClientError(Exception): ...
@@ -161,6 +162,24 @@ class _OTAUpdater:
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.INITIALIZING,
+                    trigger_timestamp=self.update_start_timestamp,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    update_firmware_version=version,
+                ),
+                session_id=self.session_id,
+            )
+        )
+
         self.ca_chains_store = ca_chains_store
         self.session_id = session_id
         self._status_report_queue = status_report_queue
@@ -187,19 +206,7 @@ class _OTAUpdater:
 
         # ------ parse upper proxy ------ #
         logger.debug("configure proxy setting...")
-        proxies = {}
-        if upper_otaproxy:
-            logger.info(
-                f"use {upper_otaproxy} for local OTA update, "
-                f"wait for otaproxy@{upper_otaproxy} online..."
-            )
-            ensure_otaproxy_start(
-                upper_otaproxy,
-                probing_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            )
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies["http"] = upper_otaproxy
+        self._upper_proxy = upper_otaproxy
 
         # ------ init updater implementation ------ #
         self._control_flag = control_flag
@@ -209,24 +216,6 @@ class _OTAUpdater:
         # ------ init update status ------ #
         self.update_version = version
         self.update_start_timestamp = int(time.time())
-
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.INITIALIZING,
-                    trigger_timestamp=self.update_start_timestamp,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    update_firmware_version=version,
-                ),
-                session_id=self.session_id,
-            )
-        )
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -239,7 +228,9 @@ class _OTAUpdater:
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
             cookies=cookies,
-            proxies=proxies,
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
         self._downloader_mapper: dict[int, Downloader] = {}
 
@@ -411,6 +402,16 @@ class _OTAUpdater:
     def _execute_update(self):
         """Implementation of OTA updating."""
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+
+        if _upper_proxy := self._upper_proxy:
+            logger.info(
+                f"use {_upper_proxy} for local OTA update, "
+                f"wait for otaproxy@{_upper_proxy} online..."
+            )
+            ensure_otaproxy_start(
+                _upper_proxy,
+                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
+            )
 
         # ------ init, processing metadata ------ #
         logger.debug("process metadata.jwt...")
