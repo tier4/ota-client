@@ -31,22 +31,9 @@ from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
 
-_otaclient_shutdown = False
-_shm_status: SharedOTAClientStatusReader | None = None
 # actively polling ECUs status until we get the first valid response
 #   when otaclient is just starting.
 _active_polling_interval_on_startup = 1
-
-
-def _global_shutdown():
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
-    if _shm_status:
-        _shm_status.atexit()
-
-
-atexit.register(_global_shutdown)
 
 
 class ECUTracker:
@@ -62,13 +49,12 @@ class ECUTracker:
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
         self._startup_matrix: defaultdict[str, bool] = defaultdict(lambda: True)
 
-        global _shm_status
-        _shm_status = local_ecu_status_reader
+        atexit.register(local_ecu_status_reader.atexit)
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
         this_ecu_id = ecu_contact.ecu_id
-        while not _otaclient_shutdown:
+        while True:
             try:
                 _ecu_resp = await OTAClientCall.status_call(
                     ecu_contact.ecu_id,
@@ -96,7 +82,7 @@ class ECUTracker:
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
         my_ecu_id = ecu_info.ecu_id
-        while not _otaclient_shutdown:
+        while True:
             with contextlib.suppress(Exception):
                 status_report = self._local_ecu_status_reader.sync_msg()
                 if status_report:
