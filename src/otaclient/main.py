@@ -64,7 +64,7 @@ def _on_shutdown() -> None:
 
 
 def _signal_handler(signame, _) -> None:
-    logger.info(f"otaclient receives {signame=}, shutting down ...")
+    print(f"otaclient receives {signame=}, shutting down ...")
     _on_shutdown()
     sys.exit(1)
 
