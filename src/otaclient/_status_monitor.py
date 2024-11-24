@@ -227,7 +227,7 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 #
 
 TERMINATE_SENTINEL = cast(StatusReport, object())
-SHM_PUSH_INTERVAL = 1
+SHM_PUSH_INTERVAL = 0.5
 
 
 class OTAClientStatusCollector:
@@ -238,7 +238,7 @@ class OTAClientStatusCollector:
         shm_status: SharedOTAClientStatusWriter,
         *,
         min_collect_interval: int = 1,
-        shm_push_interval: int = SHM_PUSH_INTERVAL,
+        shm_push_interval: float = SHM_PUSH_INTERVAL,
     ) -> None:
         self.min_collect_interval = min_collect_interval
         self.shm_push_interval = shm_push_interval
@@ -286,7 +286,7 @@ class OTAClientStatusCollector:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
         while True:
-            _now = int(time.time())
+            _now = time.time()
             try:
                 report = self._input_queue.get_nowait()
                 if report is TERMINATE_SENTINEL:
