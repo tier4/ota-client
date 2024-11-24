@@ -785,13 +785,18 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
-    def main(self, op_queue: mp_queue.Queue[IPCRequest | IPCResponse]) -> NoReturn:
+    def main(
+        self,
+        *,
+        req_queue: mp_queue.Queue[IPCRequest],
+        resp_queue: mp_queue.Queue[IPCResponse],
+    ) -> NoReturn:
         """Main loop of ota_core process."""
         _allow_request_after = 0
         while True:
             _now = int(time.time())
             try:
-                request = op_queue.get(timeout=OP_CHECK_INTERVAL)
+                request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
                 continue
 
@@ -802,7 +807,7 @@ class OTAClient:
                     f"reject {request}"
                 )
                 logger.warning(_err_msg)
-                op_queue.put_nowait(
+                resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_BUSY,
                         msg=_err_msg,
@@ -812,7 +817,7 @@ class OTAClient:
             elif isinstance(request, UpdateRequestV2):
                 self._live_ota_status = OTAStatus.UPDATING
                 self.update(request)
-                op_queue.put_nowait(
+                resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
                         session_id=request.session_id,
@@ -825,7 +830,7 @@ class OTAClient:
             ):
                 self._live_ota_status = OTAStatus.FAILURE
                 self.rollback(request)
-                op_queue.put_nowait(
+                resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
                         session_id=request.session_id,
@@ -835,7 +840,7 @@ class OTAClient:
             else:
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
-                op_queue.put_nowait(
+                resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_OTHER,
                         msg=_err_msg,
@@ -852,7 +857,8 @@ def _sign_handler(signame, frame) -> NoReturn:
 def ota_core_process(
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
     control_flag: mp_sync.Event,
-    op_queue: mp_queue.Queue[IPCRequest | IPCResponse],
+    op_queue: mp_queue.Queue[IPCRequest],
+    resp_queue: mp_queue.Queue[IPCResponse],
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -876,4 +882,4 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
     )
-    _ota_core.main(op_queue)
+    _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
