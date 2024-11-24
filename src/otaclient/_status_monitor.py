@@ -41,7 +41,6 @@ logger = logging.getLogger(__name__)
 
 _otaclient_shutdown = False
 _status_report_queue: queue.Queue | None = None
-_shm_status: SharedOTAClientStatusWriter | None = None
 
 
 def _global_shutdown():
@@ -50,9 +49,6 @@ def _global_shutdown():
 
     if _status_report_queue:
         _status_report_queue.put_nowait(TERMINATE_SENTINEL)
-
-    if _shm_status:
-        _shm_status.atexit()
 
 
 atexit.register(_global_shutdown)
@@ -247,9 +243,7 @@ class OTAClientStatusCollector:
         self._shm_status = shm_status
         self._next_shm_push = 0
 
-        # register the shm_status to global for cleanup atexit
-        global _shm_status
-        _shm_status = shm_status
+        atexit.register(shm_status.atexit)
 
     def load_report(self, report: StatusReport) -> None:
         _now = int(time.time())
