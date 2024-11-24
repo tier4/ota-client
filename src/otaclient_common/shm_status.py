@@ -124,10 +124,8 @@ class MPSharedStatusWriter(Generic[T]):
         self._key = key
         self.msg_max_size = min(_msg_max_size, msg_max_size or float("infinity"))
 
-    def atexit(self, *, unlink: bool = False) -> None:
+    def atexit(self) -> None:
         self._shm.close()
-        if unlink:
-            self._shm.unlink()
 
     def write_msg(self, obj: T) -> None:
         buffer = self._shm.buf

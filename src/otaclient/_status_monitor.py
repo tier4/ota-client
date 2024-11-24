@@ -52,7 +52,7 @@ def _global_shutdown():
         _status_report_queue.put_nowait(TERMINATE_SENTINEL)
 
     if _shm_status:
-        _shm_status.atexit(unlink=True)
+        _shm_status.atexit()
 
 
 atexit.register(_global_shutdown)
