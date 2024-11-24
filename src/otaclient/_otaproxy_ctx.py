@@ -26,7 +26,6 @@ import logging
 import multiprocessing.synchronize as mp_sync
 import shutil
 import sys
-import threading
 import time
 from pathlib import Path
 from typing import Any, Optional, Type
@@ -205,7 +204,7 @@ def otaproxy_control_thread(
 
     def shutdown_otaproxy_server() -> None:
         if _otaproxy_p and _otaproxy_p.is_alive():
-            logger.info("shuting down otaproxy server process...")
+            print("shuting down otaproxy server process...")
             _otaproxy_p.terminate()
             _otaproxy_p.join()
 
@@ -242,5 +241,6 @@ def otaproxy_control_thread(
             continue
 
         if not _otaproxy_should_run and _otaproxy_running:
+            logger.info("shutting down otaproxy as not needed now ...")
             shutdown_otaproxy_server()
             _otaproxy_p = None

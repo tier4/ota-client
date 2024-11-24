@@ -19,6 +19,7 @@ from __future__ import annotations
 import atexit
 import logging
 import multiprocessing as mp
+import multiprocessing.context as mp_ctx
 import multiprocessing.shared_memory as mp_shm
 import secrets
 import signal
@@ -26,14 +27,11 @@ import sys
 import threading
 import time
 from functools import partial
-from typing import NoReturn
 
 from otaclient import __version__
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 
 logger = logging.getLogger(__name__)
-
-_on_shutdown_triggered = False
 
 HEALTH_CHECK_INTERAVL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
@@ -41,6 +39,34 @@ SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
 SHM_HMAC_KEY_LEN = 64  # bytes
+
+_ota_core_p: mp_ctx.SpawnProcess | None = None
+_grpc_server_p: mp_ctx.SpawnProcess | None = None
+_shm: mp_shm.SharedMemory | None = None
+
+
+def _on_shutdown() -> None:
+    global _ota_core_p, _grpc_server_p, _shm
+    if _ota_core_p:
+        _ota_core_p.terminate()
+        _ota_core_p.join()
+        _ota_core_p = None
+
+    if _grpc_server_p:
+        _grpc_server_p.terminate()
+        _grpc_server_p.join()
+        _grpc_server_p = None
+
+    if _shm:
+        _shm.close()
+        _shm.unlink()
+        _shm = None
+
+
+def _signal_handler(signame, _) -> None:
+    logger.info(f"otaclient receives {signame=}, shutting down ...")
+    _on_shutdown()
+    sys.exit(1)
 
 
 def main() -> None:
@@ -64,42 +90,14 @@ def main() -> None:
     #
     # ------ start each processes ------ #
     #
-    _ota_core_p, _grpc_server_p = None, None
-    shm = None
-
-    def _on_shutdown(signame=None, _=None):
-        global _on_shutdown_triggered
-
-        if _on_shutdown_triggered:
-            return
-        _on_shutdown_triggered = True
-
-        if signame:
-            logger.info(
-                f"otaclient main process receives {signame=}, shutting down ..."
-            )
-
-        if _ota_core_p:
-            _ota_core_p.terminate()
-            _ota_core_p.join()
-
-        if _grpc_server_p:
-            _grpc_server_p.terminate()
-            _grpc_server_p.join()
-
-        if shm:
-            shm.close()
-            shm.unlink()
-
-        logger.info("otaclient shutdown")
-        sys.exit(1)
+    global _ota_core_p, _grpc_server_p, _shm
 
     atexit.register(_on_shutdown)
-    signal.signal(signal.SIGTERM, _on_shutdown)
-    signal.signal(signal.SIGINT, _on_shutdown)
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
 
     mp_ctx = mp.get_context("spawn")
-    shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
+    _shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
     _key = secrets.token_bytes(SHM_HMAC_KEY_LEN)
 
     # shared queues and flags
@@ -111,7 +109,7 @@ def main() -> None:
     _ota_core_p = mp_ctx.Process(
         target=partial(
             ota_core_process,
-            partial(SharedOTAClientStatusWriter, name=shm.name, key=_key),
+            partial(SharedOTAClientStatusWriter, name=_shm.name, key=_key),
             local_otaclient_control_flag,
             local_otaclient_op_queue,
         ),
@@ -122,7 +120,7 @@ def main() -> None:
     _grpc_server_p = mp_ctx.Process(
         target=partial(
             grpc_server_process,
-            partial(SharedOTAClientStatusReader, name=shm.name, key=_key),
+            partial(SharedOTAClientStatusReader, name=_shm.name, key=_key),
             local_otaclient_control_flag,
             local_otaclient_op_queue,
             all_ecus_succeeded,
