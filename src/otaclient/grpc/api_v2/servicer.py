@@ -51,7 +51,8 @@ class OTAClientAPIServicer:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        ipc_queue: mp_queue.Queue[IPCRequest | IPCResponse],
+        op_queue: mp_queue.Queue[IPCRequest],
+        resp_queue: mp_queue.Queue[IPCResponse],
         *,
         control_flag: mp_sync.Event,
     ):
@@ -61,7 +62,8 @@ class OTAClientAPIServicer:
         self.my_ecu_id = ecu_info.ecu_id
 
         self._otaclient_control_flag = control_flag
-        self._ipc_queue = ipc_queue
+        self._op_queue = op_queue
+        self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -106,9 +108,9 @@ class OTAClientAPIServicer:
     # API servicer
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
-        self._ipc_queue.put_nowait(request)
+        self._op_queue.put_nowait(request)
         try:
-            _req_response = self._ipc_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            _req_response = self._resp_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
             assert (
                 _req_response.session_id == request.session_id
@@ -215,9 +217,9 @@ class OTAClientAPIServicer:
     def _local_rollback(
         self, rollback_request: RollbackRequestV2
     ) -> api_types.RollbackResponseEcu:
-        self._ipc_queue.put_nowait(rollback_request)
+        self._op_queue.put_nowait(rollback_request)
         try:
-            _req_response = self._ipc_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            _req_response = self._resp_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
             assert isinstance(
                 _req_response, IPCResponse
             ), f"unexpected response: {type(_req_response)}"
