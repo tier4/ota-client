@@ -28,12 +28,17 @@ logger = logging.getLogger(__name__)
 def mount_external_cache(
     mnt_point: StrOrPath, *, cache_dev_fslabel: str = config.EXTERNAL_CACHE_DEV_FSLABEL
 ) -> StrOrPath | None:
+    logger.info(
+        f"otaproxy will try to detect external cache dev and mount to {mnt_point}"
+    )
+
     _cache_dev = cmdhelper.get_dev_by_token(
         "LABEL",
         cache_dev_fslabel,
         raise_exception=False,
     )
     if not _cache_dev:
+        logger.info("no cache dev is attached")
         return
 
     if len(_cache_dev) > 1:
@@ -43,14 +48,17 @@ def mount_external_cache(
     _cache_dev = _cache_dev[0]
     logger.info(f"external cache dev detected at {_cache_dev}")
 
-    cmdhelper.ensure_mointpoint(mnt_point, ignore_error=True)
     try:
+        cmdhelper.ensure_mointpoint(mnt_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=_cache_dev,
             mnt_point=mnt_point,
             mount_func=cmdhelper.mount_ro,
             raise_exception=True,
             max_retry=3,
+        )
+        logger.info(
+            f"successfully mount external cache dev {_cache_dev} on {mnt_point}"
         )
         return mnt_point
     except Exception as e:
