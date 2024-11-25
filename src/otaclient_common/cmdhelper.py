@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Literal, NoReturn
 
@@ -455,3 +457,100 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     logger.warning("system will reboot now!")
     subprocess_call(cmd, raise_exception=True)
     sys.exit(0)
+
+
+MAX_RETRY_COUNT = 6
+RETRY_INTERVAL = 2
+
+
+def ensure_mount(
+    target: StrOrPath,
+    mnt_point: StrOrPath,
+    *,
+    mount_func,
+    raise_exception: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Ensure the <target> mounted on <mnt_point> by our best.
+
+    Raises:
+        If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(max_retry + 1):
+        try:
+            mount_func(target=target, mount_point=mnt_point)
+            is_target_mounted(mnt_point, raise_exception=True)
+            return
+        except CalledProcessError as e:
+            logger.error(
+                f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}"
+            )
+            logger.error(f"{e.stderr=}\n{e.stdout=}")
+
+            if _retry >= max_retry:
+                logger.error(
+                    f"exceed max retry count mounting {target} on {mnt_point}, abort"
+                )
+                if raise_exception:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_umount(
+    mnt_point: StrOrPath,
+    *,
+    ignore_error: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Try to umount the <mnt_point> at our best.
+
+    Raises:
+        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(max_retry + 1):
+        try:
+            if not is_target_mounted(mnt_point, raise_exception=False):
+                break
+            umount(mnt_point, raise_exception=True)
+        except CalledProcessError as e:
+            logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
+            logger.warning(f"{e.stderr}\n{e.stdout}")
+
+            if _retry >= max_retry:
+                logger.error(f"reached max retry on umounting {mnt_point}, abort")
+                if not ignore_error:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_mointpoint(
+    mnt_point: StrOrPath, *, ignore_error: bool
+) -> None:  # pragma: no cover
+    """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
+
+    If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
+        we still keep use the mountpoint as later mount will override the previous one.
+    """
+    mnt_point = Path(mnt_point)
+    if mnt_point.is_symlink() or not mnt_point.is_dir():
+        mnt_point.unlink(missing_ok=True)
+
+    if not mnt_point.exists():
+        mnt_point.mkdir(exist_ok=True, parents=True)
+        return
+
+    try:
+        ensure_umount(mnt_point, ignore_error=ignore_error)
+    except Exception:
+        logger.warning(
+            f"{mnt_point} still has other mounts on it, "
+            f"but still use {mnt_point} and override the previous mount"
+        )
