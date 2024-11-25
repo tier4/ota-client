@@ -43,7 +43,7 @@ async def run_otaproxy(
     upper_proxy: str,
     enable_cache: bool,
     enable_https: bool,
-    external_cache: str | None = None,
+    external_cache_mnt_point: str | None = None,
 ):
     import uvicorn
 
@@ -56,7 +56,7 @@ async def run_otaproxy(
         upper_proxy=upper_proxy,
         enable_https=enable_https,
         init_cache=init_cache,
-        external_cache=external_cache,
+        external_cache_mnt_point=external_cache_mnt_point,
     )
     _config = uvicorn.Config(
         App(_ota_cache),
@@ -65,6 +65,7 @@ async def run_otaproxy(
         log_level="error",
         lifespan="on",
         loop="uvloop",
+        # NOTE: must use h11, other http implementation will break HTTP proxy
         http="h11",
     )
     _server = uvicorn.Server(_config)
