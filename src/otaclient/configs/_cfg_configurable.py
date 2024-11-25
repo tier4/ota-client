@@ -110,9 +110,7 @@ class _MultipleECUSettings(BaseModel):
 
 class _OTAProxySettings(BaseModel):
     OTAPROXY_ENABLE_EXTERNAL_CACHE: bool = True
-    EXTERNAL_CACHE_DEV_FSLABEL: str = "ota_cache_src"
     EXTERNAL_CACHE_DEV_MOUNTPOINT: str = f"{cfg_consts.MOUNT_SPACE}/external_cache"
-    EXTERNAL_CACHE_SRC_PATH: str = f"{EXTERNAL_CACHE_DEV_MOUNTPOINT}/data"
 
 
 class ConfigurableSettings(_OTAClientSettings, _MultipleECUSettings, _OTAProxySettings):
