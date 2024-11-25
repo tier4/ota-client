@@ -548,9 +548,12 @@ def ensure_mointpoint(
         return
 
     try:
-        ensure_umount(mnt_point, ignore_error=ignore_error)
-    except Exception:
+        ensure_umount(mnt_point, ignore_error=False)
+    except Exception as e:
+        if not ignore_error:
+            logger.error(f"failed to prepare {mnt_point=}: {e!r}")
+            raise
         logger.warning(
-            f"{mnt_point} still has other mounts on it, "
-            f"but still use {mnt_point} and override the previous mount"
+            f"failed to prepare {mnt_point=}: {e!r} \n"
+            f"But still use {mnt_point} and override the previous mount"
         )
