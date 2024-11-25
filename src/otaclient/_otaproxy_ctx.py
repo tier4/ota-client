@@ -128,7 +128,7 @@ def otaproxy_control_thread(
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
             #   will still init the cache even init_cache is False.
             _otaproxy_p = _mp_ctx.Process(
-                target=partial(run_otaproxy, init_cache=False),
+                target=partial(otaproxy_process, init_cache=False),
                 name="otaproxy",
             )
             _otaproxy_p.start()
