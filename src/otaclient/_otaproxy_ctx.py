@@ -76,19 +76,19 @@ def otaproxy_process(*, init_cache: bool) -> None:
         logger.info(f"wait for {upper_proxy=} online...")
         ensure_otaproxy_start(str(upper_proxy))
 
-        asyncio.run(
-            run_otaproxy(
-                host=host,
-                port=port,
-                init_cache=init_cache,
-                cache_dir=local_otaproxy_cfg.BASE_DIR,
-                cache_db_f=local_otaproxy_cfg.DB_FILE,
-                upper_proxy=upper_proxy,
-                enable_cache=proxy_info.enable_local_ota_proxy_cache,
-                enable_https=proxy_info.gateway_otaproxy,
-                external_cache_mnt_point=external_cache_mnt_point,
-            )
+    asyncio.run(
+        run_otaproxy(
+            host=host,
+            port=port,
+            init_cache=init_cache,
+            cache_dir=local_otaproxy_cfg.BASE_DIR,
+            cache_db_f=local_otaproxy_cfg.DB_FILE,
+            upper_proxy=upper_proxy,
+            enable_cache=proxy_info.enable_local_ota_proxy_cache,
+            enable_https=proxy_info.gateway_otaproxy,
+            external_cache_mnt_point=external_cache_mnt_point,
         )
+    )
 
 
 def otaproxy_control_thread(
