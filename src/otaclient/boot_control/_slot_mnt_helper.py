@@ -17,10 +17,9 @@
 from __future__ import annotations
 
 import atexit
-from codecs import ignore_errors
-from functools import partial
 import logging
 import shutil
+from functools import partial
 from pathlib import Path
 
 from otaclient.configs.cfg import cfg
@@ -57,8 +56,22 @@ class SlotMountHelper:  # pragma: no cover
             )
         )
 
-        self._standby_slot_atexit = None
-        self._active_slot_atexit = None
+        # ensure the each mount points being umounted at termination
+        atexit.register(
+            partial(
+                cmdhelper.ensure_umount,
+                self.active_slot_mount_point,
+                ignore_error=True,
+            )
+        )
+        atexit.register(
+            partial(
+                cmdhelper.ensure_umount,
+                self.standby_slot_mount_point,
+                ignore_error=True,
+                max_retry=3,
+            )
+        )
 
     def mount_standby(self) -> None:
         """Mount standby slot dev rw to <standby_slot_mount_point>.
@@ -77,19 +90,6 @@ class SlotMountHelper:  # pragma: no cover
             raise_exception=True,
         )
 
-        # ensure the standby slot is umounted at termination
-        atexit.register(
-            (
-                _standby_slot_atexit := partial(
-                    cmdhelper.ensure_umount,
-                    self.standby_slot_mount_point,
-                    ignore_error=True,
-                    max_retry=3,
-                )
-            )
-        )
-        self._standby_slot_atexit = _standby_slot_atexit
-
     def mount_active(self) -> None:
         """Mount current active rootfs ready-only.
 
@@ -104,16 +104,6 @@ class SlotMountHelper:  # pragma: no cover
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
         )
-
-        # ensure the active slot is umounted at termination
-        atexit.register(
-            _active_slot_atexit := partial(
-                cmdhelper.ensure_umount,
-                self.active_slot_mount_point,
-                ignore_error=True,
-            )
-        )
-        self._active_slot_atexit = _active_slot_atexit
 
     def preserve_ota_folder_to_standby(self):
         """Copy the /boot/ota folder to standby slot to preserve it.
@@ -152,9 +142,3 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_umount(
             self.standby_slot_mount_point, ignore_error=ignore_error
         )
-
-        # also unregister the atexit umount
-        if self._active_slot_atexit:
-            atexit.unregister(self._active_slot_atexit)
-        if self._standby_slot_atexit:
-            atexit.unregister(self._standby_slot_atexit)
