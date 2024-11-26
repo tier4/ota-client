@@ -37,6 +37,7 @@ from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
+from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash
 
@@ -137,10 +138,16 @@ class OTACache:
         )
 
         self._external_cache_data_dir = None
-        if external_cache_mnt_point and cache_enabled:
+        self._external_cache_mp = None
+        if (
+            cache_enabled
+            and external_cache_mnt_point
+            and mount_external_cache(external_cache_mnt_point)
+        ):
             logger.info(
                 f"external cache source is enabled at: {external_cache_mnt_point}"
             )
+            self._external_cache_mp = external_cache_mnt_point
             self._external_cache_data_dir = (
                 Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
             )
@@ -223,6 +230,9 @@ class OTACache:
 
                 if self._cache_enabled:
                     self._lru_helper.close()
+
+                if self._external_cache_mp:
+                    umount_external_cache(self._external_cache_mp)
 
         logger.info("shutdown ota-cache completed")
 
