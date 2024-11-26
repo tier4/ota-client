@@ -13,58 +13,52 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
+import asyncio
+import multiprocessing as mp
 import time
 from pathlib import Path
-from typing import Any, Dict
 
-from ota_proxy import OTAProxyContextProto, subprocess_otaproxy_launcher
-
-
-class _DummyOTAProxyContext(OTAProxyContextProto):
-    def __init__(self, sentinel) -> None:
-        self.sentinel = sentinel
-
-    @property
-    def extra_kwargs(self) -> Dict[str, Any]:
-        return {}
-
-    def __enter__(self):
-        _subprocess_init(self.sentinel)
-        return self
-
-    def __exit__(self, __exc_type, __exc_value, __traceback):
-        return
+from ota_proxy import run_otaproxy
 
 
-def _subprocess_init(_sentinel_file):
-    Path(_sentinel_file).touch()
+def otaproxy_process(cache_dir: str):
+    ota_cache_dir = Path(cache_dir)
+    ota_cache_db = ota_cache_dir / "cache_db"
+
+    asyncio.run(
+        run_otaproxy(
+            host="127.0.0.1",
+            port=8082,
+            init_cache=True,
+            cache_dir=str(ota_cache_dir),
+            cache_db_f=str(ota_cache_db),
+            upper_proxy="",
+            enable_cache=True,
+            enable_https=False,
+        ),
+    )
 
 
 def test_subprocess_start_otaproxy(tmp_path: Path):
     # --- setup --- #
     (ota_cache_dir := tmp_path / "ota-cache").mkdir(exist_ok=True)
     ota_cache_db = ota_cache_dir / "cache_db"
-    subprocess_init_sentinel = tmp_path / "otaproxy_started"
 
     # --- execution --- #
-    _subprocess_entry = subprocess_otaproxy_launcher(
-        subprocess_ctx=_DummyOTAProxyContext(sentinel=str(subprocess_init_sentinel))
+    _spawn_ctx = mp.get_context("spawn")
+
+    otaproxy_subprocess = _spawn_ctx.Process(
+        target=otaproxy_process, args=(ota_cache_dir,)
     )
-    otaproxy_subprocess = _subprocess_entry(
-        host="127.0.0.1",
-        port=8082,
-        init_cache=True,
-        cache_dir=str(ota_cache_dir),
-        cache_db_f=str(ota_cache_db),
-        upper_proxy="",
-        enable_cache=True,
-        enable_https=False,
-    )
+    otaproxy_subprocess.start()
     time.sleep(3)  # wait for subprocess to finish up initializing
 
     # --- assertion --- #
     try:
         assert otaproxy_subprocess.is_alive()
-        assert subprocess_init_sentinel.is_file()
+        assert ota_cache_db.is_file()
     finally:
         otaproxy_subprocess.terminate()
+        otaproxy_subprocess.join()

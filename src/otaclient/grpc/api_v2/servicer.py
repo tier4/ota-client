@@ -25,7 +25,7 @@ from typing import Dict
 
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.grpc._otaproxy_ctx import OTAProxyContext, OTAProxyLauncher
+from otaclient.grpc._otaproxy_ctx import OTAProxyLauncher
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.types import convert_from_apiv2_update_request
 from otaclient.ota_core import OTAClient, OTAClientControlFlags
@@ -73,10 +73,7 @@ class OTAClientAPIServicer:
         #       In normal running this event will never be set.
         self._debug_status_checking_shutdown_event = asyncio.Event()
         if proxy_info.enable_local_ota_proxy:
-            self._otaproxy_launcher = OTAProxyLauncher(
-                executor=executor,
-                subprocess_ctx=OTAProxyContext(),
-            )
+            self._otaproxy_launcher = OTAProxyLauncher(executor=executor)
             asyncio.create_task(self._otaproxy_lifecycle_managing())
             asyncio.create_task(self._otaclient_control_flags_managing())
         else:

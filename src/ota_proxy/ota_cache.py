@@ -37,6 +37,7 @@ from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
+from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash
 
@@ -108,7 +109,7 @@ class OTACache:
         db_file: Optional[StrOrPath] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
-        external_cache: Optional[str] = None,
+        external_cache_mnt_point: str | None = None,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -136,9 +137,20 @@ class OTACache:
             thread_name_prefix="ota_cache_fileio_executor"
         )
 
-        if external_cache and cache_enabled:
-            logger.info(f"external cache source is enabled at: {external_cache}")
-        self._external_cache = Path(external_cache) if external_cache else None
+        self._external_cache_data_dir = None
+        self._external_cache_mp = None
+        if (
+            cache_enabled
+            and external_cache_mnt_point
+            and mount_external_cache(external_cache_mnt_point)
+        ):
+            logger.info(
+                f"external cache source is enabled at: {external_cache_mnt_point}"
+            )
+            self._external_cache_mp = external_cache_mnt_point
+            self._external_cache_data_dir = (
+                Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
+            )
 
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
@@ -218,6 +230,9 @@ class OTACache:
 
                 if self._cache_enabled:
                     self._lru_helper.close()
+
+                if self._external_cache_mp:
+                    umount_external_cache(self._external_cache_mp)
 
         logger.info("shutdown ota-cache completed")
 
@@ -443,13 +458,12 @@ class OTACache:
 
     async def _retrieve_file_by_external_cache(
         self, client_cache_policy: OTAFileCacheControl
-    ) -> Optional[Tuple[AsyncIterator[bytes], Mapping[str, str]]]:
-        # skip if not external cache or otaclient doesn't sent valid file_sha256
-        if not self._external_cache or not client_cache_policy.file_sha256:
+    ) -> tuple[AsyncIterator[bytes], Mapping[str, str]] | None:
+        if not self._external_cache_data_dir or not client_cache_policy.file_sha256:
             return
 
         cache_identifier = client_cache_policy.file_sha256
-        cache_file = self._external_cache / cache_identifier
+        cache_file = self._external_cache_data_dir / cache_identifier
         cache_file_zst = cache_file.with_suffix(
             f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}"
         )
@@ -522,7 +536,7 @@ class OTACache:
         # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
         #       in external cache storage, in such case we should skip the use of external cache.
         if (
-            self._external_cache
+            self._external_cache_data_dir
             and not cache_policy.retry_caching
             and (_res := await self._retrieve_file_by_external_cache(cache_policy))
         ):
