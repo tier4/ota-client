@@ -29,8 +29,45 @@ from typing import Optional
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
 from otaclient.configs.cfg import cfg, proxy_info
+from otaclient_common.common import ensure_otaproxy_start
 
 logger = logging.getLogger(__name__)
+
+
+def otaproxy_process(*, init_cache: bool) -> None:
+    from otaclient._logging import configure_logging
+
+    configure_logging()
+    logger.info("otaproxy process started")
+
+    external_cache_mnt_point = None
+    if cfg.OTAPROXY_ENABLE_EXTERNAL_CACHE:
+        external_cache_mnt_point = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT
+
+    host, port = (
+        str(proxy_info.local_ota_proxy_listen_addr),
+        proxy_info.local_ota_proxy_listen_port,
+    )
+
+    upper_proxy = str(proxy_info.upper_ota_proxy or "")
+    logger.info(f"will launch otaproxy at http://{host}:{port}, with {upper_proxy=}")
+    if upper_proxy:
+        logger.info(f"wait for {upper_proxy=} online...")
+        ensure_otaproxy_start(str(upper_proxy))
+
+    asyncio.run(
+        run_otaproxy(
+            host=host,
+            port=port,
+            init_cache=init_cache,
+            cache_dir=local_otaproxy_cfg.BASE_DIR,
+            cache_db_f=local_otaproxy_cfg.DB_FILE,
+            upper_proxy=upper_proxy,
+            enable_cache=proxy_info.enable_local_ota_proxy_cache,
+            enable_https=proxy_info.gateway_otaproxy,
+            external_cache_mnt_point=external_cache_mnt_point,
+        )
+    )
 
 
 class OTAProxyLauncher:
@@ -38,15 +75,6 @@ class OTAProxyLauncher:
 
     def __init__(self, *, executor: ThreadPoolExecutor) -> None:
         self.enabled = proxy_info.enable_local_ota_proxy
-        self.upper_otaproxy = (
-            str(proxy_info.upper_ota_proxy) if proxy_info.upper_ota_proxy else ""
-        )
-        self._external_cache_mp = (
-            cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT
-            if cfg.OTAPROXY_ENABLE_EXTERNAL_CACHE
-            else None
-        )
-
         self._lock = asyncio.Lock()
         # process start/shutdown will be dispatched to thread pool
         self._run_in_executor = partial(
@@ -82,18 +110,8 @@ class OTAProxyLauncher:
 
         async with self._lock:
             otaproxy_subprocess = _spawn_ctx.Process(
-                target=partial(
-                    run_otaproxy,
-                    host=str(proxy_info.local_ota_proxy_listen_addr),
-                    port=proxy_info.local_ota_proxy_listen_port,
-                    init_cache=init_cache,
-                    cache_dir=local_otaproxy_cfg.BASE_DIR,
-                    cache_db_f=local_otaproxy_cfg.DB_FILE,
-                    upper_proxy=self.upper_otaproxy,
-                    enable_cache=proxy_info.enable_local_ota_proxy_cache,
-                    enable_https=proxy_info.gateway_otaproxy,
-                    external_cache_mnt_point=self._external_cache_mp,
-                ),
+                target=otaproxy_process,
+                args=(init_cache,),
                 daemon=True,
                 name="otaproxy",
             )
