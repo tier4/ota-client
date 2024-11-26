@@ -503,10 +503,13 @@ def ensure_mount(
             is_target_mounted(mnt_point, raise_exception=True)
             return
         except CalledProcessError as e:
-            logger.error(
-                f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}"
+            logger.info(
+                (
+                    f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}\n"
+                    f"{e.stderr=}\n{e.stdout=}\n"
+                    "retrying another mount ..."
+                )
             )
-            logger.error(f"{e.stderr=}\n{e.stdout=}")
 
             if _retry >= max_retry:
                 logger.error(
@@ -538,8 +541,12 @@ def ensure_umount(
                 break
             umount(mnt_point, raise_exception=True)
         except CalledProcessError as e:
-            logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
-            logger.warning(f"{e.stderr}\n{e.stdout}")
+            logger.info(
+                (
+                    f"retry#{_retry} failed to umount {mnt_point}: {e!r}\n"
+                    f"{e.stderr=}\n{e.stdout=}"
+                )
+            )
 
             if _retry >= max_retry:
                 logger.error(f"reached max retry on umounting {mnt_point}, abort")
@@ -574,6 +581,8 @@ def ensure_mointpoint(
             logger.error(f"failed to prepare {mnt_point=}: {e!r}")
             raise
         logger.warning(
-            f"failed to prepare {mnt_point=}: {e!r} \n"
-            f"But still use {mnt_point} and override the previous mount"
+            (
+                f"failed to prepare {mnt_point=}: {e!r} \n"
+                f"But still use {mnt_point} and override the previous mount"
+            )
         )
