@@ -333,7 +333,6 @@ class MountHelper(Protocol):
         mount_point: StrOrPath,
         *,
         raise_exception: bool = True,
-        **kwargs,
     ) -> None: ...
 
 
@@ -367,7 +366,7 @@ def mount(
 
 
 def mount_rw(
-    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
@@ -378,7 +377,7 @@ def mount_rw(
             mount events propagation to/from this mount point.
 
     Args:
-        target (str): target to be mounted.
+        target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
@@ -388,7 +387,7 @@ def mount_rw(
         "mount",
         "-o", "rw",
         "--make-private", "--make-unbindable",
-        target,
+        str(target),
         str(mount_point),
     ]
     # fmt: on
@@ -396,7 +395,7 @@ def mount_rw(
 
 
 def bind_mount_ro(
-    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-only.
 
@@ -404,7 +403,7 @@ def bind_mount_ro(
         mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
 
     Args:
-        target (str): target to be mounted.
+        target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
@@ -414,7 +413,7 @@ def bind_mount_ro(
         "mount",
         "-o", "bind,ro",
         "--make-private", "--make-unbindable",
-        target,
+        str(target),
         str(mount_point)
     ]
     # fmt: on
@@ -422,7 +421,7 @@ def bind_mount_ro(
 
 
 def mount_ro(
-    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
@@ -430,14 +429,16 @@ def mount_ro(
     if the target device is not mounted, we directly mount it to the mount_point.
 
     Args:
-        target (str): target to be mounted.
+        target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
     # NOTE: set raise_exception to false to allow not mounted
     #       not mounted dev will have empty return str
-    if _active_mount_point := get_mount_point_by_dev(target, raise_exception=False):
+    if _active_mount_point := get_mount_point_by_dev(
+        str(target), raise_exception=False
+    ):
         bind_mount_ro(
             _active_mount_point,
             mount_point,
@@ -450,7 +451,7 @@ def mount_ro(
             "mount",
             "-o", "ro",
             "--make-private", "--make-unbindable",
-            target,
+            str(target),
             str(mount_point),
         ]
         # fmt: on
