@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, Protocol
 
 from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
@@ -237,6 +239,104 @@ def set_ext4_fslabel(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def mkfs_ext4(
+    dev: str,
+    *,
+    fslabel: str | None = None,
+    fsuuid: str | None = None,
+    raise_exception: bool = True,
+) -> None:  # pragma: no cover
+    """Create new ext4 formatted filesystem on <dev>, optionally with <fslabel>
+        and/or <fsuuid>.
+
+    Args:
+        dev (str): device to be formatted to ext4.
+        fslabel (Optional[str], optional): fslabel of the new ext4 filesystem. Defaults to None.
+            When it is None, this function will try to preserve the previous fslabel.
+        fsuuid (Optional[str], optional): fsuuid of the new ext4 filesystem. Defaults to None.
+            When it is None, this function will try to preserve the previous fsuuid.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    cmd = ["mkfs.ext4", "-F"]
+
+    if not fsuuid:
+        try:
+            fsuuid = get_attrs_by_dev("UUID", dev)
+            assert fsuuid
+            logger.debug(f"reuse previous UUID: {fsuuid}")
+        except Exception:
+            pass
+    if fsuuid:
+        logger.debug(f"using UUID: {fsuuid}")
+        cmd.extend(["-U", fsuuid])
+
+    if not fslabel:
+        try:
+            fslabel = get_attrs_by_dev("LABEL", dev)
+            assert fslabel
+            logger.debug(f"reuse previous fs LABEL: {fslabel}")
+        except Exception:
+            pass
+    if fslabel:
+        logger.debug(f"using fs LABEL: {fslabel}")
+        cmd.extend(["-L", fslabel])
+
+    cmd.append(dev)
+    logger.warning(f"format {dev} to ext4: {cmd=}")
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
+    """Reboot the system, with optional args passed to reboot command.
+
+    This is implemented by calling:
+        reboot [args[0], args[1], ...]
+
+    NOTE(20230614): this command makes otaclient exit immediately.
+    NOTE(20240421): rpi_boot's reboot takes args.
+
+    Args:
+        args (Optional[list[str]], optional): args passed to reboot command.
+            Defaults to None, not passing any args.
+
+    Raises:
+        CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
+    """
+    cmd = ["reboot"]
+    if args:
+        logger.info(f"will reboot with argument: {args=}")
+        cmd.extend(args)
+
+    logger.warning("system will reboot now!")
+    subprocess_call(cmd, raise_exception=True)
+    sys.exit(0)
+
+
+#
+# ------ mount related helpers ------ #
+#
+
+MAX_RETRY_COUNT = 6
+RETRY_INTERVAL = 2
+
+
+class MountHelper(Protocol):
+    """Protocol for mount helper functions.
+
+    This is for typing purpose.
+    """
+
+    def __call__(
+        self,
+        target: StrOrPath,
+        mount_point: StrOrPath,
+        *,
+        raise_exception: bool = True,
+        **kwargs,
+    ) -> None: ...
+
+
 def mount(
     target: StrOrPath,
     mount_point: StrOrPath,
@@ -321,82 +421,8 @@ def bind_mount_ro(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def umount(
-    target: StrOrPath, *, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Try to umount the <target>.
-
-    This is implemented by calling:
-        umount <target>
-
-    Before calling umount, the <target> will be check whether it is mounted,
-        if it is not mounted, this function will return directly.
-
-    Args:
-        target (StrOrPath): target to be umounted.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # first try to check whether the target(either a mount point or a dev)
-    # is mounted
-    if not is_target_mounted(target, raise_exception=False):
-        return
-
-    # if the target is mounted, try to unmount it.
-    _cmd = ["umount", str(target)]
-    subprocess_call(_cmd, raise_exception=raise_exception)
-
-
-def mkfs_ext4(
-    dev: str,
-    *,
-    fslabel: str | None = None,
-    fsuuid: str | None = None,
-    raise_exception: bool = True,
-) -> None:  # pragma: no cover
-    """Create new ext4 formatted filesystem on <dev>, optionally with <fslabel>
-        and/or <fsuuid>.
-
-    Args:
-        dev (str): device to be formatted to ext4.
-        fslabel (Optional[str], optional): fslabel of the new ext4 filesystem. Defaults to None.
-            When it is None, this function will try to preserve the previous fslabel.
-        fsuuid (Optional[str], optional): fsuuid of the new ext4 filesystem. Defaults to None.
-            When it is None, this function will try to preserve the previous fsuuid.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    cmd = ["mkfs.ext4", "-F"]
-
-    if not fsuuid:
-        try:
-            fsuuid = get_attrs_by_dev("UUID", dev)
-            assert fsuuid
-            logger.debug(f"reuse previous UUID: {fsuuid}")
-        except Exception:
-            pass
-    if fsuuid:
-        logger.debug(f"using UUID: {fsuuid}")
-        cmd.extend(["-U", fsuuid])
-
-    if not fslabel:
-        try:
-            fslabel = get_attrs_by_dev("LABEL", dev)
-            assert fslabel
-            logger.debug(f"reuse previous fs LABEL: {fslabel}")
-        except Exception:
-            pass
-    if fslabel:
-        logger.debug(f"using fs LABEL: {fslabel}")
-        cmd.extend(["-L", fslabel])
-
-    cmd.append(dev)
-    logger.warning(f"format {dev} to ext4: {cmd=}")
-    subprocess_call(cmd, raise_exception=raise_exception)
-
-
 def mount_ro(
-    *, target: str, mount_point: StrOrPath, raise_exception: bool = True
+    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
@@ -431,27 +457,123 @@ def mount_ro(
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
-    """Reboot the system, with optional args passed to reboot command.
+def umount(
+    target: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Try to umount the <target>.
 
     This is implemented by calling:
-        reboot [args[0], args[1], ...]
+        umount <target>
 
-    NOTE(20230614): this command makes otaclient exit immediately.
-    NOTE(20240421): rpi_boot's reboot takes args.
+    Before calling umount, the <target> will be check whether it is mounted,
+        if it is not mounted, this function will return directly.
 
     Args:
-        args (Optional[list[str]], optional): args passed to reboot command.
-            Defaults to None, not passing any args.
+        target (StrOrPath): target to be umounted.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # first try to check whether the target(either a mount point or a dev)
+    # is mounted
+    if not is_target_mounted(target, raise_exception=False):
+        return
+
+    # if the target is mounted, try to unmount it.
+    _cmd = ["umount", str(target)]
+    subprocess_call(_cmd, raise_exception=raise_exception)
+
+
+def ensure_mount(
+    target: StrOrPath,
+    mnt_point: StrOrPath,
+    *,
+    mount_func: MountHelper,
+    raise_exception: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Ensure the <target> mounted on <mnt_point> by our best.
 
     Raises:
-        CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
+        If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
     """
-    cmd = ["reboot"]
-    if args:
-        logger.info(f"will reboot with argument: {args=}")
-        cmd.extend(args)
+    for _retry in range(max_retry + 1):
+        try:
+            mount_func(target=target, mount_point=mnt_point)
+            is_target_mounted(mnt_point, raise_exception=True)
+            return
+        except CalledProcessError as e:
+            logger.error(
+                f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}"
+            )
+            logger.error(f"{e.stderr=}\n{e.stdout=}")
 
-    logger.warning("system will reboot now!")
-    subprocess_call(cmd, raise_exception=True)
-    sys.exit(0)
+            if _retry >= max_retry:
+                logger.error(
+                    f"exceed max retry count mounting {target} on {mnt_point}, abort"
+                )
+                if raise_exception:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_umount(
+    mnt_point: StrOrPath,
+    *,
+    ignore_error: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Try to umount the <mnt_point> at our best.
+
+    Raises:
+        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(max_retry + 1):
+        try:
+            if not is_target_mounted(mnt_point, raise_exception=False):
+                break
+            umount(mnt_point, raise_exception=True)
+        except CalledProcessError as e:
+            logger.warning(f"retry#{_retry} failed to umount {mnt_point}: {e!r}")
+            logger.warning(f"{e.stderr}\n{e.stdout}")
+
+            if _retry >= max_retry:
+                logger.error(f"reached max retry on umounting {mnt_point}, abort")
+                if not ignore_error:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_mointpoint(
+    mnt_point: StrOrPath, *, ignore_error: bool
+) -> None:  # pragma: no cover
+    """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
+
+    If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
+        we still keep use the mountpoint as later mount will override the previous one.
+    """
+    mnt_point = Path(mnt_point)
+    if mnt_point.is_symlink() or not mnt_point.is_dir():
+        mnt_point.unlink(missing_ok=True)
+
+    if not mnt_point.exists():
+        mnt_point.mkdir(exist_ok=True, parents=True)
+        return
+
+    try:
+        ensure_umount(mnt_point, ignore_error=False)
+    except Exception as e:
+        if not ignore_error:
+            logger.error(f"failed to prepare {mnt_point=}: {e!r}")
+            raise
+        logger.warning(
+            f"failed to prepare {mnt_point=}: {e!r} \n"
+            f"But still use {mnt_point} and override the previous mount"
+        )
