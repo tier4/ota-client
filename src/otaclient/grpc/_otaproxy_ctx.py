@@ -34,7 +34,7 @@ from otaclient_common.common import ensure_otaproxy_start
 logger = logging.getLogger(__name__)
 
 
-def otaproxy_process(*, init_cache: bool) -> None:
+def otaproxy_process(init_cache: bool) -> None:
     from otaclient._logging import configure_logging
 
     configure_logging()
