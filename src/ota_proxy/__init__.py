@@ -13,16 +13,13 @@
 # limitations under the License.
 
 
-import asyncio
-import logging
-import multiprocessing
-from abc import abstractmethod
-from contextlib import AbstractContextManager
-from functools import partial
-from multiprocessing.context import SpawnProcess
-from typing import Any, Callable, Coroutine, Dict, Optional, Protocol
+from __future__ import annotations
 
-from typing_extensions import ParamSpec, Self
+import atexit
+import logging
+from functools import partial
+
+from ota_proxy.external_cache import mount_external_cache, umount_external_cache
 
 from .cache_control_header import OTAFileCacheControl
 from .config import config
@@ -37,11 +34,7 @@ __all__ = (
     "OTACache",
     "OTAFileCacheControl",
     "config",
-    "OTAProxyContextProto",
-    "subprocess_otaproxy_launcher",
 )
-
-_P = ParamSpec("_P")
 
 
 async def run_otaproxy(
@@ -49,16 +42,27 @@ async def run_otaproxy(
     port: int,
     *,
     init_cache: bool,
-    cache_dir: str,
-    cache_db_f: str,
+    cache_dir: str = config.BASE_DIR,
+    cache_db_f: str = config.DB_FILE,
     upper_proxy: str,
     enable_cache: bool,
     enable_https: bool,
-    external_cache: Optional[str] = None,
+    external_cache_mnt_point: str | None = None,
 ):
     import uvicorn
 
     from . import App, OTACache
+
+    _loaded_mnt_point = None
+    if external_cache_mnt_point and (
+        _loaded_mnt_point := mount_external_cache(external_cache_mnt_point)
+    ):
+        _loaded_mnt_point = str(_loaded_mnt_point)
+
+        def _atexit(_mnt_point) -> None:
+            umount_external_cache(_mnt_point)
+
+        atexit.register(partial(_atexit, _loaded_mnt_point))
 
     _ota_cache = OTACache(
         base_dir=cache_dir,
@@ -67,7 +71,7 @@ async def run_otaproxy(
         upper_proxy=upper_proxy,
         enable_https=enable_https,
         init_cache=init_cache,
-        external_cache=external_cache,
+        external_cache_mnt_point=_loaded_mnt_point,
     )
     _config = uvicorn.Config(
         App(_ota_cache),
@@ -76,63 +80,8 @@ async def run_otaproxy(
         log_level="error",
         lifespan="on",
         loop="uvloop",
+        # NOTE: must use h11, other http implementation will break HTTP proxy
         http="h11",
     )
     _server = uvicorn.Server(_config)
     await _server.serve()
-
-
-class OTAProxyContextProto(AbstractContextManager, Protocol):
-    @abstractmethod
-    def __init__(self, *args, **kwargs) -> None: ...
-
-    @property
-    def extra_kwargs(self) -> Dict[str, Any]:
-        return {}
-
-    @abstractmethod
-    def __enter__(self) -> Self: ...
-
-
-def _subprocess_main(
-    subprocess_ctx: OTAProxyContextProto,
-    otaproxy_entry: Callable[..., Coroutine],
-):
-    """Main entry for launching otaproxy server at subprocess."""
-    import uvloop  # NOTE: only import uvloop at subprocess
-
-    uvloop.install()
-    with subprocess_ctx as ctx:
-        asyncio.run(otaproxy_entry(**ctx.extra_kwargs))
-
-
-def subprocess_otaproxy_launcher(
-    subprocess_ctx: OTAProxyContextProto,
-    otaproxy_entry: Callable[_P, Any] = run_otaproxy,
-):
-    """
-    Returns:
-        A callable main entry for launching otaproxy in subprocess.
-    """
-
-    def _inner(*args: _P.args, **kwargs: _P.kwargs) -> SpawnProcess:
-        """Helper method to launch otaproxy in subprocess.
-
-        This method works like a wrapper and passthrough all args and kwargs
-        to the _subprocess_main function, and then execute the function in
-        a subprocess.
-        check _subprocess_main function for more details.
-        """
-        # prepare otaproxy coro
-        _otaproxy_entry = partial(otaproxy_entry, *args, **kwargs)
-
-        # run otaproxy in async loop in new subprocess
-        mp_ctx = multiprocessing.get_context("spawn")
-        otaproxy_subprocess = mp_ctx.Process(
-            target=partial(_subprocess_main, subprocess_ctx, _otaproxy_entry),
-            daemon=True,  # kill otaproxy if the parent process exists
-        )
-        otaproxy_subprocess.start()
-        return otaproxy_subprocess
-
-    return _inner

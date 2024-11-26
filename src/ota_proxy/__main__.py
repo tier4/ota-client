@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import logging
@@ -66,10 +68,10 @@ if __name__ == "__main__":
         default=cfg.DB_FILE,
     )
     parser.add_argument(
-        "--external-cache-folder",
+        "--external-cache-mnt-point",
         help=(
-            "if specified, otaproxy will use the files in "
-            "this folder as extra cache source"
+            "if specified, otaproxy will try to detect external cache dev, "
+            "mount the dev on this mount point, and use the cache store in it."
         ),
         default=None,
     )
@@ -87,6 +89,6 @@ if __name__ == "__main__":
             upper_proxy=args.upper_proxy,
             enable_https=args.enable_https,
             init_cache=args.init_cache,
-            external_cache=args.external_cache_folder,
+            external_cache_mnt_point=args.external_cache_mnt_point,
         )
     )

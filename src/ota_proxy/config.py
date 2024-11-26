@@ -53,8 +53,13 @@ class Config:
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"
 
+    # ------ external cache ------ #
     # the file extension for compressed files in external cache storage
     EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
+
+    EXTERNAL_CACHE_DEV_FSLABEL: str = "ota_cache_src"
+    EXTERNAL_CACHE_DATA_DNAME: str = "data"
+    """The cache blob storage is located at <cache_mnt_point>/data."""
 
 
 config = Config()
