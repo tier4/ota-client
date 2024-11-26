@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
+from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, Protocol
 
 from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.typing import StrOrPath
@@ -237,116 +239,6 @@ def set_ext4_fslabel(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount(
-    target: StrOrPath,
-    mount_point: StrOrPath,
-    *,
-    options: list[str] | None = None,
-    params: list[str] | None = None,
-    raise_exception: bool = True,
-) -> None:  # pragma: no cover
-    """Thin wrapper to call mount using subprocess.
-
-    This will call the following:
-        mount [-o <option1>,[<option2>[,...]] [<param1> [<param2>[...]]] <target> <mount_point>
-
-    Args:
-        target (StrOrPath): The target device to mount.
-        mount_point (StrOrPath): The mount point to mount to.
-        options (list[str] | None, optional): A list of options, append after -o. Defaults to None.
-        params (list[str] | None, optional): A list of params. Defaults to None.
-        raise_exception (bool, optional): Whether to raise exception on failed call. Defaults to True.
-    """
-    cmd = ["mount"]
-    if options:
-        cmd.extend(["-o", ",".join(options)])
-    if params:
-        cmd.extend(params)
-    cmd = [*cmd, str(target), str(mount_point)]
-    subprocess_call(cmd, raise_exception=raise_exception)
-
-
-def mount_rw(
-    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Mount the <target> to <mount_point> read-write.
-
-    This is implemented by calling:
-        mount -o rw --make-private --make-unbindable <target> <mount_point>
-
-    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
-            mount events propagation to/from this mount point.
-
-    Args:
-        target (str): target to be mounted.
-        mount_point (StrOrPath): mount point to mount to.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # fmt: off
-    cmd = [
-        "mount",
-        "-o", "rw",
-        "--make-private", "--make-unbindable",
-        target,
-        str(mount_point),
-    ]
-    # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
-
-
-def bind_mount_ro(
-    target: str, mount_point: StrOrPath, *, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Bind mount the <target> to <mount_point> read-only.
-
-    This is implemented by calling:
-        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
-
-    Args:
-        target (str): target to be mounted.
-        mount_point (StrOrPath): mount point to mount to.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # fmt: off
-    cmd = [
-        "mount",
-        "-o", "bind,ro",
-        "--make-private", "--make-unbindable",
-        target,
-        str(mount_point)
-    ]
-    # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
-
-
-def umount(
-    target: StrOrPath, *, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Try to umount the <target>.
-
-    This is implemented by calling:
-        umount <target>
-
-    Before calling umount, the <target> will be check whether it is mounted,
-        if it is not mounted, this function will return directly.
-
-    Args:
-        target (StrOrPath): target to be umounted.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # first try to check whether the target(either a mount point or a dev)
-    # is mounted
-    if not is_target_mounted(target, raise_exception=False):
-        return
-
-    # if the target is mounted, try to unmount it.
-    _cmd = ["umount", str(target)]
-    subprocess_call(_cmd, raise_exception=raise_exception)
-
-
 def mkfs_ext4(
     dev: str,
     *,
@@ -395,42 +287,6 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def mount_ro(
-    *, target: str, mount_point: StrOrPath, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Mount <target> to <mount_point> read-only.
-
-    If the target device is mounted, we bind mount the target device to mount_point.
-    if the target device is not mounted, we directly mount it to the mount_point.
-
-    Args:
-        target (str): target to be mounted.
-        mount_point (StrOrPath): mount point to mount to.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # NOTE: set raise_exception to false to allow not mounted
-    #       not mounted dev will have empty return str
-    if _active_mount_point := get_mount_point_by_dev(target, raise_exception=False):
-        bind_mount_ro(
-            _active_mount_point,
-            mount_point,
-            raise_exception=raise_exception,
-        )
-    else:
-        # target is not mounted, we mount it by ourself
-        # fmt: off
-        cmd = [
-            "mount",
-            "-o", "ro",
-            "--make-private", "--make-unbindable",
-            target,
-            str(mount_point),
-        ]
-        # fmt: on
-        subprocess_call(cmd, raise_exception=raise_exception)
-
-
 def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     """Reboot the system, with optional args passed to reboot command.
 
@@ -455,3 +311,279 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     logger.warning("system will reboot now!")
     subprocess_call(cmd, raise_exception=True)
     sys.exit(0)
+
+
+#
+# ------ mount related helpers ------ #
+#
+
+MAX_RETRY_COUNT = 6
+RETRY_INTERVAL = 2
+
+
+class MountHelper(Protocol):
+    """Protocol for mount helper functions.
+
+    This is for typing purpose.
+    """
+
+    def __call__(
+        self,
+        target: StrOrPath,
+        mount_point: StrOrPath,
+        *,
+        raise_exception: bool = True,
+    ) -> None: ...
+
+
+def mount(
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    options: list[str] | None = None,
+    params: list[str] | None = None,
+    raise_exception: bool = True,
+) -> None:  # pragma: no cover
+    """Thin wrapper to call mount using subprocess.
+
+    This will call the following:
+        mount [-o <option1>,[<option2>[,...]] [<param1> [<param2>[...]]] <target> <mount_point>
+
+    Args:
+        target (StrOrPath): The target device to mount.
+        mount_point (StrOrPath): The mount point to mount to.
+        options (list[str] | None, optional): A list of options, append after -o. Defaults to None.
+        params (list[str] | None, optional): A list of params. Defaults to None.
+        raise_exception (bool, optional): Whether to raise exception on failed call. Defaults to True.
+    """
+    cmd = ["mount"]
+    if options:
+        cmd.extend(["-o", ",".join(options)])
+    if params:
+        cmd.extend(params)
+    cmd = [*cmd, str(target), str(mount_point)]
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def mount_rw(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Mount the <target> to <mount_point> read-write.
+
+    This is implemented by calling:
+        mount -o rw --make-private --make-unbindable <target> <mount_point>
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "-o", "rw",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point),
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def bind_mount_ro(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Bind mount the <target> to <mount_point> read-only.
+
+    This is implemented by calling:
+        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "-o", "bind,ro",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def mount_ro(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Mount <target> to <mount_point> read-only.
+
+    If the target device is mounted, we bind mount the target device to mount_point.
+    if the target device is not mounted, we directly mount it to the mount_point.
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # NOTE: set raise_exception to false to allow not mounted
+    #       not mounted dev will have empty return str
+    if _active_mount_point := get_mount_point_by_dev(
+        str(target), raise_exception=False
+    ):
+        bind_mount_ro(
+            _active_mount_point,
+            mount_point,
+            raise_exception=raise_exception,
+        )
+    else:
+        # target is not mounted, we mount it by ourself
+        # fmt: off
+        cmd = [
+            "mount",
+            "-o", "ro",
+            "--make-private", "--make-unbindable",
+            str(target),
+            str(mount_point),
+        ]
+        # fmt: on
+        subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def umount(
+    target: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Try to umount the <target>.
+
+    This is implemented by calling:
+        umount <target>
+
+    Before calling umount, the <target> will be check whether it is mounted,
+        if it is not mounted, this function will return directly.
+
+    Args:
+        target (StrOrPath): target to be umounted.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # first try to check whether the target(either a mount point or a dev)
+    # is mounted
+    if not is_target_mounted(target, raise_exception=False):
+        return
+
+    # if the target is mounted, try to unmount it.
+    _cmd = ["umount", str(target)]
+    subprocess_call(_cmd, raise_exception=raise_exception)
+
+
+def ensure_mount(
+    target: StrOrPath,
+    mnt_point: StrOrPath,
+    *,
+    mount_func: MountHelper,
+    raise_exception: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Ensure the <target> mounted on <mnt_point> by our best.
+
+    Raises:
+        If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(max_retry + 1):
+        try:
+            mount_func(target=target, mount_point=mnt_point)
+            is_target_mounted(mnt_point, raise_exception=True)
+            return
+        except CalledProcessError as e:
+            logger.info(
+                (
+                    f"retry#{_retry} failed to mount {target} on {mnt_point}: {e!r}\n"
+                    f"{e.stderr=}\n{e.stdout=}\n"
+                    "retrying another mount ..."
+                )
+            )
+
+            if _retry >= max_retry:
+                logger.error(
+                    f"exceed max retry count mounting {target} on {mnt_point}, abort"
+                )
+                if raise_exception:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_umount(
+    mnt_point: StrOrPath,
+    *,
+    ignore_error: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Try to umount the <mnt_point> at our best.
+
+    Raises:
+        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+    """
+    for _retry in range(max_retry + 1):
+        try:
+            if not is_target_mounted(mnt_point, raise_exception=False):
+                break
+            umount(mnt_point, raise_exception=True)
+        except CalledProcessError as e:
+            logger.info(
+                (
+                    f"retry#{_retry} failed to umount {mnt_point}: {e!r}\n"
+                    f"{e.stderr=}\n{e.stdout=}"
+                )
+            )
+
+            if _retry >= max_retry:
+                logger.error(f"reached max retry on umounting {mnt_point}, abort")
+                if not ignore_error:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_mointpoint(
+    mnt_point: StrOrPath, *, ignore_error: bool
+) -> None:  # pragma: no cover
+    """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
+
+    If the <mnt_point> is valid, but we failed to umount any previous mounts on it,
+        we still keep use the mountpoint as later mount will override the previous one.
+    """
+    mnt_point = Path(mnt_point)
+    if mnt_point.is_symlink() or not mnt_point.is_dir():
+        mnt_point.unlink(missing_ok=True)
+
+    if not mnt_point.exists():
+        mnt_point.mkdir(exist_ok=True, parents=True)
+        return
+
+    try:
+        ensure_umount(mnt_point, ignore_error=False)
+    except Exception as e:
+        if not ignore_error:
+            logger.error(f"failed to prepare {mnt_point=}: {e!r}")
+            raise
+        logger.warning(
+            (
+                f"failed to prepare {mnt_point=}: {e!r} \n"
+                f"But still use {mnt_point} and override the previous mount"
+            )
+        )
