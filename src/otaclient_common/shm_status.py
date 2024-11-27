@@ -50,7 +50,7 @@ class RWBusy(Exception): ...
 class SHA512Verifier:
     """Base class for specifying hash alg related configurations."""
 
-    DIGEST_ALG = DEFAULT_HASH_ALG
+    DIGEST_ALG = "sha512"
     DIGEST_SIZE = hashlib.new(DIGEST_ALG).digest_size
     MIN_ENCAP_MSG_LEN = RWLOCK_LEN + DIGEST_SIZE + PAYLOAD_LEN_BYTES
 
