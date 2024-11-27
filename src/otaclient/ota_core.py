@@ -869,11 +869,6 @@ class OTAClient:
             )
 
 
-def _sign_handler(signal_value, frame) -> NoReturn:
-    print(f"ota_core process receives {signal_value=}, exits ...")
-    sys.exit(1)
-
-
 def ota_core_process(
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
     control_flag: mp_sync.Event,
@@ -884,7 +879,6 @@ def ota_core_process(
     from otaclient.configs.cfg import proxy_info
     from otaclient.ota_core import OTAClient
 
-    signal.signal(signal.SIGTERM, _sign_handler)
     configure_logging()
 
     shm_writer = shm_writer_factory()
