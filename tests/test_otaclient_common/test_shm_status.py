@@ -50,7 +50,7 @@ class MsgReader(MPSharedStatusReader[OuterMsg]): ...
 class MsgWriter(MPSharedStatusWriter[OuterMsg]): ...
 
 
-DATA_ENTRIES_NUM = 10
+DATA_ENTRIES_NUM = 20
 _TEST_DATA = {
     _idx: OuterMsg(
         InnerMsg(
