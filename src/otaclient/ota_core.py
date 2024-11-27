@@ -885,7 +885,6 @@ def ota_core_process(
     from otaclient.ota_core import OTAClient
 
     signal.signal(signal.SIGTERM, _sign_handler)
-    signal.signal(signal.SIGINT, _sign_handler)
     configure_logging()
 
     shm_writer = shm_writer_factory()
