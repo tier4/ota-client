@@ -68,8 +68,7 @@ def _on_shutdown(sys_exit: bool = False):
 
 def _signal_handler(signame, _) -> None:
     print(f"otaclient receives {signame=}, shutting down ...")
-    # do not sys.exit when we are already shutting down
-    _on_shutdown(sys_exit=True)
+    sys.exit(1)
 
 
 def main() -> None:
@@ -97,7 +96,6 @@ def main() -> None:
 
     atexit.register(_on_shutdown)
     signal.signal(signal.SIGTERM, _signal_handler)
-    signal.signal(signal.SIGINT, _signal_handler)
 
     mp_ctx = mp.get_context("spawn")
     _shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
