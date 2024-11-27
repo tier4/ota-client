@@ -15,11 +15,7 @@
 
 from __future__ import annotations
 
-import atexit
 import logging
-from functools import partial
-
-from ota_proxy.external_cache import mount_external_cache, umount_external_cache
 
 from .cache_control_header import OTAFileCacheControl
 from .config import config
@@ -53,17 +49,6 @@ async def run_otaproxy(
 
     from . import App, OTACache
 
-    _loaded_mnt_point = None
-    if external_cache_mnt_point and (
-        _loaded_mnt_point := mount_external_cache(external_cache_mnt_point)
-    ):
-        _loaded_mnt_point = str(_loaded_mnt_point)
-
-        def _atexit(_mnt_point) -> None:
-            umount_external_cache(_mnt_point)
-
-        atexit.register(partial(_atexit, _loaded_mnt_point))
-
     _ota_cache = OTACache(
         base_dir=cache_dir,
         db_file=cache_db_f,
@@ -71,7 +56,7 @@ async def run_otaproxy(
         upper_proxy=upper_proxy,
         enable_https=enable_https,
         init_cache=init_cache,
-        external_cache_mnt_point=_loaded_mnt_point,
+        external_cache_mnt_point=external_cache_mnt_point,
     )
     _config = uvicorn.Config(
         App(_ota_cache),
