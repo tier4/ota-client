@@ -33,13 +33,13 @@ from otaclient_common.typing import T
 
 logger = logging.getLogger(__name__)
 
-HASH_ALG = "sha3_512"
+HASH_ALG = "sha512"
 DEFAULT_KEY_LEN = 64  # bytes
 
 RWLOCK_LEN = 1  # byte
-HMAC_SHA3_512_LEN = 64  # bytes
+HMAC_SHA_512_LEN = 64  # bytes
 PAYLOAD_LEN_BYTES = 4  # bytes
-MIN_ENCAP_MSG_LEN = RWLOCK_LEN + HMAC_SHA3_512_LEN + PAYLOAD_LEN_BYTES
+MIN_ENCAP_MSG_LEN = RWLOCK_LEN + HMAC_SHA_512_LEN + PAYLOAD_LEN_BYTES
 
 RWLOCK_LOCKED = b"\xab"
 RWLOCK_OPEN = b"\x54"
@@ -82,8 +82,8 @@ class MPSharedStatusReader(Generic[T]):
         _cursor += RWLOCK_LEN
 
         # parsing the msg
-        input_hmac = bytes(buffer[_cursor : _cursor + HMAC_SHA3_512_LEN])
-        _cursor += HMAC_SHA3_512_LEN
+        input_hmac = bytes(buffer[_cursor : _cursor + HMAC_SHA_512_LEN])
+        _cursor += HMAC_SHA_512_LEN
 
         _payload_len_bytes = bytes(buffer[_cursor : _cursor + PAYLOAD_LEN_BYTES])
         payload_len = int.from_bytes(_payload_len_bytes, "big", signed=False)
