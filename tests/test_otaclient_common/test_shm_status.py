@@ -133,12 +133,12 @@ READ_FAST_INTERVAL = 0.01
         (
             read_fast_process,
             READ_FAST_INTERVAL,
-            WRITE_INTERVAL * DATA_ENTRIES_NUM + 1,
+            WRITE_INTERVAL * DATA_ENTRIES_NUM + 3,
         ),
         (
             read_slow_process,
             READ_SLOW_INTERVAL,
-            WRITE_INTERVAL * DATA_ENTRIES_NUM + 1,
+            WRITE_INTERVAL * DATA_ENTRIES_NUM + 3,
         ),
     ),
 )
