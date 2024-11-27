@@ -107,6 +107,10 @@ extend-exclude = '''(
 )'''
 
 [tool.coverage.run]
+concurrency = [
+  "multiprocessing",
+  "thread",
+]
 branch = false
 relative_files = true
 source = [
