@@ -113,6 +113,7 @@ concurrency = [
 ]
 branch = false
 relative_files = true
+parallel = true
 source = [
   "otaclient",
   "otaclient_api",
