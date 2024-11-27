@@ -15,13 +15,14 @@
 
 shared memory layout:
 
-rwlock(1byte) | hmac-sha3_512(64bytes) | msg_len(4bytes,big) | msg(<msg_len>bytes)
+rwlock(1byte) | hmac-sha512 of msg(64bytes) | msg_len(4bytes,big) | msg(<msg_len>bytes)
 In which, msg is pickled python object.
 """
 
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import multiprocessing.shared_memory as mp_shm
@@ -33,22 +34,33 @@ from otaclient_common.typing import T
 
 logger = logging.getLogger(__name__)
 
-HASH_ALG = "sha512"
-DEFAULT_KEY_LEN = 64  # bytes
+DEFAULT_HASH_ALG = "sha512"
+DEFAULT_KEY_LEN = hashlib.new(DEFAULT_HASH_ALG).digest_size
 
 RWLOCK_LEN = 1  # byte
-HMAC_SHA_512_LEN = 64  # bytes
 PAYLOAD_LEN_BYTES = 4  # bytes
-MIN_ENCAP_MSG_LEN = RWLOCK_LEN + HMAC_SHA_512_LEN + PAYLOAD_LEN_BYTES
 
 RWLOCK_LOCKED = b"\xab"
 RWLOCK_OPEN = b"\x54"
 
 
-class MPSharedStatusReader(Generic[T]):
+class SHA512Verifier:
+    """Base class for specifying hash alg related configurations."""
+
+    digest_alg = DEFAULT_HASH_ALG
+    digest_size = hashlib.new(digest_alg).digest_size
+    min_encap_msg_len = RWLOCK_LEN + digest_size + PAYLOAD_LEN_BYTES
+
+
+class MPSharedStatusReader(SHA512Verifier, Generic[T]):
 
     def __init__(
-        self, *, name: str, key: bytes, max_retry: int = 6, retry_interval: int = 1
+        self,
+        *,
+        name: str,
+        key: bytes,
+        max_retry: int = 6,
+        retry_interval: int = 1,
     ) -> None:
         for _idx in range(max_retry):
             try:
@@ -63,7 +75,7 @@ class MPSharedStatusReader(Generic[T]):
             raise ValueError(f"failed to connect share memory with {name=}")
 
         self.mem_size = size = shm.size
-        self.msg_max_size = size - MIN_ENCAP_MSG_LEN
+        self.msg_max_size = size - self.min_encap_msg_len
         self._key = key
 
     def atexit(self) -> None:
@@ -82,8 +94,8 @@ class MPSharedStatusReader(Generic[T]):
         _cursor += RWLOCK_LEN
 
         # parsing the msg
-        input_hmac = bytes(buffer[_cursor : _cursor + HMAC_SHA_512_LEN])
-        _cursor += HMAC_SHA_512_LEN
+        input_hmac = bytes(buffer[_cursor : _cursor + self.digest_size])
+        _cursor += self.digest_size
 
         _payload_len_bytes = bytes(buffer[_cursor : _cursor + PAYLOAD_LEN_BYTES])
         payload_len = int.from_bytes(_payload_len_bytes, "big", signed=False)
@@ -93,14 +105,14 @@ class MPSharedStatusReader(Generic[T]):
             raise ValueError(f"invalid msg: {payload_len=} > {self.msg_max_size}")
 
         payload = bytes(buffer[_cursor : _cursor + payload_len])
-        payload_hmac = hmac.digest(key=self._key, msg=payload, digest=HASH_ALG)
+        payload_hmac = hmac.digest(key=self._key, msg=payload, digest=self.digest_alg)
 
         if hmac.compare_digest(payload_hmac, input_hmac):
             return pickle.loads(payload)
         raise ValueError("failed to validate input msg")
 
 
-class MPSharedStatusWriter(Generic[T]):
+class MPSharedStatusWriter(SHA512Verifier, Generic[T]):
 
     def __init__(
         self,
@@ -112,18 +124,18 @@ class MPSharedStatusWriter(Generic[T]):
         key: bytes,
     ) -> None:
         if create:
-            _msg_max_size = size - MIN_ENCAP_MSG_LEN
+            _msg_max_size = size - self.min_encap_msg_len
             if _msg_max_size < 0:
-                raise ValueError(f"{size=} < {MIN_ENCAP_MSG_LEN=}")
+                raise ValueError(f"{size=} < {self.min_encap_msg_len=}")
             self._shm = shm = mp_shm.SharedMemory(name=name, size=size, create=True)
             self.mem_size = shm.size
         else:
             self._shm = shm = mp_shm.SharedMemory(name=name, create=False)
             self.mem_size = size = shm.size
-            _msg_max_size = size - MIN_ENCAP_MSG_LEN
+            _msg_max_size = size - self.min_encap_msg_len
             if _msg_max_size < 0:
                 shm.close()
-                raise ValueError(f"{size=} < {MIN_ENCAP_MSG_LEN=}")
+                raise ValueError(f"{size=} < {self.min_encap_msg_len=}")
 
         self.name = shm.name
         self._key = key
@@ -140,7 +152,7 @@ class MPSharedStatusWriter(Generic[T]):
         if _pickled_len > self.msg_max_size:
             raise ValueError(f"exceed {self.msg_max_size=}: {_pickled_len=}")
 
-        _hmac = hmac.digest(key=self._key, msg=_pickled, digest=HASH_ALG)
+        _hmac = hmac.digest(key=self._key, msg=_pickled, digest=self.digest_alg)
         msg = b"".join(
             [
                 RWLOCK_LOCKED,
