@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import time
 
-from otaclient._types import OTAClientStatus, OTAStatus, UpdateRequestV2, UpdateTiming
+from otaclient._types import OTAClientStatus, OTAStatus, UpdateTiming
 from otaclient_api.v2 import types as api_types
 from otaclient_common.proto_wrapper import Duration
 
