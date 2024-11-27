@@ -81,8 +81,7 @@ def _ensure_connect_shm(
                 f"retry #{_idx}: failed to connect to {name=}: {e!r}, keep retrying ..."
             )
             time.sleep(retry_interval)
-    else:
-        raise ValueError(f"failed to connect share memory with {name=}")
+    raise ValueError(f"failed to connect share memory with {name=}")
 
 
 class MPSharedStatusReader(SHA512Verifier, Generic[T]):
