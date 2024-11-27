@@ -60,6 +60,7 @@ _TEST_DATA = {
     )
     for _idx in range(DATA_ENTRIES_NUM)
 }
+SHM_SIZE = 1024
 
 
 def writer_process(
@@ -139,7 +140,7 @@ READ_FAST_INTERVAL = 0.01
     ),
 )
 def test_shm_status_read_fast(reader_func, read_interval, timeout):
-    _shm = mp_shm.SharedMemory(size=1024, create=True)
+    _shm = mp_shm.SharedMemory(size=SHM_SIZE, create=True)
     _mp_ctx = mp.get_context("spawn")
     _key = secrets.token_bytes(DEFAULT_KEY_LEN)
 
@@ -167,7 +168,11 @@ def test_shm_status_read_fast(reader_func, read_interval, timeout):
     _writer_p.start()
     _reader_p.start()
 
-    def _cleanup():
+    time.sleep(timeout)
+    try:
+        assert _write_all_flag.is_set(), "writer timeout finish up writing"
+        assert _success_flag.is_set(), "reader failed to read all msg"
+    finally:
         _writer_p.terminate()
         _writer_p.join()
 
@@ -176,10 +181,3 @@ def test_shm_status_read_fast(reader_func, read_interval, timeout):
 
         _shm.close()
         _shm.unlink()
-
-    time.sleep(timeout)
-    try:
-        assert _write_all_flag.is_set(), "writer timeout finish up writing"
-        assert _success_flag.is_set(), "reader failed to read all msg"
-    finally:
-        _cleanup()
