@@ -23,7 +23,6 @@ import multiprocessing.context as mp_ctx
 import multiprocessing.shared_memory as mp_shm
 import secrets
 import signal
-import sys
 import threading
 import time
 from functools import partial
@@ -45,7 +44,7 @@ _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown(sys_exit: bool = False):
+def _on_shutdown():
     global _ota_core_p, _grpc_server_p, _shm
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -62,13 +61,10 @@ def _on_shutdown(sys_exit: bool = False):
         _shm.unlink()
         _shm = None
 
-    if sys_exit:
-        sys.exit(1)
-
 
 def _signal_handler(signal_value, _) -> None:
     print(f"otaclient receives {signal_value=}, shutting down ...")
-    sys.exit(1)
+    _on_shutdown()
 
 
 def main() -> None:
@@ -96,6 +92,7 @@ def main() -> None:
 
     atexit.register(_on_shutdown)
     signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
 
     mp_ctx = mp.get_context("spawn")
     _shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
