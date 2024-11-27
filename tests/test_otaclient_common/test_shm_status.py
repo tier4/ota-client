@@ -89,11 +89,14 @@ def read_slow_process(
     _shm_reader = MsgReader(name=shm_name, key=key)
 
     while True:
-        _msg = _shm_reader.sync_msg()
+        time.sleep(interval)
+        try:
+            _msg = _shm_reader.sync_msg()
+        except RWBusy:
+            continue
 
         if _msg._inner_msg.i_int == DATA_ENTRIES_NUM - 1:
             return success_flag.set()
-        time.sleep(interval)
 
 
 def read_fast_process(
