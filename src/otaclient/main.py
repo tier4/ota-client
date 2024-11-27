@@ -66,8 +66,8 @@ def _on_shutdown(sys_exit: bool = False):
         sys.exit(1)
 
 
-def _signal_handler(signame, _) -> None:
-    print(f"otaclient receives {signame=}, shutting down ...")
+def _signal_handler(signal_value, _) -> None:
+    print(f"otaclient receives {signal_value=}, shutting down ...")
     sys.exit(1)
 
 

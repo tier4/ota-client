@@ -869,8 +869,8 @@ class OTAClient:
             )
 
 
-def _sign_handler(signame, frame) -> NoReturn:
-    print(f"ota_core process receives {signame=}, exits ...")
+def _sign_handler(signal_value, frame) -> NoReturn:
+    print(f"ota_core process receives {signal_value=}, exits ...")
     sys.exit(1)
 
 
