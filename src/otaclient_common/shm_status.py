@@ -44,6 +44,9 @@ RWLOCK_LOCKED = b"\xab"
 RWLOCK_OPEN = b"\x54"
 
 
+class RWBusy(Exception): ...
+
+
 class SHA512Verifier:
     """Base class for specifying hash alg related configurations."""
 
@@ -82,6 +85,12 @@ class MPSharedStatusReader(SHA512Verifier, Generic[T]):
         self._shm.close()
 
     def sync_msg(self) -> T:
+        """Get msg from shared memory.
+
+        Raises:
+            RWBusy if rwlock indicates the writer is writing or not yet ready.
+                ValueError for invalid msg.
+        """
         buffer = self._shm.buf
 
         # check if we can read
@@ -89,8 +98,8 @@ class MPSharedStatusReader(SHA512Verifier, Generic[T]):
         rwlock = bytes(buffer[_cursor:RWLOCK_LEN])
         if rwlock != RWLOCK_OPEN:
             if rwlock == RWLOCK_LOCKED:
-                raise ValueError("write in progress, abort")
-            raise ValueError(f"invalid input_msg: wrong rwlock bytes: {rwlock=}")
+                raise RWBusy("write in progress, abort")
+            raise RWBusy("no msg has been written yet")
         _cursor += RWLOCK_LEN
 
         # parsing the msg
@@ -145,6 +154,11 @@ class MPSharedStatusWriter(SHA512Verifier, Generic[T]):
         self._shm.close()
 
     def write_msg(self, obj: T) -> None:
+        """Write msg to shared memory.
+
+        Raises:
+            ValueError on invalid msg or exceeding shared memory size.
+        """
         buffer = self._shm.buf
         _pickled = pickle.dumps(obj)
         _pickled_len = len(_pickled)
