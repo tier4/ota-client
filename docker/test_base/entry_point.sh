@@ -13,4 +13,5 @@ echo "execute test with coverage"
 cd ${TEST_ROOT}
 hatch env create dev
 hatch run dev:coverage run -m pytest --junit-xml=${OUTPUT_DIR}/pytest.xml ${@:-}
+hatch run dev:coverage combine
 hatch run dev:coverage xml -o ${OUTPUT_DIR}/coverage.xml

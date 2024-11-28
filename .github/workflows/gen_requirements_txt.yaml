@@ -24,7 +24,7 @@ jobs:
           # For more details about this restriction, please refer to:
           #   https://github.com/peter-evans/create-pull-request/issues/48 and
           #   https://github.com/peter-evans/create-pull-request/blob/main/docs/concepts-guidelines.md#triggering-further-workflow-runs
-          ssh_key: ${{ secrets.DEPLOY_KEY }}
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
           persist-credentials: true
 
       - name: setup python

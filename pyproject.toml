@@ -25,7 +25,7 @@ dynamic = [
 ]
 dependencies = [
   "aiofiles<25,>=24.1",
-  "aiohttp>=3.10.2,<3.12",
+  "aiohttp>=3.10.11,<3.12",
   "cryptography>=43.0.1,<44",
   "grpcio>=1.53.2,<1.69",
   "protobuf>=4.21.12,<5.29",
@@ -107,8 +107,13 @@ extend-exclude = '''(
 )'''
 
 [tool.coverage.run]
+concurrency = [
+  "multiprocessing",
+  "thread",
+]
 branch = false
 relative_files = true
+parallel = true
 source = [
   "otaclient",
   "otaclient_api",
