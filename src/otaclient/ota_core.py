@@ -19,7 +19,6 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
-import multiprocessing.synchronize as mp_sync
 import signal
 import sys
 import threading
