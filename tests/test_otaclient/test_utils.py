@@ -42,8 +42,9 @@ def test_wait_and_log(caplog: pytest.LogCaptureFixture):
     _msg = "ticking flag"
 
     wait_and_log(
-        _flag,
+        _flag.is_set,
         _msg,
+        check_for=True,
         check_interval=1,
         log_interval=2,
         log_func=logger.warning,

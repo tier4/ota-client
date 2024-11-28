@@ -23,7 +23,7 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Literal
 
 from otaclient._types import OTAClientStatus
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -37,7 +37,7 @@ def wait_and_log(
     check_flag: Callable[[], bool],
     message: str = "",
     *,
-    check_for: bool = True,
+    check_for: Literal[True] | Literal[False] = True,
     check_interval: int = 2,
     log_interval: int = 30,
     log_func: Callable[[str], None] = logger.info,
