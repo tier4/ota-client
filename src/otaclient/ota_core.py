@@ -58,6 +58,7 @@ from otaclient._types import (
     IPCRequest,
     IPCResEnum,
     IPCResponse,
+    MultipleECUStatusFlags,
     OTAStatus,
     RollbackRequestV2,
     UpdatePhase,
@@ -65,7 +66,7 @@ from otaclient._types import (
 )
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
-from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
     get_standby_slot_creator,
@@ -158,7 +159,7 @@ class _OTAUpdater:
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        control_flag: mp_sync.Event,
+        ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
@@ -211,7 +212,7 @@ class _OTAUpdater:
         self._upper_proxy = upper_otaproxy
 
         # ------ init updater implementation ------ #
-        self._control_flag = control_flag
+        self.ecu_status_flags = ecu_status_flags
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
 
@@ -552,11 +553,16 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-        wait_and_log(
-            flag=self._control_flag,
-            message="permit reboot flag",
-            log_func=logger.info,
-        )
+
+        # NOTE: we don't need to wait for sub ECUs if sub ECUs don't
+        #       depend on otaproxy on this ECU.
+        if proxy_info.enable_local_ota_proxy:
+            wait_and_log(
+                check_flag=self.ecu_status_flags.any_requires_network.is_set,
+                check_for=False,
+                message="permit reboot flag",
+                log_func=logger.info,
+            )
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
@@ -601,13 +607,13 @@ class OTAClient:
     def __init__(
         self,
         *,
-        control_flag: mp_sync.Event,
+        ecu_status_flags: MultipleECUStatusFlags,
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
-        self.control_flag = control_flag
+        self.ecu_status_flags = ecu_status_flags
 
         self._status_report_queue = status_report_queue
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -738,7 +744,7 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
-                control_flag=self.control_flag,
+                ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
@@ -867,8 +873,9 @@ def _sign_handler(signal_value, frame) -> NoReturn:
 
 
 def ota_core_process(
+    *,
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
-    control_flag: mp_sync.Event,
+    ecu_status_flags: MultipleECUStatusFlags,
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
 ):
@@ -889,7 +896,7 @@ def ota_core_process(
     _status_monitor.start()
 
     _ota_core = OTAClient(
-        control_flag=control_flag,
+        ecu_status_flags=ecu_status_flags,
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
     )
