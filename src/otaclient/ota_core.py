@@ -597,14 +597,6 @@ class _OTARollbacker:
 
 
 class OTAClient:
-    """
-    Init params:
-        boot_controller: boot control instance
-        create_standby_cls: type of create standby slot mechanism to use
-        my_ecu_id: ECU id of the device running this otaclient instance
-        control_flag: flags used by otaclient and ota_service stub for synchronization
-        proxy: upper otaproxy URL
-    """
 
     def __init__(
         self,
