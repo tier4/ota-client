@@ -29,6 +29,7 @@ import time
 from functools import partial
 
 from otaclient import __version__
+from otaclient._types import MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 
 logger = logging.getLogger(__name__)
@@ -103,19 +104,23 @@ def main() -> None:
     _key = secrets.token_bytes(SHM_HMAC_KEY_LEN)
 
     # shared queues and flags
-    local_otaclient_control_flag = mp_ctx.Event()
     local_otaclient_op_queue = mp_ctx.Queue()
     local_otaclient_resp_queue = mp_ctx.Queue()
-    all_ecus_succeeded = mp_ctx.Event()
-    any_requires_network = mp_ctx.Event()
+    ecu_status_flags = MultipleECUStatusFlags(
+        any_in_update=mp_ctx.Event(),
+        any_requires_network=mp_ctx.Event(),
+        all_success=mp_ctx.Event(),
+    )
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
             ota_core_process,
-            partial(SharedOTAClientStatusWriter, name=_shm.name, key=_key),
-            local_otaclient_control_flag,
-            local_otaclient_op_queue,
-            local_otaclient_resp_queue,
+            shm_writer_factory=partial(
+                SharedOTAClientStatusWriter, name=_shm.name, key=_key
+            ),
+            ecu_status_flags=ecu_status_flags,
+            op_queue=local_otaclient_op_queue,
+            resp_queue=local_otaclient_resp_queue,
         ),
         name="otaclient_ota_core",
     )
@@ -124,12 +129,12 @@ def main() -> None:
     _grpc_server_p = mp_ctx.Process(
         target=partial(
             grpc_server_process,
-            partial(SharedOTAClientStatusReader, name=_shm.name, key=_key),
-            local_otaclient_control_flag,
-            local_otaclient_op_queue,
-            local_otaclient_resp_queue,
-            all_ecus_succeeded,
-            any_requires_network,
+            shm_reader_factory=partial(
+                SharedOTAClientStatusReader, name=_shm.name, key=_key
+            ),
+            op_queue=local_otaclient_op_queue,
+            resp_queue=local_otaclient_resp_queue,
+            ecu_status_flags=ecu_status_flags,
         ),
         name="otaclient_api_server",
     )
@@ -142,11 +147,7 @@ def main() -> None:
     _otaproxy_control_t = None
     if proxy_info.enable_local_ota_proxy:
         _otaproxy_control_t = threading.Thread(
-            target=partial(
-                otaproxy_control_thread,
-                any_requires_network=any_requires_network,
-                all_ecus_succeeded=all_ecus_succeeded,
-            ),
+            target=partial(otaproxy_control_thread, ecu_status_flags),
             daemon=True,
             name="otaclient_otaproxy_control_t",
         )
