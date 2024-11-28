@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import multiprocessing.queues as mp_queue
-import multiprocessing.synchronize as mp_sync
 
 from otaclient._types import (
     IPCRequest,
@@ -30,7 +29,7 @@ from otaclient._types import (
 )
 from otaclient._utils import gen_session_id
 from otaclient.configs import ECUContact
-from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
@@ -50,60 +49,21 @@ class OTAClientAPIServicer:
 
     def __init__(
         self,
+        *,
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-        *,
-        control_flag: mp_sync.Event,
     ):
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = cfg.OTA_API_SERVER_PORT
         self.my_ecu_id = ecu_info.ecu_id
 
-        self._otaclient_control_flag = control_flag
         self._op_queue = op_queue
         self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
-
-        # otaproxy lifecycle and dependency managing
-        # NOTE: _debug_status_checking_shutdown_event is for test only,
-        #       allow us to stop background task without changing codes.
-        #       In normal running this event will never be set.
-        self._debug_status_checking_shutdown_event = asyncio.Event()
-        if proxy_info.enable_local_ota_proxy:
-            asyncio.create_task(self._otaclient_control_flag_managing())
-        else:
-            # if otaproxy is not enabled, no dependency relationship will be formed,
-            # always allow local otaclient to reboot
-            self._otaclient_control_flag.set()
-
-    # internal
-
-    async def _otaclient_control_flag_managing(self):
-        """Task entry for set/clear otaclient control flags.
-
-        Prevent self ECU from rebooting when their is at least one ECU
-        under UPDATING ota_status.
-        """
-        while not self._debug_status_checking_shutdown_event.is_set():
-            _can_reboot = self._otaclient_control_flag.is_set()
-            if not self._ecu_status_storage.in_update_child_ecus_id:
-                if not _can_reboot:
-                    logger.info(
-                        "local otaclient can reboot as no child ECU is in UPDATING ota_status"
-                    )
-                self._otaclient_control_flag.set()
-            else:
-                if _can_reboot:
-                    logger.info(
-                        f"local otaclient cannot reboot as child ECUs {self._ecu_status_storage.in_update_child_ecus_id}"
-                        " are in UPDATING ota_status"
-                    )
-                self._otaclient_control_flag.clear()
-            await self._polling_waiter()
 
     # API servicer
 
