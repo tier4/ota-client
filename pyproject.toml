@@ -31,7 +31,7 @@ dependencies = [
   "protobuf<4.22,>=4.21.12",
   "pydantic<3,>=2.6",
   "pydantic-settings<3,>=2.3",
-  "pyopenssl<25,>=24.1",
+  "pyopenssl==24.1.0",
   "pyyaml<7,>=6.0.1",
   "requests<2.33,>=2.32",
   "simple-sqlite3-orm<0.3,>=0.2",
