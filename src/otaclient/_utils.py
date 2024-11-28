@@ -22,9 +22,8 @@ import os
 import sys
 import time
 import traceback
-from abc import abstractmethod
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable
 
 from otaclient._types import OTAClientStatus
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -34,16 +33,11 @@ from otaclient_common.typing import StrOrPath
 logger = logging.getLogger(__name__)
 
 
-class CheckableFlag(Protocol):
-
-    @abstractmethod
-    def is_set(self) -> bool: ...
-
-
 def wait_and_log(
-    flag: CheckableFlag,
+    check_flag: Callable[[], bool],
     message: str = "",
     *,
+    check_for: bool = True,
     check_interval: int = 2,
     log_interval: int = 30,
     log_func: Callable[[str], None] = logger.info,
@@ -51,7 +45,7 @@ def wait_and_log(
     """Wait for <flag> until it is set while print a log every <log_interval>."""
     log_round = 0
     for seconds in itertools.count(step=check_interval):
-        if flag.is_set():
+        if check_flag() == check_for:
             return
 
         _new_log_round = seconds // log_interval
