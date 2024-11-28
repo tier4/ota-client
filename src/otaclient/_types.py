@@ -16,11 +16,11 @@
 
 from __future__ import annotations
 
+import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common.typing import StrEnum
 
@@ -121,6 +121,13 @@ class OTAClientStatus:
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
     failure_traceback: str = ""
+
+
+@dataclass
+class MultipleECUStatusFlags:
+    any_in_update: mp_sync.Event
+    any_requires_network: mp_sync.Event
+    all_success: mp_sync.Event
 
 
 #
