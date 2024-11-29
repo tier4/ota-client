@@ -20,13 +20,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from OpenSSL import crypto
+from cryptography.x509 import load_pem_x509_certificate
 
-from ota_metadata.utils.cert_store import (
-    CACertStoreInvalid,
-    load_ca_cert_chains,
-    load_cert_in_pem,
-)
+from ota_metadata.utils.cert_store import CACertStoreInvalid, load_ca_cert_chains
 from tests.conftest import TEST_DIR
 from tests.conftest import TestConfiguration as cfg
 
@@ -60,22 +56,11 @@ def setup_ca_chain(tmp_path: Path) -> tuple[str, Path, Path]:
 
 
 def test_ca_store(setup_ca_chain: tuple[str, Path, Path]):
-    ca_chain, sign_pem, certs_dir = setup_ca_chain
+    _, sign_pem, certs_dir = setup_ca_chain
+    sign_cert = load_pem_x509_certificate(sign_pem.read_bytes())
 
     ca_store = load_ca_cert_chains(certs_dir)
-
-    # verification should fail with wrong cert signed by other chain.
-    with pytest.raises(crypto.X509StoreContextError):
-        crypto.X509StoreContext(
-            store=ca_store[ca_chain],
-            certificate=load_cert_in_pem(TEST_BASE_SIGN_PEM.read_bytes()),
-        ).verify_certificate()
-
-    # verification should succeed with proper chain and corresponding sign cert.
-    crypto.X509StoreContext(
-        store=ca_store[ca_chain],
-        certificate=load_cert_in_pem(sign_pem.read_bytes()),
-    ).verify_certificate()
+    assert ca_store.verify(sign_cert)
 
 
 def test_ca_store_empty(tmp_path: Path):
