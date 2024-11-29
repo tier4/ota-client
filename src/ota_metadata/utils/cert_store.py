@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Iterable
 
 from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
 
@@ -52,6 +52,10 @@ class CACertChains(Dict[Name, Certificate]):
 
     def add_cert(self, cert: Certificate) -> None:
         self[cert.subject] = cert
+
+    def add_certs(self, certs: Iterable[Certificate]) -> None:
+        for cert in certs:
+            self[cert.subject] = cert
 
     def verify(self, cert: Certificate) -> None:
         """Verify the input <cert> against this chain.
