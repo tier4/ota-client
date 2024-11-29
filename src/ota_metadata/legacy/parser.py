@@ -288,7 +288,6 @@ class _MetadataJWTParser:
 
         hit_cachain = self.ca_chains_store.verify(cert_to_verify)
         if hit_cachain:
-            logger.info(f"verfication succeeded against: {hit_cachain.chain_prefix}")
             return
 
         _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"

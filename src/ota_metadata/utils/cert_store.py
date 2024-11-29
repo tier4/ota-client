@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable
 
@@ -81,6 +82,14 @@ class CAChain(Dict[Name, Certificate]):
         Returns:
             Return None on successful verification, otherwise raises exception.
         """
+        _now = datetime.now(tz=timezone.utc)
+        if not (cert.not_valid_after_utc >= _now >= cert.not_valid_before_utc):
+            logger.error(
+                "cert is not within valid period: "
+                f"{cert.not_valid_after_utc=}, {_now=}, {cert.not_valid_before_utc=}"
+            )
+            return
+
         _start = cert
         for _ in range(len(self) + 1):
             if _start.issuer == _start.subject:
@@ -102,15 +111,31 @@ class CAChainStore(Dict[str, CAChain]):
     def verify(self, cert: Certificate) -> CAChain | None:
         """Verify the input <cert> against this CAChainStore.
 
+        This verification only performs the following check:
+        1. ensure the cert is in valid period.
+        2. check cert is signed by any one of the CA chain.
+
         Returns:
             Return the cachain that issues the <cert>, None if no cachain matches.
         """
+        _now = datetime.now(tz=timezone.utc)
+        if not (cert.not_valid_after_utc >= _now >= cert.not_valid_before_utc):
+            logger.error(
+                "cert is not within valid period: "
+                f"{cert.not_valid_after_utc=}, {_now=}, {cert.not_valid_before_utc=}"
+            )
+            return
+
         for _, chain in self.items():
             try:
                 chain.verify(cert)
+                logger.info(f"verfication succeeded against: {chain.chain_prefix}")
                 return chain
-            except Exception:
-                pass
+            except Exception as e:
+                logger.info(
+                    f"failed to verify against CA chain {chain.chain_prefix}: {e!r}"
+                )
+        logger.error(f"failed to verify {cert=} against all CA chains: {list(self)}")
 
 
 def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
