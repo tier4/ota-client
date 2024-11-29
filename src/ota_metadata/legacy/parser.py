@@ -51,7 +51,6 @@ from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     ClassVar,
@@ -68,6 +67,8 @@ from typing import (
 )
 from urllib.parse import quote
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePublicKey
 from cryptography.x509 import load_pem_x509_certificate
 from typing_extensions import Self
 
@@ -92,11 +93,9 @@ from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 logger = logging.getLogger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+ES256 = ECDSA(algorithm=hashes.SHA256())
 
 _shutdown = False
-
-if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 
 def _python_exit():
@@ -247,8 +246,6 @@ class _MetadataJWTParser:
         will be skipped! This SHOULD ONLY happen at non-production environment!
     """
 
-    HASH_ALG = "sha256"
-
     def __init__(self, metadata_jwt: str, *, ca_chains_store: CAChainStore):
         self.ca_chains_store = ca_chains_store
 
@@ -307,11 +304,12 @@ class _MetadataJWTParser:
         try:
             cert = load_pem_x509_certificate(metadata_cert)
             logger.debug(f"verify data: {self.metadata_bytes=}")
-            _pubkey: Ed25519PublicKey = cert.public_key()  # type: ignore[assignment]
+            _pubkey: EllipticCurvePublicKey = cert.public_key()  # type: ignore[assignment]
 
             _pubkey.verify(
                 signature=self.metadata_signature,
                 data=self.metadata_bytes,
+                signature_algorithm=ES256,
             )
         except Exception as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
