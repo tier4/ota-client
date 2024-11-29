@@ -67,10 +67,12 @@ from typing import (
 )
 from urllib.parse import quote
 
-from OpenSSL import crypto
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePublicKey
+from cryptography.x509 import load_pem_x509_certificate
 from typing_extensions import Self
 
-from ota_metadata.utils.cert_store import CACertChainStore, load_cert_in_pem
+from ota_metadata.utils.cert_store import CAChainStore
 from ota_proxy import OTAFileCacheControl
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
@@ -91,6 +93,7 @@ from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 logger = logging.getLogger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+ES256 = ECDSA(algorithm=hashes.SHA256())
 
 _shutdown = False
 
@@ -243,9 +246,7 @@ class _MetadataJWTParser:
         will be skipped! This SHOULD ONLY happen at non-production environment!
     """
 
-    HASH_ALG = "sha256"
-
-    def __init__(self, metadata_jwt: str, *, ca_chains_store: CACertChainStore):
+    def __init__(self, metadata_jwt: str, *, ca_chains_store: CAChainStore):
         self.ca_chains_store = ca_chains_store
 
         # pre_parse metadata_jwt
@@ -279,24 +280,15 @@ class _MetadataJWTParser:
             raise MetadataJWTVerificationFailed(_err_msg)
 
         try:
-            cert_to_verify = load_cert_in_pem(metadata_cert)
-        except crypto.Error as e:
+            cert_to_verify = load_pem_x509_certificate(metadata_cert)
+        except Exception as e:
             _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
             logger.exception(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg) from e
 
-        # verify the OTA image cert against CA cert chain store
-        for ca_prefix, ca_chain in self.ca_chains_store.items():
-            try:
-                crypto.X509StoreContext(
-                    store=ca_chain,
-                    certificate=cert_to_verify,
-                ).verify_certificate()
-
-                logger.info(f"verfication succeeded against: {ca_prefix}")
-                return
-            except crypto.X509StoreContextError as e:
-                logger.info(f"verify against {ca_prefix} failed: {e}")
+        hit_cachain = self.ca_chains_store.verify(cert_to_verify)
+        if hit_cachain:
+            return
 
         _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"
         logger.error(_err_msg)
@@ -309,15 +301,16 @@ class _MetadataJWTParser:
             Raise MetadataJWTVerificationFailed on validation failed.
         """
         try:
-            cert = crypto.load_certificate(crypto.FILETYPE_PEM, metadata_cert)
+            cert = load_pem_x509_certificate(metadata_cert)
             logger.debug(f"verify data: {self.metadata_bytes=}")
-            crypto.verify(
-                cert,
-                self.metadata_signature,
-                self.metadata_bytes,
-                self.HASH_ALG,
+            _pubkey: EllipticCurvePublicKey = cert.public_key()  # type: ignore[assignment]
+
+            _pubkey.verify(
+                signature=self.metadata_signature,
+                data=self.metadata_bytes,
+                signature_algorithm=ES256,
             )
-        except crypto.Error as e:
+        except Exception as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
             logger.error(msg)
             raise MetadataJWTVerificationFailed(msg) from e
@@ -590,7 +583,7 @@ class OTAMetadata:
         url_base: str,
         downloader: Downloader,
         run_dir: Path,
-        ca_chains_store: CACertChainStore,
+        ca_chains_store: CAChainStore,
         retry_interval: int = 1,
     ) -> None:
         if not ca_chains_store:

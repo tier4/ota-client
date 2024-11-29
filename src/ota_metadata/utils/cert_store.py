@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import logging
 import re
-from functools import partial
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Iterable
 
-from OpenSSL import crypto
+from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
 
 from otaclient_common.typing import StrOrPath
 
@@ -40,14 +40,105 @@ CERT_NAME_PA = re.compile(r"(?P<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
-class CACertChainStore(Dict[str, crypto.X509Store]):
-    """A dict-like type that stores CA chain name and CA store mapping."""
+class CAChain(Dict[Name, Certificate]):
+    """A dict that stores all the CA certs of a cert chains.
+
+    The key is the cert's subject, value is the cert itself.
+    """
+
+    chain_prefix: str = ""
+
+    def set_chain_prefix(self, prefix: str) -> None:
+        self.chain_prefix = prefix
+
+    def add_cert(self, cert: Certificate) -> None:
+        self[cert.subject] = cert
+
+    def add_certs(self, certs: Iterable[Certificate]) -> None:
+        for cert in certs:
+            self[cert.subject] = cert
+
+    def internal_check(self) -> None:
+        """Do an internal check to see if this CACertChain is valid.
+
+        Currently one check will be performed:
+        1. at least one root cert should be presented in the store.
+
+        Raises:
+            ValueError on failed check.
+        """
+        for _, cert in self.items():
+            if cert.issuer == cert.subject:
+                return
+        raise ValueError("invalid chain: no root cert is presented")
+
+    def verify(self, cert: Certificate) -> None:
+        """Verify the input <cert> against this chain.
+
+        Raises:
+            ValueError on input cert is not signed by this chain.
+            Other exceptions that could be raised by verify_directly_issued_by API.
+
+        Returns:
+            Return None on successful verification, otherwise raises exception.
+        """
+        _now = datetime.now(tz=timezone.utc)
+        if not (cert.not_valid_after_utc >= _now >= cert.not_valid_before_utc):
+            _err_msg = (
+                "cert is not within valid period: "
+                f"{cert.not_valid_after_utc=}, {_now=}, {cert.not_valid_before_utc=}"
+            )
+            raise ValueError(_err_msg)
+
+        _start = cert
+        for _ in range(len(self) + 1):
+            if _start.issuer == _start.subject:
+                return
+
+            _issuer = self[_start.issuer]
+            _start.verify_directly_issued_by(_issuer)
+
+            _start = _issuer
+        raise ValueError(f"failed to verify {cert} against chain {self.chain_prefix}")
 
 
-load_cert_in_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
+class CAChainStore(Dict[str, CAChain]):
+    """A dict that stores CA chain name and CACertChains mapping."""
+
+    def add_chain(self, chain: CAChain) -> None:
+        self[chain.chain_prefix] = chain
+
+    def verify(self, cert: Certificate) -> CAChain | None:
+        """Verify the input <cert> against this CAChainStore.
+
+        This verification only performs the following check:
+        1. ensure the cert is in valid period.
+        2. check cert is signed by any one of the CA chain.
+
+        Returns:
+            Return the cachain that issues the <cert>, None if no cachain matches.
+        """
+        _now = datetime.now(tz=timezone.utc)
+        if not (cert.not_valid_after_utc >= _now >= cert.not_valid_before_utc):
+            logger.error(
+                "cert is not within valid period: "
+                f"{cert.not_valid_after_utc=}, {_now=}, {cert.not_valid_before_utc=}"
+            )
+            return
+
+        for _, chain in self.items():
+            try:
+                chain.verify(cert)
+                logger.info(f"verfication succeeded against: {chain.chain_prefix}")
+                return chain
+            except Exception as e:
+                logger.info(
+                    f"failed to verify against CA chain {chain.chain_prefix}: {e!r}"
+                )
+        logger.error(f"failed to verify {cert=} against all CA chains: {list(self)}")
 
 
-def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
+def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     """Load CA cert chains from <cert_dir>.
 
     Raises:
@@ -73,13 +164,18 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
 
     logger.info(f"found installed CA chains: {ca_set_prefix}")
 
-    ca_chains = CACertChainStore()
+    ca_chains = CAChainStore()
     for ca_prefix in sorted(ca_set_prefix):
         try:
-            ca_chain = crypto.X509Store()
+            ca_chain = CAChain()
+            ca_chain.set_chain_prefix(ca_prefix)
+
             for c in cert_dir.glob(f"{ca_prefix}.*.pem"):
-                ca_chain.add_cert(load_cert_in_pem(c.read_bytes()))
-            ca_chains[ca_prefix] = ca_chain
+                _loaded_ca_cert = load_pem_x509_certificate(c.read_bytes())
+                ca_chain.add_cert(_loaded_ca_cert)
+
+            ca_chain.internal_check()
+            ca_chains.add_chain(ca_chain)
         except Exception as e:
             _err_msg = f"failed to load CA chain {ca_prefix}: {e!r}"
             logger.warning(_err_msg)

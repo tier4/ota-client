@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from ota_metadata.legacy import parser as ota_metadata_parser
-from ota_metadata.utils.cert_store import CACertChainStore
+from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common.common import subprocess_call
 
 from .configs import cfg
@@ -75,7 +75,7 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
     # NOTE: we don't need to do certificate verification here, sso we use an empty cert store.
     metadata_jwt = ota_metadata_parser._MetadataJWTParser(
         metadata_jwt_fpath.read_text(),
-        ca_chains_store=CACertChainStore(),
+        ca_chains_store=CAChainStore(),
     ).get_otametadata()
 
     rootfs_dir = ota_image_dir / metadata_jwt.rootfs_directory

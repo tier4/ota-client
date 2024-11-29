@@ -38,8 +38,8 @@ import requests.exceptions as requests_exc
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from ota_metadata.utils.cert_store import (
-    CACertChainStore,
     CACertStoreInvalid,
+    CAChainStore,
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
@@ -154,7 +154,7 @@ class _OTAUpdater:
         version: str,
         raw_url_base: str,
         cookies_json: str,
-        ca_chains_store: CACertChainStore,
+        ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
@@ -670,7 +670,7 @@ class OTAClient:
             _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
             logger.error(_err_msg)
 
-            self.ca_chains_store = CACertChainStore()
+            self.ca_chains_store = CAChainStore()
 
         self.started = True
         logger.info("otaclient started")
