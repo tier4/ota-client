@@ -72,6 +72,7 @@ from urllib.parse import quote
 
 import requests.exceptions as requests_exc
 from OpenSSL import crypto
+from requests import Response
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
@@ -674,7 +675,7 @@ class OTAMetadata:
                 except Exception as e:
                     if (
                         isinstance(e, requests_exc.HTTPError)
-                        and (_response := e.response)
+                        and isinstance((_response := e.response), Response)
                         and _response.status_code
                         in [
                             HTTPStatus.FORBIDDEN,

@@ -33,6 +33,7 @@ from typing import Any, Iterator, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
+from requests import Response
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
@@ -138,7 +139,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
             _response = exc.response
             # NOTE(20241129): if somehow HTTPError doesn't contain response,
             #       don't do anything but let upper retry.
-            if not _response:
+            if not isinstance(_response, Response):
                 return False
 
             http_errcode = _response.status_code
