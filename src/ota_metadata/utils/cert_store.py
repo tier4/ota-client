@@ -84,11 +84,11 @@ class CAChain(Dict[Name, Certificate]):
         """
         _now = datetime.now(tz=timezone.utc)
         if not (cert.not_valid_after_utc >= _now >= cert.not_valid_before_utc):
-            logger.error(
+            _err_msg = (
                 "cert is not within valid period: "
                 f"{cert.not_valid_after_utc=}, {_now=}, {cert.not_valid_before_utc=}"
             )
-            return
+            raise ValueError(_err_msg)
 
         _start = cert
         for _ in range(len(self) + 1):
