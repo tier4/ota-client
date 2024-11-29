@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 
 # actively polling ECUs status until we get the first valid response
 #   when otaclient is just starting.
-_active_polling_interval_on_startup = 1
+_ACTIVE_POLL_SUB_ON_STARTUP = 1
+_ACTIVE_POLL_LOCAL_ON_STARTUP = 0.1
 
 
 class ECUTracker:
@@ -75,7 +76,7 @@ class ECUTracker:
                 )
 
             if self._startup_matrix[this_ecu_id]:
-                await asyncio.sleep(_active_polling_interval_on_startup)
+                await asyncio.sleep(_ACTIVE_POLL_SUB_ON_STARTUP)
             else:
                 await self._polling_waiter()
 
@@ -90,7 +91,7 @@ class ECUTracker:
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
 
             if self._startup_matrix[my_ecu_id]:
-                await asyncio.sleep(_active_polling_interval_on_startup)
+                await asyncio.sleep(_ACTIVE_POLL_LOCAL_ON_STARTUP)
             else:
                 await self._polling_waiter()
 
