@@ -227,6 +227,7 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 #
 
 TERMINATE_SENTINEL = cast(StatusReport, object())
+MIN_COLLECT_INTERVAL = 0.5
 SHM_PUSH_INTERVAL = 0.5
 
 
@@ -237,7 +238,7 @@ class OTAClientStatusCollector:
         msg_queue: queue.Queue[StatusReport],
         shm_status: SharedOTAClientStatusWriter,
         *,
-        min_collect_interval: int = 1,
+        min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
     ) -> None:
         self.min_collect_interval = min_collect_interval
