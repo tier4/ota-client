@@ -49,6 +49,7 @@ import time
 from dataclasses import dataclass, fields
 from enum import Enum
 from functools import partial
+from http import HTTPStatus
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -69,7 +70,9 @@ from typing import (
 )
 from urllib.parse import quote
 
+import requests.exceptions as requests_exc
 from OpenSSL import crypto
+from requests import Response
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
@@ -101,6 +104,9 @@ def _python_exit():
 
 
 atexit.register(_python_exit)
+
+
+class OTAImageInvalid(Exception): ...
 
 
 class MetadataJWTPayloadInvalid(Exception):
@@ -667,6 +673,18 @@ class OTAMetadata:
                     )
                     break
                 except Exception as e:
+                    if (
+                        isinstance(e, requests_exc.HTTPError)
+                        and isinstance((_response := e.response), Response)
+                        and _response.status_code
+                        in [
+                            HTTPStatus.FORBIDDEN,
+                            HTTPStatus.UNAUTHORIZED,
+                            HTTPStatus.NOT_FOUND,
+                        ]
+                    ):
+                        raise OTAImageInvalid("failed to download metadata") from e
+
                     logger.warning(
                         f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
                     )
