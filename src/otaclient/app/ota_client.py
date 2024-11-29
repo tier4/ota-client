@@ -135,8 +135,13 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
     try:
         # exceptions that cannot be handled by us
         if isinstance(exc, requests_exc.HTTPError):
-            http_errcode = exc.errno
+            _response = exc.response
+            # NOTE(20241129): if somehow HTTPError doesn't contain response,
+            #       don't do anything but let upper retry.
+            if not _response:
+                return False
 
+            http_errcode = _response.status_code
             if http_errcode in [
                 HTTPStatus.FORBIDDEN,
                 HTTPStatus.UNAUTHORIZED,
