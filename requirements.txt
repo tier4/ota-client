@@ -2,12 +2,12 @@
 # DO NOT EDIT! Only for reference use.
 aiofiles<25,>=24.1
 aiohttp>=3.10.11,<3.12
-cryptography>=43.0.1,<44
+cryptography>=42.0.8,<43
 grpcio>=1.53.2,<1.69
 protobuf>=4.21.12,<5.29
 pydantic<3,>=2.6
 pydantic-settings<3,>=2.3
-pyopenssl<25,>=24.1
+pyopenssl==24.1.0
 pyyaml<7,>=6.0.1
 requests<2.33,>=2.32
 simple-sqlite3-orm<0.3,>=0.2
