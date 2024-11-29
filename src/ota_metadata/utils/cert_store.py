@@ -99,6 +99,19 @@ class CAChainStore(Dict[str, CAChain]):
     def add_chain(self, chain: CAChain) -> None:
         self[chain.chain_prefix] = chain
 
+    def verify(self, cert: Certificate) -> CAChain | None:
+        """Verify the input <cert> against this CAChainStore.
+
+        Returns:
+            Return the cachain that issues the <cert>, None if no cachain matches.
+        """
+        for _, chain in self.items():
+            try:
+                chain.verify(cert)
+                return chain
+            except Exception:
+                pass
+
 
 def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     """Load CA cert chains from <cert_dir>.
