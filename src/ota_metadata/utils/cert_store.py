@@ -18,11 +18,10 @@ from __future__ import annotations
 
 import logging
 import re
-from functools import partial
 from pathlib import Path
 from typing import Dict
 
-from OpenSSL import crypto
+from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
 
 from otaclient_common.typing import StrOrPath
 
@@ -40,11 +39,44 @@ CERT_NAME_PA = re.compile(r"(?P<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
-class CACertChainStore(Dict[str, crypto.X509Store]):
-    """A dict-like type that stores CA chain name and CA store mapping."""
+class CACertChains(Dict[Name, Certificate]):
+    """A dict that stores all the CA certs of a cert chains.
+
+    The key is the cert's subject, value is the cert itself.
+    """
+
+    chain_prefix: str = ""
+
+    def set_chain_prefix(self, prefix: str) -> None:
+        self.chain_prefix = prefix
+
+    def add_cert(self, cert: Certificate) -> None:
+        self[cert.subject] = cert
+
+    def verify(self, cert: Certificate) -> None:
+        """Verify the input <cert> against this chain.
+
+        Raises:
+            ValueError on input cert is not signed by this chain.
+            Other exceptions that could be raised by verify_directly_issued_by API.
+
+        Returns:
+            Return None on successful verification, otherwise raises exception.
+        """
+        _start = cert
+        for _ in range(len(self) + 1):
+            if _start.issuer == _start.subject:
+                return
+
+            _issuer = self[_start.issuer]
+            _start.verify_directly_issued_by(_issuer)
+
+            _start = _issuer
+        raise ValueError(f"failed to verify {cert} against chain {self.chain_prefix}")
 
 
-load_cert_in_pem = partial(crypto.load_certificate, crypto.FILETYPE_PEM)
+class CACertChainStore(Dict[str, CACertChains]):
+    """A dict that stores CA chain name and CACertChains mapping."""
 
 
 def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
@@ -76,9 +108,12 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
     ca_chains = CACertChainStore()
     for ca_prefix in sorted(ca_set_prefix):
         try:
-            ca_chain = crypto.X509Store()
+            ca_chain = CACertChains()
+            ca_chain.set_chain_prefix(ca_prefix)
+
             for c in cert_dir.glob(f"{ca_prefix}.*.pem"):
-                ca_chain.add_cert(load_cert_in_pem(c.read_bytes()))
+                _loaded_ca_cert = load_pem_x509_certificate(c.read_bytes())
+                ca_chain.add_cert(_loaded_ca_cert)
             ca_chains[ca_prefix] = ca_chain
         except Exception as e:
             _err_msg = f"failed to load CA chain {ca_prefix}: {e!r}"
