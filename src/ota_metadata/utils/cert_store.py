@@ -39,7 +39,7 @@ CERT_NAME_PA = re.compile(r"(?P<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
-class CACertChains(Dict[Name, Certificate]):
+class CAChain(Dict[Name, Certificate]):
     """A dict that stores all the CA certs of a cert chains.
 
     The key is the cert's subject, value is the cert itself.
@@ -56,6 +56,20 @@ class CACertChains(Dict[Name, Certificate]):
     def add_certs(self, certs: Iterable[Certificate]) -> None:
         for cert in certs:
             self[cert.subject] = cert
+
+    def internal_check(self) -> None:
+        """Do an internal check to see if this CACertChain is valid.
+
+        Currently one check will be performed:
+        1. at least one root cert should be presented in the store.
+
+        Raises:
+            ValueError on failed check.
+        """
+        for _, cert in self.items():
+            if cert.issuer == cert.subject:
+                return
+        raise ValueError("invalid chain: no root cert is presented")
 
     def verify(self, cert: Certificate) -> None:
         """Verify the input <cert> against this chain.
@@ -79,11 +93,14 @@ class CACertChains(Dict[Name, Certificate]):
         raise ValueError(f"failed to verify {cert} against chain {self.chain_prefix}")
 
 
-class CACertChainStore(Dict[str, CACertChains]):
+class CAChainStore(Dict[str, CAChain]):
     """A dict that stores CA chain name and CACertChains mapping."""
 
+    def add_chain(self, chain: CAChain) -> None:
+        self[chain.chain_prefix] = chain
 
-def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
+
+def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     """Load CA cert chains from <cert_dir>.
 
     Raises:
@@ -109,16 +126,18 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CACertChainStore:
 
     logger.info(f"found installed CA chains: {ca_set_prefix}")
 
-    ca_chains = CACertChainStore()
+    ca_chains = CAChainStore()
     for ca_prefix in sorted(ca_set_prefix):
         try:
-            ca_chain = CACertChains()
+            ca_chain = CAChain()
             ca_chain.set_chain_prefix(ca_prefix)
 
             for c in cert_dir.glob(f"{ca_prefix}.*.pem"):
                 _loaded_ca_cert = load_pem_x509_certificate(c.read_bytes())
                 ca_chain.add_cert(_loaded_ca_cert)
-            ca_chains[ca_prefix] = ca_chain
+
+            ca_chain.internal_check()
+            ca_chains.add_chain(ca_chain)
         except Exception as e:
             _err_msg = f"failed to load CA chain {ca_prefix}: {e!r}"
             logger.warning(_err_msg)
