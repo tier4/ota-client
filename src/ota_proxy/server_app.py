@@ -211,7 +211,7 @@ class App:
             yield _is_succeeded
             _is_succeeded.set()
         except aiohttp.ClientResponseError as e:
-            logger.error(f"{_common_err_msg} due to HTTP error: {e!r}")
+            connection_err_logger.error(f"{_common_err_msg} due to HTTP error: {e!r}")
             # passthrough 4xx(currently 403 and 404) to otaclient
             await self._respond_with_error(e.status, e.message, send)
         except aiohttp.ClientConnectionError as e:
@@ -224,12 +224,14 @@ class App:
                 send,
             )
         except aiohttp.ClientError as e:
-            logger.error(f"{_common_err_msg} due to aiohttp client error: {e!r}")
+            connection_err_logger.error(
+                f"{_common_err_msg} due to aiohttp client error: {e!r}"
+            )
             await self._respond_with_error(
                 HTTPStatus.SERVICE_UNAVAILABLE, f"client error: {e!r}", send
             )
         except (BaseOTACacheError, StopAsyncIteration) as e:
-            logger.error(
+            connection_err_logger.error(
                 f"{_common_err_msg} due to handled ota_cache internal error: {e!r}"
             )
             await self._respond_with_error(
@@ -238,7 +240,7 @@ class App:
         except Exception as e:
             # exceptions rather than aiohttp error indicates
             # internal errors of ota_cache
-            logger.exception(
+            connection_err_logger.exception(
                 f"{_common_err_msg} due to unhandled ota_cache internal error: {e!r}"
             )
             await self._respond_with_error(
@@ -255,13 +257,13 @@ class App:
         try:
             yield
         except (BaseOTACacheError, StopAsyncIteration) as e:
-            logger.error(
+            connection_err_logger.error(
                 f"{_common_err_msg=} due to handled ota_cache internal error: {e!r}"
             )
             await self._send_chunk(b"", False, send)
         except Exception as e:
             # unexpected internal errors of ota_cache
-            logger.exception(
+            connection_err_logger.error(
                 f"{_common_err_msg=} due to unhandled ota_cache internal error: {e!r}"
             )
             await self._send_chunk(b"", False, send)
@@ -292,7 +294,7 @@ class App:
             # retrieve_file executed successfully, but return nothing
             if _is_succeeded.is_set():
                 _msg = f"failed to retrieve fd for {url} from otacache"
-                logger.warning(_msg)
+                connection_err_logger.warning(_msg)
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR, _msg, send
                 )
