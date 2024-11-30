@@ -67,7 +67,10 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
 )
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -532,6 +535,11 @@ class _OTAUpdater:
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
+        except TasksEnsureFailed:
+            # NOTE: the only cause of a TaskEnsureFailed being raised is the download_watchdog timeout.
+            _err_msg = f"download stalls longer than {cfg.DOWNLOAD_INACTIVE_TIMEOUT}, abort OTA"
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
         finally:
             del delta_bundle
             self._downloader_pool.shutdown()
