@@ -34,6 +34,7 @@ from typing import Any, Callable, Iterator, NoReturn, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
+from requests import Response
 
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
@@ -79,7 +80,10 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
 )
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,12 +121,15 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
     try:
         # exceptions that cannot be handled by us
         if isinstance(exc, requests_exc.HTTPError):
-            http_errcode = exc.errno
+            _response = exc.response
+            # NOTE(20241129): if somehow HTTPError doesn't contain response,
+            #       don't do anything but let upper retry.
+            # NOTE: bool(Response) is False when status_code != 200.
+            if not isinstance(_response, Response):
+                return False
 
-            if http_errcode in [
-                HTTPStatus.FORBIDDEN,
-                HTTPStatus.UNAUTHORIZED,
-            ]:
+            http_errcode = _response.status_code
+            if http_errcode in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED]:
                 raise ota_errors.UpdateRequestCookieInvalid(
                     f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
                     module=__name__,
@@ -451,6 +458,16 @@ class _OTAUpdater:
             _err_msg = f"metadata.jwt is invalid: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
+        except ota_metadata_parser.OTAImageInvalid as e:
+            _err_msg = f"OTA image is invalid: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.OTAImageInvalid(_err_msg, module=__name__) from e
+        except ota_metadata_parser.OTARequestsAuthTokenInvalid as e:
+            _err_msg = f"OTA requests auth token is invalid: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.UpdateRequestCookieInvalid(
+                _err_msg, module=__name__
+            ) from e
         except Exception as e:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
@@ -509,6 +526,11 @@ class _OTAUpdater:
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
+        except TasksEnsureFailed:
+            # NOTE: the only cause of a TaskEnsureFailed being raised is the download_watchdog timeout.
+            _err_msg = f"download stalls longer than {cfg.DOWNLOAD_INACTIVE_TIMEOUT}, abort OTA"
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
         finally:
             del delta_bundle
             self._downloader_pool.shutdown()
