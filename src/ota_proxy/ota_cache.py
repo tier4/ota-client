@@ -473,12 +473,57 @@ class OTACache:
             )
             return read_file(cache_file, executor=self._executor), _header
 
+    async def _retrieve_file_by_caching(
+        self,
+        *,
+        raw_url: str,
+        cache_identifier: str,
+        compression_alg: str,
+        headers_from_client: dict[str, str],
+    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]]:
+        if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
+            subscription := await tracker.subscribe_tracker()
+        ):
+            # logger.debug(f"reader subscribe for {tracker.meta=}")
+            stream_fd, cache_meta = subscription
+            return stream_fd, cache_meta.export_headers_to_client()
+
+        # no valid online tracker is available for this request, create a new one and
+        #   promote the caller to be the provider.
+        # NOTE: register the tracker before open the remote fd!
+        tracker = CacheTracker(
+            cache_identifier=cache_identifier,
+            base_dir=self._base_dir,
+            executor=self._executor,
+            commit_cache_cb=self._commit_cache_callback,
+            below_hard_limit_event=self._storage_below_hard_limit_event,
+        )
+        self._on_going_caching.register_tracker(cache_identifier, tracker)
+
+        # caller is the provider of the requested resource
+        try:
+            remote_fd, resp_headers = await self._retrieve_file_by_downloading(
+                raw_url, headers=headers_from_client
+            )
+            cache_meta = create_cachemeta_for_request(
+                raw_url,
+                cache_identifier,
+                compression_alg,
+                resp_headers_from_upper=resp_headers,
+            )
+            # start caching
+            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
+            return wrapped_fd, resp_headers
+        except Exception:
+            tracker.set_writer_failed()
+            raise
+        finally:
+            tracker = None  # remove ref
+
     # exposed API
 
     async def retrieve_file(
-        self,
-        raw_url: str,
-        headers_from_client: Dict[str, str],
+        self, raw_url: str, headers_from_client: dict[str, str]
     ) -> tuple[AsyncIterator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
         """Retrieve a file descriptor for the requested <raw_url>.
 
@@ -549,42 +594,9 @@ class OTACache:
             return _res
 
         # --- case 4: no cache available, streaming remote file and cache --- #
-        # a online tracker is available for this requrest
-        if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
-            subscription := await tracker.subscribe_tracker()
-        ):
-            # logger.debug(f"reader subscribe for {tracker.meta=}")
-            stream_fd, cache_meta = subscription
-            return stream_fd, cache_meta.export_headers_to_client()
-
-        # no valid online tracker is available for this request, create a new one and
-        #   promote the caller to be the provider.
-        # NOTE: register the tracker before open the remote fd!
-        tracker = CacheTracker(
+        return await self._retrieve_file_by_caching(
+            raw_url=raw_url,
             cache_identifier=cache_identifier,
-            base_dir=self._base_dir,
-            executor=self._executor,
-            commit_cache_cb=self._commit_cache_callback,
-            below_hard_limit_event=self._storage_below_hard_limit_event,
+            compression_alg=compression_alg,
+            headers_from_client=headers_from_client,
         )
-        self._on_going_caching.register_tracker(cache_identifier, tracker)
-
-        # caller is the provider of the requested resource
-        try:
-            remote_fd, resp_headers = await self._retrieve_file_by_downloading(
-                raw_url, headers=headers_from_client
-            )
-            cache_meta = create_cachemeta_for_request(
-                raw_url,
-                cache_identifier,
-                compression_alg,
-                resp_headers_from_upper=resp_headers,
-            )
-            # start caching
-            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
-            return wrapped_fd, resp_headers
-        except Exception:
-            tracker.set_writer_failed()
-            raise
-        finally:
-            tracker = None  # remove ref
