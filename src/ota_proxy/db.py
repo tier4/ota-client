@@ -20,6 +20,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+from multidict import CIMultiDict
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
@@ -99,12 +100,12 @@ class CacheMeta(TableSpec):
     def __hash__(self) -> int:
         return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
 
-    def export_headers_to_client(self) -> dict[str, str]:
+    def export_headers_to_client(self) -> CIMultiDict[str]:
         """Export required headers for client.
 
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
         """
-        res = {}
+        res = CIMultiDict()
         if self.content_encoding:
             res[HEADER_CONTENT_ENCODING] = self.content_encoding
 
