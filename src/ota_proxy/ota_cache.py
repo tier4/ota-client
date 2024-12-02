@@ -393,12 +393,17 @@ class OTACache:
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache(
-        self, cache_identifier: str
+        self, *, raw_url: str, cache_policy: OTAFileCacheControl
     ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
+        cache_identifier = cache_policy.file_sha256
+        if not cache_identifier:
+            # fallback to use URL based hash, and clear compression_alg for such case
+            cache_identifier = url_based_hash(raw_url)
+
         meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
             return
@@ -470,13 +475,18 @@ class OTACache:
         self,
         *,
         raw_url: str,
-        cache_identifier: str,
-        compression_alg: str,
+        cache_policy: OTAFileCacheControl,
         headers_from_client: dict[str, str],
-        retry_cache: bool = False,
     ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]]:
+        cache_identifier = cache_policy.file_sha256
+        compression_alg = cache_policy.file_compression_alg
+        if not cache_identifier:
+            # fallback to use URL based hash, and clear compression_alg for such case
+            cache_identifier = url_based_hash(raw_url)
+            compression_alg = ""
+
         # if set, cleanup any previous cache file before starting new cache
-        if retry_cache:
+        if cache_policy.retry_caching:
             logger.debug(f"requested with retry_cache for {raw_url=} ...")
             await self._lru_helper.remove_entry(cache_identifier)
             (self._base_dir / cache_identifier).unlink(missing_ok=True)
@@ -555,13 +565,6 @@ class OTACache:
         if not self._upper_proxy:
             headers_from_client.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
 
-        cache_identifier = cache_policy.file_sha256
-        compression_alg = cache_policy.file_compression_alg
-        if not cache_identifier:
-            # fallback to use URL based hash, and clear compression_alg for such case
-            cache_identifier = url_based_hash(raw_url)
-            compression_alg = ""
-
         #
         # ------ when cache is not enabled or client requires so, do direct downloading ------ #
         #
@@ -584,10 +587,8 @@ class OTACache:
 
             return await self._retrieve_file_by_new_caching(
                 raw_url=raw_url,
-                cache_identifier=cache_identifier,
-                compression_alg=compression_alg,
+                cache_policy=cache_policy,
                 headers_from_client=headers_from_client,
-                retry_cache=True,
             )
 
         #
@@ -598,12 +599,13 @@ class OTACache:
         ):
             return _res
 
-        if _res := await self._retrieve_file_by_cache(cache_identifier):
+        if _res := await self._retrieve_file_by_cache(
+            raw_url=raw_url, cache_policy=cache_policy
+        ):
             return _res
 
         return await self._retrieve_file_by_new_caching(
             raw_url=raw_url,
-            cache_identifier=cache_identifier,
-            compression_alg=compression_alg,
+            cache_policy=cache_policy,
             headers_from_client=headers_from_client,
         )
