@@ -263,7 +263,7 @@ class OTACache:
                 self._storage_below_hard_limit_event.clear()
                 break
 
-            current_used_p = disk_usage.used / disk_usage.total * 100
+            current_used_p = int(disk_usage.used / disk_usage.total * 100)
 
             _previous_below_hard = self._storage_below_hard_limit_event.is_set()
             _current_below_hard = True
@@ -281,13 +281,13 @@ class OTACache:
             # logging space monitoring result
             if _previous_below_hard and not _current_below_hard:
                 logger.warning(
-                    f"disk usage reached hard limit({current_used_p=:.1}%,"
-                    f"{cfg.DISK_USE_LIMIT_HARD_P:.1}%), cache disabled"
+                    f"disk usage reached hard limit({current_used_p=}%,"
+                    f"{cfg.DISK_USE_LIMIT_HARD_P=}%), cache disabled"
                 )
             elif not _previous_below_hard and _current_below_hard:
                 logger.info(
-                    f"disk usage is below hard limit({current_used_p=:.1}%),"
-                    f"{cfg.DISK_USE_LIMIT_SOFT_P:.1}%), cache enabled again"
+                    f"disk usage is below hard limit({current_used_p=}%),"
+                    f"{cfg.DISK_USE_LIMIT_SOFT_P=}%), cache enabled again"
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
