@@ -22,7 +22,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import AsyncIterator, Dict, List, Mapping, Optional, Tuple
+from typing import AsyncIterator, List, Mapping, Optional, Tuple
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
@@ -473,7 +473,7 @@ class OTACache:
             )
             return read_file(cache_file, executor=self._executor), _header
 
-    async def _retrieve_file_by_caching(
+    async def _retrieve_file_by_new_caching(
         self,
         *,
         raw_url: str,
@@ -551,50 +551,58 @@ class OTACache:
         if cache_policy.no_cache:
             logger.info(f"client indicates that do not cache for {raw_url=}")
 
+        # When there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:
             headers_from_client.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
 
-        # --- case 1: not using cache, directly download file --- #
-        if (
-            not self._cache_enabled  # ota_proxy is configured to not cache anything
-            or cache_policy.no_cache  # ota_client send request with no_cache policy
-            or not self._storage_below_hard_limit_event.is_set()  # disable cache if space hardlimit is reached
-        ):
-            logger.debug(
-                f"not use cache({self._cache_enabled=}, {cache_policy=}, "
-                f"{self._storage_below_hard_limit_event.is_set()=}): {raw_url=}"
-            )
+        cache_identifier = cache_policy.file_sha256
+        compression_alg = cache_policy.file_compression_alg
+        if not cache_identifier:
+            # fallback to use URL based hash, and clear compression_alg for such case
+            cache_identifier = url_based_hash(raw_url)
+            compression_alg = ""
+
+        #
+        # ------ when cache is not enabled or client requires so, do direct downloading ------ #
+        #
+        if not self._cache_enabled or cache_policy.no_cache:
             return await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
 
-        # --- case 2: if externel cache source available, try to use it --- #
-        # NOTE: if client requsts with retry_caching directive, it may indicate cache corrupted
-        #       in external cache storage, in such case we should skip the use of external cache.
-        if (
-            self._external_cache
-            and not cache_policy.retry_caching
-            and (_res := await self._retrieve_file_by_external_cache(cache_policy))
+        #
+        # ------ when client complaints that previous response is invalid ------ #
+        #
+        # In such case, we will disable both local cache and external cache looking up.
+        if cache_policy.retry_caching:
+
+            # no new caching on hard storage limit met
+            if not self._storage_below_hard_limit_event.is_set():
+                return await self._retrieve_file_by_downloading(
+                    raw_url, headers=headers_from_client
+                )
+
+            return await self._retrieve_file_by_new_caching(
+                raw_url=raw_url,
+                cache_identifier=cache_identifier,
+                compression_alg=compression_alg,
+                headers_from_client=headers_from_client,
+            )
+
+        #
+        # ------ normal request processing ------ #
+        #
+        if self._external_cache and (
+            _res := await self._retrieve_file_by_external_cache(cache_policy)
         ):
             return _res
 
-        # pre-calculated cache_identifier and corresponding compression_alg
-        cache_identifier = cache_policy.file_sha256
-        compression_alg = cache_policy.file_compression_alg
-
-        # fallback to use URL based hash, and clear compression_alg
-        if not cache_identifier:
-            cache_identifier = url_based_hash(raw_url)
-            compression_alg = ""
-
-        # --- case 3: try to use local cache --- #
         if _res := await self._retrieve_file_by_cache(
             cache_identifier, retry_cache=cache_policy.retry_caching
         ):
             return _res
 
-        # --- case 4: no cache available, streaming remote file and cache --- #
-        return await self._retrieve_file_by_caching(
+        return await self._retrieve_file_by_new_caching(
             raw_url=raw_url,
             cache_identifier=cache_identifier,
             compression_alg=compression_alg,
