@@ -17,20 +17,23 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Dict, List, Mapping, Tuple, Union
+from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 import aiohttp
+from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common.logging import BurstSuppressFilter
 
 from ._consts import (
     BHEADER_AUTHORIZATION,
     BHEADER_CONTENT_ENCODING,
+    BHEADER_CONTENT_TYPE,
     BHEADER_COOKIE,
     BHEADER_OTA_FILE_CACHE_CONTROL,
     HEADER_AUTHORIZATION,
     HEADER_CONTENT_ENCODING,
+    HEADER_CONTENT_TYPE,
     HEADER_COOKIE,
     HEADER_OTA_FILE_CACHE_CONTROL,
     METHOD_GET,
@@ -88,21 +91,26 @@ def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
     return headers
 
 
-def encode_headers(headers: Mapping[str, str]) -> List[Tuple[bytes, bytes]]:
+def encode_headers(
+    headers: Union[CIMultiDict[str], CIMultiDictProxy[str]]
+) -> List[Tuple[bytes, bytes]]:
     """Encode headers dict to list of bytes tuples for sending back to client.
 
     Uvicorn requests application to pre-process headers to bytes.
-    Currently we only need to send content-encoding and ota-file-cache-control header
-        back to client.
+    Currently we send the following headers back to client:
+    1. content-encoding
+    2. content-type
+    3. ota-file-cache-control header
     """
     bytes_headers: List[Tuple[bytes, bytes]] = []
-    for name, value in headers.items():
-        if name == HEADER_CONTENT_ENCODING and value:
-            bytes_headers.append((BHEADER_CONTENT_ENCODING, value.encode("utf-8")))
-        elif name == HEADER_OTA_FILE_CACHE_CONTROL and value:
-            bytes_headers.append(
-                (BHEADER_OTA_FILE_CACHE_CONTROL, value.encode("utf-8"))
-            )
+    if _encoding := headers.get(HEADER_CONTENT_ENCODING):
+        bytes_headers.append((BHEADER_CONTENT_ENCODING, _encoding.encode("utf-8")))
+    if _type := headers.get(HEADER_CONTENT_TYPE):
+        bytes_headers.append((BHEADER_CONTENT_TYPE, _type.encode("utf-8")))
+    if _cache_control := headers.get(HEADER_OTA_FILE_CACHE_CONTROL):
+        bytes_headers.append(
+            (BHEADER_OTA_FILE_CACHE_CONTROL, _cache_control.encode("utf-8"))
+        )
     return bytes_headers
 
 
