@@ -139,11 +139,7 @@ class OTACache:
 
         self._external_cache_data_dir = None
         self._external_cache_mp = None
-        if (
-            cache_enabled
-            and external_cache_mnt_point
-            and mount_external_cache(external_cache_mnt_point)
-        ):
+        if external_cache_mnt_point and mount_external_cache(external_cache_mnt_point):
             logger.info(
                 f"external cache source is enabled at: {external_cache_mnt_point}"
             )
