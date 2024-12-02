@@ -392,7 +392,7 @@ class OTACache:
         resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
         return _remote_fd, resp_headers
 
-    async def _retrieve_file_by_cache(
+    async def _retrieve_file_by_cache_lookup(
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
     ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
         """
@@ -595,7 +595,7 @@ class OTACache:
         if _res := await self._retrieve_file_by_external_cache(cache_policy):
             return _res
 
-        if _res := await self._retrieve_file_by_cache(
+        if _res := await self._retrieve_file_by_cache_lookup(
             raw_url=raw_url, cache_policy=cache_policy
         ):
             return _res
