@@ -393,13 +393,12 @@ class OTACache:
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache(
-        self, cache_identifier: str, *, retry_cache: bool
+        self, cache_identifier: str
     ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
-        # cache file available, lookup the db for metadata
         meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
             return
@@ -409,11 +408,6 @@ class OTACache:
         #           2. URL based sha256 value for corresponding requested URL
         # otaclient indicates that this cache entry is invalid, cleanup and exit
         cache_file = self._base_dir / cache_identifier
-        if retry_cache:
-            logger.debug(f"requested with retry_cache: {meta_db_entry=}..")
-            await self._lru_helper.remove_entry(cache_identifier)
-            cache_file.unlink(missing_ok=True)
-            return
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -423,7 +417,6 @@ class OTACache:
         for _retry_count in range(_retry_count_max):
             if cache_file.is_file():
                 break
-
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
 
         if not cache_file.is_file():
@@ -480,7 +473,14 @@ class OTACache:
         cache_identifier: str,
         compression_alg: str,
         headers_from_client: dict[str, str],
+        retry_cache: bool = False,
     ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]]:
+        # if set, cleanup any previous cache file before starting new cache
+        if retry_cache:
+            logger.debug(f"requested with retry_cache for {raw_url=} ...")
+            await self._lru_helper.remove_entry(cache_identifier)
+            (self._base_dir / cache_identifier).unlink(missing_ok=True)
+
         if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
             subscription := await tracker.subscribe_tracker()
         ):
@@ -587,6 +587,7 @@ class OTACache:
                 cache_identifier=cache_identifier,
                 compression_alg=compression_alg,
                 headers_from_client=headers_from_client,
+                retry_cache=True,
             )
 
         #
@@ -597,9 +598,7 @@ class OTACache:
         ):
             return _res
 
-        if _res := await self._retrieve_file_by_cache(
-            cache_identifier, retry_cache=cache_policy.retry_caching
-        ):
+        if _res := await self._retrieve_file_by_cache(cache_identifier):
             return _res
 
         return await self._retrieve_file_by_new_caching(
