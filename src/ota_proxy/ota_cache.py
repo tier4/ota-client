@@ -399,6 +399,13 @@ class OTACache:
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
+        if (
+            not self._cache_enabled
+            or cache_policy.no_cache
+            or cache_policy.retry_caching
+        ):
+            return
+
         cache_identifier = cache_policy.file_sha256
         if not cache_identifier:
             # fallback to use URL based hash, and clear compression_alg for such case
@@ -411,7 +418,6 @@ class OTACache:
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        # otaclient indicates that this cache entry is invalid, cleanup and exit
         cache_file = self._base_dir / cache_identifier
 
         # check if cache file exists
@@ -443,7 +449,12 @@ class OTACache:
         self, client_cache_policy: OTAFileCacheControl
     ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
         # skip if not external cache or otaclient doesn't sent valid file_sha256
-        if not self._external_cache or not client_cache_policy.file_sha256:
+        if (
+            not self._external_cache
+            or client_cache_policy.no_cache
+            or client_cache_policy.retry_caching
+            or not client_cache_policy.file_sha256
+        ):
             return
 
         cache_identifier = client_cache_policy.file_sha256
@@ -477,7 +488,15 @@ class OTACache:
         raw_url: str,
         cache_policy: OTAFileCacheControl,
         headers_from_client: dict[str, str],
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]]:
+    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
+        # NOTE(20241202): no new cache on hard limit being reached
+        if (
+            not self._cache_enabled
+            or cache_policy.no_cache
+            or not self._storage_below_hard_limit_event.is_set()
+        ):
+            return
+
         cache_identifier = cache_policy.file_sha256
         compression_alg = cache_policy.file_compression_alg
         if not cache_identifier:
@@ -561,42 +580,19 @@ class OTACache:
         if cache_policy.no_cache:
             logger.info(f"client indicates that do not cache for {raw_url=}")
 
-        # When there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
+        # when there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:
             headers_from_client.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
 
-        #
-        # ------ when cache is not enabled or client requires so, do direct downloading ------ #
-        #
+        # a fastpath when cache is not enabled or client requires so
         if not self._cache_enabled or cache_policy.no_cache:
             return await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
 
-        #
-        # ------ when client complaints that previous response is invalid ------ #
-        #
-        # In such case, we will disable both local cache and external cache looking up.
-        if cache_policy.retry_caching:
-
-            # no new caching on hard storage limit met
-            if not self._storage_below_hard_limit_event.is_set():
-                return await self._retrieve_file_by_downloading(
-                    raw_url, headers=headers_from_client
-                )
-
-            return await self._retrieve_file_by_new_caching(
-                raw_url=raw_url,
-                cache_policy=cache_policy,
-                headers_from_client=headers_from_client,
-            )
-
-        #
-        # ------ normal request processing ------ #
-        #
-        if self._external_cache and (
-            _res := await self._retrieve_file_by_external_cache(cache_policy)
-        ):
+        # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
+        #   and loaded, still try to use external cache source.
+        if _res := await self._retrieve_file_by_external_cache(cache_policy):
             return _res
 
         if _res := await self._retrieve_file_by_cache(
@@ -604,8 +600,14 @@ class OTACache:
         ):
             return _res
 
-        return await self._retrieve_file_by_new_caching(
+        if _res := await self._retrieve_file_by_new_caching(
             raw_url=raw_url,
             cache_policy=cache_policy,
             headers_from_client=headers_from_client,
+        ):
+            return _res
+
+        # as last resort, finally try to handle the request by directly downloading
+        return await self._retrieve_file_by_downloading(
+            raw_url, headers=headers_from_client
         )
