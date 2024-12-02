@@ -22,7 +22,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import AsyncIterator, List, Mapping, Optional, Tuple
+from typing import AsyncIterator, Mapping, Optional
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
@@ -276,7 +276,7 @@ class OTACache:
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _cache_entries_cleanup(self, entry_hashes: List[str]):
+    def _cache_entries_cleanup(self, entry_hashes: list[str]) -> None:
         """Cleanup entries indicated by entry_hashes list."""
         for entry_hash in entry_hashes:
             # remove cache entry
@@ -368,7 +368,7 @@ class OTACache:
         raw_url: str,
         *,
         headers: Mapping[str, str],
-    ) -> Tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
+    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
         async def _do_request() -> AsyncIterator[bytes]:
             async with self._session.get(
                 self._process_raw_url(raw_url),
