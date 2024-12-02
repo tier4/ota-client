@@ -47,6 +47,7 @@ import re
 import shutil
 import time
 from dataclasses import dataclass, fields
+from http import HTTPStatus
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -70,6 +71,8 @@ from urllib.parse import quote
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePublicKey
 from cryptography.x509 import load_pem_x509_certificate
+from requests import Response
+from requests import exceptions as requests_exc
 from typing_extensions import Self
 
 from ota_metadata.utils.cert_store import CAChainStore
@@ -104,6 +107,14 @@ def _python_exit():
 
 
 atexit.register(_python_exit)
+
+
+class OTAImageInvalid(Exception):
+    """OTA image itself is incompleted or metadata is missing."""
+
+
+class OTARequestsAuthTokenInvalid(Exception):
+    """Hit 401 or 403 when downloading metadata."""
 
 
 class MetadataJWTPayloadInvalid(Exception):
@@ -672,6 +683,18 @@ class OTAMetadata:
                     )
                     break
                 except Exception as e:
+                    if isinstance(e, requests_exc.HTTPError) and isinstance(
+                        (_response := e.response), Response
+                    ):
+                        if _response.status_code == HTTPStatus.NOT_FOUND:
+                            raise OTAImageInvalid("failed to download metadata") from e
+
+                        if _response.status_code in [
+                            HTTPStatus.FORBIDDEN,
+                            HTTPStatus.UNAUTHORIZED,
+                        ]:
+                            raise OTARequestsAuthTokenInvalid from e
+
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
                     time.sleep(self.retry_interval)
 
