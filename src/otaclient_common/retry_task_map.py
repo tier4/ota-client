@@ -26,7 +26,12 @@ from functools import partial
 from queue import Empty, SimpleQueue
 from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
 
+from typing_extensions import ParamSpec
+
+from otaclient_common.common import get_backoff
 from otaclient_common.typing import RT, T
+
+P = ParamSpec("P")
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
+        backoff_factor: float = 0.1,
+        backoff_max: float = 1,
     ) -> None:
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
@@ -70,12 +77,25 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if callable(watchdog_func):
             self._checker_funcs.append(watchdog_func)
 
+        self._thread_local = threading.local()
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
-            initializer=initializer,
+            initializer=self._rtm_initializer_gen(initializer),
             initargs=initargs,
         )
+
+    def _rtm_initializer_gen(
+        self, _input_initializer: Callable[P, RT] | None
+    ) -> Callable[P, None]:
+        def _real_initializer(*args: P.args, **kwargs: P.kwargs) -> None:
+            _thread_local = self._thread_local
+            _thread_local.continues_failed_count = 0
+
+            if callable(_input_initializer):
+                _input_initializer(*args, **kwargs)
+
+        return _real_initializer
 
     def _max_retry_check(self, max_total_retry: int) -> None:
         if self._retry_count > max_total_retry:
