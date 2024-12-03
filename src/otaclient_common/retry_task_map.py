@@ -255,6 +255,8 @@ if TYPE_CHECKING:
             watchdog_check_interval: int = 3,  # seconds
             initializer: Callable[..., Any] | None = None,
             initargs: tuple = (),
+            backoff_factor: float = 0.01,
+            backoff_max: float = 1,
         ) -> None:
             """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -270,6 +272,10 @@ if TYPE_CHECKING:
                     Defaults to None.
                 initargs (tuple): The same <initargs> param passed through to ThreadPoolExecutor.
                     Defaults to ().
+                backoff_factor (float): The backoff factor on thread-scope backoff wait for failed tasks rescheduling.
+                    Defaults to 0.01.
+                backoff_max (float): The backoff max on thread-scope backoff wait for failed tasks rescheduling.
+                    Defaults to 1.
             """
             raise NotImplementedError
 
