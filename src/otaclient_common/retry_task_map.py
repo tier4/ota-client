@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
 
 from typing_extensions import ParamSpec
 
-from otaclient_common.common import get_backoff
+from otaclient_common.common import wait_with_backoff
 from otaclient_common.typing import RT, T
 
 P = ParamSpec("P")
@@ -52,7 +52,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
-        backoff_factor: float = 0.1,
+        backoff_factor: float = 0.01,
         backoff_max: float = 1,
     ) -> None:
         self._start_lock, self._started = threading.Lock(), False
@@ -64,6 +64,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 no tasks, the task execution gen should stop immediately.
             3. only value >=1 is valid.
         """
+        self.backoff_factor = backoff_factor
+        self.backoff_max = backoff_max
 
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
@@ -130,16 +132,28 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
 
-        # ------ on task failed ------ #
-        if fut.exception():
-            self._retry_count = next(self._retry_counter)
-            try:  # try to re-schedule the failed task
-                self.submit(func, item).add_done_callback(
-                    partial(self._task_done_cb, item=item, func=func)
-                )
-            except Exception:  # if re-schedule doesn't happen, release se
-                self._concurrent_semaphore.release()
-        else:  # release semaphore when succeeded
+        # release semaphore only on success
+        # reset continues failure count on success
+        _thread_local = self._thread_local
+        if not fut.exception():
+            self._concurrent_semaphore.release()
+            _thread_local.continues_failed_count = 0
+            return
+
+        # try to re-schedule the failed task
+        _thread_local.continues_failed_count += 1
+        wait_with_backoff(
+            _thread_local.continues_failed_count,
+            _backoff_factor=self.backoff_factor,
+            _backoff_max=self.backoff_max,
+        )
+
+        self._retry_count = next(self._retry_counter)
+        try:
+            self.submit(func, item).add_done_callback(
+                partial(self._task_done_cb, item=item, func=func)
+            )
+        except Exception:  # if re-schedule doesn't happen, release se
             self._concurrent_semaphore.release()
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
