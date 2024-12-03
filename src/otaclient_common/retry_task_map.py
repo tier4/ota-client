@@ -40,6 +40,9 @@ class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
 
 
+CONTINUES_FAILURE_COUNT_ATTRNAME = "continues_failed_count"
+
+
 class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 
     def __init__(
@@ -92,7 +95,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     ) -> Callable[P, None]:
         def _real_initializer(*args: P.args, **kwargs: P.kwargs) -> None:
             _thread_local = self._thread_local
-            _thread_local.continues_failed_count = 0
+            setattr(_thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME, 0)
 
             if callable(_input_initializer):
                 _input_initializer(*args, **kwargs)
@@ -132,24 +135,36 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
 
+        _thread_local = self._thread_local
+
         # release semaphore only on success
         # reset continues failure count on success
-        _thread_local = self._thread_local
         if not fut.exception():
             self._concurrent_semaphore.release()
             _thread_local.continues_failed_count = 0
             return
 
-        # try to re-schedule the failed task
-        _thread_local.continues_failed_count += 1
+        # NOTE: when for some reason the continues_failed_count is gone,
+        #   handle the AttributeError here and re-assign the count.
+        try:
+            _continues_failed_count = getattr(
+                _thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME
+            )
+        except AttributeError:
+            _continues_failed_count = 0
+
+        _continues_failed_count += 1
+        setattr(
+            _thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME, _continues_failed_count
+        )
         wait_with_backoff(
-            _thread_local.continues_failed_count,
+            _continues_failed_count,
             _backoff_factor=self.backoff_factor,
             _backoff_max=self.backoff_max,
         )
 
         self._retry_count = next(self._retry_counter)
-        try:
+        try:  # try to re-schedule the failed task
             self.submit(func, item).add_done_callback(
                 partial(self._task_done_cb, item=item, func=func)
             )
