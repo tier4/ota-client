@@ -26,13 +26,21 @@ from functools import partial
 from queue import Empty, SimpleQueue
 from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
 
+from typing_extensions import ParamSpec
+
+from otaclient_common.common import wait_with_backoff
 from otaclient_common.typing import RT, T
+
+P = ParamSpec("P")
 
 logger = logging.getLogger(__name__)
 
 
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
+
+
+CONTINUES_FAILURE_COUNT_ATTRNAME = "continues_failed_count"
 
 
 class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
@@ -47,6 +55,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
+        backoff_factor: float = 0.01,
+        backoff_max: float = 1,
     ) -> None:
         self._start_lock, self._started = threading.Lock(), False
         self._total_task_num = 0
@@ -57,6 +67,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 no tasks, the task execution gen should stop immediately.
             3. only value >=1 is valid.
         """
+        self.backoff_factor = backoff_factor
+        self.backoff_max = backoff_max
 
         self._retry_counter = itertools.count(start=1)
         self._retry_count = 0
@@ -70,12 +82,25 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if callable(watchdog_func):
             self._checker_funcs.append(watchdog_func)
 
+        self._thread_local = threading.local()
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
-            initializer=initializer,
+            initializer=self._rtm_initializer_gen(initializer),
             initargs=initargs,
         )
+
+    def _rtm_initializer_gen(
+        self, _input_initializer: Callable[P, RT] | None
+    ) -> Callable[P, None]:
+        def _real_initializer(*args: P.args, **kwargs: P.kwargs) -> None:
+            _thread_local = self._thread_local
+            setattr(_thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME, 0)
+
+            if callable(_input_initializer):
+                _input_initializer(*args, **kwargs)
+
+        return _real_initializer
 
     def _max_retry_check(self, max_total_retry: int) -> None:
         if self._retry_count > max_total_retry:
@@ -110,16 +135,40 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return  # on shutdown, no need to put done fut into fut_queue
         self._fut_queue.put_nowait(fut)
 
-        # ------ on task failed ------ #
-        if fut.exception():
-            self._retry_count = next(self._retry_counter)
-            try:  # try to re-schedule the failed task
-                self.submit(func, item).add_done_callback(
-                    partial(self._task_done_cb, item=item, func=func)
-                )
-            except Exception:  # if re-schedule doesn't happen, release se
-                self._concurrent_semaphore.release()
-        else:  # release semaphore when succeeded
+        _thread_local = self._thread_local
+
+        # release semaphore only on success
+        # reset continues failure count on success
+        if not fut.exception():
+            self._concurrent_semaphore.release()
+            _thread_local.continues_failed_count = 0
+            return
+
+        # NOTE: when for some reason the continues_failed_count is gone,
+        #   handle the AttributeError here and re-assign the count.
+        try:
+            _continues_failed_count = getattr(
+                _thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME
+            )
+        except AttributeError:
+            _continues_failed_count = 0
+
+        _continues_failed_count += 1
+        setattr(
+            _thread_local, CONTINUES_FAILURE_COUNT_ATTRNAME, _continues_failed_count
+        )
+        wait_with_backoff(
+            _continues_failed_count,
+            _backoff_factor=self.backoff_factor,
+            _backoff_max=self.backoff_max,
+        )
+
+        self._retry_count = next(self._retry_counter)
+        try:  # try to re-schedule the failed task
+            self.submit(func, item).add_done_callback(
+                partial(self._task_done_cb, item=item, func=func)
+            )
+        except Exception:  # if re-schedule doesn't happen, release se
             self._concurrent_semaphore.release()
 
     def _fut_gen(self, interval: int) -> Generator[Future[Any], Any, None]:
@@ -221,6 +270,8 @@ if TYPE_CHECKING:
             watchdog_check_interval: int = 3,  # seconds
             initializer: Callable[..., Any] | None = None,
             initargs: tuple = (),
+            backoff_factor: float = 0.01,
+            backoff_max: float = 1,
         ) -> None:
             """Initialize a ThreadPoolExecutorWithRetry instance.
 
@@ -236,6 +287,10 @@ if TYPE_CHECKING:
                     Defaults to None.
                 initargs (tuple): The same <initargs> param passed through to ThreadPoolExecutor.
                     Defaults to ().
+                backoff_factor (float): The backoff factor on thread-scope backoff wait for failed tasks rescheduling.
+                    Defaults to 0.01.
+                backoff_max (float): The backoff max on thread-scope backoff wait for failed tasks rescheduling.
+                    Defaults to 1.
             """
             raise NotImplementedError
 
