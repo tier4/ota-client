@@ -100,7 +100,7 @@ class ECUTracker:
                     self._startup_matrix[my_ecu_id] = False
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
             except Exception as e:
-                burst_suppressed_logger.warning(
+                burst_suppressed_logger.debug(
                     f"failed to query local ECU's status: {e!r}"
                 )
 

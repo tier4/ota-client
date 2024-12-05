@@ -313,7 +313,7 @@ class OTAClientStatusCollector:
                         self._shm_status.write_msg(self._status)
                         _next_shm_push = _now + self.shm_push_interval
                     except Exception as e:
-                        burst_suppressed_logger.warning(
+                        burst_suppressed_logger.debug(
                             f"failed to push status to shm: {e!r}"
                         )
             except queue.Empty:
