@@ -334,7 +334,7 @@ class TestECUStatusStorage:
         compare_message(exported, expected)
 
     @pytest.mark.parametrize(
-        "local_ecu_status,sub_ecus_status,properties_dict",
+        "local_ecu_status,sub_ecus_status,properties_dict,flags_status",
         (
             # case 1:
             (
@@ -376,8 +376,12 @@ class TestECUStatusStorage:
                     "in_update_ecus_id": {"autoware", "p2"},
                     "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_requires_network": True,
                     "success_ecus_id": set(),
+                },
+                # ecu_status_flags
+                {
+                    "any_in_update": True,
+                    "any_requires_network": True,
                     "all_success": False,
                 },
             ),
@@ -421,8 +425,12 @@ class TestECUStatusStorage:
                     "in_update_ecus_id": {"p2"},
                     "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_requires_network": True,
                     "success_ecus_id": {"autoware"},
+                },
+                # ecu_status_flags
+                {
+                    "any_in_update": True,
+                    "any_requires_network": True,
                     "all_success": False,
                 },
             ),
@@ -433,6 +441,7 @@ class TestECUStatusStorage:
         local_ecu_status: _internal_types.OTAClientStatus,
         sub_ecus_status: list[api_types.StatusResponse],
         properties_dict: dict[str, Any],
+        flags_status: dict[str, bool],
     ):
         # --- prepare --- #
         await self.ecu_storage.update_from_local_ecu(local_ecu_status)
@@ -446,8 +455,11 @@ class TestECUStatusStorage:
         for k, v in properties_dict.items():
             assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
 
+        for k, v in flags_status.items():
+            assert getattr(self.ecu_status_flags, k).is_set() == v
+
     @pytest.mark.parametrize(
-        "local_ecu_status,sub_ecus_status,ecus_accept_update_request,properties_dict",
+        "local_ecu_status,sub_ecus_status,ecus_accept_update_request,properties_dict,flags_status",
         (
             # case 1:
             #   There is FAILED/UPDATING ECUs existed in the cluster.
@@ -494,8 +506,12 @@ class TestECUStatusStorage:
                     "in_update_ecus_id": {"autoware", "p2"},
                     "in_update_child_ecus_id": {"p2"},
                     "failed_ecus_id": {"p1"},
-                    "any_requires_network": True,
                     "success_ecus_id": set(),
+                },
+                # ecu_status_flags
+                {
+                    "any_in_update": True,
+                    "any_requires_network": True,
                     "all_success": False,
                 },
             ),
@@ -542,8 +558,12 @@ class TestECUStatusStorage:
                     "in_update_ecus_id": {"autoware", "p1"},
                     "in_update_child_ecus_id": {"p1"},
                     "failed_ecus_id": set(),
-                    "any_requires_network": True,
                     "success_ecus_id": {"p2"},
+                },
+                # ecu_status_flags
+                {
+                    "any_in_update": True,
+                    "any_requires_network": True,
                     "all_success": False,
                 },
             ),
@@ -555,6 +575,7 @@ class TestECUStatusStorage:
         sub_ecus_status: list[api_types.StatusResponse],
         ecus_accept_update_request: list[str],
         properties_dict: dict[str, Any],
+        flags_status: dict[str, bool],
         mocker: pytest_mock.MockerFixture,
     ):
         # --- prepare --- #
@@ -579,7 +600,9 @@ class TestECUStatusStorage:
         # --- assertion --- #
         for k, v in properties_dict.items():
             assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
-        assert self.ecu_status_flags.any_in_update.is_set()
+
+        for k, v in flags_status.items():
+            assert getattr(self.ecu_status_flags, k).is_set() == v
 
     async def test_polling_waiter_switching_from_idling_to_active(self):
         """Waiter should immediately return if active_ota_update_present is set."""
