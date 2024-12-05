@@ -527,8 +527,10 @@ class _OTAUpdater:
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
         except TasksEnsureFailed:
-            # NOTE: the only cause of a TaskEnsureFailed being raised is the download_watchdog timeout.
-            _err_msg = f"download stalls longer than {cfg.DOWNLOAD_INACTIVE_TIMEOUT}, abort OTA"
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from None
         finally:
