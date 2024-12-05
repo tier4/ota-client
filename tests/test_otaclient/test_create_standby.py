@@ -37,7 +37,7 @@ from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import common, rebuild_mode
 from otaclient.create_standby.rebuild_mode import RebuildMode
-from otaclient.ota_core import OTAClientControlFlags, _OTAUpdater
+from otaclient.ota_core import _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta, compare_dir
 
@@ -105,14 +105,12 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         mocker: MockerFixture,
     ):
         status_collector, status_report_queue = ota_status_collector
+        ecu_status_flags = mocker.MagicMock()
+        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+            return_value=True
+        )
 
         # ------ execution ------ #
-        otaclient_control_flags = typing.cast(
-            OTAClientControlFlags, mocker.MagicMock(spec=OTAClientControlFlags)
-        )
-        otaclient_control_flags._can_reboot = _can_reboot = mocker.MagicMock()
-        _can_reboot.is_set = mocker.MagicMock(return_value=True)
-
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
         _updater = _OTAUpdater(
@@ -122,8 +120,8 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
             ca_chains_store=ca_store,
             upper_otaproxy=None,
             boot_controller=self._boot_control,
+            ecu_status_flags=ecu_status_flags,
             create_standby_cls=RebuildMode,
-            control_flags=otaclient_control_flags,
             status_report_queue=status_report_queue,
             session_id=self.SESSION_ID,
         )
@@ -144,7 +142,7 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         # ------ assertions ------ #
         persist_handler.assert_called_once()
 
-        otaclient_control_flags._can_reboot.is_set.assert_called_once()
+        ecu_status_flags.any_requires_network.is_set.assert_called_once()
         # --- ensure the update stats are collected
         collected_status = status_collector.otaclient_status
         assert collected_status
