@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import atexit
-import contextlib
 import logging
 from collections import defaultdict
 
@@ -28,8 +27,19 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.local_ecu_check")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.local_ecu_check",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
 # actively polling ECUs status until we get the first valid response
 #   when otaclient is just starting.
@@ -84,11 +94,15 @@ class ECUTracker:
         """Task entry for loop polling local ECU status."""
         my_ecu_id = ecu_info.ecu_id
         while True:
-            with contextlib.suppress(Exception):
+            try:
                 status_report = self._local_ecu_status_reader.sync_msg()
                 if status_report:
                     self._startup_matrix[my_ecu_id] = False
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
+            except Exception as e:
+                burst_suppressed_logger.warning(
+                    f"failed to query local ECU's status: {e!r}"
+                )
 
             if self._startup_matrix[my_ecu_id]:
                 await asyncio.sleep(_ACTIVE_POLL_LOCAL_ON_STARTUP)
