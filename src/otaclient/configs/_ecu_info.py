@@ -91,7 +91,7 @@ class ECUInfo(BaseFixedConfig):
     # NOTE(20240327): set the default as literal for now, in the future
     #   when app_configs are fully backported this will be replaced by
     #   service_cfg.DEFAULT_SERVER_ADDRESS
-    ip_addr: IPvAnyAddress = Field(default="127.0.0.1")
+    ip_addr: IPvAnyAddress = IPvAnyAddress("127.0.0.1")
     bootloader: Annotated[
         BootloaderType,
         BeforeValidator(gen_strenum_validator(BootloaderType)),
