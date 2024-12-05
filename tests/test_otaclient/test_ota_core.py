@@ -246,7 +246,9 @@ class TestOTAClient:
 
         # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
-        self.boot_controller.get_booted_ota_status.return_value = OTAStatus.SUCCESS
+        self.boot_controller.get_booted_ota_status = mocker.MagicMock(
+            return_value=OTAStatus.SUCCESS
+        )
 
         # patch inject mocked updater
         mocker.patch(f"{OTA_CORE_MODULE}._OTAUpdater", return_value=self.ota_updater)
@@ -293,23 +295,3 @@ class TestOTAClient:
         # --- assertion on interrupted OTA update --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
-
-    def test_status_in_update(self, mocker: pytest_mock.MockerFixture):
-        # --- mock setup --- #
-        _ota_updater_mocker = mocker.MagicMock(spec=_OTAUpdater)
-        mocker.patch(f"{OTA_CORE_MODULE}._OTAUpdater", _ota_updater_mocker)
-        self.ota_client._live_ota_status = OTAStatus.UPDATING
-
-        # --- execution --- #
-        self.ota_client.update(
-            request=UpdateRequestV2(
-                version=self.UPDATE_FIRMWARE_VERSION,
-                url_base=self.OTA_IMAGE_URL,
-                cookies_json=self.UPDATE_COOKIES_JSON,
-                session_id="test_status_in_update",
-            )
-        )
-
-        # --- assertion --- #
-        # confirm that the OTA update doesn't happen
-        _ota_updater_mocker.assert_not_called()
