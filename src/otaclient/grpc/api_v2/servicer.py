@@ -36,7 +36,7 @@ from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 logger = logging.getLogger(__name__)
 
-WAIT_FOR_ACK_TIMEOUT = 6  # seconds
+WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT = 6  # seconds
 
 
 class OTAClientAPIServicer:
@@ -70,7 +70,7 @@ class OTAClientAPIServicer:
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
         self._op_queue.put_nowait(request)
         try:
-            _req_response = self._resp_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
             assert (
                 _req_response.session_id == request.session_id
@@ -179,7 +179,7 @@ class OTAClientAPIServicer:
     ) -> api_types.RollbackResponseEcu:
         self._op_queue.put_nowait(rollback_request)
         try:
-            _req_response = self._resp_queue.get(timeout=WAIT_FOR_ACK_TIMEOUT)
+            _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(
                 _req_response, IPCResponse
             ), f"unexpected response: {type(_req_response)}"
