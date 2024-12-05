@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
 
@@ -57,14 +58,18 @@ def grpc_server_process(
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
         ecu_tracker.start()
 
+        thread_pool = ThreadPoolExecutor(
+            thread_name_prefix="ota_api_server",
+        )
         api_servicer = OTAClientAPIServicer(
             ecu_status_storage=ecu_status_storage,
             op_queue=op_queue,
             resp_queue=resp_queue,
+            executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)
 
-        server = grpc.aio.server()
+        server = grpc.aio.server(migration_thread_pool=thread_pool)
         v2_grpc.add_OtaClientServiceServicer_to_server(
             server=server, servicer=ota_client_service_v2
         )
@@ -77,5 +82,6 @@ def grpc_server_process(
             await server.wait_for_termination()
         finally:
             await server.stop(1)
+            thread_pool.shutdown(wait=True)
 
     asyncio.run(_grpc_server_launcher())
