@@ -32,6 +32,8 @@ TASKS_COUNT = 2000
 MAX_CONCURRENT = 128
 MAX_WAIT_BEFORE_SUCCESS = 10
 THREAD_INIT_MSG = "thread init message"
+BACKOFF_FACTOR = 0.001  # for faster test
+BACKOFF_MAX = 0.1
 
 
 class _RetryTaskMapTestErr(Exception):
@@ -47,7 +49,7 @@ def _thread_initializer(msg: str) -> None:
 class TestRetryTaskMap:
 
     @pytest.fixture(autouse=True)
-    def setup(self):
+    def setup(self) -> None:
         self._start_time = time.time()
         self._success_wait_dict = {
             idx: random.randint(0, MAX_WAIT_BEFORE_SUCCESS)
@@ -83,6 +85,8 @@ class TestRetryTaskMap:
             watchdog_func=_exit_on_exceed_max_count,
             initializer=_thread_initializer,
             initargs=(THREAD_INIT_MSG,),
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_max=BACKOFF_MAX,
         ) as executor:
             with pytest.raises(retry_task_map.TasksEnsureFailed):
                 for _fut in executor.ensure_tasks(
@@ -99,6 +103,8 @@ class TestRetryTaskMap:
             max_total_retry=MAX_TOTAL_RETRY,
             initializer=_thread_initializer,
             initargs=(THREAD_INIT_MSG,),
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_max=BACKOFF_MAX,
         ) as executor:
             with pytest.raises(retry_task_map.TasksEnsureFailed):
                 for _fut in executor.ensure_tasks(
@@ -115,6 +121,8 @@ class TestRetryTaskMap:
             max_concurrent=MAX_CONCURRENT,
             initializer=_thread_initializer,
             initargs=(THREAD_INIT_MSG,),
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_max=BACKOFF_MAX,
         ) as executor:
             for _fut in executor.ensure_tasks(
                 self.workload_failed_and_then_succeed, range(TASKS_COUNT)
@@ -130,6 +138,8 @@ class TestRetryTaskMap:
             max_concurrent=MAX_CONCURRENT,
             initializer=_thread_initializer,
             initargs=(THREAD_INIT_MSG,),
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_max=BACKOFF_MAX,
         ) as executor:
             for _fut in executor.ensure_tasks(
                 self.workload_succeed, range(TASKS_COUNT)
