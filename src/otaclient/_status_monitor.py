@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import atexit
-import contextlib
 import logging
 import queue
 import time
@@ -36,8 +35,19 @@ from otaclient._types import (
     UpdateTiming,
 )
 from otaclient._utils import SharedOTAClientStatusWriter
+from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.shm_push")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.shm_push",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
 _status_report_queue: queue.Queue | None = None
 
@@ -232,6 +242,7 @@ SHM_PUSH_INTERVAL = 0.5
 
 
 class OTAClientStatusCollector:
+    """NOTE: status_monitor should only be started once during whole otaclient lifecycle!"""
 
     def __init__(
         self,
@@ -245,6 +256,9 @@ class OTAClientStatusCollector:
         self.shm_push_interval = shm_push_interval
 
         self._input_queue = msg_queue
+        global _status_report_queue
+        _status_report_queue = msg_queue
+
         self._status = None
         self._shm_status = shm_status
 
@@ -295,9 +309,13 @@ class OTAClientStatusCollector:
 
                 # ------ push status on load_report ------ #
                 if self.load_report(report) and self._status and _now > _next_shm_push:
-                    with contextlib.suppress(Exception):
+                    try:
                         self._shm_status.write_msg(self._status)
                         _next_shm_push = _now + self.shm_push_interval
+                    except Exception as e:
+                        burst_suppressed_logger.warning(
+                            f"failed to push status to shm: {e!r}"
+                        )
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
