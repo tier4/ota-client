@@ -20,7 +20,6 @@ import asyncio
 import logging
 import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 
 from otaclient._types import (
     IPCRequest,
@@ -157,15 +156,13 @@ class OTAClientAPIServicer:
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             new_session_id = gen_session_id(update_req_ecu.version)
             _resp = await asyncio.get_running_loop().run_in_executor(
-                executor=self._executor,
-                func=partial(
-                    self._local_update,
-                    UpdateRequestV2(
-                        version=update_req_ecu.version,
-                        url_base=update_req_ecu.url,
-                        cookies_json=update_req_ecu.cookies,
-                        session_id=new_session_id,
-                    ),
+                self._executor,
+                self._local_update,
+                UpdateRequestV2(
+                    version=update_req_ecu.version,
+                    url_base=update_req_ecu.url,
+                    cookies_json=update_req_ecu.cookies,
+                    session_id=new_session_id,
                 ),
             )
 
@@ -272,11 +269,9 @@ class OTAClientAPIServicer:
         if request.find_ecu(self.my_ecu_id):
             new_session_id = gen_session_id("__rollback")
             _local_resp = await asyncio.get_running_loop().run_in_executor(
-                executor=self._executor,
-                func=partial(
-                    self._local_rollback,
-                    RollbackRequestV2(session_id=new_session_id),
-                ),
+                self._executor,
+                self._local_rollback,
+                RollbackRequestV2(session_id=new_session_id),
             )
             response.add_ecu(_local_resp)
         return response
