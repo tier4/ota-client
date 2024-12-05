@@ -168,6 +168,16 @@ class TestOTAUpdater:
         # ------ execution ------ #
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
+        # update OTA status to update and assign session_id before execution
+        report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=self.SESSION_ID,
+            )
+        )
+
         _updater = _OTAUpdater(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
@@ -182,15 +192,6 @@ class TestOTAUpdater:
         )
         _updater._process_persistents = process_persists_handler = mocker.MagicMock()
 
-        # update OTA status to update and assign session_id before execution
-        report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                ),
-                session_id=self.SESSION_ID,
-            )
-        )
         _updater.execute()
 
         # ------ assertions ------ #
