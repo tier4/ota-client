@@ -38,7 +38,7 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby import StandbySlotCreatorProtocol
 from otaclient.create_standby.common import DeltaBundle, RegularDelta
 from otaclient.errors import OTAErrorRecoverable
-from otaclient.ota_core import OTAClient, OTAClientControlFlags, _OTAUpdater
+from otaclient.ota_core import OTAClient, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -158,16 +158,14 @@ class TestOTAUpdater:
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
         mocker: pytest_mock.MockerFixture,
-    ):
-        from otaclient.ota_core import OTAClientControlFlags, _OTAUpdater
-
+    ) -> None:
         _, report_queue = ota_status_collector
+        ecu_status_flags = mocker.MagicMock()
+        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+            return_value=False
+        )
 
         # ------ execution ------ #
-        otaclient_control_flags = mocker.MagicMock(spec=OTAClientControlFlags)
-        otaclient_control_flags._can_reboot = _can_reboot = mocker.MagicMock()
-        _can_reboot.is_set = mocker.MagicMock(return_value=True)
-
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
         _updater = _OTAUpdater(
@@ -178,7 +176,7 @@ class TestOTAUpdater:
             boot_controller=self._boot_control,
             upper_otaproxy=None,
             create_standby_cls=self._create_standby_cls,
-            control_flags=otaclient_control_flags,
+            ecu_status_flags=ecu_status_flags,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
         )
@@ -203,7 +201,7 @@ class TestOTAUpdater:
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
 
         # assert the control_flags has been waited
-        otaclient_control_flags._can_reboot.is_set.assert_called_once()
+        ecu_status_flags.any_requires_network.is_set.assert_called_once()
 
         assert _updater.update_version == str(cfg.UPDATE_VERSION)
 
@@ -235,9 +233,13 @@ class TestOTAClient:
         mocker: pytest_mock.MockerFixture,
     ):
         _, status_report_queue = ota_status_collector
+        ecu_status_flags = mocker.MagicMock()
+        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+            return_value=False
+        )
 
         # --- mock setup --- #
-        self.control_flags = mocker.MagicMock(spec=OTAClientControlFlags)
+        self.control_flags = ecu_status_flags
         self.ota_updater = mocker.MagicMock(spec=_OTAUpdater)
 
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
@@ -254,7 +256,7 @@ class TestOTAClient:
 
         # start otaclient
         self.ota_client = OTAClient(
-            control_flags=self.control_flags,
+            ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
         )
 
@@ -265,6 +267,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_update_normal_finished",
             )
         )
 
@@ -283,6 +286,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_updaste_interrupted",
             )
         )
 
@@ -302,6 +306,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_status_in_update",
             )
         )
 
