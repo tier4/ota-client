@@ -29,6 +29,7 @@ dependencies = [
   "cryptography>=43.0.1,<45",
   "grpcio>=1.53.2,<1.69",
   "multidict<7.0,>=4.5",
+  "msgpack>=1, <1.2",
   "protobuf>=4.21.12,<5.29",
   "pydantic<3,>=2.10",
   "pydantic-settings<3,>=2.3",
