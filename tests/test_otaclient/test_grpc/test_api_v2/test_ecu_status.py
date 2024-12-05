@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ from pytest_mock import MockerFixture
 
 from otaclient import __version__
 from otaclient import _types as _internal_types
+from otaclient._types import MultipleECUStatusFlags
 from otaclient.configs import DefaultOTAClientConfigs
 from otaclient.configs._ecu_info import ECUInfo
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
@@ -49,7 +51,13 @@ class TestECUStatusStorage:
         mocker.patch(f"{ECU_STATUS_MODULE}.ecu_info", ecu_info)
 
         # init and setup the ecu_storage
-        self.ecu_storage = ECUStatusStorage()
+        # NOTE: here we use threading.Event instead
+        self.ecu_status_flags = ecu_status_flags = MultipleECUStatusFlags(
+            any_in_update=threading.Event(),  # type: ignore[assignment]
+            any_requires_network=threading.Event(),  # type: ignore[assignment]
+            all_success=threading.Event(),  # type: ignore[assignment]
+        )
+        self.ecu_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
 
         _mocked_otaclient_cfg = DefaultOTAClientConfigs()
         # NOTE: decrease the interval for faster testing
@@ -571,7 +579,7 @@ class TestECUStatusStorage:
         # --- assertion --- #
         for k, v in properties_dict.items():
             assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
-        assert self.ecu_storage.active_ota_update_present.is_set()
+        assert self.ecu_status_flags.any_in_update.is_set()
 
     async def test_polling_waiter_switching_from_idling_to_active(self):
         """Waiter should immediately return if active_ota_update_present is set."""
@@ -579,9 +587,9 @@ class TestECUStatusStorage:
 
         async def _event_setter():
             await asyncio.sleep(_sleep_time)
-            self.ecu_storage.active_ota_update_present.set()
+            self.ecu_status_flags.any_in_update.set()
 
-        self.ecu_storage.active_ota_update_present.clear()
+        self.ecu_status_flags.any_in_update.clear()
         _waiter = self.ecu_storage.get_polling_waiter()
         asyncio.create_task(_event_setter())
         # waiter should return on active_ota_update_present is set, instead of waiting the
