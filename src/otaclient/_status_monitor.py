@@ -251,7 +251,9 @@ class OTAClientStatusCollector:
         *,
         min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
+        max_traceback_size: int,
     ) -> None:
+        self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
         self.shm_push_interval = shm_push_interval
 
@@ -277,6 +279,11 @@ class OTAClientStatusCollector:
 
         # ------ on session start/end ------ #
         if isinstance(payload, OTAStatusChangeReport):
+            if (_traceback := payload.failure_traceback) and len(
+                _traceback
+            ) > self.max_traceback_size:
+                payload.failure_traceback = _traceback[-self.max_traceback_size :]
+
             new_ota_status = payload.new_ota_status
             if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
                 status_storage.session_id = report.session_id

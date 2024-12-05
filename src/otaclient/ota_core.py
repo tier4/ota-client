@@ -901,6 +901,7 @@ def ota_core_process(
     ecu_status_flags: MultipleECUStatusFlags,
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
+    max_traceback_size: int,  # in bytes
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -915,6 +916,7 @@ def ota_core_process(
     _status_monitor = OTAClientStatusCollector(
         msg_queue=_local_status_report_queue,
         shm_status=shm_writer,
+        max_traceback_size=max_traceback_size,
     )
     _status_monitor.start()
 

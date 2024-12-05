@@ -39,6 +39,7 @@ SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
+MAX_TRACEBACK_SIZE = 2048  # bytes
 SHM_HMAC_KEY_LEN = 64  # bytes
 
 _ota_core_p: mp_ctx.SpawnProcess | None = None
@@ -121,6 +122,7 @@ def main() -> None:
             ecu_status_flags=ecu_status_flags,
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
+            max_traceback_size=MAX_TRACEBACK_SIZE,
         ),
         name="otaclient_ota_core",
     )
