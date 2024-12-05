@@ -113,6 +113,16 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         # ------ execution ------ #
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
+        # update OTA status to update and assign session_id before OTAUpdate initialized
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=self.SESSION_ID,
+            )
+        )
+
         _updater = _OTAUpdater(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
@@ -127,17 +137,10 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         )
         _updater._process_persistents = persist_handler = mocker.MagicMock()
 
-        # update OTA status to update and assign session_id before execution
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                ),
-                session_id=self.SESSION_ID,
-            )
-        )
+        time.sleep(2)
+
+        # ------ execution ------ #
         _updater.execute()
-        time.sleep(2)  # wait for downloader to record stats
 
         # ------ assertions ------ #
         persist_handler.assert_called_once()
