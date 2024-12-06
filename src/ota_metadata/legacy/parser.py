@@ -39,22 +39,15 @@ Version1 OTA metafiles list:
 
 from __future__ import annotations
 
-import atexit
 import base64
 import json
 import logging
-import re
 import shutil
 import sqlite3
-import time
 from dataclasses import dataclass, fields
-from http import HTTPStatus
-from os import PathLike
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import (
     Any,
-    Callable,
     ClassVar,
     Dict,
     Generator,
@@ -62,60 +55,29 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Tuple,
-    Type,
     TypeVar,
     Union,
     overload,
 )
-from urllib.parse import quote
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePublicKey
 from cryptography.x509 import load_pem_x509_certificate
-from requests import Response
-from requests import exceptions as requests_exc
 from typing_extensions import Self
 
-from ota_metadata.file_table import FileSystemTable, FileSystemTableORM
+from ota_metadata.file_table import FileSystemTableORM
 from ota_metadata.utils.cert_store import CAChainStore
-from ota_proxy import OTAFileCacheControl
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.downloader import Downloader
-from otaclient_common.proto_streamer import (
-    Uint32LenDelimitedMsgReader,
-    Uint32LenDelimitedMsgWriter,
-)
-from otaclient_common.proto_wrapper import MessageWrapper
-from otaclient_common.retry_task_map import (
-    TasksEnsureFailed,
-    ThreadPoolExecutorWithRetry,
-)
 from otaclient_common.typing import StrEnum, StrOrPath
 
-from . import SUPORTED_COMPRESSION_TYPES
 from .csv_parser import (
     parse_dirs_from_csv_file,
     parse_regulars_from_csv_file,
     parse_symlinks_from_csv_file,
 )
-from .rs_table import ResourceTable, ResourceTableORM
-from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
+from .rs_table import ResourceTableORM
 
 logger = logging.getLogger(__name__)
-
-CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
-ES256 = ECDSA(algorithm=hashes.SHA256())
-
-_shutdown = False
-
-
-def _python_exit():
-    global _shutdown
-    _shutdown = True
-
-
-atexit.register(_python_exit)
 
 
 class OTAImageInvalid(Exception):
@@ -130,8 +92,7 @@ class MetadataJWTPayloadInvalid(Exception):
     """Raised when verification passed, but input metadata.jwt is invalid."""
 
 
-class MetadataJWTVerificationFailed(Exception):
-    pass
+class MetadataJWTVerificationFailed(Exception): ...
 
 
 FV = TypeVar("FV")
@@ -266,6 +227,8 @@ class _MetadataJWTParser:
         will be skipped! This SHOULD ONLY happen at non-production environment!
     """
 
+    ES256 = ECDSA(algorithm=hashes.SHA256())
+
     def __init__(self, metadata_jwt: str, *, ca_chains_store: CAChainStore):
         self.ca_chains_store = ca_chains_store
 
@@ -285,8 +248,8 @@ class _MetadataJWTParser:
         )
 
         # parse metadata payload into OTAMetadata
-        self.ota_metadata = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
-        logger.info(f"metadata={self.ota_metadata!r}")
+        self.metadata_jwt = _MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
+        logger.info(f"metadata={self.metadata_jwt!r}")
 
     def verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
@@ -328,20 +291,20 @@ class _MetadataJWTParser:
             _pubkey.verify(
                 signature=self.metadata_signature,
                 data=self.metadata_bytes,
-                signature_algorithm=ES256,
+                signature_algorithm=self.ES256,
             )
         except Exception as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
             logger.error(msg)
             raise MetadataJWTVerificationFailed(msg) from e
 
-    def get_otametadata(self) -> "_MetadataJWTClaimsLayout":
+    def get_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
         """Get parsed OTAMetaData.
 
         Returns:
             A instance of OTAMetaData representing the parsed(but not yet verified) metadata.
         """
-        return self.ota_metadata
+        return self.metadata_jwt
 
 
 # place holder for unset must field in _MetadataJWTClaimsLayout
@@ -468,355 +431,7 @@ class _MetadataJWTClaimsLayout:
                 yield getattr(self, f.name)
 
 
-# ------ support for text based OTA metafiles parsing ------ #
-
-
-def de_escape(s: str) -> str:
-    return s.replace(r"'\''", r"'")
-
-
-# format definition in regular pattern
-
-_dir_pa = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
-_symlink_pa = re.compile(
-    r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),'(?P<link>.+)((?<!\')',')(?P<target>.+)'"
-)
-_persist_pa = re.compile(r"'(?P<path>.*)'")
-# NOTE(20221013): support previous regular_inf cvs version
-#                 that doesn't contain size, inode and compressed_alg fields.
-_reginf_pa = re.compile(
-    r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+)"
-    r",(?P<nlink>\d+),(?P<hash>\w+),'(?P<path>.+)'"
-    r"(,(?P<size>\d+)?(,(?P<inode>\d+)?(,(?P<compressed_alg>\w+)?)?)?)?"
-)
-
-
-def parse_dirs_from_txt(_input: str) -> DirectoryInf:
-    """Compatibility to the plaintext dirs.txt."""
-    _ma = _dir_pa.match(_input.strip())
-    assert _ma is not None, f"matching dirs failed for {_input}"
-
-    mode = int(_ma.group("mode"), 8)
-    uid = int(_ma.group("uid"))
-    gid = int(_ma.group("gid"))
-    path = de_escape(_ma.group("path")[1:-1])
-    return DirectoryInf(mode=mode, uid=uid, gid=gid, path=path)
-
-
-def parse_persistents_from_txt(_input: str) -> PersistentInf:
-    """Compatibility to the plaintext persists.txt."""
-    _path = de_escape(_input.strip()[1:-1])
-    return PersistentInf(path=_path)
-
-
-def parse_symlinks_from_txt(_input: str) -> SymbolicLinkInf:
-    """Compatibility to the plaintext symlinks.txt."""
-    _ma = _symlink_pa.match(_input.strip())
-    assert _ma is not None, f"matching symlinks failed for {_input}"
-
-    res = SymbolicLinkInf()
-    res.mode = int(_ma.group("mode"), 8)
-    res.uid = int(_ma.group("uid"))
-    res.gid = int(_ma.group("gid"))
-    res.slink = de_escape(_ma.group("link"))
-    res.srcpath = de_escape(_ma.group("target"))
-    return res
-
-
-def parse_regulars_from_txt(_input: str) -> RegularInf:
-    """Compatibility to the plaintext regulars.txt."""
-    res = RegularInf()
-    _ma = _reginf_pa.match(_input.strip())
-    assert _ma is not None, f"matching reg_inf failed for {_input}"
-
-    res.mode = int(_ma.group("mode"), 8)
-    res.uid = int(_ma.group("uid"))
-    res.gid = int(_ma.group("gid"))
-    res.nlink = int(_ma.group("nlink"))
-    res.sha256hash = bytes.fromhex(_ma.group("hash"))
-    res.path = de_escape(_ma.group("path"))
-
-    if _size := _ma.group("size"):
-        res.size = int(_size)
-        # ensure that size exists before parsing inode
-        # and compressed_alg field.
-        res.inode = int(_inode) if (_inode := _ma.group("inode")) else 0
-        res.compressed_alg = (
-            _compress_alg if (_compress_alg := _ma.group("compressed_alg")) else ""
-        )
-
-    return res
-
-
 # -------- otametadata ------ #
-
-
-@dataclass
-class MetafileParserMapping:
-    text_parser: Callable[[str], MessageWrapper]
-    bin_fname: str
-    wrapper_type: Type[MessageWrapper]
-
-
-class OTAMetadata:
-    """Implementation of loading/parsing OTA metadata.jwt and metafiles."""
-
-    METADATA_JWT = "metadata.jwt"
-
-    # internal used binary metafiles fname
-    REGULARS_BIN = "regulars.bin"
-    DIRS_BIN = "dirs.bin"
-    SYMLINKS_BIN = "symlinks.bin"
-    PERSISTENTS_BIN = "persistents.bin"
-
-    # metafile fname <-> parser mapping
-    METAFILE_PARSER_MAPPING = {
-        MetafilesV1.DIRECTORY_FNAME: MetafileParserMapping(
-            parse_dirs_from_txt,
-            DIRS_BIN,
-            DirectoryInf,
-        ),
-        MetafilesV1.SYMBOLICLINK_FNAME: MetafileParserMapping(
-            parse_symlinks_from_txt,
-            SYMLINKS_BIN,
-            SymbolicLinkInf,
-        ),
-        MetafilesV1.REGULAR_FNAME: MetafileParserMapping(
-            parse_regulars_from_txt,
-            REGULARS_BIN,
-            RegularInf,
-        ),
-        MetafilesV1.PERSISTENT_FNAME: MetafileParserMapping(
-            parse_persistents_from_txt,
-            PERSISTENTS_BIN,
-            PersistentInf,
-        ),
-    }
-
-    MAX_COCURRENT = 2
-    BACKOFF_FACTOR = 1
-    BACKOFF_MAX = 6
-
-    def __init__(
-        self,
-        *,
-        url_base: str,
-        downloader: Downloader,
-        run_dir: Path,
-        ca_chains_store: CAChainStore,
-        retry_interval: int = 1,
-    ) -> None:
-        if not ca_chains_store:
-            _err_msg = "CA chains store is empty!!! immediately fail the verification"
-            logger.error(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg)
-
-        self.url_base = url_base
-        self._downloader = downloader
-        self.run_dir = run_dir
-        self.ca_chains_store = ca_chains_store
-        self.retry_interval = retry_interval
-        self._self._download_folderir = TemporaryDirectory(
-            prefix="ota_metadata", dir=run_dir
-        )
-        self._self._download_folderir_path = Path(self._self._download_folderir.name)
-
-        # download and parse the metadata.jwt
-        self.scheme_version = _MetadataJWTClaimsLayout.SCHEME_VERSION
-        self._ota_metadata = self._process_metadata_jwt()
-        self.image_rootfs_url = urljoin_ensure_base(
-            self.url_base, f"{self._ota_metadata.rootfs_directory.strip('/')}/"
-        )
-        # NOTE: remember to handle old image that doesn't have compression
-        self.image_compressed_rootfs_url = (
-            urljoin_ensure_base(
-                self.url_base,
-                f"{self._ota_metadata.compressed_rootfs_directory.strip('/')}/",
-            )
-            if self._ota_metadata.compressed_rootfs_directory
-            else None
-        )
-        self.total_files_size_uncompressed = self._ota_metadata.total_regular_size
-        self.total_files_num = 0  # will be updated after parsing regulars.txt
-        # download, parse and store ota metatfiles
-        self._process_text_base_otameta_files()
-
-    def _process_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
-        """Download, loading and parsing metadata.jwt."""
-        logger.debug("process metadata.jwt...")
-        # download and parse metadata.jwt
-        with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
-            _downloaded_meta_f = Path(meta_f.name)
-
-            while not _shutdown:
-                try:
-                    self._downloader.download(
-                        urljoin_ensure_base(self.url_base, self.METADATA_JWT),
-                        _downloaded_meta_f,
-                        # NOTE: do not use cache when fetching metadata.jwt
-                        headers={
-                            CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
-                                no_cache=True
-                            )
-                        },
-                    )
-                    break
-                except Exception as e:
-                    logger.warning(
-                        f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
-                    )
-                    time.sleep(self.retry_interval)
-
-            _parser = _MetadataJWTParser(
-                _downloaded_meta_f.read_text(),
-                ca_chains_store=self.ca_chains_store,
-            )
-        # get not yet verified parsed ota_metadata
-        _ota_metadata = _parser.get_otametadata()
-
-        # download certificate and verify metadata against this certificate
-        with NamedTemporaryFile(prefix="metadata_cert", dir=self.run_dir) as cert_f:
-            cert_info = _ota_metadata.certificate
-            cert_fname, cert_hash = cert_info.file, cert_info.hash
-            cert_file = Path(cert_f.name)
-
-            while not _shutdown:
-                try:
-                    self._downloader.download(
-                        urljoin_ensure_base(self.url_base, cert_fname),
-                        cert_file,
-                        digest=cert_hash,
-                        headers={
-                            CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
-                                no_cache=True
-                            )
-                        },
-                    )
-                    break
-                except Exception as e:
-                    if isinstance(e, requests_exc.HTTPError) and isinstance(
-                        (_response := e.response), Response
-                    ):
-                        if _response.status_code == HTTPStatus.NOT_FOUND:
-                            raise OTAImageInvalid("failed to download metadata") from e
-
-                        if _response.status_code in [
-                            HTTPStatus.FORBIDDEN,
-                            HTTPStatus.UNAUTHORIZED,
-                        ]:
-                            raise OTARequestsAuthTokenInvalid from e
-
-                    logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
-                    time.sleep(self.retry_interval)
-
-            cert_bytes = cert_file.read_bytes()
-
-            _parser.verify_metadata_cert(cert_bytes)
-            _parser.verify_metadata_signature(cert_bytes)
-
-        # return verified ota metadata
-        return _ota_metadata
-
-    def _process_text_base_otameta_files(self):
-        """Downloading, loading and parsing metafiles."""
-        logger.debug("process ota metafiles...")
-
-        def _process_text_base_otameta_file(_metafile: MetaFile):
-            _parser_info = self.METAFILE_PARSER_MAPPING[MetafilesV1(_metafile.file)]
-            with NamedTemporaryFile(prefix=f"metafile_{_metafile.file}") as _metafile_f:
-                _metafile_fpath = Path(_metafile_f.name)
-                self._downloader.download(
-                    urljoin_ensure_base(self.url_base, quote(_metafile.file)),
-                    _metafile_fpath,
-                    digest=_metafile.hash,
-                    headers={
-                        CACHE_CONTROL_HEADER: OTAFileCacheControl.export_kwargs_as_header(
-                            no_cache=True
-                        )
-                    },
-                )
-                # convert to internal used version and store as binary files
-                _count = 0
-                with open(_metafile_fpath, "r") as _src_f, open(
-                    Path(self._self._download_folderir.name) / _parser_info.bin_fname,
-                    "wb",
-                ) as _dst_f:
-                    exporter = Uint32LenDelimitedMsgWriter(
-                        _dst_f, _parser_info.wrapper_type
-                    )
-                    for _count, _line in enumerate(_src_f, start=1):
-                        exporter.write1_msg(_parser_info.text_parser(_line))
-
-                # get total_regular_files here
-                if _metafile.file == MetafilesV1.REGULAR_FNAME:
-                    self.total_files_num = _count
-
-        # ------ start downloading ota_metadata files ------ #
-        with ThreadPoolExecutorWithRetry(
-            max_workers=1,
-            max_concurrent=self.MAX_COCURRENT,
-        ) as _mapper:
-            try:
-                for _fut in _mapper.ensure_tasks(
-                    _process_text_base_otameta_file,
-                    self._ota_metadata.get_img_metafiles(),
-                ):
-                    if exc := _fut.exception():
-                        logger.warning(
-                            f"detect failure during downloading OTA image metafiles, retrying: {exc!r}"
-                        )
-            except TasksEnsureFailed as e:
-                logger.error(f"faild to finish download all ota metadata files: {e!r}")
-                raise
-
-    # APIs
-
-    def save_metafiles_bin_to(self, dst_dir: PathLike):
-        for _, _inf_files_mapping in self.METAFILE_PARSER_MAPPING.items():
-            _fname = _inf_files_mapping.bin_fname
-            _fpath = self._self._download_folderir_path / _fname
-            shutil.copy(_fpath, dst_dir)
-
-    def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
-        _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
-        with open(
-            self._self._download_folderir_path / _parser_info.bin_fname, "rb"
-        ) as _f:
-            _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
-            yield from _stream_reader.iter_msg()
-
-    def get_download_url(self, reg_inf: RegularInf) -> Tuple[str, Optional[str]]:
-        """
-        NOTE: compressed file is located under another OTA image remote folder
-
-        Returns:
-            A tuple of download url and zstd_compression enable flag.
-        """
-        # v2 OTA image, with compression enabled
-        # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
-        if (
-            self.image_compressed_rootfs_url
-            and reg_inf.compressed_alg
-            and reg_inf.compressed_alg in SUPORTED_COMPRESSION_TYPES
-        ):
-            return (
-                urljoin_ensure_base(
-                    self.image_compressed_rootfs_url,
-                    # NOTE: hex alpha-digits and dot(.) are not special character
-                    #       so no need to use quote here.
-                    f"{reg_inf.get_hash()}.{reg_inf.compressed_alg}",
-                ),
-                reg_inf.compressed_alg,
-            )
-        # v1 OTA image, uncompressed and use full path as URL path
-        # example: http://example.com/base_url/data/rootfs/full/path/file
-        else:
-            return (
-                urljoin_ensure_base(
-                    self.image_rootfs_url, quote(str(reg_inf.relative_to("/")))
-                ),
-                None,
-            )
 
 
 @dataclass
@@ -827,7 +442,7 @@ class DownloadInfo:
     digest: Optional[str] = None
 
 
-class OTAMeta2:
+class OTAMetadata:
     """
     workdir layout:
     /
@@ -884,7 +499,7 @@ class OTAMeta2:
             )
 
             # get not yet verified parsed ota_metadata
-            _metadata_jwt = _parser.get_otametadata()
+            _metadata_jwt = _parser.get_metadata_jwt()
 
             # ------ step 2: download the certificate itself ------ #
             cert_info = _metadata_jwt.certificate
@@ -966,3 +581,6 @@ class OTAMeta2:
         if read_only:
             return sqlite3.connect(f"file:{_db_fpath}?mode=ro", uri=True)
         return sqlite3.connect(_db_fpath)
+
+    def save_fstable(self, dst: StrOrPath) -> None:
+        shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
