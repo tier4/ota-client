@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import logging
 import os.path
+import random
 import shutil
 import sqlite3
 from pathlib import Path
@@ -332,7 +333,17 @@ class ResourceMeta:
             digest_alg=DIGEST_ALG,
         )
 
-    def get_download_list(self) -> Generator[DownloadInfo, None, None]:
-        # TODO: iter batches
-        for entry in self._rs_orm.orm_select_all_entries(batch_size=BATCH_SIZE):
-            yield self.get_download_url(entry)
+    def get_download_list(
+        self, *, batch_size: int = BATCH_SIZE, shuffle: bool = True
+    ) -> Generator[DownloadInfo, None, None]:
+        if shuffle:
+            _batch = []
+            for entry in self._rs_orm.orm_select_all_entries(batch_size=batch_size):
+                _batch.append(self.get_download_url(entry))
+                if len(_batch) >= batch_size:
+                    random.shuffle(_batch)
+                    yield from _batch
+                    _batch = []
+        else:
+            for entry in self._rs_orm.orm_select_all_entries(batch_size=batch_size):
+                yield self.get_download_url(entry)
