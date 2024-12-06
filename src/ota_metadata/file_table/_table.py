@@ -127,6 +127,8 @@ class FileSystemTable(TableSpec):
 
         if stat.S_ISDIR(_mode):
             _relative_path.mkdir(exist_ok=True, parents=True)
+            os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+            os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
 
         elif stat.S_ISREG(_mode) and self.digest:
             _resource = resource_dir / self.digest.hex()
@@ -137,14 +139,21 @@ class FileSystemTable(TableSpec):
 
                 if _first_one:
                     shutil.copy(_resource, _relative_path)
+                    os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+                    os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
                 else:
                     os.link(_first_copy, _relative_path)
+            # normal regular file with nlink==1
             else:
                 shutil.copy(_resource, _relative_path)
+                os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+                os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
 
         elif stat.S_ISLNK(_mode) and self.contents:
             _symlink_target = self.contents.decode()
             _relative_path.symlink_to(_symlink_target)
+            # NOTE: changing mode of symlink is not needed and uneffective
+            os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
 
         elif stat.S_ISCHR(_mode):
             # NOTE(20241206): although we have the major/minor recorded in contents field,
@@ -152,9 +161,8 @@ class FileSystemTable(TableSpec):
             #   file for the overlayfs.
             _device_num = os.makedev(0, 0)
             os.mknod(_relative_path, mode=_mode, device=_device_num)
+            os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+            os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
 
         else:
             raise ValueError(f"invalid entry: {self}")
-
-        os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
-        os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
