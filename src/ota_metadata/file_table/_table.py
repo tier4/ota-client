@@ -18,11 +18,7 @@ from __future__ import annotations
 from typing import Optional
 
 from pydantic import SkipValidation
-from simple_sqlite3_orm import (
-    ConstrainRepr,
-    TableSpec,
-    TypeAffinityRepr,
-)
+from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
 from ._types import InodeTable, Xattr
