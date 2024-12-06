@@ -173,8 +173,10 @@ class DeltaGenerator:
 
     def _check_skip_dir(self, dpath: Path) -> bool:
         dir_should_fully_scan = self._check_dir_should_fully_scan(dpath)
+        dir_depth_exceeded = len(dpath.parents) > self.MAX_FOLDER_DEEPTH
+
         _dpath = str(dpath)
-        return (
+        return dir_depth_exceeded or (
             _dpath != CANONICAL_ROOT
             and not dir_should_fully_scan
             and not self._fstable_orm.orm_select_entry(path=_dpath)
@@ -210,11 +212,7 @@ class DeltaGenerator:
                 )
                 logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
 
-                # skip folder that exceeds max_folder_deepth,
-                if len(delta_src_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
-                    logger.warning(
-                        f"reach max_folder_deepth on {delta_src_curdir_path!r}, skip"
-                    )
+                if self._check_skip_dir(canonical_curdir_path):
                     dirnames.clear()
                     continue
 
@@ -222,10 +220,6 @@ class DeltaGenerator:
                 dir_should_fully_scan = self._check_dir_should_fully_scan(
                     canonical_curdir_path
                 )
-
-                if self._check_skip_dir(canonical_curdir_path):
-                    dirnames.clear()
-                    continue
 
                 # skip files that over the max_filenum_per_folder,
                 # and add these files to remove list
