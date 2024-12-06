@@ -60,9 +60,9 @@ from .csv_parser import (
     parse_symlinks_from_csv_file,
 )
 from .parser import (
+    MetadataJWTParser,
     MetadataJWTVerificationFailed,
     _MetadataJWTClaimsLayout,
-    _MetadataJWTParser,
 )
 from .rs_table import ResourceTable, ResourceTableORM
 
@@ -128,7 +128,7 @@ class OTAMetadata:
                 dst=str(_metadata_jwt_fpath),
             )
 
-            _parser = _MetadataJWTParser(
+            _parser = MetadataJWTParser(
                 _metadata_jwt_fpath.read_text(),
                 ca_chains_store=self._ca_store,
             )
