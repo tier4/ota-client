@@ -25,7 +25,6 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from tempfile import TemporaryDirectory
 from typing import Any
 
 from ota_metadata.file_table._orm import FileSystemTableORM
@@ -40,6 +39,7 @@ from otaclient_common.common import create_tmp_fname
 logger = logging.getLogger(__name__)
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
+MAX_SIZE_FOR_COPYING_IN_ACTIVE_SLOT = 1024**3  # 1GiB
 
 
 class DeltaGenerator:
@@ -81,10 +81,7 @@ class DeltaGenerator:
         self.session_id = session_id
 
         self._delta_src_mount_point = delta_src
-        self._tmp_dir = tmp_d = TemporaryDirectory(
-            prefix="ota_tmp", suffix=session_id, dir=work_dir
-        )
-        self._tmp_work_dir = Path(tmp_d.name)
+        self._work_dir = work_dir
         self._copy_dst = copy_dst
 
         # NOTE: file_system look_up is single thread
@@ -115,7 +112,14 @@ class DeltaGenerator:
 
         NOTE: verify the file before copying to the standby slot!
         """
-        tmp_f = self._tmp_work_dir / create_tmp_fname()
+        _src_fstat = fpath.stat()
+        # NOTE(20241206): if the file size is smaller than 1GiB,
+        #   we use active_slot to store tmp file to reduce cross-partition
+        #   writing.
+        tmp_f = self._copy_dst / create_tmp_fname()
+        if _src_fstat.st_size <= MAX_SIZE_FOR_COPYING_IN_ACTIVE_SLOT:
+            tmp_f = self._work_dir / create_tmp_fname()
+
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
@@ -141,7 +145,6 @@ class DeltaGenerator:
         finally:
             tmp_f.unlink(missing_ok=True)
 
-        # report to the ota update stats collector
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=UpdateProgressReport(
