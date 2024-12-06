@@ -81,7 +81,7 @@ def _xattr_validator(_in: bytes | Xattr) -> Xattr:
     # NOTE that msgpack only has two container types when unpacking: list and dict.
     _obj = _unpacker.unpack()
     if not isinstance(_obj, dict):
-        raise ValueError
+        raise TypeError(f"expect unpack to a dict, get {type(_obj)=}")
     return Xattr(**_obj)
 
 
