@@ -101,17 +101,6 @@ class DeltaGenerator:
         )
 
     def _process_file(self, fpath: Path, *, thread_local) -> None:
-        """Hash(and verify the file) and prepare a copy for it in standby slot.
-        This is the task entry being executed by each ONE of the pool worker.
-
-        Params:
-            fpath: the path to the file to be verified
-            expected_hash: (optional) if we have the information for this file
-                (by stored OTA image meta for active slot), use it make the
-                verification process faster.
-
-        NOTE: verify the file before copying to the standby slot!
-        """
         _src_fstat = fpath.stat()
         # NOTE(20241206): if the file size is smaller than 1GiB,
         #   we use active_slot to store tmp file to reduce cross-partition
