@@ -962,9 +962,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def get_standby_boot_dir(self) -> Path:  # pragma: no cover
-        return self._mp_control.standby_boot_dir
-
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-uefi: pre-update ...")
