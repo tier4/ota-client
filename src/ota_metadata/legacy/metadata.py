@@ -210,6 +210,12 @@ class OTAMetadata:
         finally:
             self._download_tmp.cleanup()
 
+    def iter_persist_entries(self) -> Generator[str, None, None]:
+        _persist_fpath = self._work_dir / self.PERSIST_FNAME
+        with open(_persist_fpath, "r") as f:
+            for line in f:
+                yield line.strip()[1:-1]
+
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
         if read_only:
