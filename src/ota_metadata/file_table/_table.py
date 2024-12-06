@@ -26,8 +26,6 @@ from pydantic import SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
-from otaclient_common.typing import StrOrPath
-
 from ._types import InodeTable, Xattr
 
 CANONICAL_ROOT = "/"
@@ -121,14 +119,11 @@ class FileSystemTable(TableSpec):
 
     def copy_to_target(
         self,
-        target_mnt: StrOrPath,
+        target_mnt: Path,
         *,
-        resource_dir: StrOrPath,
+        resource_dir: Path,
         ctx: HardlinkRegister,
     ) -> None:
-        resource_dir = Path(resource_dir)
-        target_mnt = Path(target_mnt)
-
         _canonical_path = Path(self.path)
         _relative_path = target_mnt / _canonical_path.relative_to(CANONICAL_ROOT)
 
