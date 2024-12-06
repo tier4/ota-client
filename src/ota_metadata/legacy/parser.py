@@ -954,3 +954,15 @@ class OTAMeta2:
             shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
         finally:
             shutil.rmtree(self._download_folder, ignore_errors=True)
+
+    def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
+        _db_fpath = self._work_dir / self.FSTABLE_DB
+        if read_only:
+            return sqlite3.connect(f"file:{_db_fpath}?mode=ro", uri=True)
+        return sqlite3.connect(_db_fpath)
+
+    def connect_rstable(self, *, read_only: bool) -> sqlite3.Connection:
+        _db_fpath = self._work_dir / self.RSTABLE_DB
+        if read_only:
+            return sqlite3.connect(f"file:{_db_fpath}?mode=ro", uri=True)
+        return sqlite3.connect(_db_fpath)
