@@ -153,6 +153,7 @@ def parse_regulars_from_csv_file(
                 path=path if not compressed_alg else None,
                 digest=sha256hash,
                 compression_alg=compressed_alg,
+                size=size or 0,
             )
 
             _batch.append(_new)
