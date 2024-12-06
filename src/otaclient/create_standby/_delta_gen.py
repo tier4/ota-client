@@ -11,26 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Common used helpers, classes and functions for different bank creating methods."""
+"""Generate delta from delta_src comparing to new OTA image."""
 
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import shutil
 import threading
-import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
-from threading import Event, Lock
-from typing import Any, List, Tuple
-from weakref import WeakKeyDictionary, WeakValueDictionary
+from typing import Any
 
 from ota_metadata.file_table._orm import FileSystemTableORM
 from ota_metadata.legacy.metadata import OTAMetadata
@@ -42,83 +38,6 @@ from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
 
 logger = logging.getLogger(__name__)
-
-
-class _WeakRef:
-    pass
-
-
-class _HardlinkTracker:
-    POLLINTERVAL = 0.1
-
-    def __init__(self, first_copy_path: str, ref: _WeakRef, count: int):
-        self._first_copy_ready = Event()
-        self._failed = Event()
-        # hold <count> refs to ref
-        self._ref_holder: List[_WeakRef] = [ref for _ in range(count)]
-
-        self.first_copy_path = first_copy_path
-
-    def writer_done(self):
-        self._first_copy_ready.set()
-
-    def writer_on_failed(self):
-        self._failed.set()
-        self._ref_holder.clear()
-
-    def subscribe(self) -> str:
-        # wait for writer
-        while not self._first_copy_ready.is_set():
-            if self._failed.is_set():
-                raise ValueError(f"writer failed on path={self.first_copy_path}")
-
-            time.sleep(self.POLLINTERVAL)
-
-        # it won't happen generally as this tracker will be gc
-        # after the ref holder holds no more ref.
-        with contextlib.suppress(IndexError):
-            self._ref_holder.pop()
-
-        return self.first_copy_path
-
-    def subscribe_no_wait(self) -> str:
-        return self.first_copy_path
-
-
-class HardlinkRegister:
-    def __init__(self):
-        self._lock = Lock()
-        self._hash_ref_dict: WeakValueDictionary[str, _WeakRef] = WeakValueDictionary()
-        self._ref_tracker_dict: WeakKeyDictionary[_WeakRef, _HardlinkTracker] = (
-            WeakKeyDictionary()
-        )
-
-    def get_tracker(
-        self, _identifier: Any, path: str, nlink: int
-    ) -> "Tuple[_HardlinkTracker, bool]":
-        """Get a hardlink tracker from the register.
-
-        Args:
-            _identifier: a string that can identify a group of hardlink file.
-            path: path that the caller wants to save file to.
-            nlink: number of hard links in this hardlink group.
-
-        Returns:
-            A hardlink tracker and a bool to indicates whether the caller is the writer or not.
-        """
-        with self._lock:
-            _ref = self._hash_ref_dict.get(_identifier)
-            if _ref:
-                _tracker = self._ref_tracker_dict[_ref]
-                return _tracker, False
-            else:
-                _ref = _WeakRef()
-                _tracker = _HardlinkTracker(path, _ref, nlink - 1)
-
-                self._hash_ref_dict[_identifier] = _ref
-                self._ref_tracker_dict[_ref] = _tracker
-                return _tracker, True
-
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
