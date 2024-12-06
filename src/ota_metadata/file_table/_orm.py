@@ -13,14 +13,16 @@
 # limitations under the License.
 
 
+from functools import partial
+
 from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase
 
 from ._table import FileSystemTable
 
 
 class FileSystemTableORM(ORMBase[FileSystemTable]):
-    pass
+    __init__ = partial(ORMBase.__init__, table_name=FileSystemTable.table_name)  # type: ignore
 
 
 class FileSystemTableORMThreadPool(ORMThreadPoolBase[FileSystemTable]):
-    pass
+    __init__ = partial(ORMThreadPoolBase.__init__, table_name=FileSystemTable.table_name)  # type: ignore

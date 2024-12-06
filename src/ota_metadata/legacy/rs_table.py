@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
@@ -64,4 +65,5 @@ class ResourceTable(TableSpec):
 class ResourceTableORM(ORMBase[ResourceTable]): ...
 
 
-class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]): ...
+class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
+    __init__ = partial(ORMThreadPoolBase.__init__, table_name=ResourceTable.table_name)  # type: ignore
