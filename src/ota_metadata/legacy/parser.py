@@ -535,12 +535,11 @@ class OTAMetadata:
             _ft_db_conn = sqlite3.connect(self._work_dir / self.FSTABLE_DB)
             _rs_db_conn = sqlite3.connect(self._work_dir / self.RSTABLE_DB)
 
-            _ft_orm = FileSystemTableORM(
-                _ft_db_conn, table_name=self.FSTABLE_DB_TABLE_NAME
-            )
-            _rs_orm = ResourceTableORM(
-                _rs_db_conn, table_name=self.RSTABLE_DB_TABLE_NAME
-            )
+            _ft_orm = FileSystemTableORM(_ft_db_conn)
+            _ft_orm.orm_create_table()
+
+            _rs_orm = ResourceTableORM(_rs_db_conn)
+            _rs_orm.orm_create_table()
 
             try:
                 parse_dirs_from_csv_file(
@@ -569,6 +568,14 @@ class OTAMetadata:
             shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
         finally:
             shutil.rmtree(self._download_folder, ignore_errors=True)
+
+    @property
+    def fstable_db_fpath(self) -> str:
+        return str(self._work_dir / self.FSTABLE_DB)
+
+    @property
+    def rstable_db_fpath(self) -> str:
+        return str(self._work_dir / self.RSTABLE_DB)
 
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
