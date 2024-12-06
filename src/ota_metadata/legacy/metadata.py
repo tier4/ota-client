@@ -117,10 +117,15 @@ class OTAMetadata:
         self._download_folder = Path(download_tmp.name)
 
         self._metadata_jwt = None
+        self._total_regulars_num = 0
 
     @property
     def metadata_jwt(self) -> _MetadataJWTClaimsLayout | None:
         return self._metadata_jwt
+
+    @property
+    def total_regulars_num(self) -> int:
+        return self._total_regulars_num
 
     def download_metafiles(self) -> Generator[DownloadInfo, None, None]:
         try:
@@ -187,7 +192,7 @@ class OTAMetadata:
                     str(self._download_folder / _metadata_jwt.directory.file),
                     _ft_orm,
                 )
-                parse_regulars_from_csv_file(
+                self._total_regulars_num = parse_regulars_from_csv_file(
                     str(self._download_folder / _metadata_jwt.regular.file),
                     _orm=_ft_orm,
                     _orm_rs=_rs_orm,

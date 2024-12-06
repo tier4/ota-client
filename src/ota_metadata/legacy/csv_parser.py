@@ -111,12 +111,13 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FileSystemTableORM):
 
 def parse_regulars_from_csv_file(
     _fpath: str, _orm: FileSystemTableORM, _orm_rs: ResourceTableORM
-) -> None:
+) -> int:
     """Compatibility to the plaintext regulars.txt."""
 
     _batch, _batch_rs, _batch_cnt = [], [], 0
     with open(_fpath, "r") as f:
-        for _idx, line in enumerate(f):
+        _idx = 0
+        for _idx, line in enumerate(f, start=1):
             _ma = _reginf_pa.match(line.strip())
             assert _ma is not None, f"matching reg_inf failed for {line}"
 
@@ -168,3 +169,5 @@ def parse_regulars_from_csv_file(
                 _batch, _batch_rs = [], []
         _orm.orm_insert_entries(_batch)
         _orm_rs.orm_insert_entries(_batch_rs, or_option="ignore")
+
+        return _idx
