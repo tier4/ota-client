@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""OTA metadata version1 implementation.
+"""OTA image metadata parser implementation.
 
 OTA metadata format definition: https://tier4.atlassian.net/l/cp/PCvwC6qk
 
@@ -42,19 +42,14 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import shutil
-import sqlite3
 from dataclasses import dataclass, fields
-from pathlib import Path
 from typing import (
     Any,
     ClassVar,
     Dict,
-    Generator,
     Generic,
     Iterator,
     List,
-    Optional,
     TypeVar,
     Union,
     overload,
@@ -65,17 +60,8 @@ from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePub
 from cryptography.x509 import load_pem_x509_certificate
 from typing_extensions import Self
 
-from ota_metadata.file_table import FileSystemTableORM
 from ota_metadata.utils.cert_store import CAChainStore
-from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.typing import StrEnum, StrOrPath
-
-from .csv_parser import (
-    parse_dirs_from_csv_file,
-    parse_regulars_from_csv_file,
-    parse_symlinks_from_csv_file,
-)
-from .rs_table import ResourceTableORM
+from otaclient_common.typing import StrEnum
 
 logger = logging.getLogger(__name__)
 
@@ -429,165 +415,3 @@ class _MetadataJWTClaimsLayout:
                 and fd.field_type is MetaFile
             ):
                 yield getattr(self, f.name)
-
-
-# -------- otametadata ------ #
-
-
-@dataclass
-class DownloadInfo:
-    url: str
-    dst: str
-    digest_alg: Optional[str] = None
-    digest: Optional[str] = None
-
-
-class OTAMetadata:
-    """
-    workdir layout:
-    /
-    - / .download # the download area for OTA image files
-    - / file_table.sqlite3 # the file table generated from metafiles,
-                           # this will be saved to standby slot.
-    - / resource_table.sqlite3 # the resource table generated from metafiles.
-    - / persists.txt # the persist files list.
-
-    """
-
-    ENTRY_POINT = "metadata.jwt"
-    DIGEST_ALG = "sha256"
-    PERSIST_FNAME = "persists.txt"
-
-    FSTABLE_DB = "file_table.sqlite3"
-    FSTABLE_DB_TABLE_NAME = "file_table"
-
-    RSTABLE_DB = "resource_table.sqlite3"
-    RSTABLE_DB_TABLE_NAME = "resource_table"
-
-    def __init__(
-        self,
-        *,
-        base_url: str,
-        work_dir: StrOrPath,
-        ca_chains_store: CAChainStore,
-    ) -> None:
-        if not ca_chains_store:
-            _err_msg = "CA chains store is empty!!! immediately fail the verification"
-            logger.error(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg)
-
-        self._ca_store = ca_chains_store
-        self._base_url = base_url
-        self._work_dir = wd = Path(work_dir)
-        wd.mkdir(exist_ok=True, parents=True)
-
-        self._download_folder = df = self._work_dir / ".download"
-        df.mkdir(exist_ok=True, parents=True)
-
-    def download_metafiles(self) -> Generator[DownloadInfo, None, None]:
-        try:
-            # ------ step 1: download metadata.jwt ------ #
-            _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
-                dst=str(_metadata_jwt_fpath),
-            )
-
-            _parser = _MetadataJWTParser(
-                _metadata_jwt_fpath.read_text(),
-                ca_chains_store=self._ca_store,
-            )
-
-            # get not yet verified parsed ota_metadata
-            _metadata_jwt = _parser.get_metadata_jwt()
-
-            # ------ step 2: download the certificate itself ------ #
-            cert_info = _metadata_jwt.certificate
-            cert_fname, cert_hash = cert_info.file, cert_info.hash
-
-            _cert_fpath = self._download_folder / cert_fname
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, cert_fname),
-                dst=str(_cert_fpath),
-                digest_alg=self.DIGEST_ALG,
-                digest=cert_hash,
-            )
-
-            cert_bytes = _cert_fpath.read_bytes()
-            _parser.verify_metadata_cert(cert_bytes)
-            _parser.verify_metadata_signature(cert_bytes)
-
-            # ------ step 3: download OTA image metafiles ------ #
-            for _metafile in _metadata_jwt.get_img_metafiles():
-                _fname, _digest = _metafile.file, _metafile.hash
-                _meta_fpath = self._download_folder / _fname
-
-                yield DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, _fname),
-                    dst=str(_meta_fpath),
-                    digest_alg=self.DIGEST_ALG,
-                    digest=_digest,
-                )
-
-            # ------ step 4: parse OTA image metafiles ------ #
-            (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
-            (self._work_dir / self.RSTABLE_DB).unlink(missing_ok=True)
-            _ft_db_conn = sqlite3.connect(self._work_dir / self.FSTABLE_DB)
-            _rs_db_conn = sqlite3.connect(self._work_dir / self.RSTABLE_DB)
-
-            _ft_orm = FileSystemTableORM(_ft_db_conn)
-            _ft_orm.orm_create_table()
-
-            _rs_orm = ResourceTableORM(_rs_db_conn)
-            _rs_orm.orm_create_table()
-
-            try:
-                parse_dirs_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.directory.file),
-                    _ft_orm,
-                )
-                parse_regulars_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.regular.file),
-                    _orm=_ft_orm,
-                    _orm_rs=_rs_orm,
-                )
-                parse_symlinks_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.symboliclink.file),
-                    _ft_orm,
-                )
-            except Exception as e:
-                _err_msg = f"failed to parse CSV metafiles: {e!r}"
-                logger.error(_err_msg)
-                raise
-            finally:
-                _ft_db_conn.close()
-                _rs_db_conn.close()
-
-            # ------ step 5: persist files list ------ #
-            _persist_meta = self._download_folder / _metadata_jwt.persistent.file
-            shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
-        finally:
-            shutil.rmtree(self._download_folder, ignore_errors=True)
-
-    @property
-    def fstable_db_fpath(self) -> str:
-        return str(self._work_dir / self.FSTABLE_DB)
-
-    @property
-    def rstable_db_fpath(self) -> str:
-        return str(self._work_dir / self.RSTABLE_DB)
-
-    def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
-        _db_fpath = self._work_dir / self.FSTABLE_DB
-        if read_only:
-            return sqlite3.connect(f"file:{_db_fpath}?mode=ro", uri=True)
-        return sqlite3.connect(_db_fpath)
-
-    def connect_rstable(self, *, read_only: bool) -> sqlite3.Connection:
-        _db_fpath = self._work_dir / self.RSTABLE_DB
-        if read_only:
-            return sqlite3.connect(f"file:{_db_fpath}?mode=ro", uri=True)
-        return sqlite3.connect(_db_fpath)
-
-    def save_fstable(self, dst: StrOrPath) -> None:
-        shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
