@@ -44,6 +44,7 @@ import os.path
 import shutil
 import sqlite3
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Generator
 from urllib.parse import quote
 
@@ -110,8 +111,10 @@ class OTAMetadata:
         self._work_dir = wd = Path(work_dir)
         wd.mkdir(exist_ok=True, parents=True)
 
-        self._download_folder = df = self._work_dir / ".download"
-        df.mkdir(exist_ok=True, parents=True)
+        self._download_tmp = download_tmp = TemporaryDirectory(
+            dir=work_dir, prefix=".download", suffix=os.urandom(8).hex()
+        )
+        self._download_folder = Path(download_tmp.name)
 
         self._metadata_jwt = None
 
@@ -205,7 +208,7 @@ class OTAMetadata:
             _persist_meta = self._download_folder / _metadata_jwt.persistent.file
             shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
         finally:
-            shutil.rmtree(self._download_folder, ignore_errors=True)
+            self._download_tmp.cleanup()
 
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
