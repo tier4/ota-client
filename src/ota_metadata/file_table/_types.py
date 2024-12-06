@@ -15,8 +15,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from typing import Dict, Optional
+from typing import Dict, NamedTuple, Optional
 
 from msgpack import Unpacker, packb
 from pydantic import PlainSerializer, PlainValidator
@@ -37,22 +36,20 @@ def _inode_validator(_in: bytes | InodeTable) -> InodeTable:
     _unpacker = Unpacker(max_buffer_size=INODE_MAX_SIZE)
     _unpacker.feed(_in)  # feed all the data into the internal buffer
 
-    # get exactly one dict from buffer
+    # get exactly one tuple from buffer
     _obj = _unpacker.unpack()
-    if not isinstance(_obj, dict):
+    if not isinstance(_obj, tuple):
         raise ValueError
-    return InodeTable(**_obj)
+    return InodeTable(*_obj)
 
 
 def _inode_serializer(_in: InodeTable) -> bytes:
-    _dumped = asdict(_in)
-    if _res := packb(_dumped, buf_size=INODE_MAX_SIZE):
+    if _res := packb(_in, buf_size=INODE_MAX_SIZE):
         return _res
     raise ValueError
 
 
-@dataclass
-class InodeTable:
+class InodeTable(NamedTuple):
     mode: int
     uid: int
     gid: int
