@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
+from pydantic_core import core_schema
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
@@ -106,7 +107,12 @@ class FileSystemTable(TableSpec):
 
         elif stat.S_ISREG(_mode) and self.digest:
             _resource = resource_dir / self.digest.hex()
-            shutil.copy(_resource, _relative_path)
+
+            # hardlinked file
+            if inode_table.inode:
+                pass
+            else:
+                shutil.copy(_resource, _relative_path)
 
         elif stat.S_ISLNK(_mode) and self.contents:
             _symlink_target = self.contents.decode()

@@ -19,6 +19,7 @@ from typing import Dict, NamedTuple, Optional
 
 from msgpack import Unpacker, packb
 from pydantic import PlainSerializer, PlainValidator
+from pydantic_core import core_schema
 from typing_extensions import Annotated
 
 XATTR_MAX_SIZE = 512 * 1024  # 512KiB
@@ -36,10 +37,11 @@ def _inode_validator(_in: bytes | InodeTable) -> InodeTable:
     _unpacker = Unpacker(max_buffer_size=INODE_MAX_SIZE)
     _unpacker.feed(_in)  # feed all the data into the internal buffer
 
-    # get exactly one tuple from buffer
+    # get exactly one list from buffer.
+    # NOTE that msgpack only has two container types when unpacking: list and dict.
     _obj = _unpacker.unpack()
-    if not isinstance(_obj, tuple):
-        raise ValueError
+    if not isinstance(_obj, list):
+        raise TypeError(f"expect unpack to a list, get {type(_obj)=}")
     return InodeTable(*_obj)
 
 
@@ -76,10 +78,11 @@ def _xattr_validator(_in: bytes | Xattr) -> Xattr:
     _unpacker.feed(_in)  # feed all the data into the internal buffer
 
     # get exactly one dict from buffer
+    # NOTE that msgpack only has two container types when unpacking: list and dict.
     _obj = _unpacker.unpack()
-    if not isinstance(_obj, Xattr):
+    if not isinstance(_obj, dict):
         raise ValueError
-    return _obj
+    return Xattr(**_obj)
 
 
 def _xattr_serializer(_in: Xattr) -> bytes:
@@ -88,7 +91,10 @@ def _xattr_serializer(_in: Xattr) -> bytes:
     raise ValueError
 
 
-class Xattr(Dict[str, str]): ...
+class Xattr(Dict[str, str]):
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        return core_schema.no_info_after_validator_function(cls, handler(dict))
 
 
 XattrType = Annotated[
