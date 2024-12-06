@@ -13,8 +13,7 @@
 # limitations under the License.
 
 
-from simple_sqlite3_orm import ORMBase
-from simple_sqlite3_orm._orm import ORMThreadPoolBase
+from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase
 
 from ._table import FileSystemTable
 
