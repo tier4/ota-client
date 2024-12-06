@@ -14,3 +14,4 @@
 """OTA image metadata, legacy version."""
 
 SUPORTED_COMPRESSION_TYPES = ("zst", "zstd")
+DIGEST_ALG = "sha256"
