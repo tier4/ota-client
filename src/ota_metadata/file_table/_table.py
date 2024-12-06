@@ -108,6 +108,17 @@ class FileSystemTable(TableSpec):
         of overlayfs.
     """
 
+    def _set_xattr(self, _target: Path) -> None:
+        """NOTE: this method always not following symlink."""
+        if xattrs := self.xattrs:
+            for k, v in xattrs.items():
+                os.setxattr(
+                    path=_target,
+                    attribute=k,
+                    value=v.encode(),
+                    follow_symlinks=False,
+                )
+
     def copy_to_target(
         self,
         target_mnt: StrOrPath,
@@ -129,6 +140,7 @@ class FileSystemTable(TableSpec):
             _relative_path.mkdir(exist_ok=True, parents=True)
             os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
             os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
+            self._set_xattr(_relative_path)
 
         elif stat.S_ISREG(_mode) and self.digest:
             _resource = resource_dir / self.digest.hex()
@@ -141,6 +153,7 @@ class FileSystemTable(TableSpec):
                     shutil.copy(_resource, _relative_path)
                     os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
                     os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
+                    self._set_xattr(_relative_path)
                 else:
                     os.link(_first_copy, _relative_path)
             # normal regular file with nlink==1
@@ -148,12 +161,14 @@ class FileSystemTable(TableSpec):
                 shutil.copy(_resource, _relative_path)
                 os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
                 os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
+                self._set_xattr(_relative_path)
 
         elif stat.S_ISLNK(_mode) and self.contents:
             _symlink_target = self.contents.decode()
             _relative_path.symlink_to(_symlink_target)
             # NOTE: changing mode of symlink is not needed and uneffective
             os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
+            self._set_xattr(_relative_path)
 
         elif stat.S_ISCHR(_mode):
             # NOTE(20241206): although we have the major/minor recorded in contents field,
@@ -163,6 +178,7 @@ class FileSystemTable(TableSpec):
             os.mknod(_relative_path, mode=_mode, device=_device_num)
             os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
             os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+            self._set_xattr(_relative_path)
 
         else:
             raise ValueError(f"invalid entry: {self}")
