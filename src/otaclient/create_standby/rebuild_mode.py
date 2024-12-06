@@ -95,7 +95,10 @@ class RebuildMode:
                     )
                 ):
                     _now = time.time()
-                    if _done.exception():
+                    if _exc := _done.exception():
+                        logger.warning(
+                            f"file process failure detected: {_exc!r}, still retrying ..."
+                        )
                         continue
 
                     entry = _done.result()
