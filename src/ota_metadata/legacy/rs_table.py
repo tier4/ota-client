@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -30,6 +30,9 @@ from typing_extensions import Annotated, Self
 
 
 class ResourceTable(TableSpec):
+    schema_ver: ClassVar[Literal[1]] = 1
+    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
+
     digest: Annotated[
         Optional[bytes],
         TypeAffinityRepr(bytes),

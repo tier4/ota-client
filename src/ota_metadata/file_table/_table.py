@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
@@ -25,6 +25,9 @@ from ._types import InodeTable, Xattr
 
 
 class FileSystemTable(TableSpec):
+    schema_ver: ClassVar[Literal[1]] = 1
+    table_name: ClassVar[Literal["file_table"]] = "file_table"
+
     path: Annotated[
         str,
         TypeAffinityRepr(str),
