@@ -19,10 +19,10 @@ import os
 import shutil
 import stat
 from pathlib import Path
+from threading import Lock
 from typing import ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
-from pydantic_core import core_schema
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
@@ -31,6 +31,23 @@ from otaclient_common.typing import StrOrPath
 from ._types import InodeTable, Xattr
 
 CANONICAL_ROOT = "/"
+
+
+class HardlinkRegister:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._inode_first_path_map: dict[int, str] = {}
+
+    def get_first_copy_fpath(self, inode: int, fpath: str) -> tuple[bool, str]:
+        """For a specific hardlink group, return the first copy of this group.
+
+        Returns:
+            A tuple of bool and str. bool indicates whether the caller is the first copy,
+                str is the fpath of the first copy in the group.
+        """
+        with self._lock:
+            first_copy = self._inode_first_path_map.setdefault(inode, fpath)
+            return first_copy == fpath, first_copy
 
 
 class FileSystemTable(TableSpec):
@@ -91,7 +108,13 @@ class FileSystemTable(TableSpec):
         of overlayfs.
     """
 
-    def copy_to_target(self, target_mnt: StrOrPath, *, resource_dir: StrOrPath) -> None:
+    def copy_to_target(
+        self,
+        target_mnt: StrOrPath,
+        *,
+        resource_dir: StrOrPath,
+        ctx: HardlinkRegister,
+    ) -> None:
         resource_dir = Path(resource_dir)
         target_mnt = Path(target_mnt)
 
@@ -108,9 +131,14 @@ class FileSystemTable(TableSpec):
         elif stat.S_ISREG(_mode) and self.digest:
             _resource = resource_dir / self.digest.hex()
 
-            # hardlinked file
-            if inode_table.inode:
-                pass
+            # hardlinked file, identify hardlink group by original inode number
+            if inode := inode_table.inode:
+                _first_one, _first_copy = ctx.get_first_copy_fpath(inode, self.path)
+
+                if _first_one:
+                    shutil.copy(_resource, _relative_path)
+                else:
+                    os.link(_first_copy, _relative_path)
             else:
                 shutil.copy(_resource, _relative_path)
 
