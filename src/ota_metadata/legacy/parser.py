@@ -195,7 +195,7 @@ class MetaFieldDescriptor(Generic[FV]):
         return self.field_name in value
 
 
-class _MetadataJWTParser:
+class MetadataJWTParser:
     """Implementation of custom JWT parsing/loading/validating logic.
 
     Certification based JWT verification:
