@@ -49,6 +49,13 @@ class ResourceTable(TableSpec):
     ] = None
     """NOTE: only for resource without zstd compression."""
 
+    size: Annotated[
+        int,
+        TypeAffinityRepr(int),
+        ConstrainRepr("NOT NULL"),
+        SkipValidation,
+    ]
+
     compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
