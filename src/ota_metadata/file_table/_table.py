@@ -15,13 +15,21 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import stat
+from pathlib import Path
 from typing import ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
+from otaclient_common.typing import StrOrPath
+
 from ._types import InodeTable, Xattr
+
+CANONICAL_ROOT = "/"
 
 
 class FileSystemTable(TableSpec):
@@ -81,3 +89,38 @@ class FileSystemTable(TableSpec):
         In most cases, it should be 0,0, which is the whiteout file
         of overlayfs.
     """
+
+    def copy_to_target(self, target_mnt: StrOrPath, *, resource_dir: StrOrPath) -> None:
+        resource_dir = Path(resource_dir)
+        target_mnt = Path(target_mnt)
+
+        _canonical_path = Path(self.path)
+        _relative_path = target_mnt / _canonical_path.relative_to(CANONICAL_ROOT)
+
+        inode_table = self.inode
+        _mode = inode_table.mode
+        _uid, _gid = inode_table.uid, inode_table.gid
+
+        if stat.S_ISDIR(_mode):
+            _relative_path.mkdir(exist_ok=True, parents=True)
+
+        elif stat.S_ISREG(_mode) and self.digest:
+            _resource = resource_dir / self.digest.hex()
+            shutil.copy(_resource, _relative_path)
+
+        elif stat.S_ISLNK(_mode) and self.contents:
+            _symlink_target = self.contents.decode()
+            _relative_path.symlink_to(_symlink_target)
+
+        elif stat.S_ISCHR(_mode):
+            # NOTE(20241206): although we have the major/minor recorded in contents field,
+            #   we always force to only use 0,0 as device num, which is used as whiteout
+            #   file for the overlayfs.
+            _device_num = os.makedev(0, 0)
+            os.mknod(_relative_path, mode=_mode, device=_device_num)
+
+        else:
+            raise ValueError(f"invalid entry: {self}")
+
+        os.chmod(_relative_path, mode=_mode, follow_symlinks=False)
+        os.chown(_relative_path, uid=_uid, gid=_gid, follow_symlinks=False)
