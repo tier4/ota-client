@@ -13,14 +13,15 @@
 # limitations under the License.
 
 
-from ._orm import FileSystemTableORM, FileSystemTableORMThreadPool
-from ._table import FileSystemTable
+from ._orm import FileTableNonRegularFilesORM, FileTableRegularFilesORM
+from ._table import FileTableNonRegularFiles, FileTableRegularFiles
 from ._types import InodeTable, Xattr
 
 __all__ = [
-    "FileSystemTableORM",
-    "FileSystemTableORMThreadPool",
-    "FileSystemTable",
+    "FileTableNonRegularFilesORM",
+    "FileTableRegularFilesORM",
+    "FileTableNonRegularFiles",
+    "FileTableRegularFiles",
     "InodeTable",
     "Xattr",
 ]
