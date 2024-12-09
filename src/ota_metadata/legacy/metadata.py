@@ -49,7 +49,17 @@ from tempfile import TemporaryDirectory
 from typing import Generator
 from urllib.parse import quote
 
-from ota_metadata.file_table import FileSystemTableORM
+from simple_sqlite3_orm.utils import (
+    enable_mmap,
+    enable_tmp_store_at_memory,
+    enable_wal_mode,
+)
+
+from ota_metadata.file_table import (
+    FileTableNonRegularFilesORM,
+    FileTableRegularFilesORM,
+)
+from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common.common import urljoin_ensure_base
@@ -71,6 +81,38 @@ from .rs_table import ResourceTable, ResourceTableORM
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 500
+
+
+def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
+    """Sort the ft_regular table by digest, and then replace the old table
+    with the sorted one.
+
+    This is required for later otaclient applies update to standby slot.
+    """
+    SORTED_TABLE_NAME = "ft_regular_sorted"
+    ORIGINAL_TABLE_NAME = FileTableRegularFiles.table_name
+
+    conn = _orm.orm_con
+
+    with conn as conn:
+        _table_create_stmt = _orm.orm_table_spec.table_create_stmt(SORTED_TABLE_NAME)
+        conn.execute(_table_create_stmt)
+
+    with conn as conn:
+        _dump_sorted = (
+            f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
+            f"{ORIGINAL_TABLE_NAME} ORDER BY digest;"
+        )
+        conn.execute(_dump_sorted)
+
+    with conn as conn:
+        conn.execute(f"DROP TABLE {ORIGINAL_TABLE_NAME};")
+        conn.execute(
+            f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};"
+        )
+
+    with conn as conn:
+        conn.execute("VACUUM;")
 
 
 class OTAMetadata:
@@ -180,10 +222,19 @@ class OTAMetadata:
             (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
             (self._work_dir / self.RSTABLE_DB).unlink(missing_ok=True)
             _ft_db_conn = sqlite3.connect(self._work_dir / self.FSTABLE_DB)
-            _rs_db_conn = sqlite3.connect(self._work_dir / self.RSTABLE_DB)
+            enable_mmap(_ft_db_conn)
+            enable_wal_mode(_ft_db_conn)
+            enable_tmp_store_at_memory(_ft_db_conn)
 
-            _ft_orm = FileSystemTableORM(_ft_db_conn)
-            _ft_orm.orm_create_table()
+            _rs_db_conn = sqlite3.connect(self._work_dir / self.RSTABLE_DB)
+            enable_mmap(_rs_db_conn)
+            enable_wal_mode(_rs_db_conn)
+            enable_tmp_store_at_memory(_rs_db_conn)
+
+            _ft_regular_orm = FileTableRegularFilesORM(_ft_db_conn)
+            _ft_non_regular_orm = FileTableNonRegularFilesORM(_ft_db_conn)
+            _ft_regular_orm.orm_create_table()
+            _ft_non_regular_orm.orm_create_table()
 
             _rs_orm = ResourceTableORM(_rs_db_conn)
             _rs_orm.orm_create_table()
@@ -191,17 +242,19 @@ class OTAMetadata:
             try:
                 parse_dirs_from_csv_file(
                     str(self._download_folder / _metadata_jwt.directory.file),
-                    _ft_orm,
-                )
-                self._total_regulars_num = parse_regulars_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.regular.file),
-                    _orm=_ft_orm,
-                    _orm_rs=_rs_orm,
+                    _ft_non_regular_orm,
                 )
                 parse_symlinks_from_csv_file(
                     str(self._download_folder / _metadata_jwt.symboliclink.file),
-                    _ft_orm,
+                    _ft_non_regular_orm,
                 )
+
+                self._total_regulars_num = parse_regulars_from_csv_file(
+                    str(self._download_folder / _metadata_jwt.regular.file),
+                    _orm=_ft_regular_orm,
+                    _orm_rs=_rs_orm,
+                )
+                _sort_ft_regular_in_place(_ft_regular_orm)
             except Exception as e:
                 _err_msg = f"failed to parse CSV metafiles: {e!r}"
                 logger.error(_err_msg)
@@ -314,7 +367,7 @@ class ResourceMeta:
                     f"{_digest_str}.{_compress_alg}",
                 ),
                 dst=str(self._copy_dst / _digest_str),
-                size=resource.size,
+                original_size=resource.original_size,
                 digest=_digest_str,
                 digest_alg=DIGEST_ALG,
                 compression_alg=_compress_alg,
@@ -328,7 +381,7 @@ class ResourceMeta:
         return DownloadInfo(
             url=urljoin_ensure_base(self.data_dir_url, quote(_relative_rs_fpath)),
             dst=str(self._copy_dst / _digest_str),
-            size=resource.size,
+            original_size=resource.original_size,
             digest=_digest_str,
             digest_alg=DIGEST_ALG,
         )
