@@ -19,7 +19,13 @@ from __future__ import annotations
 import re
 import stat
 
-from ota_metadata.file_table import FileSystemTable, FileSystemTableORM, InodeTable
+from ota_metadata.file_table import (
+    FileTableNonRegularFiles,
+    FileTableNonRegularFilesORM,
+    FileTableRegularFiles,
+    FileTableRegularFilesORM,
+    InodeTable,
+)
 
 from .rs_table import ResourceTable, ResourceTableORM
 
@@ -45,7 +51,7 @@ _reginf_pa = re.compile(
 )
 
 
-def parse_dirs_from_csv_file(_fpath: str, _orm: FileSystemTableORM) -> None:
+def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> None:
     """Compatibility to the plaintext dirs.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
@@ -58,7 +64,7 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FileSystemTableORM) -> None:
             gid = int(_ma.group("gid"))
             path = de_escape(_ma.group("path")[1:-1])
 
-            _new = FileSystemTable(
+            _new = FileTableNonRegularFiles(
                 path=path,
                 inode=InodeTable(
                     uid=uid,
@@ -76,7 +82,7 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FileSystemTableORM) -> None:
         _orm.orm_insert_entries(_batch)
 
 
-def parse_symlinks_from_csv_file(_fpath: str, _orm: FileSystemTableORM):
+def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM):
     """Compatibility to the plaintext symlinks.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
@@ -90,7 +96,7 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FileSystemTableORM):
             slink = de_escape(_ma.group("link"))
             srcpath = de_escape(_ma.group("target"))
 
-            _new = FileSystemTable(
+            _new = FileTableNonRegularFiles(
                 path=slink,
                 inode=InodeTable(
                     mode=mode,
@@ -110,7 +116,7 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FileSystemTableORM):
 
 
 def parse_regulars_from_csv_file(
-    _fpath: str, _orm: FileSystemTableORM, _orm_rs: ResourceTableORM
+    _fpath: str, _orm: FileTableRegularFilesORM, _orm_rs: ResourceTableORM
 ) -> int:
     """Compatibility to the plaintext regulars.txt."""
 
@@ -139,7 +145,7 @@ def parse_regulars_from_csv_file(
                     else ""
                 )
 
-            _new = FileSystemTable(
+            _new = FileTableRegularFiles(
                 path=path,
                 inode=InodeTable(
                     mode=mode,
@@ -150,11 +156,12 @@ def parse_regulars_from_csv_file(
                 ),
                 digest=sha256hash,
             )
+
             _new_rs = ResourceTable(
                 path=path if not compressed_alg else None,
                 digest=sha256hash,
                 compression_alg=compressed_alg,
-                size=size or 0,
+                original_size=size or 0,
             )
 
             _batch.append(_new)
