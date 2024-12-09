@@ -39,10 +39,12 @@ from otaclient_common.common import ensure_otaproxy_start
 logger = logging.getLogger(__name__)
 
 _otaproxy_p: mp_ctx.SpawnProcess | None = None
+_global_shutdown: bool = False
 
 
 def shutdown_otaproxy_server() -> None:
-    global _otaproxy_p
+    global _otaproxy_p, _global_shutdown
+    _global_shutdown = True
     if _otaproxy_p:
         _otaproxy_p.terminate()
         _otaproxy_p.join()
@@ -102,7 +104,7 @@ def otaproxy_control_thread(
     next_ota_cache_dir_checkpoint = 0
 
     global _otaproxy_p
-    while True:
+    while not _global_shutdown:
         time.sleep(OTAPROXY_CHECK_INTERVAL)
         _now = time.time()
 
