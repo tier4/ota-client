@@ -35,6 +35,9 @@ from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusW
 logger = logging.getLogger(__name__)
 
 HEALTH_CHECK_INTERAVL = 6  # seconds
+# NOTE: the reason to let daemon_process exits after 16 seconds of ota_core dead
+#   is to allow grpc API server to respond to the status API calls with up-to-date
+#   failure information from ota_core.
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 
