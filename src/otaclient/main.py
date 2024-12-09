@@ -100,6 +100,10 @@ def main() -> None:  # pragma: no cover
     #
     global _ota_core_p, _grpc_server_p, _shm
 
+    # NOTE: if the atexit hook is triggered by signal received,
+    #   first the signal handler will be executed, and then atexit hook.
+    #   At the time atexit hook is executed, the _ota_core_p, _grpc_server_p
+    #   and _shm are set to None by signal handler.
     atexit.register(_on_shutdown)
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
