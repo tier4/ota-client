@@ -55,20 +55,20 @@ def wait_and_log(
         time.sleep(check_interval)
 
 
-def check_other_otaclient(pid_fpath: StrOrPath) -> None:
+def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
     """Check if there is another otaclient instance running, and then
-    create a pid lock file for this otaclient instance."""
-    pid_fpath = Path(pid_fpath)
+    create a pid lock file for this otaclient instance.
 
+    NOTE that otaclient should not run inside a PID namespace.
+    """
+    pid_fpath = Path(pid_fpath)
     if pid := read_str_from_file(pid_fpath, _default=""):
         # running process will have a folder under /proc
         if Path(f"/proc/{pid}").is_dir():
             logger.error(f"another instance of ota-client({pid=}) is running, abort")
             sys.exit()
-
         logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
-        Path(pid_fpath).unlink(missing_ok=True)
-
+        pid_fpath.unlink(missing_ok=True)
     write_str_to_file_atomic(pid_fpath, f"{os.getpid()}")
 
 
