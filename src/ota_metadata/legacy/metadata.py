@@ -392,7 +392,7 @@ class ResourceMeta:
     ) -> Generator[DownloadInfo, None, None]:
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=ResourceTable.table_name,
-            where_stmt="WHERE rowid >= :not_before",
+            where_stmt="WHERE rowid > :not_before",
             limit=batch_size,
         )
 
