@@ -72,7 +72,9 @@ def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
     write_str_to_file_atomic(pid_fpath, f"{os.getpid()}")
 
 
-def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient"):
+def create_otaclient_rundir(
+    run_dir: StrOrPath = "/run/otaclient",
+) -> None:  # pragma: no cover
     """Create the otaclient runtime working dir.
 
     TODO: make a helper class for managing otaclient runtime dir.
@@ -81,7 +83,7 @@ def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient"):
     run_dir.mkdir(exist_ok=True, parents=True)
 
 
-def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:
+def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:  # pragma: no cover
     """Format the <exc> traceback as string."""
     return splitter.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
@@ -94,13 +96,18 @@ class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
     """Util for reading OTAClientStatus from shm."""
 
 
-def gen_session_id(update_version: str) -> str:
+SESSION_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars
+
+
+def gen_session_id(
+    update_version: str, *, random_bytes_num: int = SESSION_RANDOM_LEN
+) -> str:  # pragma: no cover
     """Generate a unique session_id for the new OTA session.
 
     token schema:
         <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
     """
     _time_factor = str(int(time.time()))
-    _random_factor = os.urandom(4).hex()
+    _random_factor = os.urandom(random_bytes_num).hex()
 
     return f"{update_version}-{_time_factor}-{_random_factor}"
