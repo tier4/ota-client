@@ -27,7 +27,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from ota_metadata.file_table._orm import FileSystemTableORM
+from ota_metadata.file_table._orm import FileTableRegularFilesORM
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import (
     RSTableORMThreadPool,
@@ -84,8 +84,8 @@ class DeltaGenerator:
         self._work_dir = work_dir
         self._copy_dst = copy_dst
 
-        # NOTE: file_system look_up is single thread
-        self._fstable_orm = FileSystemTableORM(
+        # NOTE: file_system look_up is using single thread
+        self._ft_regular_orm = FileTableRegularFilesORM(
             ota_metadata.connect_fstable(read_only=True)
         )
         # NOTE: we will update the resource table in-place, the
@@ -171,7 +171,7 @@ class DeltaGenerator:
         return dir_depth_exceeded or (
             _dpath != CANONICAL_ROOT
             and not dir_should_fully_scan
-            and not self._fstable_orm.orm_select_entry(path=_dpath)
+            and not self._ft_regular_orm.orm_select_entry(path=_dpath)
         )
 
     # API
@@ -238,7 +238,7 @@ class DeltaGenerator:
                     # in default match_only mode, if the fpath doesn't exist in new, ignore
                     if (
                         not dir_should_fully_scan
-                        and not self._fstable_orm.orm_select_entry(
+                        and not self._ft_regular_orm.orm_select_entry(
                             path=str(canonical_fpath)
                         )
                     ):
@@ -250,7 +250,10 @@ class DeltaGenerator:
                         delta_src_fpath,
                         thread_local=thread_local,
                     ).add_done_callback(self._task_done_callback)
+
+            # NOTE: fill up the holes created by DELETE.
+            self._rstable_orm.orm_execute("VACUUM;")
         finally:
             pool.shutdown(wait=True)
-            self._fstable_orm._con.close()
+            self._ft_regular_orm._con.close()
             self._rstable_orm.orm_pool_shutdown()
