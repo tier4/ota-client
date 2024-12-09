@@ -24,7 +24,6 @@ from typing import Any, ClassVar, Optional
 
 import yaml
 from pydantic import AliasChoices, AnyHttpUrl, Field, IPvAnyAddress
-from pydantic_core import Url
 
 from otaclient.configs._common import BaseFixedConfig
 from otaclient_common.typing import NetworkPort, StrOrPath
@@ -63,7 +62,7 @@ class ProxyInfo(BaseFixedConfig):
     )
     # NOTE(20240327): set the default as literal for now, in the future
     #   this will be app_cfg.OTA_PROXY_LISTEN_ADDRESS and app_cfg.OTA_PROXY_LISTEN_PORT.
-    local_ota_proxy_listen_addr: IPvAnyAddress = Field(default="0.0.0.0")
+    local_ota_proxy_listen_addr: IPvAnyAddress = IPvAnyAddress("0.0.0.0")
     local_ota_proxy_listen_port: NetworkPort = 8082
     # NOTE: this field not presented in v2.5.4,
     #       for current implementation, it should be default to True.
@@ -76,7 +75,7 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: Optional[AnyHttpUrl] = Url(
+    logging_server: Optional[AnyHttpUrl] = AnyHttpUrl(
         f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
     )
 
