@@ -44,6 +44,7 @@ import os.path
 import random
 import shutil
 import sqlite3
+from itertools import count
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator
@@ -389,14 +390,23 @@ class ResourceMeta:
     def get_download_list(
         self, *, batch_size: int = BATCH_SIZE, shuffle: bool = True
     ) -> Generator[DownloadInfo, None, None]:
-        if shuffle:
-            _batch = []
-            for entry in self._rs_orm.orm_select_all_entries(batch_size=batch_size):
-                _batch.append(self.get_download_url(entry))
-                if len(_batch) >= batch_size:
-                    random.shuffle(_batch)
-                    yield from _batch
-                    _batch = []
-        else:
-            for entry in self._rs_orm.orm_select_all_entries(batch_size=batch_size):
-                yield self.get_download_url(entry)
+        _sql_stmt = ResourceTable.table_select_stmt(
+            select_from=ResourceTable.table_name,
+            where_stmt="WHERE rowid >= :not_before",
+            limit=batch_size,
+        )
+
+        for _batch_cnt in count():
+            _batch_empty, _this_batch = True, []
+            for _entry in self._rs_orm.orm_execute(
+                _sql_stmt, params={"not_before": _batch_cnt * batch_size}
+            ):
+                _batch_empty = False
+                _this_batch.append(_entry)
+
+            if _batch_empty:
+                return
+
+            if shuffle:
+                random.shuffle(_this_batch)
+            yield from _this_batch
