@@ -47,7 +47,7 @@ _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown(sys_exit: bool = False):
+def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
     global _ota_core_p, _grpc_server_p, _shm
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -68,12 +68,13 @@ def _on_shutdown(sys_exit: bool = False):
         sys.exit(1)
 
 
-def _signal_handler(signal_value, _) -> None:
+def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
+    # NOTE: the daemon_process needs to exit also.
     _on_shutdown(sys_exit=True)
 
 
-def main() -> None:
+def main() -> None:  # pragma: no cover
     from otaclient._logging import configure_logging
     from otaclient._otaproxy_ctx import otaproxy_control_thread
     from otaclient._utils import check_other_otaclient, create_otaclient_rundir

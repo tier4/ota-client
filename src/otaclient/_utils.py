@@ -72,9 +72,7 @@ def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
     write_str_to_file_atomic(pid_fpath, f"{os.getpid()}")
 
 
-def create_otaclient_rundir(
-    run_dir: StrOrPath = "/run/otaclient",
-) -> None:  # pragma: no cover
+def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient") -> None:
     """Create the otaclient runtime working dir.
 
     TODO: make a helper class for managing otaclient runtime dir.
