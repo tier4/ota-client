@@ -49,18 +49,23 @@ class ResourceTable(TableSpec):
     ] = None
     """NOTE: only for resource without zstd compression."""
 
-    size: Annotated[
+    original_size: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
         SkipValidation,
     ]
+    """The size of the plain uncompressed resource."""
 
     compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
         SkipValidation,
     ] = None
+    """The compression algorthim used to compressed the resource.
+    
+    NOTE that this field should be None if <contents> is not None.
+    """
 
     def __eq__(self, other: Any | Self) -> bool:
         return isinstance(other, self.__class__) and self.digest == other.digest
