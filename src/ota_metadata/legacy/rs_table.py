@@ -37,11 +37,11 @@ class ResourceTable(TableSpec):
     table_name: ClassVar[Literal["resource_table"]] = "resource_table"
 
     digest: Annotated[
-        Optional[bytes],
+        bytes,
         TypeAffinityRepr(bytes),
         ConstrainRepr("PRIMARY KEY"),
         SkipValidation,
-    ] = None
+    ]
     """sha256 digest of the original file."""
 
     path: Annotated[
