@@ -328,9 +328,11 @@ class ResourceMeta:
             function="count",
         )
         _query = self._rs_orm.orm_con.execute(_sql_stmt)
-        _download_list_len = _query.fetchone()
-        assert isinstance(_download_list_len, int)
-        return _download_list_len
+        _raw_res = _query.fetchone()
+        # NOTE: return value of fetchone will be a tuple, and here
+        #   the first and only value of the tuple is the total nums of entries.
+        assert isinstance(_raw_res, tuple) and _raw_res
+        return _raw_res[0]
 
     def _get_download_size(self):
         _sql_stmt = ResourceTable.table_select_stmt(
@@ -339,9 +341,11 @@ class ResourceMeta:
             function="sum",
         )
         _query = self._rs_orm.orm_con.execute(_sql_stmt)
-        _download_size = _query.fetchone()
-        assert isinstance(_download_size, int)
-        return _download_size
+        _raw_res = _query.fetchone()
+        # NOTE: return value of fetchone will be a tuple, and here
+        #   the first and only value of the tuple is the total nums of entries.
+        assert isinstance(_raw_res, tuple) and _raw_res
+        return _raw_res[0]
 
     # API
 
