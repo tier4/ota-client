@@ -81,8 +81,6 @@ from .rs_table import ResourceTable, ResourceTableORM
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 500
-
 
 def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
     """Sort the ft_regular table by digest, and then replace the old table
@@ -344,7 +342,7 @@ class ResourceMeta:
 
     # API
 
-    def get_download_url(self, resource: ResourceTable) -> DownloadInfo:
+    def get_download_info(self, resource: ResourceTable) -> DownloadInfo:
         """
         NOTE: compressed file is located under another OTA image remote folder
 
@@ -352,7 +350,7 @@ class ResourceMeta:
             A tuple of download url and zstd_compression enable flag.
         """
         assert (_digest := resource.digest), f"invalid {resource=}"
-        _digest_str = resource.digest.hex()
+        _digest_str = _digest.hex()
 
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
@@ -389,25 +387,7 @@ class ResourceMeta:
         )
 
     def get_download_list(
-        self, *, batch_size: int = BATCH_SIZE, shuffle: bool = True
+        self, *, batch_size: int
     ) -> Generator[DownloadInfo, None, None]:
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=ResourceTable.table_name,
-            where_stmt="WHERE rowid > :not_before",
-            limit=batch_size,
-        )
-
-        for _batch_cnt in count():
-            _batch_empty, _this_batch = True, []
-            for _entry in self._rs_orm.orm_execute(
-                _sql_stmt, params={"not_before": _batch_cnt * batch_size}
-            ):
-                _batch_empty = False
-                _this_batch.append(_entry)
-
-            if _batch_empty:
-                return
-
-            if shuffle:
-                random.shuffle(_this_batch)
-            yield from _this_batch
+        for entry in self._rs_orm.iter_all_with_shuffle(batch_size=batch_size):
+            yield self.get_download_info(entry)
