@@ -101,6 +101,11 @@ class FileTableBase(BaseModel):
             _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
         )
 
+    def fpath_on_target(self, *, target_mnt: StrOrPath) -> Path:
+        _canonical_path = Path(self.path)
+        _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
+        return _target_on_mnt
+
 
 class FileTableRegularFiles(TableSpec, FileTableBase):
     """DB table for regular file entries."""
@@ -113,14 +118,14 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         SkipValidation,
     ]
 
-    def is_hardlink(self) -> bool:
-        return bool(self.inode.inode)
+    def is_hardlink(self) -> int | None:
+        """If the entry is hardlinked, return the inode group idx."""
+        return self.inode.inode
 
     def prepare_target(
         self, _rs: StrOrPath, *, target_mnt: StrOrPath, prepare_method: PrepareMethod
     ) -> None:
-        _canonical_path = Path(self.path)
-        _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
+        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
         if prepare_method == "copy":
             shutil.copy(_rs, _target_on_mnt)
@@ -157,8 +162,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
     table_name: ClassVar[Literal["ft_non_regular"]] = "ft_non_regular"
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
-        _canonical_path = Path(self.path)
-        _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
+        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
         inode_table = self.inode
         _mode = inode_table.mode
