@@ -19,6 +19,7 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
+import shutil
 import signal
 import sys
 import threading
@@ -193,8 +194,8 @@ class _OTAUpdater:
             )
         )
 
-        # ------ define OTA temp paths ------ #
-        self._ota_tmp_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
+        # ------ prepare runtime dirs ------ #
+        self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
             cfg.OTA_TMP_STORE
         ).relative_to("/")
         self._session_workdir = session_wd = (
@@ -259,13 +260,11 @@ class _OTAUpdater:
         Returns:
             Retry counts, downloaded files size and traffic on wire.
         """
-        _digest = entry.digest
-        assert _digest is not None
-
-        if _digest == EMPTY_FILE_SHA256:
+        if (_digest := entry.digest) == EMPTY_FILE_SHA256:
             return 0, 0, 0
 
         downloader = self._downloader_mapper[threading.get_native_id()]
+        # NOTE: currently download only use sha256
         return downloader.download(
             url=entry.url,
             dst=entry.dst,
@@ -489,7 +488,7 @@ class _OTAUpdater:
         )
 
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._ota_tmp_on_standby.mkdir(exist_ok=True)
+        self._resource_dir_on_standby.mkdir(exist_ok=True)
 
         # ------ in-update ------ #
         self._status_report_queue.put_nowait(
@@ -509,7 +508,7 @@ class _OTAUpdater:
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     work_dir=Path(_delta_cal_workdir),
-                    copy_dst=self._ota_tmp_on_standby,
+                    copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 )
@@ -537,7 +536,7 @@ class _OTAUpdater:
                 ResourceMeta(
                     base_url=self.url_base,
                     ota_metadata=self._ota_metadata,
-                    copy_dst=self._ota_tmp_on_standby,
+                    copy_dst=self._resource_dir_on_standby,
                 )
             )
         except TasksEnsureFailed:
@@ -567,7 +566,7 @@ class _OTAUpdater:
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
             status_report_queue=self._status_report_queue,
             session_id=self.session_id,
-            resource_dir=self._ota_tmp_on_standby,
+            resource_dir=self._resource_dir_on_standby,
         )
         standby_slot_creator.rebuild_standby()
 
@@ -621,6 +620,10 @@ class _OTAUpdater:
         """
         try:
             self._execute_update()
+
+            # cleanup on OTA finished
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
+            shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
