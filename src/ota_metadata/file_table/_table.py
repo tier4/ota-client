@@ -113,6 +113,9 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         SkipValidation,
     ]
 
+    def is_hardlink(self) -> bool:
+        return bool(self.inode.inode)
+
     def prepare_target(
         self, _rs: StrOrPath, *, target_mnt: StrOrPath, prepare_method: PrepareMethod
     ) -> None:
