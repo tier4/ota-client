@@ -63,17 +63,63 @@ class RebuildMode:
         self._resource_dir = Path(resource_dir)
 
         _fs_table_conn = ota_metadata.connect_fstable(read_only=True)
-        self._ft_orm = FileSystemTableORM(_fs_table_conn)
+        # NOTE: at this point the regular_files file table should have been sorted by digest
+        self._ft_regulars_orm = FileTableRegularFilesORM(_fs_table_conn)
+        self._ft_non_regulars_orm = FileTableNonRegularFilesORM(_fs_table_conn)
 
-        self._hardlink_ctx = HardlinkRegister()
+    def _process_regular_files_group(
+        self, digest: bytes, entries: list[FileTableRegularFiles]
+    ) -> None:
+        """Process a group of regular_files with the same digest."""
+        _rs = self._resource_dir / digest.hex()
 
-    def _process_entry(self, entry: FileSystemTable) -> FileSystemTable:
-        entry.copy_to_target(
-            target_mnt=self._standby_slot_mp,
-            resource_dir=self._resource_dir,
-            ctx=self._hardlink_ctx,
-        )
-        return entry
+        _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
+        _normal: list[FileTableRegularFiles] = []
+        for entry in entries:
+            if (_inode_group := entry.is_hardlink()) is not None:
+                _entries_list = _hardlinked.setdefault(_inode_group, [])
+                _entries_list.append(entry)
+            else:
+                _normal.append(entry)
+
+        _first_one_prepared = False
+        for entry in _normal:
+            if not _first_one_prepared:
+                entry.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                )
+                _first_one_prepared = True
+            else:
+                entry.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                )
+
+        for _, entries in _hardlinked.items():
+            _hardlink_first_one = entries.pop()
+            if not _first_one_prepared:
+                _hardlink_first_one.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                )
+                _first_one_prepared = True
+            else:
+                _hardlink_first_one.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                )
+
+            _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
+                target_mnt=self._standby_slot_mp
+            )
+            for entry in entries:
+                entry.prepare_target(
+                    _hardlink_first_one_fpath,
+                    target_mnt=self._standby_slot_mp,
+                    prepare_method="hardlink",
+                )
+
+        # finally, remove the resource. Note that if anything wrong happens,
+        #   the _rs will not be removed on purpose.
+        _rs.unlink(missing_ok=True)
+
 
     def rebuild_standby(self) -> None:
         _next_commit_before, _batch_cnt = 0, 0
