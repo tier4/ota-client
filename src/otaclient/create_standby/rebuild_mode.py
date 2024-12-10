@@ -17,11 +17,19 @@ from __future__ import annotations
 
 import logging
 import time
+from itertools import count
 from pathlib import Path
 from queue import Queue
+from typing import Generator
 
-from ota_metadata.file_table._orm import FileSystemTableORM
-from ota_metadata.file_table._table import FileSystemTable, HardlinkRegister
+from ota_metadata.file_table._orm import (
+    FileTableNonRegularFilesORM,
+    FileTableRegularFilesORM,
+)
+from ota_metadata.file_table._table import (
+    FileTableNonRegularFiles,
+    FileTableRegularFiles,
+)
 from ota_metadata.legacy.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
@@ -32,7 +40,7 @@ from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
-PROCESS_FILES_BATCH = 1000
+PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 # TODO: NOTE: (20241206) be very careful and ensure that each boot controller implementation
@@ -67,15 +75,69 @@ class RebuildMode:
         self._ft_regulars_orm = FileTableRegularFilesORM(_fs_table_conn)
         self._ft_non_regulars_orm = FileTableNonRegularFilesORM(_fs_table_conn)
 
-    def _process_regular_files_group(
-        self, digest: bytes, entries: list[FileTableRegularFiles]
-    ) -> None:
-        """Process a group of regular_files with the same digest."""
+    def _iter_regular_file_entries(
+        self, *, batch_size: int
+    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]], None, None]:
+        """Yield a group of regular file entries which have the same digest each time.
+
+        NOTE: it depends on the regular file table is sorted by digest!
+        """
+        _pagination_stmt = FileTableRegularFiles.table_select_stmt(
+            select_from=FileTableRegularFiles.table_name,
+            where_stmt="WHERE rowid > :not_before",
+            limit=batch_size,
+        )
+
+        cur_digest_group: list[FileTableRegularFiles] = []
+        cur_digest: bytes = b""
+        for _batch_cnt in count():
+            _batch_empty = True
+
+            _entry: FileTableRegularFiles
+            for _entry in self._ft_regulars_orm.orm_execute(
+                _pagination_stmt, params={"not_before": _batch_cnt * batch_size}
+            ):
+                _batch_empty = False
+
+                _this_digest = _entry.digest
+                if not cur_digest:
+                    cur_digest = _this_digest
+                    cur_digest_group.append(_entry)
+                    continue
+
+                if _this_digest != cur_digest:
+                    yield cur_digest, cur_digest_group
+
+                    cur_digest = _this_digest
+                    cur_digest_group = []
+                else:
+                    cur_digest_group.append(_entry)
+
+            if _batch_empty:
+                break
+        yield cur_digest, cur_digest_group
+
+    def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
+        return entry.prepare_target(target_mnt=self._standby_slot_mp)
+
+    def _process_one_regular_files_group(
+        self, _input: tuple[bytes, list[FileTableRegularFiles]]
+    ) -> tuple[int, int]:
+        """Process a group of regular_files with the same digest.
+
+        Returns:
+            A tuple of int, first is the processed files number, second is the sume of
+                processed files' size.
+        """
+        digest, entries = _input
+
+        processed_files_num, processed_files_size = len(entries), 0
         _rs = self._resource_dir / digest.hex()
 
         _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
         _normal: list[FileTableRegularFiles] = []
         for entry in entries:
+            processed_files_size += entry.inode.size or 0
             if (_inode_group := entry.is_hardlink()) is not None:
                 _entries_list = _hardlinked.setdefault(_inode_group, [])
                 _entries_list.append(entry)
@@ -120,39 +182,40 @@ class RebuildMode:
         #   the _rs will not be removed on purpose.
         _rs.unlink(missing_ok=True)
 
+        return processed_files_num, processed_files_size
 
-    def rebuild_standby(self) -> None:
-        _next_commit_before, _batch_cnt = 0, 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.APPLY_DELTA
-        )
-
+    def _process_regular_files(
+        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+    ) -> None:
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
+            max_concurrent=batch_size,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
+            _next_commit_before, _batch_cnt = 0, 0
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.APPLY_DELTA
+            )
+
             try:
                 for _done_count, _done in enumerate(
                     _mapper.ensure_tasks(
-                        self._process_entry,
-                        self._ft_orm.orm_select_all_entries(
-                            batch_size=PROCESS_FILES_BATCH
-                        ),
+                        func=self._process_one_regular_files_group,
+                        iterable=self._iter_regular_file_entries(batch_size=batch_size),
                     )
                 ):
-                    _now = time.time()
+                    _now = int(time.time())
                     if _exc := _done.exception():
                         logger.warning(
                             f"file process failure detected: {_exc!r}, still retrying ..."
                         )
                         continue
 
-                    entry = _done.result()
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += entry.inode.size or 0
+                    _processed_files_num, _processed_files_size = _done.result()
+                    _merged_payload.processed_file_num += _processed_files_num
+                    _merged_payload.processed_file_size += _processed_files_size
 
                     if (
-                        _this_batch := _done_count // PROCESS_FILES_BATCH
+                        _this_batch := _done_count // PROCESS_FILES_REPORT_BATCH
                     ) > _batch_cnt or _now > _next_commit_before:
                         _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
                         _batch_cnt = _this_batch
@@ -177,3 +240,34 @@ class RebuildMode:
             except Exception as e:
                 logger.error(f"failed to finish up file processing: {e!r}")
                 raise
+
+    def _process_non_regular_files(
+        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+    ) -> None:
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=batch_size,
+            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+        ) as _mapper:
+            try:
+                for _, _done in enumerate(
+                    _mapper.ensure_tasks(
+                        func=self._process_one_non_regular_file,
+                        iterable=self._ft_non_regulars_orm.iter_all(
+                            batch_size=batch_size
+                        ),
+                    )
+                ):
+                    if _exc := _done.exception():
+                        logger.warning(
+                            f"file process failure detected: {_exc!r}, still retrying ..."
+                        )
+                        continue
+            except Exception as e:
+                logger.error(f"failed to finish up file processing: {e!r}")
+                raise
+
+    # API
+
+    def rebuild_standby(self) -> None:
+        self._process_non_regular_files()
+        self._process_regular_files()
