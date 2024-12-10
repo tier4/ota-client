@@ -82,39 +82,23 @@ class RebuildMode:
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
-        _pagination_stmt = FileTableRegularFiles.table_select_stmt(
-            select_from=FileTableRegularFiles.table_name,
-            where_stmt="WHERE rowid > :not_before",
-            limit=batch_size,
-        )
-
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        for _batch_cnt in count():
-            _batch_empty = True
+        for _entry in self._ft_regulars_orm.iter_all(batch_size=batch_size):
+            _this_digest = _entry.digest
+            if not cur_digest:
+                cur_digest = _this_digest
+                cur_digest_group.append(_entry)
+                continue
 
-            _entry: FileTableRegularFiles
-            for _entry in self._ft_regulars_orm.orm_execute(
-                _pagination_stmt, params={"not_before": _batch_cnt * batch_size}
-            ):
-                _batch_empty = False
+            if _this_digest != cur_digest:
+                yield cur_digest, cur_digest_group
 
-                _this_digest = _entry.digest
-                if not cur_digest:
-                    cur_digest = _this_digest
-                    cur_digest_group.append(_entry)
-                    continue
-
-                if _this_digest != cur_digest:
-                    yield cur_digest, cur_digest_group
-
-                    cur_digest = _this_digest
-                    cur_digest_group = []
-                else:
-                    cur_digest_group.append(_entry)
-
-            if _batch_empty:
-                break
+                cur_digest = _this_digest
+                cur_digest_group = []
+            else:
+                cur_digest_group.append(_entry)
+        # remember the last group
         yield cur_digest, cur_digest_group
 
     def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
@@ -131,13 +115,17 @@ class RebuildMode:
         """
         digest, entries = _input
 
-        processed_files_num, processed_files_size = len(entries), 0
+        # NOTE: the very first entry in the group must be prepared by local copy or
+        #   download from remote, which both cases are recorded previously, so we minus one
+        #   entry when calculating the processed_files_num and processed_files_size.
+        processed_files_num = len(entries) - 1
+        processed_files_size = processed_files_num * (entries[0].inode.size or 0)
+
         _rs = self._resource_dir / digest.hex()
 
         _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
         _normal: list[FileTableRegularFiles] = []
         for entry in entries:
-            processed_files_size += entry.inode.size or 0
             if (_inode_group := entry.is_hardlink()) is not None:
                 _entries_list = _hardlinked.setdefault(_inode_group, [])
                 _entries_list.append(entry)
