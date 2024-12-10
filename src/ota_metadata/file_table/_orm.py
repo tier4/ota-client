@@ -16,11 +16,14 @@
 from __future__ import annotations
 
 from sqlite3 import Connection
-from typing import Literal
+from typing import Literal, TypeVar
 
-from simple_sqlite3_orm import ORMBase
+from simple_sqlite3_orm import ORMBase, TableSpec
 
+from ..utils.sqlite3_helper import iter_all
 from ._table import FileTableNonRegularFiles, FileTableRegularFiles
+
+TableSpecType = TypeVar("TableSpecType", bound=TableSpec)
 
 
 class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
@@ -33,6 +36,8 @@ class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
             con, table_name=FileTableRegularFiles.table_name, schema_name=schema_name
         )
 
+    iter_all = iter_all
+
 
 class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
     def __init__(
@@ -43,3 +48,5 @@ class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
         super().__init__(
             con, table_name=FileTableNonRegularFiles.table_name, schema_name=schema_name
         )
+
+    iter_all = iter_all
