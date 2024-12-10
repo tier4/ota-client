@@ -93,23 +93,24 @@ def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
     SORTED_TABLE_NAME = "ft_regular_sorted"
     ORIGINAL_TABLE_NAME = FileTableRegularFiles.table_name
 
+    _table_create_stmt = _orm.orm_table_spec.table_create_stmt(SORTED_TABLE_NAME)
+    _dump_sorted = (
+        f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
+        f"{ORIGINAL_TABLE_NAME} ORDER BY digest;"
+    )
+
     conn = _orm.orm_con
-
     with conn as conn:
-        _table_create_stmt = _orm.orm_table_spec.table_create_stmt(SORTED_TABLE_NAME)
-        conn.execute(_table_create_stmt)
-
-    with conn as conn:
-        _dump_sorted = (
-            f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
-            f"{ORIGINAL_TABLE_NAME} ORDER BY digest;"
-        )
-        conn.execute(_dump_sorted)
-
-    with conn as conn:
-        conn.execute(f"DROP TABLE {ORIGINAL_TABLE_NAME};")
-        conn.execute(
-            f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};"
+        conn.executescript(
+            "\n".join(
+                [
+                    "BEGIN",
+                    _table_create_stmt,
+                    _dump_sorted,
+                    f"DROP TABLE {ORIGINAL_TABLE_NAME};",
+                    f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};",
+                ]
+            )
         )
 
     with conn as conn:
