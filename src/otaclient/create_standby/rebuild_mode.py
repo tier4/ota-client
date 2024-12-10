@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import time
-from itertools import count
 from pathlib import Path
 from queue import Queue
 from typing import Generator
