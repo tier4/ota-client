@@ -44,7 +44,6 @@ import os.path
 import shutil
 import sqlite3
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Generator
 from urllib.parse import quote
 
@@ -152,10 +151,8 @@ class OTAMetadata:
         self._work_dir = wd = Path(work_dir)
         wd.mkdir(exist_ok=True, parents=True)
 
-        self._download_tmp = download_tmp = TemporaryDirectory(
-            dir=work_dir, prefix=".download", suffix=os.urandom(8).hex()
-        )
-        self._download_folder = Path(download_tmp.name)
+        self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
+        df.mkdir(exist_ok=True, parents=True)
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
@@ -270,7 +267,7 @@ class OTAMetadata:
             _persist_meta = self._download_folder / _metadata_jwt.persistent.file
             shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
         finally:
-            self._download_tmp.cleanup()
+            shutil.rmtree(self._download_folder, ignore_errors=True)
 
     def iter_persist_entries(self) -> Generator[str, None, None]:
         _persist_fpath = self._work_dir / self.PERSIST_FNAME
