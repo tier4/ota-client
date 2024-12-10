@@ -29,6 +29,8 @@ from simple_sqlite3_orm import (
 from simple_sqlite3_orm._orm import ORMThreadPoolBase
 from typing_extensions import Annotated, Self
 
+from ota_metadata.utils.sqlite3_helper import iter_all_with_shuffle
+
 
 class ResourceTable(TableSpec):
     schema_ver: ClassVar[Literal[1]] = 1
@@ -81,6 +83,8 @@ class ResourceTableORM(ORMBase[ResourceTable]):
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
         super().__init__(con, ResourceTable.table_name, schema_name)
+
+    iter_all_with_shuffle = iter_all_with_shuffle
 
 
 class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
