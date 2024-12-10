@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import random
-import sqlite3
 from itertools import count
 from typing import Generator, TypeVar
 
@@ -71,35 +70,8 @@ def iter_all_with_shuffle(
         ):
             _batch_empty = False
             _batch.append(_entry)
-
         if _batch_empty:
             return
+
         random.shuffle(_batch)
         yield from _batch
-
-
-def sort_and_replace_table(conn: sqlite3.Connection, table_name: str) -> None:
-    """Sort the target table, and then replace the old table
-    with the sorted one.
-    """
-    SORTED_TABLE_NAME = f"{table_name}_sorted"
-    ORIGINAL_TABLE_NAME = table_name
-
-    _dump_sorted = (
-        f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
-        f"{ORIGINAL_TABLE_NAME} ORDER BY digest;"
-    )
-    with conn as conn:
-        conn.executescript(
-            "\n".join(
-                [
-                    "BEGIN",
-                    _dump_sorted,
-                    f"DROP TABLE {ORIGINAL_TABLE_NAME};",
-                    f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};",
-                ]
-            )
-        )
-
-    with conn as conn:
-        conn.execute("VACUUM;")
