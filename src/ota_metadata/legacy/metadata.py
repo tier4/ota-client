@@ -341,11 +341,10 @@ class ResourceMeta:
     # API
 
     def get_download_info(self, resource: ResourceTable) -> DownloadInfo:
-        """
-        NOTE: compressed file is located under another OTA image remote folder
+        """Get DownloadInfo from one ResourceTable entry.
 
         Returns:
-            A tuple of download url and zstd_compression enable flag.
+            An instance of DownloadInfo to download the resource indicates by <resource>.
         """
         assert (_digest := resource.digest), f"invalid {resource=}"
         _digest_str = _digest.hex()
@@ -387,5 +386,6 @@ class ResourceMeta:
     def get_download_list(
         self, *, batch_size: int
     ) -> Generator[DownloadInfo, None, None]:
+        """Iter through the resource table and yield DownloadInfo for every resource."""
         for entry in self._rs_orm.iter_all_with_shuffle(batch_size=batch_size):
             yield self.get_download_info(entry)
