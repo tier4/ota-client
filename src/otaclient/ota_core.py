@@ -442,6 +442,12 @@ class _OTAUpdater:
             _metadata_jwt = self._ota_metadata.metadata_jwt
             assert _metadata_jwt, "invalid metadata jwt"
 
+            logger.info(
+                "ota_metadata parsed finished: \n"
+                f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
+                f"total_regulars_size: {_metadata_jwt.total_regular_size}"
+            )
+
             self._status_report_queue.put_nowait(
                 StatusReport(
                     payload=SetUpdateMetaReport(
@@ -531,14 +537,27 @@ class _OTAUpdater:
             )
         )
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        try:
-            self._download_resources(
-                ResourceMeta(
-                    base_url=self.url_base,
-                    ota_metadata=self._ota_metadata,
-                    copy_dst=self._resource_dir_on_standby,
-                )
+        resource_meta = ResourceMeta(
+            base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
+            copy_dst=self._resource_dir_on_standby,
+        )
+        logger.info(
+            f"delta calculation finished: \n"
+            f"download_list len: {resource_meta.download_list_len} \n"
+            f"sum of original size of all resources to be downloaded: {resource_meta.download_size}"
+        )
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    total_download_files_num=resource_meta.download_list_len,
+                    total_download_files_size=resource_meta.download_size,
+                ),
+                session_id=self.session_id,
             )
+        )
+        try:
+            self._download_resources(resource_meta)
         except TasksEnsureFailed:
             _err_msg = (
                 "download aborted due to download stalls longer than "

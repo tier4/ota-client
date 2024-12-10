@@ -319,8 +319,8 @@ class ResourceMeta:
         self._rs_orm = ResourceTableORM(ota_metadata.connect_rstable(read_only=True))
         self._copy_dst = copy_dst
 
-        self._download_list_len = self._get_download_list_len()
-        self._download_size = self._get_download_size()
+        self.download_list_len = self._get_download_list_len()
+        self.download_size = self._get_download_size()
 
     def _get_download_list_len(self) -> int:
         _sql_stmt = ResourceTable.table_select_stmt(
