@@ -303,7 +303,10 @@ class _OTAUpdater:
 
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(
-                    self._download_file, resource_meta.get_download_list()
+                    self._download_file,
+                    resource_meta.get_download_list(
+                        batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
+                    ),
                 ),
                 start=1,
             ):
