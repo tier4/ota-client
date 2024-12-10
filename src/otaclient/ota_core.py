@@ -270,7 +270,7 @@ class _OTAUpdater:
             url=entry.url,
             dst=entry.dst,
             digest=_digest,
-            size=entry.size,
+            size=entry.original_size,
             compression_alg=entry.compression_alg,
         )
 
