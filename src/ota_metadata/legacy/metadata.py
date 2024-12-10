@@ -169,12 +169,17 @@ class OTAMetadata:
         return self._total_regulars_num
 
     def download_metafiles(self) -> Generator[DownloadInfo, None, None]:
+        """Guide the caller to download metadata files by yielding the DownloadInfo instances.
+
+        While the caller downloading the metadata files one by one, this method
+            will parse and verify the metadata.
+        """
         try:
             # ------ step 1: download metadata.jwt ------ #
             _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
             yield DownloadInfo(
                 url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
-                dst=str(_metadata_jwt_fpath),
+                dst=_metadata_jwt_fpath,
             )
 
             _parser = MetadataJWTParser(
@@ -192,7 +197,7 @@ class OTAMetadata:
             _cert_fpath = self._download_folder / cert_fname
             yield DownloadInfo(
                 url=urljoin_ensure_base(self._base_url, cert_fname),
-                dst=str(_cert_fpath),
+                dst=_cert_fpath,
                 digest_alg=self.DIGEST_ALG,
                 digest=cert_hash,
             )
@@ -211,7 +216,7 @@ class OTAMetadata:
 
                 yield DownloadInfo(
                     url=urljoin_ensure_base(self._base_url, _fname),
-                    dst=str(_meta_fpath),
+                    dst=_meta_fpath,
                     digest_alg=self.DIGEST_ALG,
                     digest=_digest,
                 )
@@ -363,7 +368,7 @@ class ResourceMeta:
                     #       so no need to use quote here.
                     f"{_digest_str}.{_compress_alg}",
                 ),
-                dst=str(self._copy_dst / _digest_str),
+                dst=self._copy_dst / _digest_str,
                 original_size=resource.original_size,
                 digest=_digest_str,
                 digest_alg=DIGEST_ALG,
@@ -377,7 +382,7 @@ class ResourceMeta:
 
         return DownloadInfo(
             url=urljoin_ensure_base(self.data_dir_url, quote(_relative_rs_fpath)),
-            dst=str(self._copy_dst / _digest_str),
+            dst=self._copy_dst / _digest_str,
             original_size=resource.original_size,
             digest=_digest_str,
             digest_alg=DIGEST_ALG,
