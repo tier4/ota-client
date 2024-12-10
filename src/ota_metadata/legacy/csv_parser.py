@@ -51,11 +51,12 @@ _reginf_pa = re.compile(
 )
 
 
-def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> None:
+def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> int:
     """Compatibility to the plaintext dirs.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
-        for _idx, line in enumerate(f):
+        _idx = 0
+        for _idx, line in enumerate(f, start=1):
             _ma = _dir_pa.match(line.strip())
             assert _ma is not None, f"matching dirs failed for {line}"
 
@@ -75,18 +76,19 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> 
 
             _batch.append(_new)
             if (_this_batch := _idx // BATCH_SIZE) > _batch_cnt:
-                # print(f"{_fpath}: #{_batch_cnt} batch done")
                 _batch_cnt = _this_batch
                 _orm.orm_insert_entries(_batch)
                 _batch = []
         _orm.orm_insert_entries(_batch)
+        return _idx
 
 
-def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM):
+def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> int:
     """Compatibility to the plaintext symlinks.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
-        for _idx, line in enumerate(f):
+        _idx = 0
+        for _idx, line in enumerate(f, start=1):
             _ma = _symlink_pa.match(line.strip())
             assert _ma is not None, f"matching symlinks failed for {line}"
 
@@ -108,18 +110,17 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM)
 
             _batch.append(_new)
             if (_this_batch := _idx // BATCH_SIZE) > _batch_cnt:
-                # print(f"{_fpath}: #{_batch_cnt} batch done")
                 _batch_cnt = _this_batch
                 _orm.orm_insert_entries(_batch)
                 _batch = []
         _orm.orm_insert_entries(_batch)
+        return _idx
 
 
 def parse_regulars_from_csv_file(
     _fpath: str, _orm: FileTableRegularFilesORM, _orm_rs: ResourceTableORM
 ) -> int:
     """Compatibility to the plaintext regulars.txt."""
-
     _batch, _batch_rs, _batch_cnt = [], [], 0
     with open(_fpath, "r") as f:
         _idx = 0
