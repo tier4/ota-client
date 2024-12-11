@@ -79,6 +79,9 @@ from .rs_table import ResourceTable, ResourceTableORM
 
 logger = logging.getLogger(__name__)
 
+# NOTE: enlarge the connection timeout on waiting db lock.
+DB_TIMEOUT = 16  # seconds
+
 
 def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
     """Sort the ft_regular table by digest, and then replace the old table
@@ -296,17 +299,31 @@ class OTAMetadata:
         _db_fpath = self._work_dir / self.FSTABLE_DB
         if read_only:
             return sqlite3.connect(
-                f"file:{_db_fpath}?mode=ro", uri=True, check_same_thread=False
+                f"file:{_db_fpath}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+                timeout=DB_TIMEOUT,
             )
-        return sqlite3.connect(_db_fpath, check_same_thread=False)
+        return sqlite3.connect(
+            _db_fpath,
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
 
     def connect_rstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.RSTABLE_DB
         if read_only:
             return sqlite3.connect(
-                f"file:{_db_fpath}?mode=ro", uri=True, check_same_thread=False
+                f"file:{_db_fpath}?mode=ro",
+                uri=True,
+                check_same_thread=False,
+                timeout=DB_TIMEOUT,
             )
-        return sqlite3.connect(_db_fpath, check_same_thread=False)
+        return sqlite3.connect(
+            _db_fpath,
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
 
     def save_fstable(self, dst: StrOrPath) -> None:
         shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
