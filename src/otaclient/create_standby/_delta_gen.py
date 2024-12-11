@@ -34,6 +34,7 @@ from ota_metadata.file_table._orm import (
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import (
     ResourceTable,
+    ResourceTableORM,
     RSTableORMThreadPool,
 )
 from ota_metadata.utils.sqlite3_helper import sort_and_place
@@ -99,11 +100,13 @@ class DeltaGenerator:
 
         # NOTE: we will update the resource table in-place, the
         #       leftover entries in the db will be the to-be-downloaded resources.
-        self._rstable_orm = RSTableORMThreadPool(
+        self._rst_orm_pool = RSTableORMThreadPool(
             con_factory=partial(ota_metadata.connect_rstable, read_only=False),
             number_of_cons=self.RS_TABLE_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
+        # For later fixing up the modified database.
+        self._rs_orm = ResourceTableORM(ota_metadata.connect_rstable(read_only=False))
 
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
@@ -132,7 +135,7 @@ class DeltaGenerator:
             #   so we don't need to download it from remote.
             _deleted_entries = 0
             try:
-                _deleted_entries = self._rstable_orm.orm_delete_entries(
+                _deleted_entries = self._rst_orm_pool.orm_delete_entries(
                     digest=hash_f.digest()
                 )
             except Exception as e:
@@ -259,15 +262,18 @@ class DeltaGenerator:
                         delta_src_fpath,
                         thread_local=thread_local,
                     ).add_done_callback(self._task_done_callback)
+        finally:
+            pool.shutdown(wait=True)
+            self._ft_regular_orm._con.close()
+            self._rst_orm_pool.orm_pool_shutdown()
 
-            # NOTE: fill up the holes created by DELETE, and make
-            #   the rowid continues again.
+        # NOTE: fill up the holes created by DELETE, and make
+        #   the rowid continues again.
+        try:
             sort_and_place(
-                self._rstable_orm,
+                self._rs_orm,
                 ResourceTable.table_name,
                 order_by_col="rowid",
             )
         finally:
-            pool.shutdown(wait=True)
-            self._ft_regular_orm._con.close()
-            self._rstable_orm.orm_pool_shutdown()
+            self._rs_orm.orm_con.close()
