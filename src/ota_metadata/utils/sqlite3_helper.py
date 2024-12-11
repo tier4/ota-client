@@ -39,15 +39,12 @@ def iter_all(
     )
 
     for _batch_cnt in count():
-        _batch_empty = True
-
-        for _entry in self.orm_execute(
+        _batch = self.orm_execute(
             _pagination_stmt, params={"not_before": _batch_cnt * batch_size}
-        ):
-            _batch_empty = False
-            yield _entry
-        if _batch_empty:
+        )
+        if not _batch:
             return
+        yield from _batch
 
 
 def iter_all_with_shuffle(
@@ -65,16 +62,11 @@ def iter_all_with_shuffle(
     )
 
     for _batch_cnt in count():
-        _batch, _batch_empty = [], True
-
-        for _entry in self.orm_execute(
+        _batch = self.orm_execute(
             _pagination_stmt, params={"not_before": _batch_cnt * batch_size}
-        ):
-            _batch_empty = False
-            _batch.append(_entry)
-        if _batch_empty:
+        )
+        if not _batch:
             return
-
         random.shuffle(_batch)
         yield from _batch
 
