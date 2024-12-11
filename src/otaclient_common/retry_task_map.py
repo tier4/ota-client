@@ -236,7 +236,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         partial(self._task_done_cb, item=item, func=func)
                     )
             except Exception as e:
-                logger.error(f"tasks dispatcher failed: {e!r}, abort")
+                logger.exception(f"tasks dispatcher failed: {e!r}, abort")
                 self.shutdown(wait=False)
                 return
 
@@ -321,6 +321,9 @@ if TYPE_CHECKING:
             return self
 
         def __exit__(self, exc_type, exc_val, exc_tb):
+            raise NotImplementedError
+
+        def shutdown(self, wait: bool = True) -> None:
             raise NotImplementedError
 
 else:

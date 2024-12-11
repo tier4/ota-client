@@ -23,7 +23,7 @@ from functools import partial
 from pathlib import Path
 
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper, replace_root
+from otaclient_common import cmdhelper
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -45,16 +45,6 @@ class SlotMountHelper:  # pragma: no cover
 
         self.standby_slot_mount_point = Path(standby_slot_mount_point)
         self.active_slot_mount_point = Path(active_slot_mount_point)
-
-        # standby slot /boot dir
-        # NOTE(20230907): this will always be <standby_slot_mp>/boot,
-        #                 in the future this attribute will not be used by
-        #                 standby slot creater.
-        self.standby_boot_dir = Path(
-            replace_root(
-                cfg.BOOT_DPATH, cfg.CANONICAL_ROOT, self.standby_slot_mount_point
-            )
-        )
 
         # ensure the each mount points being umounted at termination
         atexit.register(
