@@ -100,7 +100,7 @@ def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
         conn.executescript(
             "\n".join(
                 [
-                    "BEGIN",
+                    "BEGIN;",
                     _table_create_stmt,
                     _dump_sorted,
                     f"DROP TABLE {ORIGINAL_TABLE_NAME};",
