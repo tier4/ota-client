@@ -18,7 +18,9 @@ from __future__ import annotations
 import errno
 import json
 import logging
-import os
+import multiprocessing.queues as mp_queue
+import signal
+import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -27,8 +29,8 @@ from hashlib import sha256
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from queue import Queue
-from typing import Any, Iterator, Optional, Type
+from queue import Empty, Queue
+from typing import Any, Callable, Iterator, NoReturn, Optional, Type
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
@@ -43,6 +45,7 @@ from ota_metadata.utils.cert_store import (
 )
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
+    OTAClientStatusCollector,
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
     SetOTAClientMetaReport,
@@ -50,15 +53,25 @@ from otaclient._status_monitor import (
     StatusReport,
     UpdateProgressReport,
 )
-from otaclient._types import FailureType, OTAStatus, UpdatePhase, UpdateRequestV2
+from otaclient._types import (
+    FailureType,
+    IPCRequest,
+    IPCResEnum,
+    IPCResponse,
+    MultipleECUStatusFlags,
+    OTAStatus,
+    RollbackRequestV2,
+    UpdatePhase,
+    UpdateRequestV2,
+)
+from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
-from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
     get_standby_slot_creator,
 )
 from otaclient.create_standby.common import DeltaBundle
-from otaclient.utils import get_traceback, wait_and_log
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -79,32 +92,12 @@ WAIT_BEFORE_REBOOT = 6
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
+OP_CHECK_INTERVAL = 1  # second
+HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
+WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
+
 
 class OTAClientError(Exception): ...
-
-
-class OTAClientControlFlags:
-    """
-    When self ECU's otaproxy is enabled, all the child ECUs of this ECU
-        and self ECU OTA update will depend on its otaproxy, we need to
-        control when otaclient can start its downloading/reboot with considering
-        whether local otaproxy is started/required.
-    """
-
-    def __init__(self) -> None:
-        self._can_reboot = threading.Event()
-
-    def is_can_reboot_flag_set(self) -> bool:
-        return self._can_reboot.is_set()
-
-    def wait_can_reboot_flag(self):
-        self._can_reboot.wait()
-
-    def set_can_reboot_flag(self):
-        self._can_reboot.set()
-
-    def clear_can_reboot_flag(self):
-        self._can_reboot.clear()
 
 
 def _download_exception_handler(_fut: Future[Any]) -> bool:
@@ -172,13 +165,33 @@ class _OTAUpdater:
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: Type[StandbySlotCreatorProtocol],
-        control_flags: OTAClientControlFlags,
+        ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
+        self.update_version = version
+        self.update_start_timestamp = int(time.time())
         self.ca_chains_store = ca_chains_store
         self.session_id = session_id
         self._status_report_queue = status_report_queue
+
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.INITIALIZING,
+                    trigger_timestamp=self.update_start_timestamp,
+                ),
+                session_id=session_id,
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    update_firmware_version=version,
+                ),
+                session_id=session_id,
+            )
+        )
 
         # ------ define OTA temp paths ------ #
         self._ota_tmp_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
@@ -202,46 +215,12 @@ class _OTAUpdater:
 
         # ------ parse upper proxy ------ #
         logger.debug("configure proxy setting...")
-        proxies = {}
-        if upper_otaproxy:
-            logger.info(
-                f"use {upper_otaproxy} for local OTA update, "
-                f"wait for otaproxy@{upper_otaproxy} online..."
-            )
-            ensure_otaproxy_start(
-                upper_otaproxy,
-                probing_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            )
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies["http"] = upper_otaproxy
+        self._upper_proxy = upper_otaproxy
 
         # ------ init updater implementation ------ #
-        self._control_flags = control_flags
+        self.ecu_status_flags = ecu_status_flags
         self._boot_controller = boot_controller
         self._create_standby_cls = create_standby_cls
-
-        # ------ init update status ------ #
-        self.update_version = version
-        self.update_start_timestamp = int(time.time())
-
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.INITIALIZING,
-                    trigger_timestamp=self.update_start_timestamp,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    update_firmware_version=version,
-                ),
-                session_id=self.session_id,
-            )
-        )
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -254,7 +233,9 @@ class _OTAUpdater:
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
             cookies=cookies,
-            proxies=proxies,
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
         self._downloader_mapper: dict[int, Downloader] = {}
 
@@ -427,6 +408,18 @@ class _OTAUpdater:
         """Implementation of OTA updating."""
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
 
+        if _upper_proxy := self._upper_proxy:
+            logger.info(
+                f"use {_upper_proxy} for local OTA update, "
+                f"wait for otaproxy@{_upper_proxy} online..."
+            )
+
+            # NOTE: will raise a built-in ConnnectionError at timeout
+            ensure_otaproxy_start(
+                _upper_proxy,
+                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
+            )
+
         # ------ init, processing metadata ------ #
         logger.debug("process metadata.jwt...")
         self._status_report_queue.put_nowait(
@@ -536,8 +529,10 @@ class _OTAUpdater:
         try:
             self._download_files(otameta, delta_bundle.get_download_list())
         except TasksEnsureFailed:
-            # NOTE: the only cause of a TaskEnsureFailed being raised is the download_watchdog timeout.
-            _err_msg = f"download stalls longer than {cfg.DOWNLOAD_INACTIVE_TIMEOUT}, abort OTA"
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from None
         finally:
@@ -583,11 +578,16 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-        wait_and_log(
-            flag=self._control_flags._can_reboot,
-            message="permit reboot flag",
-            log_func=logger.info,
-        )
+
+        # NOTE: we don't need to wait for sub ECUs if sub ECUs don't
+        #       depend on otaproxy on this ECU.
+        if proxy_info.enable_local_ota_proxy:
+            wait_and_log(
+                check_flag=self.ecu_status_flags.any_requires_network.is_set,
+                check_for=False,
+                message="permit reboot flag",
+                log_func=logger.info,
+            )
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
@@ -628,25 +628,17 @@ class _OTARollbacker:
 
 
 class OTAClient:
-    """
-    Init params:
-        boot_controller: boot control instance
-        create_standby_cls: type of create standby slot mechanism to use
-        my_ecu_id: ECU id of the device running this otaclient instance
-        control_flags: flags used by otaclient and ota_service stub for synchronization
-        proxy: upper otaproxy URL
-    """
 
     def __init__(
         self,
         *,
-        control_flags: OTAClientControlFlags,
+        ecu_status_flags: MultipleECUStatusFlags,
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
-        self.control_flags = control_flags
+        self.ecu_status_flags = ecu_status_flags
 
         self._status_report_queue = status_report_queue
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -709,17 +701,6 @@ class OTAClient:
         self.started = True
         logger.info("otaclient started")
 
-    def _gen_session_id(self, update_version: str = "") -> str:
-        """Generate a unique session_id for the new OTA session.
-
-        token schema:
-            <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
-        """
-        _time_factor = str(int(time.time()))
-        _random_factor = os.urandom(4).hex()
-
-        return f"{update_version}-{_time_factor}-{_random_factor}"
-
     def _on_failure(
         self,
         exc: Exception,
@@ -762,10 +743,8 @@ class OTAClient:
         NOTE that update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if self.is_busy:
-            return
-
-        new_session_id = self._gen_session_id(request.version)
+        self._live_ota_status = OTAStatus.UPDATING
+        new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -784,7 +763,6 @@ class OTAClient:
                     module=__name__,
                 )
 
-            self._live_ota_status = OTAStatus.UPDATING
             _OTAUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
@@ -792,7 +770,7 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
-                control_flags=self.control_flags,
+                ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
@@ -806,11 +784,9 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
-    def rollback(self) -> None:
-        if self.is_busy:
-            return
-
-        new_session_id = self._gen_session_id("___rollback")
+    def rollback(self, request: RollbackRequestV2) -> None:
+        self._live_ota_status = OTAStatus.ROLLBACKING
+        new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -819,17 +795,133 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA rollback session: {new_session_id=}")
 
+        logger.info(f"start new OTA rollback session: {new_session_id=}")
         try:
             logger.info("[rollback] entering...")
             self._live_ota_status = OTAStatus.ROLLBACKING
             _OTARollbacker(boot_controller=self.boot_controller).execute()
         except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
+
+    def main(
+        self,
+        *,
+        req_queue: mp_queue.Queue[IPCRequest],
+        resp_queue: mp_queue.Queue[IPCResponse],
+    ) -> NoReturn:
+        """Main loop of ota_core process."""
+        _allow_request_after = 0
+        while True:
+            _now = int(time.time())
+            try:
+                request = req_queue.get(timeout=OP_CHECK_INTERVAL)
+            except Empty:
+                continue
+
+            if _now < _allow_request_after or self.is_busy:
+                _err_msg = (
+                    f"otaclient is busy at {self._live_ota_status} or "
+                    f"request too quickly({_allow_request_after=}), "
+                    f"reject {request}"
+                )
+                logger.warning(_err_msg)
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_BUSY,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
+
+            elif isinstance(request, UpdateRequestV2):
+
+                _update_thread = threading.Thread(
+                    target=self.update,
+                    args=[request],
+                    daemon=True,
+                    name="ota_update_executor",
+                )
+                _update_thread.start()
+
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+
+            elif (
+                isinstance(request, RollbackRequestV2)
+                and self._live_ota_status == OTAStatus.SUCCESS
+            ):
+                _rollback_thread = threading.Thread(
+                    target=self.rollback,
+                    args=[request],
+                    daemon=True,
+                    name="ota_rollback_executor",
+                )
+                _rollback_thread.start()
+
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+            else:
+
+                _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
+                logger.error(_err_msg)
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
+
+
+def _sign_handler(signal_value, frame) -> NoReturn:
+    print(f"ota_core process receives {signal_value=}, exits ...")
+    sys.exit(1)
+
+
+def ota_core_process(
+    *,
+    shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
+    ecu_status_flags: MultipleECUStatusFlags,
+    op_queue: mp_queue.Queue[IPCRequest],
+    resp_queue: mp_queue.Queue[IPCResponse],
+    max_traceback_size: int,  # in bytes
+):
+    from otaclient._logging import configure_logging
+    from otaclient.configs.cfg import proxy_info
+    from otaclient.ota_core import OTAClient
+
+    signal.signal(signal.SIGTERM, _sign_handler)
+    configure_logging()
+
+    shm_writer = shm_writer_factory()
+
+    _local_status_report_queue = Queue()
+    _status_monitor = OTAClientStatusCollector(
+        msg_queue=_local_status_report_queue,
+        shm_status=shm_writer,
+        max_traceback_size=max_traceback_size,
+    )
+    _status_monitor.start()
+
+    _ota_core = OTAClient(
+        ecu_status_flags=ecu_status_flags,
+        proxy=proxy_info.get_proxy_for_local_ota(),
+        status_report_queue=_local_status_report_queue,
+    )
+    _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

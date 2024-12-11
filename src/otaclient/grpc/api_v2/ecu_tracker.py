@@ -17,16 +17,34 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
+from collections import defaultdict
 
-from otaclient._status_monitor import OTAClientStatusCollector
+from otaclient._utils import SharedOTAClientStatusReader
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.local_ecu_check")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.local_ecu_check",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
+
+# actively polling ECUs status until we get the first valid response
+#   when otaclient is just starting.
+_ACTIVE_POLL_SUB_ON_STARTUP = 1
+_ACTIVE_POLL_LOCAL_ON_STARTUP = 0.1
 
 
 class ECUTracker:
@@ -34,22 +52,20 @@ class ECUTracker:
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
-        *,
-        local_status_collector: OTAClientStatusCollector,
+        /,
+        local_ecu_status_reader: SharedOTAClientStatusReader,
     ) -> None:
-        self._local_status_collector = local_status_collector
+        self._local_ecu_status_reader = local_ecu_status_reader
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
+        self._startup_matrix: defaultdict[str, bool] = defaultdict(lambda: True)
 
-        # launch ECU trackers for all defined ECUs
-        # NOTE: _debug_ecu_status_polling_shutdown_event is for test only,
-        #       allow us to stop background task without changing codes.
-        #       In normal running this event will never be set.
-        self._debug_ecu_status_polling_shutdown_event = asyncio.Event()
+        atexit.register(local_ecu_status_reader.atexit)
 
     async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
         """Task entry for loop polling one subECU's status."""
-        while not self._debug_ecu_status_polling_shutdown_event.is_set():
+        this_ecu_id = ecu_contact.ecu_id
+        while True:
             try:
                 _ecu_resp = await OTAClientCall.status_call(
                     ecu_contact.ecu_id,
@@ -58,20 +74,40 @@ class ECUTracker:
                     timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=api_types.StatusRequest(),
                 )
+                if self._startup_matrix[this_ecu_id] and (
+                    _ecu_resp.find_ecu_v2(this_ecu_id)
+                    or _ecu_resp.find_ecu(this_ecu_id)
+                ):
+                    self._startup_matrix[this_ecu_id] = False
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
             except ECUNoResponse as e:
                 logger.debug(
                     f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
                 )
-            await self._polling_waiter()
+
+            if self._startup_matrix[this_ecu_id]:
+                await asyncio.sleep(_ACTIVE_POLL_SUB_ON_STARTUP)
+            else:
+                await self._polling_waiter()
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
-        while not self._debug_ecu_status_polling_shutdown_event.is_set():
-            status_report = self._local_status_collector.otaclient_status
-            if status_report:
+        my_ecu_id = ecu_info.ecu_id
+        while True:
+            try:
+                status_report = self._local_ecu_status_reader.sync_msg()
+                if status_report:
+                    self._startup_matrix[my_ecu_id] = False
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
-            await self._polling_waiter()
+            except Exception as e:
+                burst_suppressed_logger.debug(
+                    f"failed to query local ECU's status: {e!r}"
+                )
+
+            if self._startup_matrix[my_ecu_id]:
+                await asyncio.sleep(_ACTIVE_POLL_LOCAL_ON_STARTUP)
+            else:
+                await self._polling_waiter()
 
     def start(self) -> None:
         asyncio.create_task(self._polling_local_ecu_status())

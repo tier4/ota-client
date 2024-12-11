@@ -23,7 +23,7 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Union, cast
+from typing import Literal, Union, cast
 
 from otaclient._types import (
     FailureType,
@@ -34,17 +34,25 @@ from otaclient._types import (
     UpdateProgress,
     UpdateTiming,
 )
+from otaclient._utils import SharedOTAClientStatusWriter
+from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.shm_push")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.shm_push",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
-_otaclient_shutdown = False
 _status_report_queue: queue.Queue | None = None
 
 
 def _global_shutdown():
-    global _otaclient_shutdown
-    _otaclient_shutdown = True
-
     if _status_report_queue:
         _status_report_queue.put_nowait(TERMINATE_SENTINEL)
 
@@ -120,7 +128,7 @@ class StatusReport:
 #
 def _on_session_finished(
     status_storage: OTAClientStatus, payload: OTAStatusChangeReport
-):
+) -> Literal[True]:
     status_storage.session_id = ""
     status_storage.update_phase = UpdatePhase.INITIALIZING
     status_storage.update_meta = UpdateMeta()
@@ -137,10 +145,12 @@ def _on_session_finished(
         status_storage.failure_reason = ""
         status_storage.failure_traceback = ""
 
+    return True
+
 
 def _on_new_ota_session(
     status_storage: OTAClientStatus, payload: OTAStatusChangeReport
-):
+) -> Literal[True]:
     status_storage.ota_status = payload.new_ota_status
     status_storage.update_phase = UpdatePhase.INITIALIZING
     status_storage.update_meta = UpdateMeta()
@@ -148,6 +158,8 @@ def _on_new_ota_session(
     status_storage.update_timing = UpdateTiming(update_start_timestamp=int(time.time()))
     status_storage.failure_type = FailureType.NO_FAILURE
     status_storage.failure_reason = ""
+
+    return True
 
 
 def _on_update_phase_changed(
@@ -157,7 +169,7 @@ def _on_update_phase_changed(
         logger.warning(
             "attempt to update update_timing when no OTA update session on-going"
         )
-        return
+        return False
 
     phase, trigger_timestamp = payload.new_update_phase, payload.trigger_timestamp
     if phase == UpdatePhase.PROCESSING_POSTUPDATE:
@@ -170,14 +182,17 @@ def _on_update_phase_changed(
         update_timing.update_apply_start_timestamp = trigger_timestamp
 
     status_storage.update_phase = phase
+    return True
 
 
-def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgressReport):
+def _on_update_progress(
+    status_storage: OTAClientStatus, payload: UpdateProgressReport
+) -> bool:
     if (update_progress := status_storage.update_progress) is None:
         logger.warning(
             "attempt to update update_progress when no OTA update session on-going"
         )
-        return
+        return False
 
     op = payload.operation
     if (
@@ -195,6 +210,7 @@ def _on_update_progress(status_storage: OTAClientStatus, payload: UpdateProgress
         update_progress.downloading_errors += payload.errors
     elif op == UpdateProgressReport.Type.APPLY_REMOVE_DELTA:
         update_progress.removed_files_num += payload.processed_file_num
+    return True
 
 
 def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaReport):
@@ -204,7 +220,7 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
         logger.warning(
             "attempt to update update_meta when no OTA update session on-going"
         )
-        return
+        return False
 
     _input = asdict(payload)
     for k, v in _input.items():
@@ -213,31 +229,45 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
             continue
         if v:
             setattr(update_meta, k, v)
+    return True
 
 
 #
 # ------ status monitor implementation ------ #
 #
 
+# A sentinel object to tell the thread stop
 TERMINATE_SENTINEL = cast(StatusReport, object())
+MIN_COLLECT_INTERVAL = 0.5  # seconds
+SHM_PUSH_INTERVAL = 0.5  # seconds
 
 
 class OTAClientStatusCollector:
+    """NOTE: status_monitor will only be started once during whole otaclient lifecycle!"""
 
     def __init__(
         self,
         msg_queue: queue.Queue[StatusReport],
+        shm_status: SharedOTAClientStatusWriter,
         *,
-        min_collect_interval: int = 1,
-        min_push_interval: int = 1,
+        min_collect_interval: float = MIN_COLLECT_INTERVAL,
+        shm_push_interval: float = SHM_PUSH_INTERVAL,
+        max_traceback_size: int,
     ) -> None:
+        self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
-        self.min_push_interval = min_push_interval
+        self.shm_push_interval = shm_push_interval
 
         self._input_queue = msg_queue
-        self._status = None
+        global _status_report_queue
+        _status_report_queue = msg_queue
 
-    def load_report(self, report: StatusReport):
+        self._status = None
+        self._shm_status = shm_status
+
+        atexit.register(shm_status.atexit)
+
+    def load_report(self, report: StatusReport) -> bool:
         if self._status is None:
             self._status = OTAClientStatus()
         status_storage = self._status
@@ -246,37 +276,56 @@ class OTAClientStatusCollector:
         # ------ update otaclient meta ------ #
         if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
+            return True
 
         # ------ on session start/end ------ #
         if isinstance(payload, OTAStatusChangeReport):
+            if (_traceback := payload.failure_traceback) and len(
+                _traceback
+            ) > self.max_traceback_size:
+                payload.failure_traceback = _traceback[-self.max_traceback_size :]
+
             new_ota_status = payload.new_ota_status
             if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
                 status_storage.session_id = report.session_id
                 return _on_new_ota_session(status_storage, payload)
-
             status_storage.session_id = ""  # clear session if we are not in an OTA
             return _on_session_finished(status_storage, payload)
 
         # ------ during OTA session ------ #
         report_session_id = report.session_id
         if report_session_id != status_storage.session_id:
-            logger.warning(f"drop reports from mismatched session: {report}")
-            return  # drop invalid report
+            logger.warning(
+                f"drop reports from mismatched session (expect {status_storage.session_id=}): {report}"
+            )
+            return False
         if isinstance(payload, OTAUpdatePhaseChangeReport):
             return _on_update_phase_changed(status_storage, payload)
         if isinstance(payload, UpdateProgressReport):
             return _on_update_progress(status_storage, payload)
         if isinstance(payload, SetUpdateMetaReport):
             return _on_update_meta(status_storage, payload)
+        return False
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
-        while not _otaclient_shutdown:
+        _next_shm_push = 0
+        while True:
+            _now = time.time()
             try:
                 report = self._input_queue.get_nowait()
                 if report is TERMINATE_SENTINEL:
                     break
-                self.load_report(report)
+
+                # ------ push status on load_report ------ #
+                if self.load_report(report) and self._status and _now > _next_shm_push:
+                    try:
+                        self._shm_status.write_msg(self._status)
+                        _next_shm_push = _now + self.shm_push_interval
+                    except Exception as e:
+                        burst_suppressed_logger.debug(
+                            f"failed to push status to shm: {e!r}"
+                        )
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 

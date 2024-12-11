@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
@@ -124,7 +125,39 @@ class OTAClientStatus:
 
 
 @dataclass
-class UpdateRequestV2:
+class MultipleECUStatusFlags:
+    any_in_update: mp_sync.Event
+    any_requires_network: mp_sync.Event
+    all_success: mp_sync.Event
+
+
+#
+# ------ OTA requests IPC ------ #
+#
+
+
+class IPCResEnum(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT_BUSY = "REJECT_BUSY"
+    """The request has been rejected due to otaclient is busy."""
+    REJECT_OTHER = "REJECT_OTHER"
+    """The request has been rejected for other reason."""
+
+
+@dataclass
+class IPCResponse:
+    res: IPCResEnum
+    session_id: str
+    msg: str = ""
+
+
+@dataclass
+class IPCRequest:
+    session_id: str
+
+
+@dataclass
+class UpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
     version: str
@@ -132,5 +165,6 @@ class UpdateRequestV2:
     cookies_json: str
 
 
-class RollbackRequestV2:
+@dataclass
+class RollbackRequestV2(IPCRequest):
     """Compatbile with OTA API version 2."""

@@ -21,12 +21,10 @@ import os
 import random
 import time
 from queue import Queue
-from typing import Generator
 
 import pytest
 
 from otaclient._status_monitor import (
-    TERMINATE_SENTINEL,
     OTAClientStatusCollector,
     OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
@@ -51,24 +49,11 @@ class TestStatusMonitor:
     DOWNLOAD_NUM = DWONLOAD_SIZE = TOTAL_DOWNLOAD_SIZE = 600
     MULTI_PATHS_FILE = MULTI_PATHS_FILE_SIZE = 100
 
-    @pytest.fixture(autouse=True, scope="class")
-    def msg_queue(self) -> Generator[Queue[StatusReport], None, None]:
-        _queue = Queue()
-        yield _queue
-
-    @pytest.fixture(autouse=True, scope="class")
-    def status_collector(self, msg_queue: Queue[StatusReport]):
-        status_collector = OTAClientStatusCollector(msg_queue=msg_queue)
-        _thread = status_collector.start()
-        try:
-            yield status_collector
-        finally:
-            msg_queue.put_nowait(TERMINATE_SENTINEL)
-            _thread.join()
-
     def test_otaclient_start(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ):
+        status_collector, msg_queue = ota_status_collector
+
         _test_failure_reason = "test_no_failure_reason"
         _test_current_version = "test_current_version"
         msg_queue.put_nowait(
@@ -98,8 +83,10 @@ class TestStatusMonitor:
         assert otaclient_status.failure_reason == _test_failure_reason
 
     def test_start_ota_update(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ):
+        status_collector, msg_queue = ota_status_collector
+
         # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
@@ -139,8 +126,9 @@ class TestStatusMonitor:
         assert update_meta.update_firmware_version == self.UPDATE_VERSION_FOR_TEST
 
     def test_process_metadata(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
         # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
@@ -176,12 +164,16 @@ class TestStatusMonitor:
         assert update_progress.downloaded_bytes == self.METADATA_SIZE
 
     def test_filter_invalid_session_id(
-        self, msg_queue: Queue[StatusReport], caplog: pytest.LogCaptureFixture
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """This test put reports with invalid session_id into the msg_queue.
 
         If the filter is working, all the later test methods will not fail.
         """
+        _, msg_queue = ota_status_collector
+
         _invalid_session_id = "invalid_session_id"
 
         # put an update meta change report
@@ -224,8 +216,9 @@ class TestStatusMonitor:
         assert all(_record.levelno == logging.WARNING for _record in caplog.records)
 
     def test_calculate_delta(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
         _now = int(time.time())
 
         # ------ execution ------ #
@@ -282,8 +275,9 @@ class TestStatusMonitor:
         assert update_meta.total_remove_files_num == 123
 
     def test_download_ota_files(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
         _now = int(time.time())
 
         # ------ execution ------ #
@@ -336,8 +330,10 @@ class TestStatusMonitor:
         )
 
     def test_apply_update(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
+
         _now = int(time.time())
 
         # ------ execution ------ #
@@ -374,8 +370,9 @@ class TestStatusMonitor:
         ) and update_timing.update_apply_start_timestamp == _now
 
     def test_post_update(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
         _now = int(time.time())
         msg_queue.put_nowait(
             StatusReport(
@@ -397,8 +394,10 @@ class TestStatusMonitor:
         ) and update_timing.post_update_start_timestamp == _now
 
     def test_finalizing_update(
-        self, status_collector: OTAClientStatusCollector, msg_queue: Queue[StatusReport]
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, msg_queue = ota_status_collector
+
         _now = int(time.time())
         msg_queue.put_nowait(
             StatusReport(
@@ -417,8 +416,9 @@ class TestStatusMonitor:
         assert otaclient_status.update_phase == UpdatePhase.FINALIZING_UPDATE
 
     def test_confirm_update_progress(
-        self, status_collector: OTAClientStatusCollector
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
+        status_collector, _ = ota_status_collector
         time.sleep(2)  # wait for reports being processed
 
         otaclient_status = status_collector.otaclient_status

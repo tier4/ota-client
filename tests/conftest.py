@@ -262,12 +262,21 @@ def proxy_info_fixture(tmp_path: Path) -> ProxyInfo:
     return parse_proxy_info(_yaml_f)
 
 
+MAX_TRACEBACK_SIZE = 2048
+
+
 @pytest.fixture(scope="class")
-def ota_status_collector() -> (
-    Generator[tuple[OTAClientStatusCollector, Queue[StatusReport]], Any, None]
-):
+def ota_status_collector(
+    class_mocker: pytest_mock.MockerFixture,
+) -> Generator[tuple[OTAClientStatusCollector, Queue[StatusReport]], Any, None]:
+    _shm_mock = class_mocker.MagicMock()
+
     _report_queue: Queue[StatusReport] = Queue()
-    _status_collector = OTAClientStatusCollector(_report_queue)
+    _status_collector = OTAClientStatusCollector(
+        msg_queue=_report_queue,
+        shm_status=_shm_mock,
+        max_traceback_size=MAX_TRACEBACK_SIZE,
+    )
     _collector_thread = _status_collector.start()
 
     try:

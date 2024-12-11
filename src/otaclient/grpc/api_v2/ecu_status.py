@@ -41,18 +41,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from itertools import chain
-from typing import Dict, Iterable, Optional, Set, TypeVar
+from typing import Dict, Iterable, Optional
 
-from otaclient._types import OTAClientStatus
+from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.types import convert_to_apiv2_status
 from otaclient_api.v2 import types as api_types
+from otaclient_common.typing import T
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 # NOTE(20230522):
 #   ECU will be treated as disconnected if we cannot get in touch with it
@@ -83,9 +83,15 @@ class _OrderedSet(Dict[T, None]):
 
 class ECUStatusStorage:
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        ecu_status_flags: MultipleECUStatusFlags,
+    ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
+
+        self.ecu_status_flags = ecu_status_flags
         # ECU status storage
         self.storage_last_updated_timestamp = 0
 
@@ -113,24 +119,21 @@ class ECUStatusStorage:
             ecu_info.get_available_ecu_ids()
         )
 
-        self._all_ecus_status_v2: Dict[str, api_types.StatusResponseEcuV2] = {}
-        self._all_ecus_status_v1: Dict[str, api_types.StatusResponseEcu] = {}
-        self._all_ecus_last_contact_timestamp: Dict[str, int] = {}
+        self._all_ecus_status_v2: dict[str, api_types.StatusResponseEcuV2] = {}
+        self._all_ecus_status_v1: dict[str, api_types.StatusResponseEcu] = {}
+        self._all_ecus_last_contact_timestamp: dict[str, int] = {}
 
         # overall ECU status report
         self._properties_update_lock = asyncio.Lock()
         self.properties_last_update_timestamp = 0
-        self.active_ota_update_present = asyncio.Event()
 
         self.lost_ecus_id = set()
         self.failed_ecus_id = set()
 
         self.in_update_ecus_id = set()
         self.in_update_child_ecus_id = set()
-        self.any_requires_network = False
 
         self.success_ecus_id = set()
-        self.all_success = False
 
         # property update task
         # NOTE: _debug_properties_update_shutdown_event is for test only,
@@ -157,6 +160,7 @@ class ECUStatusStorage:
         NOTE: as special case, lost_ecus set is calculated against all reachable ECUs.
         """
         self.properties_last_update_timestamp = cur_timestamp = int(time.time())
+        ecu_status_flags = self.ecu_status_flags
 
         # check unreachable ECUs
         # NOTE(20230801): this property is calculated against all reachable ECUs,
@@ -192,9 +196,9 @@ class ECUStatusStorage:
                 f"{_new_in_update_ecu}, current updating ECUs: {in_update_ecus_id}"
             )
         if in_update_ecus_id:
-            self.active_ota_update_present.set()
+            ecu_status_flags.any_in_update.set()
         else:
-            self.active_ota_update_present.clear()
+            ecu_status_flags.any_in_update.clear()
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
@@ -213,7 +217,7 @@ class ECUStatusStorage:
             )
 
         # check if any ECUs in the tracked tracked active ECUs set require network
-        self.any_requires_network = any(
+        if any(
             (
                 status.requires_network
                 for status in chain(
@@ -222,10 +226,15 @@ class ECUStatusStorage:
                 if status.ecu_id in self._tracked_active_ecus
                 and status.ecu_id not in lost_ecus
             )
-        )
+        ):
+            ecu_status_flags.any_requires_network.set()
+        else:
+            ecu_status_flags.any_requires_network.clear()
 
         # check if all tracked active_ota_ecus are in SUCCESS ota_status
-        _old_all_success, _old_success_ecus_id = self.all_success, self.success_ecus_id
+        _old_all_success = ecu_status_flags.all_success.is_set()
+        _old_success_ecus_id = self.success_ecus_id
+
         self.success_ecus_id = {
             status.ecu_id
             for status in chain(
@@ -236,17 +245,15 @@ class ECUStatusStorage:
             and status.ecu_id not in lost_ecus
         }
         # NOTE: all_success doesn't count the lost ECUs
-        self.all_success = len(self.success_ecus_id) == len(self._tracked_active_ecus)
+        if len(self.success_ecus_id) == len(self._tracked_active_ecus):
+            ecu_status_flags.all_success.set()
+        else:
+            ecu_status_flags.all_success.clear()
+
         if _new_success_ecu := self.success_ecus_id.difference(_old_success_ecus_id):
             logger.info(f"new succeeded ECU(s) detected: {_new_success_ecu}")
-            if not _old_all_success and self.all_success:
+            if ecu_status_flags.all_success.is_set() and not _old_all_success:
                 logger.info("all ECUs in the cluster are in SUCCESS ota_status")
-
-        logger.debug(
-            "overall ECU status reporrt updated:"
-            f"{self.lost_ecus_id=}, {self.in_update_ecus_id=},{self.any_requires_network=},"
-            f"{self.failed_ecus_id=}, {self.success_ecus_id=}, {self.all_success=}"
-        )
 
     async def _loop_updating_properties(self):
         """ECU status storage's self generating overall ECU status report task.
@@ -311,7 +318,7 @@ class ECUStatusStorage:
             self._all_ecus_status_v2[ecu_id] = convert_to_apiv2_status(local_status)
             self._all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
 
-    async def on_ecus_accept_update_request(self, ecus_accept_update: Set[str]):
+    async def on_ecus_accept_update_request(self, ecus_accept_update: set[str]):
         """Update overall ECU status report directly on ECU(s) accept OTA update request.
 
         for the ECUs that accepts OTA update request, we:
@@ -325,6 +332,7 @@ class ECUStatusStorage:
         their ota_status to UPDATING on-time due to status polling interval mismatch),
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
+        ecu_status_flags = self.ecu_status_flags
         async with self._properties_update_lock:
             self._tracked_active_ecus = _OrderedSet(ecus_accept_update)
 
@@ -334,12 +342,11 @@ class ECUStatusStorage:
 
             self.in_update_ecus_id.update(ecus_accept_update)
             self.in_update_child_ecus_id = self.in_update_ecus_id - {self.my_ecu_id}
-
-            self.any_requires_network = True
-            self.all_success = False
             self.success_ecus_id -= ecus_accept_update
 
-            self.active_ota_update_present.set()
+            ecu_status_flags.all_success.clear()
+            ecu_status_flags.any_requires_network.set()
+            ecu_status_flags.any_in_update.set()
 
     def get_polling_interval(self) -> int:
         """Return <ACTIVE_POLLING_INTERVAL> if there is active OTA update,
@@ -348,9 +355,10 @@ class ECUStatusStorage:
         NOTE: use get_polling_waiter if want to wait, only call this method
             if one only wants to get the polling interval value.
         """
+        ecu_status_flags = self.ecu_status_flags
         return (
             ACTIVE_POLLING_INTERVAL
-            if self.active_ota_update_present.is_set()
+            if ecu_status_flags.any_in_update.is_set()
             else IDLE_POLLING_INTERVAL
         )
 
@@ -364,19 +372,20 @@ class ECUStatusStorage:
             or self.active_ota_update_present is set, return when one of the
             condition is met.
         """
+        # waiter closure will slice the waiting time by <_inner_wait_interval>,
+        #   add wait each slice one by one while checking the ecu_status_flags.
+        _inner_wait_interval = 1  # second
 
         async def _waiter():
-            if self.active_ota_update_present.is_set():
+            ecu_status_flags = self.ecu_status_flags
+            if ecu_status_flags.any_in_update.is_set():
                 await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
                 return
 
-            try:
-                await asyncio.wait_for(
-                    self.active_ota_update_present.wait(),
-                    timeout=IDLE_POLLING_INTERVAL,
-                )
-            except asyncio.TimeoutError:
-                return
+            for _ in range(math.ceil(IDLE_POLLING_INTERVAL / _inner_wait_interval)):
+                if ecu_status_flags.any_in_update.is_set():
+                    return
+                await asyncio.sleep(_inner_wait_interval)
 
         return _waiter
 
