@@ -65,7 +65,7 @@ class FileTableBase(BaseModel):
         TypeAffinityRepr(bytes),
     ] = None
     """msgpacked extended attrs for the entry.
-    
+
     It contains a dict of xattr names and xattr values.
     """
 
@@ -75,7 +75,7 @@ class FileTableBase(BaseModel):
         SkipValidation,
     ] = None
     """The contents of the file. Currently only used by symlink.
-    
+
     When is symlink, <contents> is the symlink target.
     """
 

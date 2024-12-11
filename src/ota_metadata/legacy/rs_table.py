@@ -65,7 +65,7 @@ class ResourceTable(TableSpec):
         SkipValidation,
     ] = None
     """The compression algorthim used to compressed the resource.
-    
+
     NOTE that this field should be None if <contents> is not None.
     """
 
