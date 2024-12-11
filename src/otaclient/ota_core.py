@@ -532,16 +532,14 @@ class _OTAUpdater:
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
         try:
-            with TemporaryDirectory(prefix="ota_delta_cal") as _delta_cal_workdir:
-                delta_calculator = DeltaGenerator(
-                    ota_metadata=self._ota_metadata,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                    work_dir=Path(_delta_cal_workdir),
-                    copy_dst=self._resource_dir_on_standby,
-                    status_report_queue=self._status_report_queue,
-                    session_id=self.session_id,
-                )
-                delta_calculator.calculate_delta()
+            delta_calculator = DeltaGenerator(
+                ota_metadata=self._ota_metadata,
+                delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                copy_dst=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            )
+            delta_calculator.calculate_delta()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.error(_err_msg)

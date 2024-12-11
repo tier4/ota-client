@@ -77,7 +77,6 @@ class DeltaGenerator:
         *,
         ota_metadata: OTAMetadata,
         delta_src: Path,
-        work_dir: Path,
         copy_dst: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -87,7 +86,6 @@ class DeltaGenerator:
         self.session_id = session_id
 
         self._delta_src_mount_point = delta_src
-        self._work_dir = work_dir
         self._copy_dst = copy_dst
 
         # NOTE: file_system look_up is using single thread
@@ -113,13 +111,7 @@ class DeltaGenerator:
         )
 
     def _process_file(self, fpath: Path, *, thread_local) -> None:
-        _src_fstat = fpath.stat()
-        # NOTE(20241206): if the file size is smaller than 1GiB,
-        #   we use active_slot to store tmp file to reduce cross-partition
-        #   writing.
         tmp_f = self._copy_dst / create_tmp_fname()
-        if _src_fstat.st_size <= MAX_SIZE_FOR_COPYING_IN_ACTIVE_SLOT:
-            tmp_f = self._work_dir / create_tmp_fname()
 
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
