@@ -42,13 +42,6 @@ logger = logging.getLogger(__name__)
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
-# TODO: NOTE: (20241206) be very careful and ensure that each boot controller implementation
-#   do the logic of copying required files from /boot folder to actual boot partition!
-# 1. grub: need to implement this logic.
-# 2. jetson-cboot: wait for investigation.
-# 3. jetson-uefi: wait for investigation.
-# 4. rpi_boot: wait for investigation.
-
 
 class RebuildMode:
 
@@ -69,10 +62,13 @@ class RebuildMode:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-        _fs_table_conn = ota_metadata.connect_fstable(read_only=True)
         # NOTE: at this point the regular_files file table should have been sorted by digest
-        self._ft_regulars_orm = FileTableRegularFilesORM(_fs_table_conn)
-        self._ft_non_regulars_orm = FileTableNonRegularFilesORM(_fs_table_conn)
+        self._ft_regulars_orm = FileTableRegularFilesORM(
+            ota_metadata.connect_fstable(read_only=True)
+        )
+        self._ft_non_regulars_orm = FileTableNonRegularFilesORM(
+            ota_metadata.connect_fstable(read_only=True)
+        )
 
     def _iter_regular_file_entries(
         self, *, batch_size: int
