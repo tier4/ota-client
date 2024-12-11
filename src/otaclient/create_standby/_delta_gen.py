@@ -135,9 +135,8 @@ class DeltaGenerator:
             #   so we don't need to download it from remote.
             _deleted_entries = 0
             try:
-                _deleted_entries = self._rst_orm_pool.orm_delete_entries(
-                    digest=hash_f.digest()
-                )
+                _fut = self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest())
+                _deleted_entries = _fut.result()
             except Exception as e:
                 logger.warning(f"sql execution failed: {e!r}")
 
