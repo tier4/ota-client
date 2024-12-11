@@ -27,7 +27,10 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from ota_metadata.file_table._orm import FileTableRegularFilesORM
+from ota_metadata.file_table._orm import (
+    FileTableNonRegularFilesORM,
+    FileTableRegularFilesORM,
+)
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import (
     RSTableORMThreadPool,
@@ -88,6 +91,10 @@ class DeltaGenerator:
         self._ft_regular_orm = FileTableRegularFilesORM(
             ota_metadata.connect_fstable(read_only=True)
         )
+        self._ft_non_regular_orm = FileTableNonRegularFilesORM(
+            ota_metadata.connect_fstable(read_only=True)
+        )
+
         # NOTE: we will update the resource table in-place, the
         #       leftover entries in the db will be the to-be-downloaded resources.
         self._rstable_orm = RSTableORMThreadPool(
@@ -171,7 +178,7 @@ class DeltaGenerator:
         return dir_depth_exceeded or (
             _dpath != CANONICAL_ROOT
             and not dir_should_fully_scan
-            and not self._ft_regular_orm.orm_select_entry(path=_dpath)
+            and not self._ft_non_regular_orm.orm_select_entry(path=_dpath)
         )
 
     # API

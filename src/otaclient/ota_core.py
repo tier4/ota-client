@@ -530,6 +530,7 @@ class _OTAUpdater:
         )
 
         # ------ in-update: calculate delta ------ #
+        logger.info("start to calculate delta ...")
         try:
             with TemporaryDirectory(prefix="ota_delta_cal") as _delta_cal_workdir:
                 delta_calculator = DeltaGenerator(
