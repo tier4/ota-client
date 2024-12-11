@@ -236,7 +236,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         partial(self._task_done_cb, item=item, func=func)
                     )
             except Exception as e:
-                logger.error(f"tasks dispatcher failed: {e!r}, abort")
+                logger.exception(f"tasks dispatcher failed: {e!r}, abort")
                 self.shutdown(wait=False)
                 return
 
