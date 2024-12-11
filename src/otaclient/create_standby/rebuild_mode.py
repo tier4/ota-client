@@ -252,5 +252,9 @@ class RebuildMode:
     # API
 
     def rebuild_standby(self) -> None:
-        self._process_non_regular_files()
-        self._process_regular_files()
+        try:
+            self._process_non_regular_files()
+            self._process_regular_files()
+        finally:
+            self._ft_non_regulars_orm.orm_con.close()
+            self._ft_regulars_orm.orm_con.close()
