@@ -413,6 +413,8 @@ class _OTAUpdater:
                 f"use {_upper_proxy} for local OTA update, "
                 f"wait for otaproxy@{_upper_proxy} online..."
             )
+
+            # NOTE: will raise a built-in ConnnectionError at timeout
             ensure_otaproxy_start(
                 _upper_proxy,
                 probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,

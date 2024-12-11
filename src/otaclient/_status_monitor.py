@@ -236,13 +236,14 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
 # ------ status monitor implementation ------ #
 #
 
+# A sentinel object to tell the thread stop
 TERMINATE_SENTINEL = cast(StatusReport, object())
-MIN_COLLECT_INTERVAL = 0.5
-SHM_PUSH_INTERVAL = 0.5
+MIN_COLLECT_INTERVAL = 0.5  # seconds
+SHM_PUSH_INTERVAL = 0.5  # seconds
 
 
 class OTAClientStatusCollector:
-    """NOTE: status_monitor should only be started once during whole otaclient lifecycle!"""
+    """NOTE: status_monitor will only be started once during whole otaclient lifecycle!"""
 
     def __init__(
         self,

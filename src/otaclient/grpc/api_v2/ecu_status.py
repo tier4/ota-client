@@ -372,7 +372,9 @@ class ECUStatusStorage:
             or self.active_ota_update_present is set, return when one of the
             condition is met.
         """
-        _inner_wait_interval = 1
+        # waiter closure will slice the waiting time by <_inner_wait_interval>,
+        #   add wait each slice one by one while checking the ecu_status_flags.
+        _inner_wait_interval = 1  # second
 
         async def _waiter():
             ecu_status_flags = self.ecu_status_flags
