@@ -27,7 +27,7 @@ from typing_extensions import Annotated
 
 from otaclient_common.typing import StrOrPath
 
-from ._types import InodeTable, Xattr
+from ._types import InodeTableType, XattrType
 
 CANONICAL_ROOT = "/"
 
@@ -45,7 +45,7 @@ class FileTableBase(BaseModel):
     ]
 
     inode: Annotated[
-        InodeTable,
+        InodeTableType,
         TypeAffinityRepr(bytes),
         ConstrainRepr("NOT NULL"),
     ]
@@ -61,7 +61,7 @@ class FileTableBase(BaseModel):
     """
 
     xattrs: Annotated[
-        Optional[Xattr],
+        Optional[XattrType],
         TypeAffinityRepr(bytes),
     ] = None
     """msgpacked extended attrs for the entry.
