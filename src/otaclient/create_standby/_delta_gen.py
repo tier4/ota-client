@@ -132,21 +132,21 @@ class DeltaGenerator:
             except Exception as e:
                 logger.warning(f"sql execution failed: {e!r}")
 
+            # This resource is prepared by this time's operation
             if isinstance(_deleted_entries, int) and _deleted_entries >= 1:
                 shutil.move(str(tmp_f), dst_f)
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                            processed_file_size=fpath.stat().st_size,
+                            processed_file_num=1,
+                        ),
+                        session_id=self.session_id,
+                    )
+                )
         finally:
             tmp_f.unlink(missing_ok=True)
-
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                    processed_file_size=fpath.stat().st_size,
-                    processed_file_num=1,
-                ),
-                session_id=self.session_id,
-            )
-        )
 
     @staticmethod
     def _thread_worker_initializer(thread_local):
