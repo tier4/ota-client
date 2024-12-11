@@ -283,8 +283,9 @@ class _OTAUpdater:
         Returns:
             Retry counts, downloaded files size and traffic on wire.
         """
-        _res = self._download_file(entry)
-        condition.notify()  # notify the metadata generator to continue
+        with condition:
+            _res = self._download_file(entry)
+            condition.notify()  # notify the metadata generator the file is downloaded.
         return _res
 
     def _downloader_workder_initializer(self) -> None:

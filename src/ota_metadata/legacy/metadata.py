@@ -179,11 +179,12 @@ class OTAMetadata:
         try:
             # ------ step 1: download metadata.jwt ------ #
             _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
-                dst=_metadata_jwt_fpath,
-            )
-            condition.wait()  # wait for download finished
+            with condition:
+                yield DownloadInfo(
+                    url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
+                    dst=_metadata_jwt_fpath,
+                )
+                condition.wait()  # wait for download finished
             if failed_flag.is_set():
                 return  # let the upper caller handles the failure
 
@@ -200,13 +201,14 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
 
             _cert_fpath = self._download_folder / cert_fname
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, cert_fname),
-                dst=_cert_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=cert_hash,
-            )
-            condition.wait()  # wait for download finished
+            with condition:
+                yield DownloadInfo(
+                    url=urljoin_ensure_base(self._base_url, cert_fname),
+                    dst=_cert_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=cert_hash,
+                )
+                condition.wait()  # wait for download finished
             if failed_flag.is_set():
                 return  # let the upper caller handles the failure
 
@@ -222,13 +224,14 @@ class OTAMetadata:
                 _fname, _digest = _metafile.file, _metafile.hash
                 _meta_fpath = self._download_folder / _fname
 
-                yield DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, _fname),
-                    dst=_meta_fpath,
-                    digest_alg=self.DIGEST_ALG,
-                    digest=_digest,
-                )
-                condition.wait()  # wait for download finished
+                with condition:
+                    yield DownloadInfo(
+                        url=urljoin_ensure_base(self._base_url, _fname),
+                        dst=_meta_fpath,
+                        digest_alg=self.DIGEST_ALG,
+                        digest=_digest,
+                    )
+                    condition.wait()  # wait for download finished
                 if failed_flag.is_set():
                     return  # let the upper caller handles the failure
 
