@@ -271,32 +271,44 @@ class OTAMetadata:
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
         if read_only:
-            return sqlite3.connect(
+            _conn = sqlite3.connect(
                 f"file:{_db_fpath}?mode=ro",
                 uri=True,
                 check_same_thread=False,
                 timeout=DB_TIMEOUT,
             )
-        return sqlite3.connect(
-            _db_fpath,
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
-        )
+        else:
+            _conn = sqlite3.connect(
+                _db_fpath,
+                check_same_thread=False,
+                timeout=DB_TIMEOUT,
+            )
+
+        enable_mmap(_conn)
+        enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
+        return _conn
 
     def connect_rstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.RSTABLE_DB
         if read_only:
-            return sqlite3.connect(
+            _conn = sqlite3.connect(
                 f"file:{_db_fpath}?mode=ro",
                 uri=True,
                 check_same_thread=False,
                 timeout=DB_TIMEOUT,
             )
-        return sqlite3.connect(
-            _db_fpath,
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
-        )
+        else:
+            _conn = sqlite3.connect(
+                _db_fpath,
+                check_same_thread=False,
+                timeout=DB_TIMEOUT,
+            )
+
+        enable_mmap(_conn)
+        enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
+        return _conn
 
     def save_fstable(self, dst: StrOrPath) -> None:
         shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
