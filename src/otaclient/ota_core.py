@@ -198,6 +198,7 @@ class _OTAUpdater:
         self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
             cfg.OTA_TMP_STORE
         ).relative_to("/")
+        # TODO: FIXME: use another place other than run dir
         self._session_workdir = session_wd = (
             Path(cfg.RUN_DIR) / f"update_session-{session_id}"
         )
@@ -660,9 +661,6 @@ class _OTAUpdater:
         """
         try:
             self._execute_update()
-
-            # cleanup on OTA finished
-            shutil.rmtree(self._session_workdir, ignore_errors=True)
             shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
@@ -672,6 +670,8 @@ class _OTAUpdater:
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
+        finally:
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
 class _OTARollbacker:
