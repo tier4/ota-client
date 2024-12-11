@@ -90,7 +90,7 @@ class RebuildMode:
                 yield cur_digest, cur_digest_group
 
                 cur_digest = _this_digest
-                cur_digest_group = []
+                cur_digest_group = [_entry]
             else:
                 cur_digest_group.append(_entry)
         # remember the last group
