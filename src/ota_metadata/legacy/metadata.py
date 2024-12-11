@@ -372,7 +372,7 @@ class ResourceMeta:
     def _get_download_size(self):
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=ResourceTable.table_name,
-            select_cols=("size",),
+            select_cols=("original_size",),
             function="sum",
         )
         _query = self._rs_orm.orm_con.execute(_sql_stmt)
