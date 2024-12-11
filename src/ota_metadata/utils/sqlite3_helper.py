@@ -30,6 +30,7 @@ def iter_all(
     """Iter all entries with seek method by rowid.
 
     NOTE: the target table must has rowid defined!
+    NOTE: the rowid MUST BE continues without any holes!
     """
     _pagination_stmt = self.orm_table_spec.table_select_stmt(
         select_from=self.orm_table_name,
@@ -55,6 +56,7 @@ def iter_all_with_shuffle(
     """Iter all entries with seek method by rowid, shuffle each batch before yield.
 
     NOTE: the target table must has rowid defined!
+    NOTE: the rowid MUST BE continues without any holes!
     """
     _pagination_stmt = self.orm_table_spec.table_select_stmt(
         select_from=self.orm_table_name,
@@ -75,3 +77,32 @@ def iter_all_with_shuffle(
 
         random.shuffle(_batch)
         yield from _batch
+
+
+def sort_and_place(_orm: ORMBase, table_name: str, *, order_by_col: str) -> None:
+    """Sort the table, and then replace the old table with the sorted one."""
+    ORIGINAL_TABLE_NAME = table_name
+    SORTED_TABLE_NAME = f"{table_name}_sorted"
+    _table_spec = _orm.orm_table_spec
+
+    _table_create_stmt = _table_spec.table_create_stmt(SORTED_TABLE_NAME)
+    _dump_sorted = (
+        f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
+        f"{ORIGINAL_TABLE_NAME} ORDER BY {order_by_col};"
+    )
+
+    conn = _orm.orm_con
+    with conn as conn:
+        conn.executescript(
+            "\n".join(
+                [
+                    "BEGIN;",
+                    _table_create_stmt,
+                    _dump_sorted,
+                    f"DROP TABLE {ORIGINAL_TABLE_NAME};",
+                    f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};",
+                ]
+            )
+        )
+    with conn as conn:
+        conn.execute("VACUUM;")

@@ -61,6 +61,7 @@ from ota_metadata.file_table import (
 from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.utils.sqlite3_helper import sort_and_place
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.typing import StrOrPath
 
@@ -81,39 +82,6 @@ logger = logging.getLogger(__name__)
 
 # NOTE: enlarge the connection timeout on waiting db lock.
 DB_TIMEOUT = 16  # seconds
-
-
-def _sort_ft_regular_in_place(_orm: FileTableRegularFilesORM) -> None:
-    """Sort the ft_regular table by digest, and then replace the old table
-    with the sorted one.
-
-    This is required for later otaclient applies update to standby slot.
-    """
-    SORTED_TABLE_NAME = "ft_regular_sorted"
-    ORIGINAL_TABLE_NAME = FileTableRegularFiles.table_name
-
-    _table_create_stmt = _orm.orm_table_spec.table_create_stmt(SORTED_TABLE_NAME)
-    _dump_sorted = (
-        f"INSERT INTO {SORTED_TABLE_NAME} SELECT * FROM "
-        f"{ORIGINAL_TABLE_NAME} ORDER BY digest;"
-    )
-
-    conn = _orm.orm_con
-    with conn as conn:
-        conn.executescript(
-            "\n".join(
-                [
-                    "BEGIN;",
-                    _table_create_stmt,
-                    _dump_sorted,
-                    f"DROP TABLE {ORIGINAL_TABLE_NAME};",
-                    f"ALTER TABLE {SORTED_TABLE_NAME} RENAME TO {ORIGINAL_TABLE_NAME};",
-                ]
-            )
-        )
-
-    with conn as conn:
-        conn.execute("VACUUM;")
 
 
 class OTAMetadata:
@@ -274,7 +242,12 @@ class OTAMetadata:
                     _orm=_ft_regular_orm,
                     _orm_rs=_rs_orm,
                 )
-                _sort_ft_regular_in_place(_ft_regular_orm)
+                # NOTE: also check file_table definition at ota_metadata.file_table._table
+                sort_and_place(
+                    _ft_regular_orm,
+                    FileTableRegularFiles.table_name,
+                    order_by_col="digest",
+                )
             except Exception as e:
                 _err_msg = f"failed to parse CSV metafiles: {e!r}"
                 logger.error(_err_msg)

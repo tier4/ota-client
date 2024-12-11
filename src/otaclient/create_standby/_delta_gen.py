@@ -33,8 +33,10 @@ from ota_metadata.file_table._orm import (
 )
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import (
+    ResourceTable,
     RSTableORMThreadPool,
 )
+from ota_metadata.utils.sqlite3_helper import sort_and_place
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -258,8 +260,13 @@ class DeltaGenerator:
                         thread_local=thread_local,
                     ).add_done_callback(self._task_done_callback)
 
-            # NOTE: fill up the holes created by DELETE.
-            self._rstable_orm.orm_execute("VACUUM;")
+            # NOTE: fill up the holes created by DELETE, and make
+            #   the rowid continues again.
+            sort_and_place(
+                self._rstable_orm,
+                ResourceTable.table_name,
+                order_by_col="rowid",
+            )
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm._con.close()
