@@ -273,6 +273,20 @@ class _OTAUpdater:
             compression_alg=entry.compression_alg,
         )
 
+    def _download_metadata_file(
+        self, entry: DownloadInfo, *, condition: threading.Condition
+    ) -> tuple[int, int, int]:
+        """Download a single OTA image metadata file.
+
+        Just a wrapper around _download_file method.
+
+        Returns:
+            Retry counts, downloaded files size and traffic on wire.
+        """
+        _res = self._download_file(entry)
+        condition.notify()  # notify the metadata generator to continue
+        return _res
+
     def _downloader_workder_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
             self._downloader_pool.get_instance()
@@ -299,7 +313,6 @@ class _OTAUpdater:
             _merged_payload = UpdateProgressReport(
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
-
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(
                     self._download_file,
@@ -399,12 +412,19 @@ class _OTAUpdater:
                 max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
             ),
         )
+        _condition = threading.Condition()
+        _failed_flag = threading.Event()
+
         try:
             for _fut in _mapper.ensure_tasks(
-                self._download_file, self._ota_metadata.download_metafiles()
+                partial(self._download_metadata_file, condition=_condition),
+                self._ota_metadata.download_metafiles(_condition, _failed_flag),
             ):
                 if _exc := _fut.exception():
                     logger.warning(f"failed to download one metafile: {_exc!r}")
+        except Exception:
+            _failed_flag.set()
+            raise
         finally:
             _mapper.shutdown(wait=True)
             self._downloader_pool.release_all_instances()

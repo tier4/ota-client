@@ -43,6 +43,7 @@ import logging
 import os.path
 import shutil
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
@@ -165,7 +166,11 @@ class OTAMetadata:
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
 
-    def download_metafiles(self) -> Generator[DownloadInfo, None, None]:
+    def download_metafiles(
+        self,
+        condition: threading.Condition,
+        failed_flag: threading.Event,
+    ) -> Generator[DownloadInfo, None, None]:
         """Guide the caller to download metadata files by yielding the DownloadInfo instances.
 
         While the caller downloading the metadata files one by one, this method
@@ -178,6 +183,9 @@ class OTAMetadata:
                 url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
                 dst=_metadata_jwt_fpath,
             )
+            condition.wait()  # wait for download finished
+            if failed_flag.is_set():
+                return  # let the upper caller handles the failure
 
             _parser = MetadataJWTParser(
                 _metadata_jwt_fpath.read_text(),
@@ -198,6 +206,9 @@ class OTAMetadata:
                 digest_alg=self.DIGEST_ALG,
                 digest=cert_hash,
             )
+            condition.wait()  # wait for download finished
+            if failed_flag.is_set():
+                return  # let the upper caller handles the failure
 
             cert_bytes = _cert_fpath.read_bytes()
             _parser.verify_metadata_cert(cert_bytes)
@@ -217,6 +228,9 @@ class OTAMetadata:
                     digest_alg=self.DIGEST_ALG,
                     digest=_digest,
                 )
+                condition.wait()  # wait for download finished
+                if failed_flag.is_set():
+                    return  # let the upper caller handles the failure
 
             # ------ step 4: parse OTA image metafiles ------ #
             (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
