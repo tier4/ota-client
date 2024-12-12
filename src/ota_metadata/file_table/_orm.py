@@ -20,7 +20,6 @@ from typing import Callable, ClassVar, Literal, TypeVar
 
 from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase, TableSpec
 
-from ..utils.sqlite3_helper import iter_all
 from ._table import FileTableNonRegularFiles, FileTableRegularFiles
 
 TableSpecType = TypeVar("TableSpecType", bound=TableSpec)
@@ -36,8 +35,6 @@ class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
         super().__init__(con, table_name=self.table_name, schema_name=schema_name)
-
-    iter_all = iter_all
 
 
 class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]):
@@ -71,5 +68,3 @@ class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
         super().__init__(con, table_name=self.table_name, schema_name=schema_name)
-
-    iter_all = iter_all
