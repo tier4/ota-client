@@ -31,13 +31,8 @@ from ota_metadata.file_table._orm import (
     FileTableNonRegularFilesORM,
     FTRegularORMThreadPool,
 )
-from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.legacy.metadata import OTAMetadata
-from ota_metadata.legacy.rs_table import (
-    ResourceTable,
-    ResourceTableORM,
-    RSTableORMThreadPool,
-)
+from ota_metadata.legacy.rs_table import ResourceTableORM, RSTableORMThreadPool
 from ota_metadata.utils.sqlite3_helper import sort_and_replace
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
@@ -94,7 +89,7 @@ class DeltaGenerator:
         )
 
         self._ft_regular_orm = FTRegularORMThreadPool(
-            FileTableRegularFiles.table_name,
+            FTRegularORMThreadPool.table_name,
             con_factory=partial(ota_metadata.connect_fstable, read_only=True),
             number_of_cons=3,
             thread_name_prefix="ft_orm_pool",
@@ -269,7 +264,7 @@ class DeltaGenerator:
         try:
             sort_and_replace(
                 _rs_orm,
-                ResourceTable.table_name,
+                _rs_orm.table_name,
                 order_by_col="rowid",
             )
         finally:
