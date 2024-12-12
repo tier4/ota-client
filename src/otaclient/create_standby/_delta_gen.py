@@ -157,11 +157,11 @@ class DeltaGenerator:
             tmp_f.unlink(missing_ok=True)
 
     @staticmethod
-    def _thread_worker_initializer(thread_local):
+    def _thread_worker_initializer(thread_local) -> None:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
 
-    def _task_done_callback(self, fut: Future[Any]):
+    def _task_done_callback(self, fut: Future[Any]) -> None:
         self._max_pending_tasks.release()  # always release se first
         if exc := fut.exception():
             logger.warning(

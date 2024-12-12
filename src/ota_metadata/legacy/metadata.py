@@ -275,9 +275,9 @@ class OTAMetadata:
                 check_same_thread=False,
                 timeout=DB_TIMEOUT,
             )
+            enable_wal_mode(_conn)
 
         enable_mmap(_conn)
-        enable_wal_mode(_conn)
         enable_tmp_store_at_memory(_conn)
         return _conn
 
@@ -296,9 +296,9 @@ class OTAMetadata:
                 check_same_thread=False,
                 timeout=DB_TIMEOUT,
             )
+            enable_wal_mode(_conn)
 
         enable_mmap(_conn)
-        enable_wal_mode(_conn)
         enable_tmp_store_at_memory(_conn)
         return _conn
 
