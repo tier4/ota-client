@@ -52,6 +52,7 @@ from simple_sqlite3_orm.utils import (
     enable_mmap,
     enable_tmp_store_at_memory,
     enable_wal_mode,
+    sort_and_replace,
 )
 
 from ota_metadata.file_table import (
@@ -60,7 +61,6 @@ from ota_metadata.file_table import (
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
-from ota_metadata.utils.sqlite3_helper import sort_and_replace
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.typing import StrOrPath
 
@@ -236,7 +236,7 @@ class OTAMetadata:
                 )
                 # NOTE: also check file_table definition at ota_metadata.file_table._table
                 sort_and_replace(
-                    _ft_regular_orm,
+                    _ft_regular_orm,  # type: ignore
                     _ft_regular_orm.table_name,
                     order_by_col="digest",
                 )
