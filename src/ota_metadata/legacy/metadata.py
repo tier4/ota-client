@@ -58,7 +58,6 @@ from ota_metadata.file_table import (
     FileTableNonRegularFilesORM,
     FileTableRegularFilesORM,
 )
-from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_metadata.utils.sqlite3_helper import sort_and_replace
@@ -147,6 +146,11 @@ class OTAMetadata:
         While the caller downloading the metadata files one by one, this method
             will parse and verify the metadata.
         """
+        (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
+        (self._work_dir / self.RSTABLE_DB).unlink(missing_ok=True)
+
+        _ft_db_conn = self.connect_fstable(read_only=False)
+        _rs_db_conn = self.connect_rstable(read_only=False)
         try:
             # ------ step 1: download metadata.jwt ------ #
             _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
@@ -207,26 +211,14 @@ class OTAMetadata:
                     return  # let the upper caller handles the failure
 
             # ------ step 4: parse OTA image metafiles ------ #
-            (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
-            (self._work_dir / self.RSTABLE_DB).unlink(missing_ok=True)
-            _ft_db_conn = sqlite3.connect(self._work_dir / self.FSTABLE_DB)
-            enable_mmap(_ft_db_conn)
-            enable_wal_mode(_ft_db_conn)
-            enable_tmp_store_at_memory(_ft_db_conn)
-
-            _rs_db_conn = sqlite3.connect(self._work_dir / self.RSTABLE_DB)
-            enable_mmap(_rs_db_conn)
-            enable_wal_mode(_rs_db_conn)
-            enable_tmp_store_at_memory(_rs_db_conn)
-
             _ft_regular_orm = FileTableRegularFilesORM(_ft_db_conn)
-            _ft_non_regular_orm = FileTableNonRegularFilesORM(_ft_db_conn)
             _ft_regular_orm.orm_create_table()
+
+            _ft_non_regular_orm = FileTableNonRegularFilesORM(_ft_db_conn)
             _ft_non_regular_orm.orm_create_table()
 
             _rs_orm = ResourceTableORM(_rs_db_conn)
             _rs_orm.orm_create_table()
-
             try:
                 parse_dirs_from_csv_file(
                     str(self._download_folder / _metadata_jwt.directory.file),
@@ -245,7 +237,7 @@ class OTAMetadata:
                 # NOTE: also check file_table definition at ota_metadata.file_table._table
                 sort_and_replace(
                     _ft_regular_orm,
-                    FileTableRegularFiles.table_name,
+                    _ft_regular_orm.table_name,
                     order_by_col="digest",
                 )
             except Exception as e:
@@ -343,8 +335,9 @@ class ResourceMeta:
         self.download_size = self._get_download_size()
 
     def _get_download_list_len(self) -> int:
+        _orm = self._rs_orm
         _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=ResourceTable.table_name,
+            select_from=_orm.table_name,
             function="count",
         )
         _query = self._rs_orm.orm_con.execute(_sql_stmt)
@@ -355,12 +348,14 @@ class ResourceMeta:
         return _raw_res[0]
 
     def _get_download_size(self):
+        _orm = self._rs_orm
+
         _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=ResourceTable.table_name,
+            select_from=_orm.table_name,
             select_cols=("original_size",),
             function="sum",
         )
-        _query = self._rs_orm.orm_con.execute(_sql_stmt)
+        _query = _orm.orm_con.execute(_sql_stmt)
         _raw_res = _query.fetchone()
         # NOTE: return value of fetchone will be a tuple, and here
         #   the first and only value of the tuple is the total nums of entries.
