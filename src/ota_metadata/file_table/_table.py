@@ -69,16 +69,6 @@ class FileTableBase(BaseModel):
     It contains a dict of xattr names and xattr values.
     """
 
-    contents: Annotated[
-        Optional[bytes],
-        TypeAffinityRepr(bytes),
-        SkipValidation,
-    ] = None
-    """The contents of the file. Currently only used by symlink.
-
-    When is symlink, <contents> is the symlink target.
-    """
-
     def _set_xattr(self, _target: StrOrPath) -> None:
         """NOTE: this method always don't follow symlink."""
         if xattrs := self.xattrs:
@@ -101,7 +91,7 @@ class FileTableBase(BaseModel):
             _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
         )
 
-    def fpath_on_target(self, *, target_mnt: StrOrPath) -> Path:
+    def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
         _canonical_path = Path(self.path)
         _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
         return _target_on_mnt
@@ -116,7 +106,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         SkipValidation,
     ]
 
-    def is_hardlink(self) -> int | None:
+    def is_hardlinked(self) -> int | None:
         """If the entry is hardlinked, return the inode group idx."""
         return self.inode.inode
 
@@ -157,27 +147,33 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
     """DB table for non-regular file entries.
 
     This includes:
-    1. directory.
-    2. symlink.
-    3. chardev file.
+    1. symlink.
+    2. chardev file.
 
     NOTE that support for chardev file is only for overlayfs' whiteout file,
         so only device num as 0,0 will be allowed.
     """
 
-    def prepare_target(self, *, target_mnt: StrOrPath) -> None:
+    contents: Annotated[
+        Optional[bytes],
+        TypeAffinityRepr(bytes),
+        SkipValidation,
+    ] = None
+    """The contents of the file. Currently only used by symlink.
+
+    When is symlink, <contents> is the symlink target.
+    """
+
+    def prepare_target(
+        self, *, target_mnt: StrOrPath, prepare_parents: bool = False
+    ) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        _target_parent = _target_on_mnt.parent
-        _target_parent.mkdir(exist_ok=True, parents=True)
+        if prepare_parents:
+            _target_parent = _target_on_mnt.parent
+            _target_parent.mkdir(exist_ok=True, parents=True)
 
         inode_table = self.inode
         _mode = inode_table.mode
-        if stat.S_ISDIR(_mode):
-            _target_on_mnt.mkdir(exist_ok=True, parents=True)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
-            return
-
         if stat.S_ISLNK(_mode):
             assert (_symlink_target_raw := self.contents), f"invalid entry {self}"
             _symlink_target = _symlink_target_raw.decode()
@@ -193,4 +189,25 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
             self._set_xattr(_target_on_mnt)
             return
 
+        raise ValueError(f"invalid entry {self}")
+
+
+class FileTableDirectories(TableSpec, FileTableBase):
+    """DB table for directory entries."""
+
+    def prepare_target(
+        self, *, target_mnt: StrOrPath, prepare_parents: bool = True
+    ) -> None:
+        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
+        if prepare_parents:
+            _target_parent = _target_on_mnt.parent
+            _target_parent.mkdir(exist_ok=True, parents=True)
+
+        inode_table = self.inode
+        _mode = inode_table.mode
+        if stat.S_ISDIR(_mode):
+            _target_on_mnt.mkdir(exist_ok=True, parents=True)
+            self._set_perm(_target_on_mnt)
+            self._set_xattr(_target_on_mnt)
+            return
         raise ValueError(f"invalid entry {self}")
