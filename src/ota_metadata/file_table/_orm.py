@@ -50,8 +50,8 @@ class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]):
         thread_name_prefix: str = "",
     ) -> None:
         super().__init__(
-            self.table_name,
-            schema_name,
+            table_name=self.table_name,
+            schema_name=schema_name,
             con_factory=con_factory,
             number_of_cons=number_of_cons,
             thread_name_prefix=thread_name_prefix,
