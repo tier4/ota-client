@@ -18,7 +18,7 @@ from __future__ import annotations
 from sqlite3 import Connection
 from typing import Literal, TypeVar
 
-from simple_sqlite3_orm import ORMBase, TableSpec
+from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase, TableSpec
 
 from ..utils.sqlite3_helper import iter_all
 from ._table import FileTableNonRegularFiles, FileTableRegularFiles
@@ -37,6 +37,9 @@ class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
         )
 
     iter_all = iter_all
+
+
+class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]): ...
 
 
 class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
