@@ -66,11 +66,14 @@ class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]):
             where_cols=tuple(kv),
         )
 
-        with self._con as conn:
-            _cur = conn.execute(_sql_stmt, kv)
-            _cur.row_factory = None
-            _res: tuple[int] = _cur.fetchone()
-            return _res[0] > 0
+        def _inner():
+            with self._con as conn:
+                _cur = conn.execute(_sql_stmt, kv)
+                _cur.row_factory = None
+                _res: tuple[int] = _cur.fetchone()
+                return _res[0] > 0
+
+        return self._pool.submit(_inner).result()
 
 
 class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
