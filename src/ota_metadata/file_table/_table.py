@@ -121,11 +121,17 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         return self.inode.inode
 
     def prepare_target(
-        self, _rs: StrOrPath, *, target_mnt: StrOrPath, prepare_method: PrepareMethod
+        self,
+        _rs: StrOrPath,
+        *,
+        target_mnt: StrOrPath,
+        prepare_method: PrepareMethod,
+        prepare_parents: bool = False,
     ) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        _target_parent = _target_on_mnt.parent
-        _target_parent.mkdir(exist_ok=True, parents=True)
+        if prepare_parents:
+            _target_parent = _target_on_mnt.parent
+            _target_parent.mkdir(exist_ok=True, parents=True)
 
         if prepare_method == "copy":
             shutil.copy(_rs, _target_on_mnt)
