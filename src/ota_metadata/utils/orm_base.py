@@ -15,7 +15,8 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from sqlite3 import Connection
+from typing import Any, Callable, ClassVar, Literal
 
 from simple_sqlite3_orm import ORMBase as _ORMBase
 from simple_sqlite3_orm import ORMThreadPoolBase, TableSpecType
@@ -24,6 +25,22 @@ from simple_sqlite3_orm import ORMThreadPoolBase, TableSpecType
 class ORMPoolBase(ORMThreadPoolBase[TableSpecType]):
 
     table_name: ClassVar[Any]
+
+    def __init__(
+        self,
+        schema_name: str | None = None,
+        *,
+        con_factory: Callable[[], Connection],
+        number_of_cons: int,
+        thread_name_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            self.table_name,
+            schema_name=schema_name,
+            con_factory=con_factory,
+            number_of_cons=number_of_cons,
+            thread_name_prefix=thread_name_prefix,
+        )
 
     def check_entry(self, **kv: Any) -> bool:
         """A quick method to check if an entry exists."""
@@ -47,6 +64,13 @@ class ORMPoolBase(ORMThreadPoolBase[TableSpecType]):
 class ORMBase(_ORMBase[TableSpecType]):
 
     table_name: ClassVar[Any]
+
+    def __init__(
+        self,
+        con: Connection,
+        schema_name: str | None | Literal["temp"] = None,
+    ) -> None:
+        super().__init__(con, self.table_name, schema_name=schema_name)
 
     def check_entry(self, **kv: Any) -> bool:
         """A quick method to check if an entry exists."""
