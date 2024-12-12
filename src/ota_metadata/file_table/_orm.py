@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from sqlite3 import Connection
-from typing import Literal, TypeVar
+from typing import Callable, ClassVar, Literal, TypeVar
 
 from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase, TableSpec
 
@@ -27,29 +27,49 @@ TableSpecType = TypeVar("TableSpecType", bound=TableSpec)
 
 
 class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
+
+    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
+
     def __init__(
         self,
         con: Connection,
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
-        super().__init__(
-            con, table_name=FileTableRegularFiles.table_name, schema_name=schema_name
-        )
+        super().__init__(con, table_name=self.table_name, schema_name=schema_name)
 
     iter_all = iter_all
 
 
-class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]): ...
+class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]):
+
+    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
+
+    def __init__(
+        self,
+        schema_name: str | None = None,
+        *,
+        con_factory: Callable[[], Connection],
+        number_of_cons: int,
+        thread_name_prefix: str = "",
+    ) -> None:
+        super().__init__(
+            self.table_name,
+            schema_name,
+            con_factory=con_factory,
+            number_of_cons=number_of_cons,
+            thread_name_prefix=thread_name_prefix,
+        )
 
 
 class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
+
+    table_name: ClassVar[Literal["ft_non_regular"]] = "ft_non_regular"
+
     def __init__(
         self,
         con: Connection,
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
-        super().__init__(
-            con, table_name=FileTableNonRegularFiles.table_name, schema_name=schema_name
-        )
+        super().__init__(con, table_name=self.table_name, schema_name=schema_name)
 
     iter_all = iter_all
