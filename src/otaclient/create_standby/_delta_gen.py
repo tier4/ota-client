@@ -258,11 +258,3 @@ class DeltaGenerator:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
-
-        # NOTE: fill up the holes created by DELETE
-        _rs_conn = self._ota_metadata.connect_rstable(read_only=False)
-        try:
-            with _rs_conn as conn:
-                conn.execute("VACUUM;")
-        finally:
-            _rs_conn.close()
