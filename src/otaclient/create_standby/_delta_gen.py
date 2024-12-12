@@ -113,12 +113,10 @@ class DeltaGenerator:
         thread_local,
     ) -> None:
         # in default match_only mode, if the fpath doesn't exist in new, ignore
-        if not fully_scan:
-            _lookup_res = self._ft_regular_orm.orm_select_entries(
-                path=str(canonical_fpath)
-            ).result()
-            if not _lookup_res:
-                return
+        if not fully_scan and not self._ft_regular_orm.check_entry(
+            path=str(canonical_fpath)
+        ):
+            return
 
         tmp_f = self._copy_dst / create_tmp_fname()
 
@@ -257,4 +255,5 @@ class DeltaGenerator:
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
+            self._ft_non_regular_orm.orm_con.close()
             self._rst_orm_pool.orm_pool_shutdown()
