@@ -34,7 +34,6 @@ from ota_metadata.utils.sqlite3_helper import iter_all_with_shuffle
 
 class ResourceTable(TableSpec):
     schema_ver: ClassVar[Literal[1]] = 1
-    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
 
     digest: Annotated[
         bytes,
@@ -77,17 +76,23 @@ class ResourceTable(TableSpec):
 
 
 class ResourceTableORM(ORMBase[ResourceTable]):
+
+    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
+
     def __init__(
         self,
         con: Connection,
         schema_name: str | None | Literal["temp"] = None,
     ) -> None:
-        super().__init__(con, ResourceTable.table_name, schema_name)
+        super().__init__(con, self.table_name, schema_name)
 
     iter_all_with_shuffle = iter_all_with_shuffle
 
 
 class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
+
+    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
+
     def __init__(
         self,
         schema_name: str | None = None,
@@ -97,7 +102,7 @@ class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
         thread_name_prefix: str = "",
     ) -> None:
         super().__init__(
-            ResourceTable.table_name,
+            self.table_name,
             schema_name,
             con_factory=con_factory,
             number_of_cons=number_of_cons,
