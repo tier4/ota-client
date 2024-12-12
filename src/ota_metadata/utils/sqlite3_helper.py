@@ -71,7 +71,7 @@ def iter_all_with_shuffle(
         yield from _batch
 
 
-def sort_and_place(_orm: ORMBase, table_name: str, *, order_by_col: str) -> None:
+def sort_and_replace(_orm: ORMBase, table_name: str, *, order_by_col: str) -> None:
     """Sort the table, and then replace the old table with the sorted one."""
     ORIGINAL_TABLE_NAME = table_name
     SORTED_TABLE_NAME = f"{table_name}_sorted"

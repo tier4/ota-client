@@ -61,7 +61,7 @@ from ota_metadata.file_table import (
 from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
-from ota_metadata.utils.sqlite3_helper import sort_and_place
+from ota_metadata.utils.sqlite3_helper import sort_and_replace
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.typing import StrOrPath
 
@@ -243,7 +243,7 @@ class OTAMetadata:
                     _orm_rs=_rs_orm,
                 )
                 # NOTE: also check file_table definition at ota_metadata.file_table._table
-                sort_and_place(
+                sort_and_replace(
                     _ft_regular_orm,
                     FileTableRegularFiles.table_name,
                     order_by_col="digest",

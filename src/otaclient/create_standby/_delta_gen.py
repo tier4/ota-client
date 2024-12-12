@@ -37,7 +37,7 @@ from ota_metadata.legacy.rs_table import (
     ResourceTableORM,
     RSTableORMThreadPool,
 )
-from ota_metadata.utils.sqlite3_helper import sort_and_place
+from ota_metadata.utils.sqlite3_helper import sort_and_replace
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -261,7 +261,7 @@ class DeltaGenerator:
         # NOTE: fill up the holes created by DELETE, and make
         #   the rowid continues again.
         try:
-            sort_and_place(
+            sort_and_replace(
                 self._rs_orm,
                 ResourceTable.table_name,
                 order_by_col="rowid",

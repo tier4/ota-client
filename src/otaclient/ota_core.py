@@ -31,7 +31,6 @@ from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Empty, Queue
-from tempfile import TemporaryDirectory
 from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
