@@ -110,8 +110,6 @@ class FileTableBase(BaseModel):
 class FileTableRegularFiles(TableSpec, FileTableBase):
     """DB table for regular file entries."""
 
-    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
-
     digest: Annotated[
         bytes,
         TypeAffinityRepr(bytes),
@@ -160,8 +158,6 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
     NOTE that support for chardev file is only for overlayfs' whiteout file,
         so only device num as 0,0 will be allowed.
     """
-
-    table_name: ClassVar[Literal["ft_non_regular"]] = "ft_non_regular"
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
