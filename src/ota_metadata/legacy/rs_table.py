@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+import random
 from sqlite3 import Connection
-from typing import Any, Callable, ClassVar, Literal, Optional
+from typing import Any, Callable, ClassVar, Generator, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -28,8 +29,6 @@ from simple_sqlite3_orm import (
 )
 from simple_sqlite3_orm._orm import ORMThreadPoolBase
 from typing_extensions import Annotated, Self
-
-from ota_metadata.utils.sqlite3_helper import iter_all_with_shuffle
 
 
 class ResourceTable(TableSpec):
@@ -86,7 +85,20 @@ class ResourceTableORM(ORMBase[ResourceTable]):
     ) -> None:
         super().__init__(con, self.table_name, schema_name)
 
-    iter_all_with_shuffle = iter_all_with_shuffle
+    def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[Self, None, None]:
+        """Iter all entries with seek method by rowid, shuffle each batch before yield.
+
+        NOTE: the target table must has rowid defined!
+        """
+        _this_batch = []
+        for _entry in self.orm_select_all_with_pagination(batch_size=batch_size):
+            _this_batch.append(_entry)
+            if len(_this_batch) >= batch_size:
+                random.shuffle(_this_batch)
+                yield from _this_batch
+                _this_batch = []
+        random.shuffle(_this_batch)
+        yield from _this_batch
 
 
 class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
