@@ -32,8 +32,7 @@ from ota_metadata.file_table._orm import (
     FTRegularORMThreadPool,
 )
 from ota_metadata.legacy.metadata import OTAMetadata
-from ota_metadata.legacy.rs_table import ResourceTableORM, RSTableORMThreadPool
-from ota_metadata.utils.sqlite3_helper import sort_and_replace
+from ota_metadata.legacy.rs_table import RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -115,10 +114,13 @@ class DeltaGenerator:
         thread_local,
     ) -> None:
         # in default match_only mode, if the fpath doesn't exist in new, ignore
-        if not fully_scan and not self._ft_regular_orm.orm_select_entry(
-            path=str(canonical_fpath)
-        ):
-            return
+        if not fully_scan:
+            _lookup_res = self._ft_regular_orm.orm_select_entries(
+                path=str(canonical_fpath)
+            ).result()
+            if not _lookup_res:
+                return
+
         tmp_f = self._copy_dst / create_tmp_fname()
 
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
@@ -258,14 +260,10 @@ class DeltaGenerator:
             self._ft_regular_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
 
-        # NOTE: fill up the holes created by DELETE, and make
-        #   the rowid continues again.
-        _rs_orm = ResourceTableORM(self._ota_metadata.connect_rstable(read_only=False))
+        # NOTE: fill up the holes created by DELETE
+        _rs_conn = self._ota_metadata.connect_rstable(read_only=False)
         try:
-            sort_and_replace(
-                _rs_orm,
-                _rs_orm.table_name,
-                order_by_col="rowid",
-            )
+            with _rs_conn as conn:
+                conn.execute("VACUUM;")
         finally:
-            _rs_orm.orm_con.close()
+            _rs_conn.close()

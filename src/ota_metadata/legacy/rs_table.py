@@ -85,7 +85,9 @@ class ResourceTableORM(ORMBase[ResourceTable]):
     ) -> None:
         super().__init__(con, self.table_name, schema_name)
 
-    def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[Self, None, None]:
+    def iter_all_with_shuffle(
+        self, *, batch_size: int
+    ) -> Generator[ResourceTable, None, None]:
         """Iter all entries with seek method by rowid, shuffle each batch before yield.
 
         NOTE: the target table must has rowid defined!
