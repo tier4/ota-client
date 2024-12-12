@@ -29,8 +29,9 @@ from typing import Any
 
 from ota_metadata.file_table._orm import (
     FileTableNonRegularFilesORM,
-    FileTableRegularFilesORM,
+    FTRegularORMThreadPool,
 )
+from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import (
     ResourceTable,
@@ -45,7 +46,6 @@ from otaclient_common.common import create_tmp_fname
 logger = logging.getLogger(__name__)
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
-MAX_SIZE_FOR_COPYING_IN_ACTIVE_SLOT = 1024**3  # 1GiB
 
 
 class DeltaGenerator:
@@ -88,14 +88,17 @@ class DeltaGenerator:
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
 
-        # NOTE: file_system look_up is using single thread
-        self._ft_regular_orm = FileTableRegularFilesORM(
-            ota_metadata.connect_fstable(read_only=True)
-        )
+        # NOTE: we only need one thread for checking directory against database.
         self._ft_non_regular_orm = FileTableNonRegularFilesORM(
             ota_metadata.connect_fstable(read_only=True)
         )
 
+        self._ft_regular_orm = FTRegularORMThreadPool(
+            FileTableRegularFiles.table_name,
+            con_factory=partial(ota_metadata.connect_fstable, read_only=True),
+            number_of_cons=3,
+            thread_name_prefix="ft_orm_pool",
+        )
         # NOTE: we will update the resource table in-place, the
         #       leftover entries in the db will be the to-be-downloaded resources.
         self._rst_orm_pool = RSTableORMThreadPool(
@@ -103,14 +106,24 @@ class DeltaGenerator:
             number_of_cons=self.RS_TABLE_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
-        # For later fixing up the modified database.
-        self._rs_orm = ResourceTableORM(ota_metadata.connect_rstable(read_only=False))
 
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
         )
 
-    def _process_file(self, fpath: Path, *, thread_local) -> None:
+    def _process_file(
+        self,
+        fpath: Path,
+        canonical_fpath: Path,
+        *,
+        fully_scan: bool,
+        thread_local,
+    ) -> None:
+        # in default match_only mode, if the fpath doesn't exist in new, ignore
+        if not fully_scan and not self._ft_regular_orm.orm_select_entry(
+            path=str(canonical_fpath)
+        ):
+            return
         tmp_f = self._copy_dst / create_tmp_fname()
 
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
@@ -228,8 +241,6 @@ class DeltaGenerator:
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
                     logger.debug(f"[process_delta_src] process {delta_src_fpath}")
-                    # NOTE: should ALWAYS use canonical_fpath in RegularInf and in rm_list
-                    canonical_fpath = canonical_curdir_path / fname
 
                     # ignore non-file file(include symlink)
                     # NOTE: for in-place update, we will recreate all the symlinks,
@@ -238,33 +249,28 @@ class DeltaGenerator:
                     if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
                         continue
 
-                    # in default match_only mode, if the fpath doesn't exist in new, ignore
-                    if (
-                        not dir_should_fully_scan
-                        and not self._ft_regular_orm.orm_select_entry(
-                            path=str(canonical_fpath)
-                        )
-                    ):
-                        continue
-
                     self._max_pending_tasks.acquire()
                     pool.submit(
                         self._process_file,
                         delta_src_fpath,
+                        # NOTE: ALWAYS use canonical_fpath in db search!
+                        canonical_curdir_path / fname,
+                        fully_scan=dir_should_fully_scan,
                         thread_local=thread_local,
                     ).add_done_callback(self._task_done_callback)
         finally:
             pool.shutdown(wait=True)
-            self._ft_regular_orm._con.close()
+            self._ft_regular_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
 
         # NOTE: fill up the holes created by DELETE, and make
         #   the rowid continues again.
+        _rs_orm = ResourceTableORM(self._ota_metadata.connect_rstable(read_only=False))
         try:
             sort_and_replace(
-                self._rs_orm,
+                _rs_orm,
                 ResourceTable.table_name,
                 order_by_col="rowid",
             )
         finally:
-            self._rs_orm.orm_con.close()
+            _rs_orm.orm_con.close()
