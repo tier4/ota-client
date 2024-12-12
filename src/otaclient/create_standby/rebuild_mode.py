@@ -62,14 +62,6 @@ class RebuildMode:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-        # NOTE: at this point the regular_files file table should have been sorted by digest
-        self._ft_regulars_orm = FileTableRegularFilesORM(
-            ota_metadata.connect_fstable(read_only=True)
-        )
-        self._ft_non_regulars_orm = FileTableNonRegularFilesORM(
-            ota_metadata.connect_fstable(read_only=True)
-        )
-
     def _iter_regular_file_entries(
         self, *, batch_size: int
     ) -> Generator[tuple[bytes, list[FileTableRegularFiles]], None, None]:
@@ -77,24 +69,32 @@ class RebuildMode:
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
+        _ft_regulars_orm = FileTableRegularFilesORM(
+            self._ota_metadata.connect_fstable(read_only=True)
+        )
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        for _entry in self._ft_regulars_orm.iter_all(batch_size=batch_size):
-            _this_digest = _entry.digest
-            if not cur_digest:
-                cur_digest = _this_digest
-                cur_digest_group.append(_entry)
-                continue
+        try:
+            for _entry in _ft_regulars_orm.orm_select_all_with_pagination(
+                batch_size=batch_size
+            ):
+                _this_digest = _entry.digest
+                if not cur_digest:
+                    cur_digest = _this_digest
+                    cur_digest_group.append(_entry)
+                    continue
 
-            if _this_digest != cur_digest:
-                yield cur_digest, cur_digest_group
+                if _this_digest != cur_digest:
+                    yield cur_digest, cur_digest_group
 
-                cur_digest = _this_digest
-                cur_digest_group = [_entry]
-            else:
-                cur_digest_group.append(_entry)
-        # remember the last group
-        yield cur_digest, cur_digest_group
+                    cur_digest = _this_digest
+                    cur_digest_group = [_entry]
+                else:
+                    cur_digest_group.append(_entry)
+            # NOTE: remember to yield the last group
+            yield cur_digest, cur_digest_group
+        finally:
+            _ft_regulars_orm.orm_con.close()
 
     def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
         return entry.prepare_target(target_mnt=self._standby_slot_mp)
@@ -227,34 +227,36 @@ class RebuildMode:
     def _process_non_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-        ) as _mapper:
-            try:
-                for _, _done in enumerate(
-                    _mapper.ensure_tasks(
-                        func=self._process_one_non_regular_file,
-                        iterable=self._ft_non_regulars_orm.iter_all(
-                            batch_size=batch_size
-                        ),
-                    )
-                ):
-                    if _exc := _done.exception():
-                        logger.warning(
-                            f"file process failure detected: {_exc!r}, still retrying ..."
+        _ft_non_regular_orm = FileTableNonRegularFilesORM(
+            self._ota_metadata.connect_fstable(read_only=True)
+        )
+        try:
+            with ThreadPoolExecutorWithRetry(
+                max_concurrent=batch_size,
+                max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            ) as _mapper:
+                try:
+                    for _, _done in enumerate(
+                        _mapper.ensure_tasks(
+                            func=self._process_one_non_regular_file,
+                            iterable=_ft_non_regular_orm.orm_select_all_with_pagination(
+                                batch_size=batch_size
+                            ),
                         )
-                        continue
-            except Exception as e:
-                logger.error(f"failed to finish up file processing: {e!r}")
-                raise
+                    ):
+                        if _exc := _done.exception():
+                            logger.warning(
+                                f"file process failure detected: {_exc!r}, still retrying ..."
+                            )
+                            continue
+                except Exception as e:
+                    logger.error(f"failed to finish up file processing: {e!r}")
+                    raise
+        finally:
+            _ft_non_regular_orm.orm_con.close()
 
     # API
 
     def rebuild_standby(self) -> None:
-        try:
-            self._process_non_regular_files()
-            self._process_regular_files()
-        finally:
-            self._ft_non_regulars_orm.orm_con.close()
-            self._ft_regulars_orm.orm_con.close()
+        self._process_non_regular_files()
+        self._process_regular_files()
