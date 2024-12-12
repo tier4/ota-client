@@ -122,3 +122,21 @@ class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
             number_of_cons=number_of_cons,
             thread_name_prefix=thread_name_prefix,
         )
+
+    def check_entry(self, **kv: Any) -> bool:
+        """A quick method to check if an entry exists."""
+        _sql_stmt = self.orm_table_spec.table_select_stmt(
+            select_from=self.orm_table_name,
+            select_cols="*",
+            function="count",
+            where_cols=tuple(kv),
+        )
+
+        def _inner():
+            with self._con as conn:
+                _cur = conn.execute(_sql_stmt, kv)
+                _cur.row_factory = None
+                _res: tuple[int] = _cur.fetchone()
+                return _res[0] > 0
+
+        return self._pool.submit(_inner).result()
