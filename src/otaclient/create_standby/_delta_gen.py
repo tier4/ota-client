@@ -88,7 +88,6 @@ class DeltaGenerator:
         )
 
         self._ft_regular_orm = FTRegularORMThreadPool(
-            FTRegularORMThreadPool.table_name,
             con_factory=partial(ota_metadata.connect_fstable, read_only=True),
             number_of_cons=3,
             thread_name_prefix="ft_orm_pool",
