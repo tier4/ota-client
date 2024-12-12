@@ -32,7 +32,7 @@ from ota_metadata.file_table._orm import (
     FTRegularORMThreadPool,
 )
 from ota_metadata.legacy.metadata import OTAMetadata
-from ota_metadata.legacy.rs_table import RSTableORMThreadPool
+from ota_metadata.legacy.rs_table import ResourceTableORM, RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -40,6 +40,9 @@ from otaclient_common.common import create_tmp_fname
 logger = logging.getLogger(__name__)
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
+
+SHA256HEXSTRINGLEN = 256 // 8 * 2
+DELETE_BATCH_SIZE = 512
 
 
 class DeltaGenerator:
@@ -92,10 +95,8 @@ class DeltaGenerator:
             number_of_cons=3,
             thread_name_prefix="ft_orm_pool",
         )
-        # NOTE: we will update the resource table in-place, the
-        #       leftover entries in the db will be the to-be-downloaded resources.
         self._rst_orm_pool = RSTableORMThreadPool(
-            con_factory=partial(ota_metadata.connect_rstable, read_only=False),
+            con_factory=partial(ota_metadata.connect_rstable, read_only=True),
             number_of_cons=self.RS_TABLE_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
@@ -129,18 +130,7 @@ class DeltaGenerator:
                     tmp_dst.write(hash_bufferview[:read_size])
 
             dst_f = self._copy_dst / hash_f.hexdigest()
-            # try to remove the corresponding entry from the resource table db,
-            #   if succeeds, it means this entry match one resource entry in the table,
-            #   so we don't need to download it from remote.
-            _deleted_entries = 0
-            try:
-                _fut = self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest())
-                _deleted_entries = _fut.result()
-            except Exception as e:
-                logger.warning(f"sql execution failed: {e!r}")
-
-            # This resource is prepared by this time's operation
-            if isinstance(_deleted_entries, int) and _deleted_entries >= 1:
+            if self._rst_orm_pool.check_entry(digest=hash_f.digest()):
                 shutil.move(str(tmp_f), dst_f)
                 self._status_report_queue.put_nowait(
                     StatusReport(
@@ -183,6 +173,40 @@ class DeltaGenerator:
             and not dir_should_fully_scan
             and not self._ft_non_regular_orm.orm_select_entry(path=_dpath)
         )
+
+    def _post_calculate_delta(self) -> None:
+        """
+        After all the local resources have been collected, we check the copy_dir
+            and remove presented entries from resource table.
+        """
+        _rs_conn = self._ota_metadata.connect_rstable(read_only=False)
+        _delete_stmt = ResourceTableORM.orm_table_spec.table_delete_stmt(
+            delete_from=ResourceTableORM.table_name,
+            where_cols=("digest",),
+        )
+
+        _delete_batches = []
+        try:
+            with os.scandir(self._copy_dst) as it:
+                for entry in it:
+                    entry_name = entry.name
+                    if len(entry_name) != SHA256HEXSTRINGLEN:
+                        continue
+
+                    try:
+                        _digest = bytes.fromhex(entry_name)
+                    except Exception:
+                        continue
+
+                    _delete_batches.append(_digest)
+                    if len(_delete_batches) > DELETE_BATCH_SIZE:
+                        with _rs_conn as conn:
+                            conn.executemany(
+                                _delete_stmt,
+                                ({"digest": _value} for _value in _delete_batches),
+                            )
+        finally:
+            _rs_conn.close()
 
     # API
 
@@ -257,3 +281,5 @@ class DeltaGenerator:
             self._ft_regular_orm.orm_pool_shutdown()
             self._ft_non_regular_orm.orm_con.close()
             self._rst_orm_pool.orm_pool_shutdown()
+
+        self._post_calculate_delta()
