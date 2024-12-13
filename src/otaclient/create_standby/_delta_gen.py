@@ -43,7 +43,7 @@ CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
-DB_CONN_NUMS = 6
+DB_CONN_NUMS = 3
 
 
 class DeltaGenerator:
@@ -109,11 +109,14 @@ class DeltaGenerator:
         fully_scan: bool,
         thread_local,
     ) -> None:
-        _db_entry = self._ft_regular_orm.orm_select_entry(
-            path=str(canonical_fpath)
-        ).result()
-        if not fully_scan and not _db_entry:
-            return
+        _db_entry = None
+        if not fully_scan:
+            _db_entry = self._ft_regular_orm.orm_select_entry(
+                path=str(canonical_fpath)
+            ).result()
+
+            if not _db_entry:
+                return
 
         # If we have this file's information in the new OTA image,
         #   directly using this information to see if we have already prepared
