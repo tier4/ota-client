@@ -28,11 +28,11 @@ from queue import Queue
 from typing import Any
 
 from ota_metadata.file_table._orm import (
-    FileTableNonRegularFilesORM,
-    FTRegularORMThreadPool,
+    FTDirORM,
+    FTRegularORMPool,
 )
 from ota_metadata.legacy.metadata import OTAMetadata
-from ota_metadata.legacy.rs_table import ResourceTableORM, RSTableORMThreadPool
+from ota_metadata.legacy.rs_table import RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -43,6 +43,7 @@ CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
+DB_CONN_NUMS = 3
 
 
 class DeltaGenerator:
@@ -67,8 +68,6 @@ class DeltaGenerator:
     MAX_FOLDER_DEEPTH = 20
     MAX_FILENUM_PER_FOLDER = 8192
 
-    RS_TABLE_CONN_NUMS = 3
-
     def __init__(
         self,
         *,
@@ -86,18 +85,15 @@ class DeltaGenerator:
         self._copy_dst = copy_dst
 
         # NOTE: we only need one thread for checking directory against database.
-        self._ft_non_regular_orm = FileTableNonRegularFilesORM(
-            ota_metadata.connect_fstable(read_only=True)
-        )
-
-        self._ft_regular_orm = FTRegularORMThreadPool(
+        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable(read_only=True))
+        self._ft_regular_orm = FTRegularORMPool(
             con_factory=partial(ota_metadata.connect_fstable, read_only=True),
-            number_of_cons=3,
+            number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_orm_pool",
         )
         self._rst_orm_pool = RSTableORMThreadPool(
             con_factory=partial(ota_metadata.connect_rstable, read_only=True),
-            number_of_cons=self.RS_TABLE_CONN_NUMS,
+            number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
 
@@ -130,6 +126,9 @@ class DeltaGenerator:
                     tmp_dst.write(hash_bufferview[:read_size])
 
             dst_f = self._copy_dst / hash_f.hexdigest()
+
+            # If the resource we scan here is listed in the resouce table, copy it
+            #   to the copy_dir at standby slot for later use.
             if self._rst_orm_pool.check_entry(digest=hash_f.digest()):
                 shutil.move(str(tmp_f), dst_f)
                 self._status_report_queue.put_nowait(
@@ -171,7 +170,7 @@ class DeltaGenerator:
         return dir_depth_exceeded or (
             _dpath != CANONICAL_ROOT
             and not dir_should_fully_scan
-            and not self._ft_non_regular_orm.orm_select_entry(path=_dpath)
+            and not self._ft_dir_orm.orm_select_entry(path=_dpath)
         )
 
     def _post_calculate_delta(self) -> None:
@@ -179,14 +178,8 @@ class DeltaGenerator:
         After all the local resources have been collected, we check the copy_dir
             and remove presented entries from resource table.
         """
-        _rs_conn = self._ota_metadata.connect_rstable(read_only=False)
-        _delete_stmt = ResourceTableORM.orm_table_spec.table_delete_stmt(
-            delete_from=ResourceTableORM.table_name,
-            where_cols=("digest",),
-        )
 
-        _delete_batches = []
-        try:
+        def _dir_scan_gen():
             with os.scandir(self._copy_dst) as it:
                 for entry in it:
                     entry_name = entry.name
@@ -198,15 +191,9 @@ class DeltaGenerator:
                     except Exception:
                         continue
 
-                    _delete_batches.append(_digest)
-                    if len(_delete_batches) > DELETE_BATCH_SIZE:
-                        with _rs_conn as conn:
-                            conn.executemany(
-                                _delete_stmt,
-                                ({"digest": _value} for _value in _delete_batches),
-                            )
-        finally:
-            _rs_conn.close()
+                    yield _digest
+
+        self._ota_metadata.remove_entries_from_resource_table(_dir_scan_gen())
 
     # API
 
@@ -279,7 +266,7 @@ class DeltaGenerator:
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
-            self._ft_non_regular_orm.orm_con.close()
+            self._ft_dir_orm.orm_con.close()
             self._rst_orm_pool.orm_pool_shutdown()
 
         self._post_calculate_delta()
