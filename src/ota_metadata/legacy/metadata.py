@@ -45,7 +45,7 @@ import shutil
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Generator, Iterator
+from typing import Callable, Generator, Iterator
 from urllib.parse import quote
 
 from simple_sqlite3_orm.utils import enable_wal_mode, sort_and_replace
@@ -378,6 +378,17 @@ class OTAMetadata:
     def save_fstable(self, dst: StrOrPath) -> None:
         """TODO: implement me!"""
         # shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
+
+
+def conns_factory(
+    cons_num: int, *, con_maker: Callable[[], sqlite3.Connection]
+) -> Callable[[], sqlite3.Connection]:
+    _conns = [con_maker() for _ in range(cons_num)]
+
+    def _inner():
+        return _conns.pop()
+
+    return _inner
 
 
 class ResourceMeta:
