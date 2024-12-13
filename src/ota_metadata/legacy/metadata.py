@@ -48,7 +48,7 @@ from pathlib import Path
 from typing import Callable, Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm.utils import enable_wal_mode, sort_and_replace
+from simple_sqlite3_orm.utils import sort_and_replace
 
 from ota_metadata.file_table import (
     FTNonRegularORM,
@@ -297,16 +297,6 @@ class OTAMetadata:
         finally:
             _conn.close()
 
-    def iter_resource_entries(
-        self, *, batch_size: int = 256
-    ) -> Generator[ResourceTable]:
-        _conn = self.connect_rstable()
-        _ft_dir_orm = RSTORM(_conn)
-        try:
-            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
-        finally:
-            _conn.close()
-
     def connect_fstable(self) -> sqlite3.Connection:
         """NOTE: this method must be called in the main thread."""
         _uri = f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared"
@@ -316,7 +306,6 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
-        enable_wal_mode(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
@@ -328,7 +317,6 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
-        enable_wal_mode(_conn)
         return _conn
 
     def save_fstable(self, dst: StrOrPath) -> None:
