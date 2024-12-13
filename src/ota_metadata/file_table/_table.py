@@ -116,12 +116,8 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         *,
         target_mnt: StrOrPath,
         prepare_method: PrepareMethod,
-        prepare_parents: bool = False,
     ) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        if prepare_parents:
-            _target_parent = _target_on_mnt.parent
-            _target_parent.mkdir(exist_ok=True, parents=True)
 
         if prepare_method == "copy":
             shutil.copy(_rs, _target_on_mnt)
@@ -180,13 +176,8 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
             _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
         )
 
-    def prepare_target(
-        self, *, target_mnt: StrOrPath, prepare_parents: bool = False
-    ) -> None:
+    def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        if prepare_parents:
-            _target_parent = _target_on_mnt.parent
-            _target_parent.mkdir(exist_ok=True, parents=True)
 
         inode_table = self.inode
         _mode = inode_table.mode
