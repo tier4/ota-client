@@ -89,10 +89,7 @@ class FileTableBase(BaseModel):
         NOTE: this method always don't follow symlink.
         """
         inode_table = self.inode
-        # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
-        #   changing mode of symlink will even result in exception raised.
-        if not stat.S_ISLNK(inode_table.mode):
-            os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
+        os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
         os.chown(
             _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
         )
@@ -113,10 +110,6 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         SkipValidation,
     ]
 
-    def is_hardlinked(self) -> int | None:
-        """If the entry is hardlinked, return the inode group idx."""
-        return self.inode.inode
-
     def prepare_target(
         self,
         _rs: StrOrPath,
@@ -134,8 +127,9 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
             shutil.copy(_rs, _target_on_mnt)
             self.set_perm(_target_on_mnt)
             self.set_xattr(_target_on_mnt)
+            return
 
-        elif prepare_method == "hardlink":
+        if prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
             os.link(_rs, _target_on_mnt)
             # NOTE: although we actually don't need to set_perm and set_xattr everytime
@@ -143,8 +137,9 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
             #   do it everytime.
             self.set_perm(_target_on_mnt)
             self.set_xattr(_target_on_mnt)
+            return
 
-        elif prepare_method == "move":
+        if prepare_method == "move":
             shutil.move(str(_rs), _target_on_mnt)
             self.set_perm(_target_on_mnt)
             self.set_xattr(_target_on_mnt)
@@ -170,6 +165,20 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
 
     When is symlink, <contents> is the symlink target.
     """
+
+    def set_perm(self, _target: StrOrPath) -> None:
+        """Set the mode,uid,gid of self onto the <_target>.
+
+        NOTE: this method always don't follow symlink.
+        """
+        inode_table = self.inode
+        # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
+        #   changing mode of symlink will even result in exception raised.
+        if not stat.S_ISLNK(inode_table.mode):
+            os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
+        os.chown(
+            _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
+        )
 
     def prepare_target(
         self, *, target_mnt: StrOrPath, prepare_parents: bool = False
@@ -202,19 +211,11 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
 class FileTableDirectories(TableSpec, FileTableBase):
     """DB table for directory entries."""
 
-    def prepare_target(
-        self, *, target_mnt: StrOrPath, prepare_parents: bool = True
-    ) -> None:
+    def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        if prepare_parents:
-            _target_parent = _target_on_mnt.parent
-            _target_parent.mkdir(exist_ok=True, parents=True)
+        _target_parent = _target_on_mnt.parent
+        _target_parent.mkdir(exist_ok=True, parents=True)
 
-        inode_table = self.inode
-        _mode = inode_table.mode
-        if stat.S_ISDIR(_mode):
-            _target_on_mnt.mkdir(exist_ok=True, parents=True)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-            return
-        raise ValueError(f"invalid entry {self}")
+        _target_on_mnt.mkdir(exist_ok=True, parents=True)
+        self.set_perm(_target_on_mnt)
+        self.set_xattr(_target_on_mnt)
