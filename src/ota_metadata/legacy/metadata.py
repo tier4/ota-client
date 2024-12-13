@@ -47,7 +47,6 @@ import threading
 from pathlib import Path
 from typing import Callable, Generator
 from urllib.parse import quote
-from weakref import WeakSet
 
 from simple_sqlite3_orm.utils import sort_and_replace
 
@@ -125,8 +124,8 @@ class OTAMetadata:
         self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
 
-        self._fst_conn_weakref: WeakSet[sqlite3.Connection] = WeakSet()
-        self._rst_conn_wearkref: WeakSet[sqlite3.Connection] = WeakSet()
+        self._fst_conn_weakref: set[sqlite3.Connection] = set()
+        self._rst_conn_wearkref: set[sqlite3.Connection] = set()
         # NOTE(20241213): for performance consideration, we now use in-memory databases.
         # NOTE: keep at least one open connection all the time to prevent db being gced.
         self._fst_conn = self.connect_fstable()
