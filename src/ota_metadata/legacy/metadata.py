@@ -48,12 +48,7 @@ from pathlib import Path
 from typing import Generator, Iterator
 from urllib.parse import quote
 
-from simple_sqlite3_orm.utils import (
-    enable_mmap,
-    enable_tmp_store_at_memory,
-    enable_wal_mode,
-    sort_and_replace,
-)
+from simple_sqlite3_orm.utils import enable_wal_mode, sort_and_replace
 
 from ota_metadata.file_table import (
     FTNonRegularORM,
@@ -106,6 +101,9 @@ class OTAMetadata:
     FSTABLE_DB = "file_table.sqlite3"
     RSTABLE_DB = "resource_table.sqlite3"
 
+    FSTABLE_DB_NAME = "ft_in_memory"
+    RSTABLE_DB_NAME = "rst_in_memory"
+
     def __init__(
         self,
         *,
@@ -125,6 +123,19 @@ class OTAMetadata:
 
         self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
+
+        # NOTE(20241213): for performance consideration, we now use in-memory databases.
+        # NOTE: keep at least one open connection all the time to prevent db being gced.
+        self._fst_conn = sqlite3.connect(
+            f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared",
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
+        self._rst_conn = sqlite3.connect(
+            f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared",
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
@@ -148,11 +159,8 @@ class OTAMetadata:
         While the caller downloading the metadata files one by one, this method
             will parse and verify the metadata.
         """
-        (self._work_dir / self.FSTABLE_DB).unlink(missing_ok=True)
-        (self._work_dir / self.RSTABLE_DB).unlink(missing_ok=True)
-
-        _ft_db_conn = self.connect_fstable(read_only=False)
-        _rs_db_conn = self.connect_rstable(read_only=False)
+        _ft_db_conn = self.connect_fstable()
+        _rs_db_conn = self.connect_rstable()
         try:
             # ------ step 1: download metadata.jwt ------ #
             _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
@@ -271,7 +279,7 @@ class OTAMetadata:
     def iter_dir_entries(
         self, *, batch_size: int = 256
     ) -> Generator[FileTableDirectories]:
-        _conn = self.connect_fstable(read_only=True)
+        _conn = self.connect_fstable()
         _ft_dir_orm = FTDirORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
@@ -281,7 +289,7 @@ class OTAMetadata:
     def iter_non_regular_entries(
         self, *, batch_size: int = 256
     ) -> Generator[FileTableNonRegularFiles]:
-        _conn = self.connect_fstable(read_only=True)
+        _conn = self.connect_fstable()
         _ft_dir_orm = FTNonRegularORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
@@ -291,7 +299,7 @@ class OTAMetadata:
     def iter_regular_entries(
         self, *, batch_size: int = 256
     ) -> Generator[FileTableRegularFiles]:
-        _conn = self.connect_fstable(read_only=True)
+        _conn = self.connect_fstable()
         _ft_dir_orm = FTRegularORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
@@ -301,7 +309,7 @@ class OTAMetadata:
     def iter_resource_entries(
         self, *, batch_size: int = 256
     ) -> Generator[ResourceTable]:
-        _conn = self.connect_rstable(read_only=True)
+        _conn = self.connect_rstable()
         _ft_dir_orm = RSTORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
@@ -312,7 +320,7 @@ class OTAMetadata:
         self, _digests: Iterator[bytes], *, batch_size: int = 256
     ) -> int:
         """For post delta calculation, remove the already prepared resources."""
-        _conn = self.connect_rstable(read_only=False)
+        _conn = self.connect_rstable()
         _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
             delete_from=RSTORM.table_name,
             where_cols=("digest",),
@@ -336,55 +344,40 @@ class OTAMetadata:
                         _delete_stmt,
                         ({"digest": _value} for _value in _batch),
                     )
+            with _conn as conn:
+                conn.execute("VACUUM;")
         finally:
             _conn.close()
 
         return _cnt
 
-    def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
-        _db_fpath = self._work_dir / self.FSTABLE_DB
-        if read_only:
-            _conn = sqlite3.connect(
-                f"file:{_db_fpath}?mode=ro",
-                uri=True,
-                check_same_thread=False,
-                timeout=DB_TIMEOUT,
-            )
-        else:
-            _conn = sqlite3.connect(
-                _db_fpath,
-                check_same_thread=False,
-                timeout=DB_TIMEOUT,
-            )
-            enable_wal_mode(_conn)
-
-        enable_mmap(_conn)
-        enable_tmp_store_at_memory(_conn)
+    def connect_fstable(self) -> sqlite3.Connection:
+        """NOTE: this method must be called in the main thread."""
+        _uri = f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared"
+        _conn = sqlite3.connect(
+            _uri,
+            uri=True,
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
+        enable_wal_mode(_conn)
         return _conn
 
-    def connect_rstable(self, *, read_only: bool) -> sqlite3.Connection:
-        _db_fpath = self._work_dir / self.RSTABLE_DB
-        if read_only:
-            _conn = sqlite3.connect(
-                f"file:{_db_fpath}?mode=ro",
-                uri=True,
-                check_same_thread=False,
-                timeout=DB_TIMEOUT,
-            )
-        else:
-            _conn = sqlite3.connect(
-                _db_fpath,
-                check_same_thread=False,
-                timeout=DB_TIMEOUT,
-            )
-            enable_wal_mode(_conn)
-
-        enable_mmap(_conn)
-        enable_tmp_store_at_memory(_conn)
+    def connect_rstable(self) -> sqlite3.Connection:
+        """NOTE: this method must be called in the main thread."""
+        _uri = f"file:{self.RSTABLE_DB_NAME}?mode=memory&cache=shared"
+        _conn = sqlite3.connect(
+            _uri,
+            uri=True,
+            check_same_thread=False,
+            timeout=DB_TIMEOUT,
+        )
+        enable_wal_mode(_conn)
         return _conn
 
     def save_fstable(self, dst: StrOrPath) -> None:
-        shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
+        """TODO: implement me!"""
+        # shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
 
 
 class ResourceMeta:
@@ -414,7 +407,7 @@ class ResourceMeta:
         self.download_size = self._get_download_size()
 
     def _get_download_list_len(self) -> int:
-        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _conn = self._ota_metadata.connect_rstable()
         _orm = RSTORM(_conn)
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=_orm.table_name,
@@ -432,7 +425,7 @@ class ResourceMeta:
             _conn.close()
 
     def _get_download_size(self):
-        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _conn = self._ota_metadata.connect_rstable()
         _orm = RSTORM(_conn)
 
         _sql_stmt = ResourceTable.table_select_stmt(
@@ -500,7 +493,7 @@ class ResourceMeta:
         self, *, batch_size: int
     ) -> Generator[DownloadInfo, None, None]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _conn = self._ota_metadata.connect_rstable()
         _orm = RSTORM(_conn)
         try:
             for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
