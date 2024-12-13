@@ -45,7 +45,7 @@ import shutil
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Callable, Generator, Iterator
+from typing import Callable, Generator
 from urllib.parse import quote
 
 from simple_sqlite3_orm.utils import enable_wal_mode, sort_and_replace
@@ -315,41 +315,6 @@ class OTAMetadata:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
             _conn.close()
-
-    def remove_entries_from_resource_table(
-        self, _digests: Iterator[bytes], *, batch_size: int = 256
-    ) -> int:
-        """For post delta calculation, remove the already prepared resources."""
-        _conn = self.connect_rstable()
-        _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
-            delete_from=RSTORM.table_name,
-            where_cols=("digest",),
-        )
-
-        _batch, _cnt = [], 0
-        try:
-            for _cnt, _digest in enumerate(_digests, start=1):
-                _batch.append(_digest)
-
-                if len(_batch) > batch_size:
-                    with _conn as conn:
-                        conn.executemany(
-                            _delete_stmt,
-                            ({"digest": _value} for _value in _batch),
-                        )
-                    _batch = []
-            if _batch:
-                with _conn as conn:
-                    conn.executemany(
-                        _delete_stmt,
-                        ({"digest": _value} for _value in _batch),
-                    )
-            with _conn as conn:
-                conn.execute("VACUUM;")
-        finally:
-            _conn.close()
-
-        return _cnt
 
     def connect_fstable(self) -> sqlite3.Connection:
         """NOTE: this method must be called in the main thread."""
