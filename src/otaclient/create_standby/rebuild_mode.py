@@ -17,27 +17,37 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import partial
 from pathlib import Path
 from queue import Queue
 from typing import Generator
 
-from ota_metadata.file_table._orm import (
-    FileTableNonRegularFilesORM,
-    FileTableRegularFilesORM,
-)
 from ota_metadata.file_table._table import (
+    FileTableDirectories,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
 )
 from ota_metadata.legacy.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
+from otaclient_common.logging import BurstSuppressFilter
 from otaclient_common.retry_task_map import (
     ThreadPoolExecutorWithRetry,
 )
 from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.process_error")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.process_error",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
+
 
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
@@ -62,39 +72,32 @@ class RebuildMode:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-    def _iter_regular_file_entries(
+    def _preprocess_regular_file_entries(
         self, *, batch_size: int
-    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]], None, None]:
+    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
         """Yield a group of regular file entries which have the same digest each time.
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
-        _ft_regulars_orm = FileTableRegularFilesORM(
-            self._ota_metadata.connect_fstable(read_only=True)
-        )
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        try:
-            for _entry in _ft_regulars_orm.orm_select_all_with_pagination(
-                batch_size=batch_size
-            ):
-                _this_digest = _entry.digest
-                if not cur_digest:
-                    cur_digest = _this_digest
-                    cur_digest_group.append(_entry)
-                    continue
+        for _entry in self._ota_metadata.iter_regular_entries(batch_size=batch_size):
+            _this_digest = _entry.digest
+            if not cur_digest:
+                cur_digest = _this_digest
+                cur_digest_group.append(_entry)
+                continue
 
-                if _this_digest != cur_digest:
-                    yield cur_digest, cur_digest_group
+            if _this_digest != cur_digest:
+                yield cur_digest, cur_digest_group
 
-                    cur_digest = _this_digest
-                    cur_digest_group = [_entry]
-                else:
-                    cur_digest_group.append(_entry)
+                cur_digest = _this_digest
+                cur_digest_group = [_entry]
+            else:
+                cur_digest_group.append(_entry)
+
             # NOTE: remember to yield the last group
             yield cur_digest, cur_digest_group
-        finally:
-            _ft_regulars_orm.orm_con.close()
 
     def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
         return entry.prepare_target(target_mnt=self._standby_slot_mp)
@@ -121,7 +124,7 @@ class RebuildMode:
         _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
         _normal: list[FileTableRegularFiles] = []
         for entry in entries:
-            if (_inode_group := entry.is_hardlink()) is not None:
+            if (_inode_group := entry.is_hardlinked()) is not None:
                 _entries_list = _hardlinked.setdefault(_inode_group, [])
                 _entries_list.append(entry)
             else:
@@ -170,93 +173,103 @@ class RebuildMode:
     def _process_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:
+        _next_commit_before, _batch_cnt = 0, 0
+        _merged_payload = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.APPLY_DELTA
+        )
+
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_size,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
-            _next_commit_before, _batch_cnt = 0, 0
-            _merged_payload = UpdateProgressReport(
-                operation=UpdateProgressReport.Type.APPLY_DELTA
+            for _done_count, _done in enumerate(
+                _mapper.ensure_tasks(
+                    func=self._process_one_regular_files_group,
+                    iterable=self._preprocess_regular_file_entries(
+                        batch_size=batch_size
+                    ),
+                )
+            ):
+                _now = int(time.time())
+                if _exc := _done.exception():
+                    burst_suppressed_logger.exception(
+                        f"file process failure detected: {_exc!r}, still retrying ..."
+                    )
+                    continue
+
+                _processed_files_num, _processed_files_size = _done.result()
+                _merged_payload.processed_file_num += _processed_files_num
+                _merged_payload.processed_file_size += _processed_files_size
+
+                if (
+                    _this_batch := _done_count // PROCESS_FILES_REPORT_BATCH
+                ) > _batch_cnt or _now > _next_commit_before:
+                    _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
+                    _batch_cnt = _this_batch
+
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=_merged_payload,
+                            session_id=self.session_id,
+                        )
+                    )
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.APPLY_DELTA
+                    )
+
+            # commit left-over items that cannot fill the batch
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
             )
 
-            try:
-                for _done_count, _done in enumerate(
-                    _mapper.ensure_tasks(
-                        func=self._process_one_regular_files_group,
-                        iterable=self._iter_regular_file_entries(batch_size=batch_size),
+    def _process_dir_entries(
+        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+    ) -> None:
+        logger.info("process directories ...")
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=batch_size,
+            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+        ) as _mapper:
+            for _done in _mapper.ensure_tasks(
+                func=partial(
+                    FileTableDirectories.prepare_target,
+                    target_mnt=self._standby_slot_mp,
+                ),
+                iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
+            ):
+                if _exc := _done.exception():
+                    burst_suppressed_logger.exception(
+                        f"dir process failed: {_exc!r}, still retrying ..."
                     )
-                ):
-                    _now = int(time.time())
-                    if _exc := _done.exception():
-                        logger.exception(
-                            f"file process failure detected: {_exc!r}, still retrying ..."
-                        )
-                        continue
-
-                    _processed_files_num, _processed_files_size = _done.result()
-                    _merged_payload.processed_file_num += _processed_files_num
-                    _merged_payload.processed_file_size += _processed_files_size
-
-                    if (
-                        _this_batch := _done_count // PROCESS_FILES_REPORT_BATCH
-                    ) > _batch_cnt or _now > _next_commit_before:
-                        _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
-                        _batch_cnt = _this_batch
-
-                        self._status_report_queue.put_nowait(
-                            StatusReport(
-                                payload=_merged_payload,
-                                session_id=self.session_id,
-                            )
-                        )
-                        _merged_payload = UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.APPLY_DELTA
-                        )
-
-                # commit left-over items that cannot fill the batch
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
-            except Exception as e:
-                logger.error(f"failed to finish up file processing: {e!r}")
-                raise
 
     def _process_non_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:
-        _ft_non_regular_orm = FileTableNonRegularFilesORM(
-            self._ota_metadata.connect_fstable(read_only=True)
-        )
-        try:
-            with ThreadPoolExecutorWithRetry(
-                max_concurrent=batch_size,
-                max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            ) as _mapper:
-                try:
-                    for _, _done in enumerate(
-                        _mapper.ensure_tasks(
-                            func=self._process_one_non_regular_file,
-                            iterable=_ft_non_regular_orm.orm_select_all_with_pagination(
-                                batch_size=batch_size
-                            ),
-                        )
-                    ):
-                        if _exc := _done.exception():
-                            logger.warning(
-                                f"file process failure detected: {_exc!r}, still retrying ..."
-                            )
-                            continue
-                except Exception as e:
-                    logger.error(f"failed to finish up file processing: {e!r}")
-                    raise
-        finally:
-            _ft_non_regular_orm.orm_con.close()
+        logger.info("process non regular file entries ...")
+        with ThreadPoolExecutorWithRetry(
+            max_concurrent=batch_size,
+            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+        ) as _mapper:
+            for _done in _mapper.ensure_tasks(
+                func=partial(
+                    FileTableNonRegularFiles.prepare_target,
+                    target_mnt=self._standby_slot_mp,
+                ),
+                iterable=self._ota_metadata.iter_non_regular_entries(
+                    batch_size=batch_size
+                ),
+            ):
+                if _exc := _done.exception():
+                    burst_suppressed_logger.exception(
+                        f"non-regular file process failed: {_exc!r}, still retrying ..."
+                    )
 
     # API
 
     def rebuild_standby(self) -> None:
+        self._process_dir_entries()
         self._process_non_regular_files()
         self._process_regular_files()
