@@ -56,8 +56,14 @@ from simple_sqlite3_orm.utils import (
 )
 
 from ota_metadata.file_table import (
-    FileTableNonRegularFilesORM,
-    FileTableRegularFilesORM,
+    FTNonRegularORM,
+    FTRegularORM,
+)
+from ota_metadata.file_table._orm import FTDirORM
+from ota_metadata.file_table._table import (
+    FileTableDirectories,
+    FileTableNonRegularFiles,
+    FileTableRegularFiles,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -75,7 +81,7 @@ from .parser import (
     MetadataJWTVerificationFailed,
     _MetadataJWTClaimsLayout,
 )
-from .rs_table import ResourceTable, ResourceTableORM
+from .rs_table import RSTORM, ResourceTable
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +103,8 @@ class OTAMetadata:
 
     ENTRY_POINT = "metadata.jwt"
     DIGEST_ALG = "sha256"
-    PERSIST_FNAME = "persists.txt"
-
     FSTABLE_DB = "file_table.sqlite3"
-    FSTABLE_DB_TABLE_NAME = "file_table"
-
     RSTABLE_DB = "resource_table.sqlite3"
-    RSTABLE_DB_TABLE_NAME = "resource_table"
 
     def __init__(
         self,
@@ -129,7 +130,8 @@ class OTAMetadata:
         self._total_regulars_num = 0
 
     @property
-    def metadata_jwt(self) -> _MetadataJWTClaimsLayout | None:
+    def metadata_jwt(self) -> _MetadataJWTClaimsLayout:
+        assert self._metadata_jwt, "metadata_jwt is not ready yet!"
         return self._metadata_jwt
 
     @property
@@ -211,29 +213,33 @@ class OTAMetadata:
                     return  # let the upper caller handles the failure
 
             # ------ step 4: parse OTA image metafiles ------ #
-            _ft_regular_orm = FileTableRegularFilesORM(_ft_db_conn)
+            _ft_regular_orm = FTRegularORM(_ft_db_conn)
             _ft_regular_orm.orm_create_table()
-
-            _ft_non_regular_orm = FileTableNonRegularFilesORM(_ft_db_conn)
+            _ft_dir_orm = FTDirORM(_ft_db_conn)
+            _ft_dir_orm.orm_create_table()
+            _ft_non_regular_orm = FTNonRegularORM(_ft_db_conn)
             _ft_non_regular_orm.orm_create_table()
 
-            _rs_orm = ResourceTableORM(_rs_db_conn)
+            _rs_orm = RSTORM(_rs_db_conn)
             _rs_orm.orm_create_table()
             try:
-                parse_dirs_from_csv_file(
+                _dirs_num = parse_dirs_from_csv_file(
                     str(self._download_folder / _metadata_jwt.directory.file),
-                    _ft_non_regular_orm,
+                    _ft_dir_orm,
                 )
-                parse_symlinks_from_csv_file(
+                _symlinks_num = parse_symlinks_from_csv_file(
                     str(self._download_folder / _metadata_jwt.symboliclink.file),
                     _ft_non_regular_orm,
                 )
-
-                self._total_regulars_num = parse_regulars_from_csv_file(
+                self._total_regulars_num = _regulars_num = parse_regulars_from_csv_file(
                     str(self._download_folder / _metadata_jwt.regular.file),
                     _orm=_ft_regular_orm,
                     _orm_rs=_rs_orm,
                 )
+                logger.info(
+                    f"csv parse finished: {_dirs_num=}, {_symlinks_num=}, {_regulars_num}"
+                )
+
                 # NOTE: also check file_table definition at ota_metadata.file_table._table
                 sort_and_replace(
                     _ft_regular_orm,  # type: ignore
@@ -250,15 +256,57 @@ class OTAMetadata:
 
             # ------ step 5: persist files list ------ #
             _persist_meta = self._download_folder / _metadata_jwt.persistent.file
-            shutil.move(str(_persist_meta), self._work_dir / self.PERSIST_FNAME)
+            shutil.move(str(_persist_meta), self._work_dir)
         finally:
             shutil.rmtree(self._download_folder, ignore_errors=True)
 
-    def iter_persist_entries(self) -> Generator[str, None, None]:
-        _persist_fpath = self._work_dir / self.PERSIST_FNAME
+    # helper methods
+
+    def iter_persist_entries(self) -> Generator[str]:
+        _persist_fpath = self._work_dir / self.metadata_jwt.persistent.file
         with open(_persist_fpath, "r") as f:
             for line in f:
                 yield line.strip()[1:-1]
+
+    def iter_dir_entries(
+        self, *, batch_size: int = 256
+    ) -> Generator[FileTableDirectories]:
+        _conn = self.connect_fstable(read_only=True)
+        _ft_dir_orm = FTDirORM(_conn)
+        try:
+            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
+        finally:
+            _conn.close()
+
+    def iter_non_regular_entries(
+        self, *, batch_size: int = 256
+    ) -> Generator[FileTableNonRegularFiles]:
+        _conn = self.connect_fstable(read_only=True)
+        _ft_dir_orm = FTNonRegularORM(_conn)
+        try:
+            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
+        finally:
+            _conn.close()
+
+    def iter_regular_entries(
+        self, *, batch_size: int = 256
+    ) -> Generator[FileTableRegularFiles]:
+        _conn = self.connect_fstable(read_only=True)
+        _ft_dir_orm = FTRegularORM(_conn)
+        try:
+            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
+        finally:
+            _conn.close()
+
+    def iter_resource_entries(
+        self, *, batch_size: int = 256
+    ) -> Generator[ResourceTable]:
+        _conn = self.connect_rstable(read_only=True)
+        _ft_dir_orm = RSTORM(_conn)
+        try:
+            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
+        finally:
+            _conn.close()
 
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
@@ -328,7 +376,7 @@ class ResourceMeta:
                 base_url, _compressed_data
             )
 
-        self._rs_orm = ResourceTableORM(ota_metadata.connect_rstable(read_only=True))
+        self._rs_orm = RSTORM(ota_metadata.connect_rstable(read_only=True))
         self._copy_dst = copy_dst
 
         self.download_list_len = self._get_download_list_len()
