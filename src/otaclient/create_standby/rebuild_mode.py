@@ -174,6 +174,8 @@ class RebuildMode:
             burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
             raise
 
+    # main entries for processing each type of files.
+
     def _process_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:

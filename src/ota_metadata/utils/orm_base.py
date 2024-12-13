@@ -59,6 +59,12 @@ class ORMPoolBase(ORMThreadPoolBase[TableSpecType]):
 
         return self._pool.submit(_inner).result()
 
+    def try_remove_entry(self, **kv: Any) -> int:
+        _res = self.orm_delete_entries(**kv).result()
+        # NOTE: return value must be int, as the return must be int as
+        #   no returning_stmt is provided.
+        return _res  # type: ignore
+
 
 class ORMBase(_ORMBase[TableSpecType]):
 
