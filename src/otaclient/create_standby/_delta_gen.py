@@ -43,7 +43,7 @@ CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
-DB_CONN_NUMS = 3
+DB_CONN_NUMS = 6
 
 
 class DeltaGenerator:
@@ -109,11 +109,19 @@ class DeltaGenerator:
         fully_scan: bool,
         thread_local,
     ) -> None:
-        # in default match_only mode, if the fpath doesn't exist in new, ignore
-        if not fully_scan and not self._ft_regular_orm.check_entry(
+        _db_entry = self._ft_regular_orm.orm_select_entry(
             path=str(canonical_fpath)
-        ):
+        ).result()
+        if not fully_scan and not _db_entry:
             return
+
+        # If we have this file's information in the new OTA image,
+        #   directly using this information to see if we have already prepared
+        #   the corresponding unique resource.
+        if _db_entry:
+            _digest_str = _db_entry.digest.hex()
+            if (self._copy_dst / _digest_str).is_file():
+                return
 
         tmp_f = self._copy_dst / create_tmp_fname()
 
@@ -126,6 +134,9 @@ class DeltaGenerator:
                     tmp_dst.write(hash_bufferview[:read_size])
 
             dst_f = self._copy_dst / hash_f.hexdigest()
+            # NOTE: if we found that the resource has already being prepared, don't prepare it again!
+            if dst_f.is_file():
+                return
 
             # If the resource we scan here is listed in the resouce table, copy it
             #   to the copy_dir at standby slot for later use.
