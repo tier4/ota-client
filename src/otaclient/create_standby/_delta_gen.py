@@ -35,8 +35,19 @@ from ota_metadata.legacy.rs_table import RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
+from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.process_file_error")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.process_file_error",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
@@ -145,6 +156,8 @@ class DeltaGenerator:
                         session_id=self.session_id,
                     )
                 )
+        except Exception as e:
+            burst_suppressed_logger.exception(f"failed to proces {fpath}: {e!r}")
         finally:
             tmp_f.unlink(missing_ok=True)
 
@@ -153,12 +166,8 @@ class DeltaGenerator:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
 
-    def _task_done_callback(self, fut: Future[Any]) -> None:
+    def _task_done_callback(self, _: Future[Any]) -> None:
         self._max_pending_tasks.release()  # always release se first
-        if exc := fut.exception():
-            logger.warning(
-                f"detect error during file preparing, still continue: {exc!r}"
-            )
 
     def _check_dir_should_fully_scan(self, dpath: Path) -> bool:
         for parent in reversed(dpath.parents):
@@ -205,16 +214,24 @@ class DeltaGenerator:
                     _canonical_root
                     / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
-                logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
-
-                if self._check_skip_dir(canonical_curdir_path):
-                    dirnames.clear()
-                    continue
 
                 # ------ check whether we should skip this folder ------ #
                 dir_should_fully_scan = self._check_dir_should_fully_scan(
                     canonical_curdir_path
                 )
+                dir_depth_exceeded = (
+                    len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH
+                )
+
+                _str_canon_fpath = str(canonical_curdir_path)
+                _should_skip_dir = dir_depth_exceeded or (
+                    _str_canon_fpath != CANONICAL_ROOT
+                    and not dir_should_fully_scan
+                    and not self._ft_dir_orm.orm_select_entry(path=_str_canon_fpath)
+                )
+                if _should_skip_dir:
+                    dirnames.clear()
+                    continue
 
                 # skip files that over the max_filenum_per_folder,
                 # and add these files to remove list
@@ -227,7 +244,6 @@ class DeltaGenerator:
                 # process the files under this dir
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
-                    logger.debug(f"[process_delta_src] process {delta_src_fpath}")
 
                     # ignore non-file file(include symlink)
                     # NOTE: for in-place update, we will recreate all the symlinks,
