@@ -157,6 +157,8 @@ class DeltaGenerator:
                         session_id=self.session_id,
                     )
                 )
+        except FileExistsError:
+            pass  # normal rountine when multiple threads entering the critical zone
         except Exception as e:
             burst_suppressed_logger.exception(f"failed to proces {fpath}: {e!r}")
         finally:
