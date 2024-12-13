@@ -213,9 +213,6 @@ class FileTableDirectories(TableSpec, FileTableBase):
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        _target_parent = _target_on_mnt.parent
-        _target_parent.mkdir(exist_ok=True, parents=True)
-
         _target_on_mnt.mkdir(exist_ok=True, parents=True)
         self.set_perm(_target_on_mnt)
         self.set_xattr(_target_on_mnt)
