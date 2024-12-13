@@ -193,7 +193,10 @@ class DeltaGenerator:
 
                     yield _digest
 
-        self._ota_metadata.remove_entries_from_resource_table(_dir_scan_gen())
+        _local_prepared_entries = self._ota_metadata.remove_entries_from_resource_table(
+            _dir_scan_gen()
+        )
+        logger.info(f"prepared {_local_prepared_entries} unique entries from local")
 
     # API
 

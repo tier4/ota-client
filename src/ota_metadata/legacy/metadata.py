@@ -310,7 +310,7 @@ class OTAMetadata:
 
     def remove_entries_from_resource_table(
         self, _digests: Iterator[bytes], *, batch_size: int = 256
-    ) -> None:
+    ) -> int:
         """For post delta calculation, remove the already prepared resources."""
         _conn = self.connect_rstable(read_only=False)
         _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
@@ -318,9 +318,9 @@ class OTAMetadata:
             where_cols=("digest",),
         )
 
-        _batch = []
+        _batch, _cnt = [], 0
         try:
-            for _digest in _digests:
+            for _cnt, _digest in enumerate(_digests, start=1):
                 _batch.append(_digest)
 
                 if len(_batch) > batch_size:
@@ -338,6 +338,8 @@ class OTAMetadata:
                     )
         finally:
             _conn.close()
+
+        return _cnt
 
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB

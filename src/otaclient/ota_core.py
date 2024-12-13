@@ -72,6 +72,7 @@ from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
 from otaclient.create_standby._delta_gen import DeltaGenerator
 from otaclient.create_standby.rebuild_mode import RebuildMode
+from otaclient_common import human_readable_size
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -565,7 +566,7 @@ class _OTAUpdater:
         logger.info(
             f"delta calculation finished: \n"
             f"download_list len: {resource_meta.download_list_len} \n"
-            f"sum of original size of all resources to be downloaded: {resource_meta.download_size}"
+            f"sum of original size of all resources to be downloaded: {human_readable_size(resource_meta.download_size)}"
         )
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -576,6 +577,8 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
+
+        logger.info("start to download resources ...")
         try:
             self._download_resources(resource_meta)
         except TasksEnsureFailed:
