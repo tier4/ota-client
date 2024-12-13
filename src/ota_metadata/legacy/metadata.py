@@ -237,7 +237,7 @@ class OTAMetadata:
                     _orm_rs=_rs_orm,
                 )
                 logger.info(
-                    f"csv parse finished: {_dirs_num=}, {_symlinks_num=}, {_regulars_num}"
+                    f"csv parse finished: {_dirs_num=}, {_symlinks_num=}, {_regulars_num=}"
                 )
 
                 # NOTE: also check file_table definition at ota_metadata.file_table._table
