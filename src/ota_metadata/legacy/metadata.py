@@ -45,7 +45,7 @@ import shutil
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Iterator
 from urllib.parse import quote
 
 from simple_sqlite3_orm.utils import (
@@ -308,6 +308,37 @@ class OTAMetadata:
         finally:
             _conn.close()
 
+    def remove_entries_from_resource_table(
+        self, _digests: Iterator[bytes], *, batch_size: int = 256
+    ) -> None:
+        """For post delta calculation, remove the already prepared resources."""
+        _conn = self.connect_rstable(read_only=False)
+        _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
+            delete_from=RSTORM.table_name,
+            where_cols=("digest",),
+        )
+
+        _batch = []
+        try:
+            for _digest in _digests:
+                _batch.append(_digest)
+
+                if len(_batch) > batch_size:
+                    with _conn as conn:
+                        conn.executemany(
+                            _delete_stmt,
+                            ({"digest": _value} for _value in _batch),
+                        )
+                    _batch = []
+            if _batch:
+                with _conn as conn:
+                    conn.executemany(
+                        _delete_stmt,
+                        ({"digest": _value} for _value in _batch),
+                    )
+        finally:
+            _conn.close()
+
     def connect_fstable(self, *, read_only: bool) -> sqlite3.Connection:
         _db_fpath = self._work_dir / self.FSTABLE_DB
         if read_only:
@@ -363,52 +394,60 @@ class ResourceMeta:
         ota_metadata: OTAMetadata,
         copy_dst: Path,
     ) -> None:
-        _metadata_jwt = ota_metadata.metadata_jwt
-        assert _metadata_jwt, "ota_metadata loading is not finished!"
+        self._ota_metadata = ota_metadata
 
         self.base_url = base_url
         self.data_dir_url = urljoin_ensure_base(
-            base_url, _metadata_jwt.rootfs_directory
+            base_url, ota_metadata.metadata_jwt.rootfs_directory
         )
         self.compressed_data_dir_url = None
-        if _compressed_data := _metadata_jwt.compressed_rootfs_directory:
+        if _compressed_data := ota_metadata.metadata_jwt.compressed_rootfs_directory:
             self.compressed_data_dir_url = urljoin_ensure_base(
                 base_url, _compressed_data
             )
 
-        self._rs_orm = RSTORM(ota_metadata.connect_rstable(read_only=True))
         self._copy_dst = copy_dst
 
         self.download_list_len = self._get_download_list_len()
         self.download_size = self._get_download_size()
 
     def _get_download_list_len(self) -> int:
-        _orm = self._rs_orm
+        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _orm = RSTORM(_conn)
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=_orm.table_name,
             function="count",
         )
-        _query = self._rs_orm.orm_con.execute(_sql_stmt)
-        _raw_res = _query.fetchone()
-        # NOTE: return value of fetchone will be a tuple, and here
-        #   the first and only value of the tuple is the total nums of entries.
-        assert isinstance(_raw_res, tuple) and _raw_res
-        return _raw_res[0]
+
+        try:
+            _query = _orm.orm_con.execute(_sql_stmt)
+            _raw_res = _query.fetchone()
+            # NOTE: return value of fetchone will be a tuple, and here
+            #   the first and only value of the tuple is the total nums of entries.
+            assert isinstance(_raw_res, tuple) and _raw_res
+            return _raw_res[0]
+        finally:
+            _conn.close()
 
     def _get_download_size(self):
-        _orm = self._rs_orm
+        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _orm = RSTORM(_conn)
 
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=_orm.table_name,
             select_cols=("original_size",),
             function="sum",
         )
-        _query = _orm.orm_con.execute(_sql_stmt)
-        _raw_res = _query.fetchone()
-        # NOTE: return value of fetchone will be a tuple, and here
-        #   the first and only value of the tuple is the total nums of entries.
-        assert isinstance(_raw_res, tuple) and _raw_res
-        return _raw_res[0]
+
+        try:
+            _query = _orm.orm_con.execute(_sql_stmt)
+            _raw_res = _query.fetchone()
+            # NOTE: return value of fetchone will be a tuple, and here
+            #   the first and only value of the tuple is the total nums of entries.
+            assert isinstance(_raw_res, tuple) and _raw_res
+            return _raw_res[0]
+        finally:
+            _conn.close()
 
     # API
 
@@ -459,5 +498,10 @@ class ResourceMeta:
         self, *, batch_size: int
     ) -> Generator[DownloadInfo, None, None]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        for entry in self._rs_orm.iter_all_with_shuffle(batch_size=batch_size):
-            yield self.get_download_info(entry)
+        _conn = self._ota_metadata.connect_rstable(read_only=True)
+        _orm = RSTORM(_conn)
+        try:
+            for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
+                yield self.get_download_info(entry)
+        finally:
+            _conn.close()
