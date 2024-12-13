@@ -47,6 +47,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Generator
 from urllib.parse import quote
+from weakref import WeakSet
 
 from simple_sqlite3_orm.utils import sort_and_replace
 
@@ -124,6 +125,8 @@ class OTAMetadata:
         self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
 
+        self._fst_conn_weakref: WeakSet[sqlite3.Connection] = WeakSet()
+        self._rst_conn_wearkref: WeakSet[sqlite3.Connection] = WeakSet()
         # NOTE(20241213): for performance consideration, we now use in-memory databases.
         # NOTE: keep at least one open connection all the time to prevent db being gced.
         self._fst_conn = self.connect_fstable()
@@ -306,6 +309,7 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
+        self._fst_conn_weakref.add(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
@@ -317,11 +321,20 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
+        self._rst_conn_wearkref.add(_conn)
         return _conn
 
     def save_fstable(self, dst: StrOrPath) -> None:
         """TODO: implement me!"""
         # shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
+
+    def close_all_rst_conns(self) -> None:
+        for _conn in self._rst_conn_wearkref:
+            _conn.close()
+
+    def close_all_fst_conns(self) -> None:
+        for _conn in self._fst_conn_weakref:
+            _conn.close()
 
 
 def conns_factory(
