@@ -191,7 +191,7 @@ class DeltaGenerator:
 
         _delete_batches = []
         try:
-            with os.scandir(self._copy_dst) as it:
+            with os.scandir(self._copy_dst) as it, _rs_conn as conn:
                 for entry in it:
                     entry_name = entry.name
                     if len(entry_name) != SHA256HEXSTRINGLEN:
@@ -204,11 +204,17 @@ class DeltaGenerator:
 
                     _delete_batches.append(_digest)
                     if len(_delete_batches) > DELETE_BATCH_SIZE:
-                        with _rs_conn as conn:
-                            conn.executemany(
-                                _delete_stmt,
-                                ({"digest": _value} for _value in _delete_batches),
-                            )
+                        conn.executemany(
+                            _delete_stmt,
+                            ({"digest": _value} for _value in _delete_batches),
+                        )
+                        _delete_batches = []
+
+                # remember the last batch!
+                conn.executemany(
+                    _delete_stmt,
+                    ({"digest": _value} for _value in _delete_batches),
+                )
         finally:
             _rs_conn.close()
 
@@ -293,4 +299,5 @@ class DeltaGenerator:
             self._ft_dir_orm.orm_con.close()
             self._rst_orm_pool.orm_pool_shutdown()
 
+        logger.info("post delta calculation ...")
         self._post_calculate_delta()
