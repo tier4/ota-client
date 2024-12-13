@@ -269,9 +269,7 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(
-        self, *, batch_size: int = 256
-    ) -> Generator[FileTableDirectories]:
+    def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
         _conn = self.connect_fstable()
         _ft_dir_orm = FTDirORM(_conn)
         try:
@@ -280,7 +278,7 @@ class OTAMetadata:
             _conn.close()
 
     def iter_non_regular_entries(
-        self, *, batch_size: int = 256
+        self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
         _conn = self.connect_fstable()
         _ft_dir_orm = FTNonRegularORM(_conn)
@@ -290,7 +288,7 @@ class OTAMetadata:
             _conn.close()
 
     def iter_regular_entries(
-        self, *, batch_size: int = 256
+        self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         _conn = self.connect_fstable()
         _ft_dir_orm = FTRegularORM(_conn)
