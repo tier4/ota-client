@@ -13,15 +13,22 @@
 # limitations under the License.
 
 
-from ._orm import FileTableNonRegularFilesORM, FileTableRegularFilesORM
-from ._table import FileTableNonRegularFiles, FileTableRegularFiles
+from ._orm import FTDirORM, FTNonRegularORM, FTRegularORM, FTRegularORMPool
+from ._table import (
+    FileTableDirectories,
+    FileTableNonRegularFiles,
+    FileTableRegularFiles,
+)
 from ._types import InodeTable, Xattr
 
 __all__ = [
-    "FileTableNonRegularFilesORM",
-    "FileTableRegularFilesORM",
+    "FTNonRegularORM",
+    "FTRegularORM",
+    "FTDirORM",
+    "FTRegularORMPool",
     "FileTableNonRegularFiles",
     "FileTableRegularFiles",
+    "FileTableDirectories",
     "InodeTable",
     "Xattr",
 ]
