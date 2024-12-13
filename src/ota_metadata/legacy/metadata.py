@@ -124,8 +124,8 @@ class OTAMetadata:
         self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
 
-        self._fst_conn_weakref: set[sqlite3.Connection] = set()
-        self._rst_conn_wearkref: set[sqlite3.Connection] = set()
+        self._fst_conns_set: set[sqlite3.Connection] = set()
+        self._rst_conns_set: set[sqlite3.Connection] = set()
         # NOTE(20241213): for performance consideration, we now use in-memory databases.
         # NOTE: keep at least one open connection all the time to prevent db being gced.
         self._fst_conn = self.connect_fstable()
@@ -308,7 +308,7 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
-        self._fst_conn_weakref.add(_conn)
+        self._fst_conns_set.add(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
@@ -320,7 +320,7 @@ class OTAMetadata:
             check_same_thread=False,
             timeout=DB_TIMEOUT,
         )
-        self._rst_conn_wearkref.add(_conn)
+        self._rst_conns_set.add(_conn)
         return _conn
 
     def save_fstable(self, dst: StrOrPath) -> None:
@@ -328,12 +328,14 @@ class OTAMetadata:
         # shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
 
     def close_all_rst_conns(self) -> None:
-        for _conn in self._rst_conn_wearkref:
+        for _conn in self._rst_conns_set:
             _conn.close()
+        self._rst_conns_set.clear()
 
     def close_all_fst_conns(self) -> None:
-        for _conn in self._fst_conn_weakref:
+        for _conn in self._fst_conns_set:
             _conn.close()
+        self._fst_conns_set.clear()
 
 
 def conns_factory(

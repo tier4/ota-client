@@ -678,6 +678,8 @@ class _OTAUpdater:
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
+            self._ota_metadata.close_all_fst_conns()
+            self._ota_metadata.close_all_rst_conns()
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
