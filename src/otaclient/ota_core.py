@@ -592,9 +592,6 @@ class _OTAUpdater:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
 
-        # at this point resource_table is not needed anymore
-        self._ota_metadata.close_all_rst_conns()
-
         # ------ apply update ------ #
         logger.info("start to apply changes to standby slot...")
         self._status_report_queue.put_nowait(
@@ -614,9 +611,6 @@ class _OTAUpdater:
             resource_dir=self._resource_dir_on_standby,
         )
         standby_slot_creator.rebuild_standby()
-
-        # at this point file_tables are not needed anymore
-        self._ota_metadata.close_all_fst_conns()
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
