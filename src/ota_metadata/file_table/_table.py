@@ -69,8 +69,11 @@ class FileTableBase(BaseModel):
     It contains a dict of xattr names and xattr values.
     """
 
-    def _set_xattr(self, _target: StrOrPath) -> None:
-        """NOTE: this method always don't follow symlink."""
+    def set_xattr(self, _target: StrOrPath) -> None:
+        """Set the xattr of self onto the <_target>.
+
+        NOTE: this method always don't follow symlink.
+        """
         if xattrs := self.xattrs:
             for k, v in xattrs.items():
                 os.setxattr(
@@ -80,8 +83,11 @@ class FileTableBase(BaseModel):
                     follow_symlinks=False,
                 )
 
-    def _set_perm(self, _target: StrOrPath) -> None:
-        """NOTE: this method always don't follow symlink."""
+    def set_perm(self, _target: StrOrPath) -> None:
+        """Set the mode,uid,gid of self onto the <_target>.
+
+        NOTE: this method always don't follow symlink.
+        """
         inode_table = self.inode
         # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
         #   changing mode of symlink will even result in exception raised.
@@ -92,6 +98,7 @@ class FileTableBase(BaseModel):
         )
 
     def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
+        """Return the fpath of self joined to <target_mnt>."""
         _canonical_path = Path(self.path)
         _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
         return _target_on_mnt
@@ -125,8 +132,8 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
 
         if prepare_method == "copy":
             shutil.copy(_rs, _target_on_mnt)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
 
         elif prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
@@ -134,13 +141,13 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
             # NOTE: although we actually don't need to set_perm and set_xattr everytime
             #   to file paths point to the same inode, for simplicity here we just
             #   do it everytime.
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
 
         elif prepare_method == "move":
             shutil.move(str(_rs), _target_on_mnt)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
 
 
 class FileTableNonRegularFiles(TableSpec, FileTableBase):
@@ -178,15 +185,15 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
             assert (_symlink_target_raw := self.contents), f"invalid entry {self}"
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         if stat.S_ISCHR(_mode):
             _device_num = os.makedev(0, 0)
             os.mknod(_target_on_mnt, mode=_mode, device=_device_num)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         raise ValueError(f"invalid entry {self}")
@@ -207,7 +214,7 @@ class FileTableDirectories(TableSpec, FileTableBase):
         _mode = inode_table.mode
         if stat.S_ISDIR(_mode):
             _target_on_mnt.mkdir(exist_ok=True, parents=True)
-            self._set_perm(_target_on_mnt)
-            self._set_xattr(_target_on_mnt)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
         raise ValueError(f"invalid entry {self}")
