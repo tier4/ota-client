@@ -31,7 +31,7 @@ from ota_metadata.file_table._orm import (
     FTDirORM,
     FTRegularORMPool,
 )
-from ota_metadata.legacy.metadata import OTAMetadata
+from ota_metadata.legacy.metadata import OTAMetadata, conns_factory
 from ota_metadata.legacy.rs_table import RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
@@ -85,14 +85,15 @@ class DeltaGenerator:
         self._copy_dst = copy_dst
 
         # NOTE: we only need one thread for checking directory against database.
-        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable(read_only=True))
+        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable())
+        
         self._ft_regular_orm = FTRegularORMPool(
-            con_factory=partial(ota_metadata.connect_fstable, read_only=True),
+            con_factory=conns_factory(DB_CONN_NUMS, con_maker=ota_metadata.connect_fstable),
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_orm_pool",
         )
         self._rst_orm_pool = RSTableORMThreadPool(
-            con_factory=partial(ota_metadata.connect_rstable, read_only=True),
+            con_factory=conns_factory(DB_CONN_NUMS, con_maker=ota_metadata.connect_rstable),
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
