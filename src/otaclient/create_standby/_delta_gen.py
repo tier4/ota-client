@@ -138,7 +138,6 @@ class DeltaGenerator:
             return
 
         tmp_f = self._copy_dst / create_tmp_fname()
-
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
@@ -177,7 +176,7 @@ class DeltaGenerator:
                 )
         except Exception as e:
             burst_suppressed_logger.exception(
-                f"failed to process {delta_src_fpath}: {e!r}"
+                f"failed to process {delta_src_fpath}: {e!r}, skip"
             )
         finally:
             tmp_f.unlink(missing_ok=True)
@@ -195,16 +194,6 @@ class DeltaGenerator:
             if str(parent) in self.FULL_SCAN_PATHS:
                 return True
         return False
-
-    def _check_skip_dir(self, canon_path: Path, dir_should_fully_scan: bool) -> bool:
-        dir_depth_exceeded = len(canon_path.parents) > self.MAX_FOLDER_DEEPTH
-
-        _dpath = str(canon_path)
-        return dir_depth_exceeded or (
-            _dpath != CANONICAL_ROOT
-            and not dir_should_fully_scan
-            and not self._ft_dir_orm.check_entry("path", path=_dpath)
-        )
 
     def _wait_for_rst_db_ready(self):
         for idx in range(10):
@@ -251,8 +240,18 @@ class DeltaGenerator:
                 dir_should_fully_scan = self._check_dir_should_fully_scan(
                     canonical_curdir_path
                 )
+                dir_depth_exceeded = (
+                    len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH
+                )
 
-                if self._check_skip_dir(canonical_curdir_path, dir_should_fully_scan):
+                should_skip_dir = dir_depth_exceeded or (
+                    str(canonical_curdir_path) != CANONICAL_ROOT
+                    and not dir_should_fully_scan
+                    and not self._ft_dir_orm.check_entry(
+                        "path", path=str(canonical_curdir_path)
+                    )
+                )
+                if should_skip_dir:
                     dirnames.clear()
                     continue
 
