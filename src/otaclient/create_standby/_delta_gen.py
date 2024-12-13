@@ -54,7 +54,6 @@ CANONICAL_ROOT = cfg.CANONICAL_ROOT
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
 DB_CONN_NUMS = 3
-DB_WRITE_CONN_NUMS = 1  # serializing access
 
 
 class DeltaGenerator:
@@ -106,9 +105,9 @@ class DeltaGenerator:
         )
         self._rst_orm_pool = RSTableORMThreadPool(
             con_factory=conns_factory(
-                DB_WRITE_CONN_NUMS, con_maker=ota_metadata.connect_rstable
+                DB_CONN_NUMS, con_maker=ota_metadata.connect_rstable
             ),
-            number_of_cons=DB_WRITE_CONN_NUMS,
+            number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
 
