@@ -15,74 +15,32 @@
 
 from __future__ import annotations
 
-from sqlite3 import Connection
-from typing import Any, Callable, ClassVar, Literal, TypeVar
+from typing import ClassVar, Literal
 
-from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase, TableSpec
+from ota_metadata.utils.orm_base import ORMBase, ORMPoolBase
 
-from ._table import FileTableNonRegularFiles, FileTableRegularFiles
-
-TableSpecType = TypeVar("TableSpecType", bound=TableSpec)
-
-
-class FileTableRegularFilesORM(ORMBase[FileTableRegularFiles]):
-
-    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
-
-    def __init__(
-        self,
-        con: Connection,
-        schema_name: str | None | Literal["temp"] = None,
-    ) -> None:
-        super().__init__(con, table_name=self.table_name, schema_name=schema_name)
+from ._table import (
+    FileTableDirectories,
+    FileTableNonRegularFiles,
+    FileTableRegularFiles,
+)
 
 
-class FTRegularORMThreadPool(ORMThreadPoolBase[FileTableRegularFiles]):
+class FTRegularORM(ORMBase[FileTableRegularFiles]):
 
     table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
 
-    def __init__(
-        self,
-        schema_name: str | None = None,
-        *,
-        con_factory: Callable[[], Connection],
-        number_of_cons: int,
-        thread_name_prefix: str = "",
-    ) -> None:
-        super().__init__(
-            table_name=self.table_name,
-            schema_name=schema_name,
-            con_factory=con_factory,
-            number_of_cons=number_of_cons,
-            thread_name_prefix=thread_name_prefix,
-        )
 
-    def check_entry(self, **kv: Any) -> bool:
-        """A quick method to check if an entry exists."""
-        _sql_stmt = self.orm_table_spec.table_select_stmt(
-            select_from=self.orm_table_name,
-            select_cols="*",
-            function="count",
-            where_cols=tuple(kv),
-        )
+class FTRegularORMPool(ORMPoolBase[FileTableRegularFiles]):
 
-        def _inner():
-            with self._con as conn:
-                _cur = conn.execute(_sql_stmt, kv)
-                _cur.row_factory = None
-                _res: tuple[int] = _cur.fetchone()
-                return _res[0] > 0
-
-        return self._pool.submit(_inner).result()
+    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
 
 
-class FileTableNonRegularFilesORM(ORMBase[FileTableNonRegularFiles]):
+class FTNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     table_name: ClassVar[Literal["ft_non_regular"]] = "ft_non_regular"
 
-    def __init__(
-        self,
-        con: Connection,
-        schema_name: str | None | Literal["temp"] = None,
-    ) -> None:
-        super().__init__(con, table_name=self.table_name, schema_name=schema_name)
+
+class FTDirORM(ORMBase[FileTableDirectories]):
+
+    table_name: ClassVar[Literal["ft_dir"]] = "ft_dir"
