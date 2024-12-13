@@ -144,8 +144,9 @@ class DeltaGenerator:
 
             # If the resource we scan here is listed in the resouce table, copy it
             #   to the copy_dir at standby slot for later use.
-            if self._rst_orm_pool.try_remove_entry(digest=hash_f.digest()) > 0:
-                tmp_f.rename(dst_f)
+            if self._rst_orm_pool.check_entry(digest=hash_f.digest()):
+                dst_f.touch(exist_ok=False)  # take the seat ASAP
+                tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
                 self._status_report_queue.put_nowait(
                     StatusReport(
                         payload=UpdateProgressReport(
