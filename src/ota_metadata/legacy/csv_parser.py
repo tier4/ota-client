@@ -21,13 +21,14 @@ import stat
 
 from ota_metadata.file_table import (
     FileTableNonRegularFiles,
-    FileTableNonRegularFilesORM,
     FileTableRegularFiles,
-    FileTableRegularFilesORM,
+    FTDirORM,
+    FTNonRegularORM,
+    FTRegularORM,
     InodeTable,
 )
 
-from .rs_table import ResourceTable, ResourceTableORM
+from .rs_table import RSTORM, ResourceTable
 
 BATCH_SIZE = 2048
 
@@ -51,7 +52,7 @@ _reginf_pa = re.compile(
 )
 
 
-def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> int:
+def parse_dirs_from_csv_file(_fpath: str, _orm: FTDirORM) -> int:
     """Compatibility to the plaintext dirs.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
@@ -83,7 +84,7 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> 
         return _idx
 
 
-def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM) -> int:
+def parse_symlinks_from_csv_file(_fpath: str, _orm: FTNonRegularORM) -> int:
     """Compatibility to the plaintext symlinks.txt."""
     _batch, _batch_cnt = [], 0
     with open(_fpath, "r") as f:
@@ -118,7 +119,7 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FileTableNonRegularFilesORM)
 
 
 def parse_regulars_from_csv_file(
-    _fpath: str, _orm: FileTableRegularFilesORM, _orm_rs: ResourceTableORM
+    _fpath: str, _orm: FTRegularORM, _orm_rs: RSTORM
 ) -> int:
     """Compatibility to the plaintext regulars.txt."""
     _batch, _batch_rs, _batch_cnt = [], [], 0
