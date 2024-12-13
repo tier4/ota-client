@@ -17,18 +17,17 @@
 from __future__ import annotations
 
 import random
-from sqlite3 import Connection
-from typing import Any, Callable, ClassVar, Generator, Literal, Optional
+from typing import Any, ClassVar, Generator, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
-    ORMBase,
     TableSpec,
     TypeAffinityRepr,
 )
-from simple_sqlite3_orm._orm import ORMThreadPoolBase
 from typing_extensions import Annotated, Self
+
+from ota_metadata.utils.orm_base import ORMBase, ORMPoolBase
 
 
 class ResourceTable(TableSpec):
@@ -74,16 +73,9 @@ class ResourceTable(TableSpec):
         return hash(self.digest)
 
 
-class ResourceTableORM(ORMBase[ResourceTable]):
+class RSTORM(ORMBase[ResourceTable]):
 
-    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
-
-    def __init__(
-        self,
-        con: Connection,
-        schema_name: str | None | Literal["temp"] = None,
-    ) -> None:
-        super().__init__(con, self.table_name, schema_name)
+    table_name: ClassVar[Literal["rs_table"]] = "rs_table"
 
     def iter_all_with_shuffle(
         self, *, batch_size: int
@@ -103,40 +95,6 @@ class ResourceTableORM(ORMBase[ResourceTable]):
         yield from _this_batch
 
 
-class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
+class RSTableORMThreadPool(ORMPoolBase[ResourceTable]):
 
-    table_name: ClassVar[Literal["resource_table"]] = "resource_table"
-
-    def __init__(
-        self,
-        schema_name: str | None = None,
-        *,
-        con_factory: Callable[[], Connection],
-        number_of_cons: int,
-        thread_name_prefix: str = "",
-    ) -> None:
-        super().__init__(
-            self.table_name,
-            schema_name,
-            con_factory=con_factory,
-            number_of_cons=number_of_cons,
-            thread_name_prefix=thread_name_prefix,
-        )
-
-    def check_entry(self, **kv: Any) -> bool:
-        """A quick method to check if an entry exists."""
-        _sql_stmt = self.orm_table_spec.table_select_stmt(
-            select_from=self.orm_table_name,
-            select_cols="*",
-            function="count",
-            where_cols=tuple(kv),
-        )
-
-        def _inner():
-            with self._con as conn:
-                _cur = conn.execute(_sql_stmt, kv)
-                _cur.row_factory = None
-                _res: tuple[int] = _cur.fetchone()
-                return _res[0] > 0
-
-        return self._pool.submit(_inner).result()
+    table_name: ClassVar[Literal["rs_table"]] = "rs_table"
