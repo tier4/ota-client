@@ -232,37 +232,23 @@ class RebuildMode:
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:
         logger.info("process directories ...")
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-        ) as _mapper:
-            for _ in _mapper.ensure_tasks(
-                func=partial(
-                    FileTableDirectories.prepare_target,
-                    target_mnt=self._standby_slot_mp,
-                ),
-                iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
-            ):
-                """no need to process the result here."""
+        _func = partial(
+            FileTableDirectories.prepare_target,
+            target_mnt=self._standby_slot_mp,
+        )
+        for entry in self._ota_metadata.iter_dir_entries(batch_size=batch_size):
+            _func(entry)
 
     def _process_non_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
     ) -> None:
         logger.info("process non regular file entries ...")
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-        ) as _mapper:
-            for _ in _mapper.ensure_tasks(
-                func=partial(
-                    FileTableNonRegularFiles.prepare_target,
-                    target_mnt=self._standby_slot_mp,
-                ),
-                iterable=self._ota_metadata.iter_non_regular_entries(
-                    batch_size=batch_size
-                ),
-            ):
-                """no need to process the result here."""
+        _func = partial(
+            FileTableNonRegularFiles.prepare_target,
+            target_mnt=self._standby_slot_mp,
+        )
+        for entry in self._ota_metadata.iter_non_regular_entries(batch_size=batch_size):
+            _func(entry)
 
     # API
 
