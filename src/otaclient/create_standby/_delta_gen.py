@@ -31,7 +31,7 @@ from ota_metadata.file_table._orm import (
     FTRegularORMPool,
 )
 from ota_metadata.legacy.metadata import OTAMetadata, conns_factory
-from ota_metadata.legacy.rs_table import RSTableORMThreadPool
+from ota_metadata.legacy.rs_table import RSTORM, RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -176,6 +176,40 @@ class DeltaGenerator:
                 return True
         return False
 
+    def _post_calculate_delta(self) -> None:
+        """
+        After all the local resources have been collected, we check the copy_dir
+            and remove presented entries from resource table.
+        """
+        _rs_conn = self._ota_metadata.connect_rstable()
+        _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
+            delete_from=RSTORM.table_name,
+            where_cols=("digest",),
+        )
+
+        _delete_batches = []
+        try:
+            with os.scandir(self._copy_dst) as it:
+                for entry in it:
+                    entry_name = entry.name
+                    if len(entry_name) != SHA256HEXSTRINGLEN:
+                        continue
+
+                    try:
+                        _digest = bytes.fromhex(entry_name)
+                    except Exception:
+                        continue
+
+                    _delete_batches.append(_digest)
+                    if len(_delete_batches) > DELETE_BATCH_SIZE:
+                        with _rs_conn as conn:
+                            conn.executemany(
+                                _delete_stmt,
+                                ({"digest": _value} for _value in _delete_batches),
+                            )
+        finally:
+            _rs_conn.close()
+
     # API
 
     def calculate_delta(self) -> None:
@@ -256,3 +290,5 @@ class DeltaGenerator:
             self._ft_regular_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
             self._rst_orm_pool.orm_pool_shutdown()
+
+        self._post_calculate_delta()
