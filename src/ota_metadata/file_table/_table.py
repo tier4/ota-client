@@ -89,10 +89,12 @@ class FileTableBase(BaseModel):
         NOTE: this method always don't follow symlink.
         """
         inode_table = self.inode
-        os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
+        # NOTE(20241213): chown will reset the sticky bit of the file!!!
+        #   Remember to always put chown before chmod !!!
         os.chown(
             _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
         )
+        os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
 
     def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
         """Return the fpath of self joined to <target_mnt>."""
@@ -168,13 +170,16 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
         NOTE: this method always don't follow symlink.
         """
         inode_table = self.inode
+
+        # NOTE(20241213): chown will reset the sticky bit of the file!!!
+        #   Remember to always put chown before chmod !!!
+        os.chown(
+            _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
+        )
         # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
         #   changing mode of symlink will even result in exception raised.
         if not stat.S_ISLNK(inode_table.mode):
             os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
-        os.chown(
-            _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
-        )
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
