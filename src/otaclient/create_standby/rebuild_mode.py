@@ -192,7 +192,7 @@ class RebuildMode:
             ):
                 _now = int(time.time())
                 if _exc := _done.exception():
-                    burst_suppressed_logger.exception(
+                    burst_suppressed_logger.warning(
                         f"file process failure detected: {_exc!r}, still retrying ..."
                     )
                     continue
@@ -241,7 +241,7 @@ class RebuildMode:
                 iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
             ):
                 if _exc := _done.exception():
-                    burst_suppressed_logger.exception(
+                    burst_suppressed_logger.warning(
                         f"dir process failed: {_exc!r}, still retrying ..."
                     )
 
@@ -263,7 +263,7 @@ class RebuildMode:
                 ),
             ):
                 if _exc := _done.exception():
-                    burst_suppressed_logger.exception(
+                    burst_suppressed_logger.warning(
                         f"non-regular file process failed: {_exc!r}, still retrying ..."
                     )
 
