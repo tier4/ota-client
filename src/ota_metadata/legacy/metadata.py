@@ -126,16 +126,8 @@ class OTAMetadata:
 
         # NOTE(20241213): for performance consideration, we now use in-memory databases.
         # NOTE: keep at least one open connection all the time to prevent db being gced.
-        self._fst_conn = sqlite3.connect(
-            f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared",
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
-        )
-        self._rst_conn = sqlite3.connect(
-            f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared",
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
-        )
+        self._fst_conn = self.connect_fstable()
+        self._rst_conn = self.connect_rstable()
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
@@ -159,8 +151,6 @@ class OTAMetadata:
         While the caller downloading the metadata files one by one, this method
             will parse and verify the metadata.
         """
-        _ft_db_conn = self.connect_fstable()
-        _rs_db_conn = self.connect_rstable()
         try:
             # ------ step 1: download metadata.jwt ------ #
             _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
@@ -221,14 +211,14 @@ class OTAMetadata:
                     return  # let the upper caller handles the failure
 
             # ------ step 4: parse OTA image metafiles ------ #
-            _ft_regular_orm = FTRegularORM(_ft_db_conn)
+            _ft_regular_orm = FTRegularORM(self._fst_conn)
             _ft_regular_orm.orm_create_table()
-            _ft_dir_orm = FTDirORM(_ft_db_conn)
+            _ft_dir_orm = FTDirORM(self._fst_conn)
             _ft_dir_orm.orm_create_table()
-            _ft_non_regular_orm = FTNonRegularORM(_ft_db_conn)
+            _ft_non_regular_orm = FTNonRegularORM(self._fst_conn)
             _ft_non_regular_orm.orm_create_table()
 
-            _rs_orm = RSTORM(_rs_db_conn)
+            _rs_orm = RSTORM(self._rst_conn)
             _rs_orm.orm_create_table()
             try:
                 _dirs_num = parse_dirs_from_csv_file(
@@ -257,10 +247,11 @@ class OTAMetadata:
             except Exception as e:
                 _err_msg = f"failed to parse CSV metafiles: {e!r}"
                 logger.error(_err_msg)
+
+                # immediately close the in-memory db on failure to release memory
+                self._fst_conn.close()
+                self._rst_conn.close()
                 raise
-            finally:
-                _ft_db_conn.close()
-                _rs_db_conn.close()
 
             # ------ step 5: persist files list ------ #
             _persist_meta = self._download_folder / _metadata_jwt.persistent.file
