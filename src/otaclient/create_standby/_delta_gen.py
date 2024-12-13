@@ -175,17 +175,6 @@ class DeltaGenerator:
                 return True
         return False
 
-    def _check_skip_dir(self, dpath: Path) -> bool:
-        dir_should_fully_scan = self._check_dir_should_fully_scan(dpath)
-        dir_depth_exceeded = len(dpath.parents) > self.MAX_FOLDER_DEEPTH
-
-        _dpath = str(dpath)
-        return dir_depth_exceeded or (
-            _dpath != CANONICAL_ROOT
-            and not dir_should_fully_scan
-            and not self._ft_dir_orm.orm_select_entry(path=_dpath)
-        )
-
     # API
 
     def calculate_delta(self) -> None:
