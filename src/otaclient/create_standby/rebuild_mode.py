@@ -125,7 +125,7 @@ class RebuildMode:
         _normal: list[FileTableRegularFiles] = []
         try:
             for entry in entries:
-                if (_inode_group := entry.is_hardlinked()) is not None:
+                if (_inode_group := entry.inode.inode) is not None:
                     _entries_list = _hardlinked.setdefault(_inode_group, [])
                     _entries_list.append(entry)
                 else:
