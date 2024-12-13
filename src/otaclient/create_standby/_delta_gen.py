@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -27,33 +26,24 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from ota_metadata.file_table._orm import FTDirORM
+from ota_metadata.file_table._orm import (
+    FTDirORM,
+    FTRegularORMPool,
+)
 from ota_metadata.legacy.metadata import OTAMetadata, conns_factory
 from ota_metadata.legacy.rs_table import RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
-from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = logging.getLogger(f"{__name__}.process_error")
-# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.process_error",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
-
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
 
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
 DB_CONN_NUMS = 3
-DB_WRITE_CONN_NUMS = 1  # serializing the access
+DB_WRITE_CONN_NUMS = 1  # serializing access
 
 
 class DeltaGenerator:
@@ -96,19 +86,19 @@ class DeltaGenerator:
 
         # NOTE: we only need one thread for checking directory against database.
         self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable())
-
-        self._ft_regular_orm = self._rst_orm_pool = RSTableORMThreadPool(
+        self._ft_regular_orm = FTRegularORMPool(
             con_factory=conns_factory(
                 DB_CONN_NUMS, con_maker=ota_metadata.connect_fstable
             ),
             number_of_cons=DB_CONN_NUMS,
+            thread_name_prefix="ft_orm_pool",
         )
-
         self._rst_orm_pool = RSTableORMThreadPool(
             con_factory=conns_factory(
                 DB_WRITE_CONN_NUMS, con_maker=ota_metadata.connect_rstable
             ),
             number_of_cons=DB_WRITE_CONN_NUMS,
+            thread_name_prefix="ota_delta_gen",
         )
 
         self._max_pending_tasks = threading.Semaphore(
@@ -117,67 +107,44 @@ class DeltaGenerator:
 
     def _process_file(
         self,
-        delta_src_fpath: Path,
+        fpath: Path,
         canonical_fpath: Path,
         *,
         fully_scan: bool,
         thread_local,
     ) -> None:
-        """
-        NOTE: if we can know the digest of this file before hand, use this information to
-            skip preparing resource if the file digest mismatched.
-        """
-        # see if this exact file is also on new image, if the file
-        #   neither under a full_scan_dir, nor exists on the new image, skip.
-        digest_looked_up: bytes | None = None
-        if not fully_scan and not (
-            digest_looked_up := self._ft_regular_orm.check_entry(
-                "digest", path=str(canonical_fpath)
-            )
+        # in default match_only mode, if the fpath doesn't exist in new, ignore
+        if not fully_scan and not self._ft_regular_orm.check_entry(
+            path=str(canonical_fpath)
         ):
             return
 
         tmp_f = self._copy_dst / create_tmp_fname()
+
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
-            with open(delta_src_fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+            with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
                 while read_size := src.readinto(hash_buffer):
                     hash_f.update(hash_bufferview[:read_size])
                     tmp_dst.write(hash_bufferview[:read_size])
 
-            _calculated_digest = hash_f.digest()
-            if digest_looked_up and _calculated_digest != digest_looked_up:
-                return
-
-            if digest_looked_up:
-                dst_f = self._copy_dst / digest_looked_up.hex()
-            else:
-                dst_f = self._copy_dst / _calculated_digest.hex()
-
-            # NOTE: if we found that the resource has already being prepared, don't prepare it again!
-            if dst_f.is_file():
-                return
+            dst_f = self._copy_dst / hash_f.hexdigest()
 
             # If the resource we scan here is listed in the resouce table, copy it
             #   to the copy_dir at standby slot for later use.
-            _removed = self._rst_orm_pool.try_remove_entry(digest=_calculated_digest)
-            if _removed > 0:
+            if self._rst_orm_pool.try_remove_entry(digest=hash_f.digest()) > 0:
                 tmp_f.rename(dst_f)
                 self._status_report_queue.put_nowait(
                     StatusReport(
                         payload=UpdateProgressReport(
                             operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_size=delta_src_fpath.stat().st_size,
+                            processed_file_size=fpath.stat().st_size,
                             processed_file_num=1,
                         ),
                         session_id=self.session_id,
                     )
                 )
-        except Exception as e:
-            burst_suppressed_logger.exception(
-                f"failed to process {delta_src_fpath}: {e!r}, skip"
-            )
         finally:
             tmp_f.unlink(missing_ok=True)
 
@@ -186,8 +153,12 @@ class DeltaGenerator:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
 
-    def _task_done_callback(self, _: Future[Any]) -> None:
+    def _task_done_callback(self, fut: Future[Any]) -> None:
         self._max_pending_tasks.release()  # always release se first
+        if exc := fut.exception():
+            logger.warning(
+                f"detect error during file preparing, still continue: {exc!r}"
+            )
 
     def _check_dir_should_fully_scan(self, dpath: Path) -> bool:
         for parent in reversed(dpath.parents):
@@ -195,23 +166,22 @@ class DeltaGenerator:
                 return True
         return False
 
-    def _wait_for_rst_db_ready(self):
-        for idx in range(10):
-            time.sleep(1)
-            _all_dbs = self._rst_orm_pool.orm_execute(
-                "SELECT name FROM sqlite_master WHERE type='table';"
-            ).result()
-            if _all_dbs:
-                return
-            logger.info(f"#{idx} rstable is not yet ready ...")
+    def _check_skip_dir(self, dpath: Path) -> bool:
+        dir_should_fully_scan = self._check_dir_should_fully_scan(dpath)
+        dir_depth_exceeded = len(dpath.parents) > self.MAX_FOLDER_DEEPTH
+
+        _dpath = str(dpath)
+        return dir_depth_exceeded or (
+            _dpath != CANONICAL_ROOT
+            and not dir_should_fully_scan
+            and not self._ft_dir_orm.orm_select_entry(path=_dpath)
+        )
 
     # API
 
     def calculate_delta(self) -> None:
         logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path(CANONICAL_ROOT)
-
-        self._wait_for_rst_db_ready()
 
         thread_local = threading.local()
 
@@ -235,25 +205,16 @@ class DeltaGenerator:
                     _canonical_root
                     / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
+                logger.debug(f"{delta_src_curdir_path=}, {canonical_curdir_path=}")
+
+                if self._check_skip_dir(canonical_curdir_path):
+                    dirnames.clear()
+                    continue
 
                 # ------ check whether we should skip this folder ------ #
                 dir_should_fully_scan = self._check_dir_should_fully_scan(
                     canonical_curdir_path
                 )
-                dir_depth_exceeded = (
-                    len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH
-                )
-
-                should_skip_dir = dir_depth_exceeded or (
-                    str(canonical_curdir_path) != CANONICAL_ROOT
-                    and not dir_should_fully_scan
-                    and not self._ft_dir_orm.check_entry(
-                        "path", path=str(canonical_curdir_path)
-                    )
-                )
-                if should_skip_dir:
-                    dirnames.clear()
-                    continue
 
                 # skip files that over the max_filenum_per_folder,
                 # and add these files to remove list
@@ -266,7 +227,7 @@ class DeltaGenerator:
                 # process the files under this dir
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
-                    canonical_fpath = canonical_curdir_path / fname
+                    logger.debug(f"[process_delta_src] process {delta_src_fpath}")
 
                     # ignore non-file file(include symlink)
                     # NOTE: for in-place update, we will recreate all the symlinks,
@@ -279,13 +240,13 @@ class DeltaGenerator:
                     pool.submit(
                         self._process_file,
                         delta_src_fpath,
-                        canonical_fpath,
                         # NOTE: ALWAYS use canonical_fpath in db search!
+                        canonical_curdir_path / fname,
                         fully_scan=dir_should_fully_scan,
                         thread_local=thread_local,
                     ).add_done_callback(self._task_done_callback)
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
-            self._rst_orm_pool.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
+            self._rst_orm_pool.orm_pool_shutdown()

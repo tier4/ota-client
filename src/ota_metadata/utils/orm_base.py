@@ -42,13 +42,12 @@ class ORMPoolBase(ORMThreadPoolBase[TableSpecType]):
             thread_name_prefix=thread_name_prefix,
         )
 
-    def check_entry(self, col_to_return: str, **kv: Any) -> Any:
-        """A quick method to check if an entry exists, and return the corresponding
-        col of the first result.
-        """
+    def check_entry(self, **kv: Any) -> bool:
+        """A quick method to check if an entry exists."""
         _sql_stmt = self.orm_table_spec.table_select_stmt(
             select_from=self.orm_table_name,
-            select_cols=(col_to_return,),
+            select_cols="*",
+            function="count",
             where_cols=tuple(kv),
         )
 
@@ -56,10 +55,8 @@ class ORMPoolBase(ORMThreadPoolBase[TableSpecType]):
             with self._con as conn:
                 _cur = conn.execute(_sql_stmt, kv)
                 _cur.row_factory = None
-                _res = _cur.fetchone()
-
-                if _res:
-                    return _res[0]
+                _res: tuple[int] = _cur.fetchone()
+                return _res[0] > 0
 
         return self._pool.submit(_inner).result()
 
@@ -81,20 +78,17 @@ class ORMBase(_ORMBase[TableSpecType]):
     ) -> None:
         super().__init__(con, self.table_name, schema_name=schema_name)
 
-    def check_entry(self, col_to_return: str, **kv: Any) -> Any:
-        """A quick method to check if an entry exists, and return the corresponding
-        col of the first result.
-        """
+    def check_entry(self, **kv: Any) -> bool:
+        """A quick method to check if an entry exists."""
         _sql_stmt = self.orm_table_spec.table_select_stmt(
             select_from=self.orm_table_name,
-            select_cols=(col_to_return,),
+            select_cols="*",
+            function="count",
             where_cols=tuple(kv),
         )
 
         with self._con as conn:
             _cur = conn.execute(_sql_stmt, kv)
             _cur.row_factory = None
-            _res = _cur.fetchone()
-
-            if _res:
-                return _res[0]
+            _res: tuple[int] = _cur.fetchone()
+            return _res[0] > 0
