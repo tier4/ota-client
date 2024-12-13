@@ -96,8 +96,8 @@ class RebuildMode:
             else:
                 cur_digest_group.append(_entry)
 
-            # NOTE: remember to yield the last group
-            yield cur_digest, cur_digest_group
+        # NOTE: remember to yield the last group
+        yield cur_digest, cur_digest_group
 
     def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
         return entry.prepare_target(target_mnt=self._standby_slot_mp)
