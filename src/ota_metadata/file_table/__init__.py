@@ -19,7 +19,7 @@ from ._table import (
     FileTableNonRegularFiles,
     FileTableRegularFiles,
 )
-from ._types import InodeTable, Xattr
+from ._types import FileEntryAttrs
 
 __all__ = [
     "FTNonRegularORM",
@@ -29,6 +29,5 @@ __all__ = [
     "FileTableNonRegularFiles",
     "FileTableRegularFiles",
     "FileTableDirectories",
-    "InodeTable",
-    "Xattr",
+    "FileEntryAttrs",
 ]
