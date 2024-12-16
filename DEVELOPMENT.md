@@ -14,11 +14,27 @@ $ python3 --version
 Python 3.8.10
 ```
 
-## How to run OTA client on the target ECU
+## How to install OTA client on the target ECU
 
-Appropriate partitioning and configurations are required. See [docs/README.md](docs/README.md).
+```bash
+# enter otaclient installation dir
+cd /opt/ota/client
 
-Installation guide is available at [docs/INSTALLATION.md](docs/INSTALLATION.md).
+# switch to root shell
+sudo -s
+
+# download the source code
+git clone https://github.com/tier4/ota-client.git
+
+# enable the otaclient python venv
+. venv/bin/activate
+
+# install the downloaded otaclient 
+pip install -e ota-client
+
+# restart otaclient to launch the target version
+systemctl restart otaclient
+```
 
 ### Run otaclient directly
 
@@ -158,7 +174,7 @@ Type "help", "copyright", "credits" or "license" for more information.
 >>> from otaclient_pb2.v2 import otaclient_pb2_grpc
 ```
 
-### Updating docs/SERVICES.md
+### Creating docs/SERVICES.md
 
 The protobuf document docs/SERVICES.md should be updated by protoc-gen-doc tool.
 
