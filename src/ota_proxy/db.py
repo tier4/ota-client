@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from pathlib import Path
@@ -29,7 +30,7 @@ from simple_sqlite3_orm import (
     TypeAffinityRepr,
     utils,
 )
-from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
+from simple_sqlite3_orm._orm import AsyncORMBase
 from typing_extensions import Annotated
 
 from otaclient_common.typing import StrOrPath
@@ -125,15 +126,16 @@ class CacheMeta(TableSpec):
 class CacheMetaORM(ORMBase[CacheMeta]): ...
 
 
-class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
+class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
 
     async def rotate_cache(
         self, bucket_idx: int, num: int
     ) -> Optional[list[CacheMeta]]:
         bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-        def _inner():
-            with self._con as con:
+        def _in_thread():
+            _orm_base = self._orm_threadpool._thread_scope_orm
+            with _orm_base._con as con:
                 # check if we have enough entries to rotate
                 select_stmt = self.orm_table_spec.table_select_stmt(
                     select_from=self.orm_table_name,
@@ -181,7 +183,10 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
                     return list(cur)
 
-        return await self._run_in_pool(_inner)
+        return await asyncio.wrap_future(
+            self._orm_threadpool._pool.submit(_in_thread),
+            loop=self._loop,
+        )
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
