@@ -35,6 +35,13 @@ class FileEntryAttrs(NamedTuple):
         if self.xattrs:
             yield from self.xattrs.items()
 
+    def pack(self) -> bytes:
+        return pack_entry_attrs(self)
+
+    @classmethod
+    def unpack(cls, _in: bytes) -> "FileEntryAttrs":
+        return parse_packed_entry_attrs(_in)
+
 
 def parse_packed_entry_attrs(_in: bytes) -> FileEntryAttrs:
     _unpacker = Unpacker(max_buffer_size=FILE_ENTRY_MAX_SIZE)
