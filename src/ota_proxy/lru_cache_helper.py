@@ -21,7 +21,6 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional, Union
 
 from simple_sqlite3_orm import utils
 
@@ -42,7 +41,7 @@ class LRUCacheHelper:
 
     def __init__(
         self,
-        db_f: Union[str, Path],
+        db_f: str | Path,
         *,
         bsize_dict: dict[int, int],
         table_name: str,
@@ -80,18 +79,18 @@ class LRUCacheHelper:
         entry.bucket_idx = bisect.bisect_right(self.bsize_list, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
-        if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
+        if (await self._async_db.orm_insert_entry(entry, or_option="ignore")) != 1:
             logger.error(f"db: failed to add {entry=}")
             return False
         return True
 
-    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
+    async def lookup_entry(self, file_sha256: str) -> CacheMeta | None:
         return await self._async_db.orm_select_entry(file_sha256=file_sha256)
 
     async def remove_entry(self, file_sha256: str) -> bool:
-        return bool(await self._async_db.orm_delete_entries(file_sha256=file_sha256))
+        return await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
 
-    async def rotate_cache(self, size: int) -> Optional[list[str]]:
+    async def rotate_cache(self, size: int) -> list[str] | None:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
