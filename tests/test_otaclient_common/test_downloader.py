@@ -162,7 +162,6 @@ def run_http_server_subprocess(
 
 
 class TestDownloader:
-
     @pytest.fixture(autouse=True)
     def setup_downloader(self, tmp_path: Path):
         self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
@@ -174,7 +173,6 @@ class TestDownloader:
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
     ):
-
         class _ControlledException(Exception):
             """For breakout the actual downloading."""
 
@@ -428,7 +426,6 @@ TEST_DURATION = 30
 
 
 class TestDownloadingPoolWatchdog:
-
     @pytest.fixture(autouse=True)
     def setup_test(self):
         self._test_started_timestamp = 0

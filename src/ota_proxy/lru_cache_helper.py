@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of OTA cache control."""
 
-
 from __future__ import annotations
 
 import bisect

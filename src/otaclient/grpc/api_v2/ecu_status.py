@@ -36,7 +36,6 @@ NOTE:
     any_requires_network, all_success, in_update_ecus_id, failed_ecus_id, success_ecus_id and in_update_childecus_id.
 """
 
-
 from __future__ import annotations
 
 import asyncio
@@ -82,7 +81,6 @@ class _OrderedSet(Dict[T, None]):
 
 
 class ECUStatusStorage:
-
     def __init__(
         self,
         *,

@@ -16,7 +16,6 @@
 Supports BSP version < R34.
 """
 
-
 from __future__ import annotations
 
 import logging

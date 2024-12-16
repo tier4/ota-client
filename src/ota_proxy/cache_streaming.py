@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of cache streaming."""
 
-
 from __future__ import annotations
 
 import asyncio

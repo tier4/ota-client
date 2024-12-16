@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of otaclient CA cert chain store."""
 
-
 from __future__ import annotations
 
 import logging

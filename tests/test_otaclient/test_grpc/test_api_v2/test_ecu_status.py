@@ -61,7 +61,9 @@ class TestECUStatusStorage:
 
         _mocked_otaclient_cfg = DefaultOTAClientConfigs()
         # NOTE: decrease the interval for faster testing
-        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = self.PROPERTY_REFRESH_INTERVAL_FOR_TEST  # type: ignore[assignment]
+        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = (
+            self.PROPERTY_REFRESH_INTERVAL_FOR_TEST
+        )  # type: ignore[assignment]
         mocker.patch(f"{ECU_STATUS_MODULE}.cfg", _mocked_otaclient_cfg)
 
         try:

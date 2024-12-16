@@ -39,7 +39,6 @@ MODULE = _jetson_uefi.__name__
 
 
 class TestNVBootctrlJetsonUEFI:
-
     @pytest.mark.parametrize(
         "_input, expected",
         (
@@ -204,7 +203,6 @@ def test__detect_ota_bootdev_is_qspi(nvbootctrl_conf, expected):
 
 
 class TestL4TLauncherBSPVersionControl:
-
     @pytest.mark.parametrize(
         "_in, expected",
         _test_case := (

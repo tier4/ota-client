@@ -17,7 +17,6 @@ jetson-uefi module currently support BSP version >= R34(which UEFI is introduced
 But firmware update is only supported after BSP R35.2.
 """
 
-
 from __future__ import annotations
 
 import contextlib

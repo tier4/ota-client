@@ -133,7 +133,9 @@ class TestOngoingCachingRegister:
         # start all the worker, all the workers will now access the same resouce.
         self.sync_event.set()
         logger.info("all workers start to subscribe to the register")
-        await self._wait_for_registeration_finish()  # wait for all workers finish subscribing
+        await (
+            self._wait_for_registeration_finish()
+        )  # wait for all workers finish subscribing
         self.writer_done_event.set()  # writer finished
 
         ###### check the test result ######

@@ -36,7 +36,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import atexit

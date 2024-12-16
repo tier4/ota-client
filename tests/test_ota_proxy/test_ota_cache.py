@@ -78,7 +78,6 @@ def entries_to_remove(setup_testdata: dict[str, CacheMeta]) -> list[CacheMeta]:
 
 @pytest.mark.asyncio(scope="class")
 class TestLRUCacheHelper:
-
     @pytest_asyncio.fixture(autouse=True, scope="class")
     async def lru_helper(self, tmp_path_factory: pytest.TempPathFactory):
         ota_cache_folder = tmp_path_factory.mktemp("ota-cache")

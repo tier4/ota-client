@@ -29,7 +29,6 @@ The flow of this package working is as follow:
     update to the standby slot.
 """
 
-
 from __future__ import annotations
 
 from abc import abstractmethod

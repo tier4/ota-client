@@ -13,7 +13,6 @@
 # limitations under the License.
 """Dynamically generate protobuf python code."""
 
-
 from __future__ import annotations
 
 import os

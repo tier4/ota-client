@@ -19,7 +19,6 @@ rwlock(1byte) | hmac-sha512 of msg(64bytes) | msg_len(4bytes,big) | msg(<msg_len
 In which, msg is pickled python object.
 """
 
-
 from __future__ import annotations
 
 import hashlib
@@ -85,7 +84,6 @@ def _ensure_connect_shm(
 
 
 class MPSharedStatusReader(SHA512Verifier, Generic[T]):
-
     def __init__(
         self,
         *,
@@ -140,7 +138,6 @@ class MPSharedStatusReader(SHA512Verifier, Generic[T]):
 
 
 class MPSharedStatusWriter(SHA512Verifier, Generic[T]):
-
     def __init__(
         self,
         *,

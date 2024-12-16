@@ -13,7 +13,6 @@
 # limitations under the License.
 """Shared utils for boot_controller."""
 
-
 from __future__ import annotations
 
 import contextlib

@@ -400,7 +400,9 @@ class OTACache:
                         yield data
 
         # open remote connection
-        resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
+        resp_headers: CIMultiDictProxy[str] = await (
+            _remote_fd := _do_request()
+        ).__anext__()  # type: ignore
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(

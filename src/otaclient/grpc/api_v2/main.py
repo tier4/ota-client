@@ -13,7 +13,6 @@
 # limitations under the License.
 """Main entry for OTA API v2 grpc server."""
 
-
 from __future__ import annotations
 
 import asyncio

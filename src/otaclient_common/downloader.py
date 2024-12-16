@@ -16,7 +16,6 @@
 This downloader implements the OTA-Cache-File-Control protocol to co-operate with otaproxy.
 """
 
-
 from __future__ import annotations
 
 import hashlib
@@ -238,7 +237,6 @@ DEFAULT_RETRY_STATUS = frozenset([413, 429, 500, 502, 503, 504])
 
 
 class Downloader:
-
     def __init__(
         self,
         *,

@@ -13,7 +13,6 @@
 # limitations under the License.
 """Boot control support for Raspberry pi 4 Model B."""
 
-
 from __future__ import annotations
 
 import contextlib

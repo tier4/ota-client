@@ -13,7 +13,6 @@
 # limitations under the License.
 """Runtime configurable configs for otaclient."""
 
-
 from __future__ import annotations
 
 import logging

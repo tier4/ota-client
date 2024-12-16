@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tests for Jetson device boot control implementation common."""
 
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -61,7 +60,6 @@ def test_slot_id(_in: Any, _expect: SlotID | None, _exc: type[Exception] | None)
 
 
 class TestBSPVersion:
-
     @pytest.mark.parametrize(
         "_in, _expect, _exc",
         (
@@ -99,7 +97,6 @@ class TestBSPVersion:
 
 
 class TestSlotBSPVersion:
-
     @pytest.mark.parametrize(
         "_in, _slot, _bsp_ver, _expect",
         (
@@ -182,7 +179,6 @@ class TestSlotBSPVersion:
 
 
 class TestFirmwareBSPVersionControl:
-
     @pytest.fixture(autouse=True)
     def setup_test(self, tmp_path: Path):
         self.test_fw_bsp_vf = tmp_path / "firmware_bsp_version"
