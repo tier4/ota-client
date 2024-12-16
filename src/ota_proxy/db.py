@@ -115,7 +115,26 @@ class CacheMeta(TableSpec):
         return res
 
 
-class CacheMetaORM(ORMBase[CacheMeta]): ...
+class CacheMetaORM(ORMBase[CacheMeta]):
+
+    def cachemeta_create_indexes(self) -> None:
+        _indexes = {
+            "bucket_idx_index": CacheMeta.table_create_index_stmt(
+                table_name=self.orm_table_name,
+                index_name="bucket_idx_index",
+                index_cols=("bucket_idx",),
+                if_not_exists=True,
+            ),
+            "last_access_index": CacheMeta.table_create_index_stmt(
+                table_name=self.orm_table_name,
+                index_name="last_access_index",
+                index_cols=("last_access",),
+                if_not_exists=True,
+            ),
+        }
+
+        for sql_stmt in _indexes.values():
+            self.orm_execute(sql_stmt)
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
@@ -206,6 +225,7 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
     orm = CacheMetaORM(con, table_name)
     try:
         orm.orm_create_table(without_rowid=True)
+        orm.cachemeta_create_indexes()
         utils.enable_wal_mode(con, relax_sync_mode=True)
     finally:
         con.close()
