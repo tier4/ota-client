@@ -21,13 +21,23 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional, Union
 
 from simple_sqlite3_orm import utils
 
+from otaclient_common.logging import BurstSuppressFilter
+
 from .db import AsyncCacheMetaORM, CacheMeta
 
-logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.db_error")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.db_error",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
 
 class LRUCacheHelper:
@@ -42,7 +52,7 @@ class LRUCacheHelper:
 
     def __init__(
         self,
-        db_f: Union[str, Path],
+        db_f: str | Path,
         *,
         bsize_dict: dict[int, int],
         table_name: str,
@@ -66,6 +76,7 @@ class LRUCacheHelper:
             table_name=table_name,
             con_factory=_con_factory,
             number_of_cons=thread_nums,
+            row_factory="table_spec_no_validation",
         )
 
         self._closed = False
@@ -81,17 +92,17 @@ class LRUCacheHelper:
         entry.last_access = int(time.time())
 
         if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
-            logger.error(f"db: failed to add {entry=}")
+            burst_suppressed_logger.error(f"db: failed to add {entry=}")
             return False
         return True
 
-    async def lookup_entry(self, file_sha256: str) -> Optional[CacheMeta]:
+    async def lookup_entry(self, file_sha256: str) -> CacheMeta | None:
         return await self._async_db.orm_select_entry(file_sha256=file_sha256)
 
     async def remove_entry(self, file_sha256: str) -> bool:
-        return bool(await self._async_db.orm_delete_entries(file_sha256=file_sha256))
+        return await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
 
-    async def rotate_cache(self, size: int) -> Optional[list[str]]:
+    async def rotate_cache(self, size: int) -> list[str] | None:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
