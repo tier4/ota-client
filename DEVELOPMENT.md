@@ -29,7 +29,7 @@ git clone https://github.com/tier4/ota-client.git
 # enable the otaclient python venv
 . venv/bin/activate
 
-# install the downloaded otaclient 
+# install the downloaded otaclient
 pip install -e ota-client
 
 # restart otaclient to launch the target version
