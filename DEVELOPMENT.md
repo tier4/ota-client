@@ -14,68 +14,6 @@ $ python3 --version
 Python 3.8.10
 ```
 
-## How to install OTA client on the target ECU
-
-```bash
-# enter otaclient installation dir
-cd /opt/ota/client
-
-# switch to root shell
-sudo -s
-
-# download the source code
-git clone https://github.com/tier4/ota-client.git
-
-# enable the otaclient python venv
-. venv/bin/activate
-
-# install the downloaded otaclient
-pip install -e ota-client
-
-# restart otaclient to launch the target version
-systemctl restart otaclient
-```
-
-### Run otaclient directly
-
-```bash
-# with virtualenv activated
-python3 -m otaclient
-# or
-python3 -m otaclient.app
-```
-
-### Run otaclient installed at custom location
-
-If we install the otaclient to custom directory instead of the default location, we must indicate python the path to the install location.
-
-#### method 1: indicate path by **PYTHONPATH**
-
-```bash
-# we have to append the /opt/ota to the PYTHONPATH, to tell the
-# python interpreter to search otaclient package under /opt/ota, instead of
-# using the one install under <virtualenv>/lib/python3.8/site-packages
-
-# with venv activated:
-PYTHONPATH=/opt/ota python3 -m otaclient
-# or
-PYTHONPATH=/opt/ota python3 -m otaclient.app
-```
-
-#### method 2: change working dir to the install location
-
-```bash
-# change work dir to /opt/ota
-cd /opt/ota
-
-# with venv activated:
-# NOTE:python will insert current working dir at index 0 in `sys.path`
-# under /opt/ota folder, so that python will first use otaclient under /opt/ota
-python3 -m otaclient
-# or
-python3 -m otaclient.app
-```
-
 ## How to test OTA client on the development PC
 
 ### Build the image for testing
