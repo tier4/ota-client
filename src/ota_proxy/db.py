@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Optional
 
 from multidict import CIMultiDict
-from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
     ORMBase,
@@ -61,41 +60,34 @@ class CacheMeta(TableSpec):
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("PRIMARY KEY"),
-        SkipValidation,
     ]
     url: Annotated[
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ]
     bucket_idx: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     last_access: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     cache_size: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     file_compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        SkipValidation,
     ] = None
     content_encoding: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        SkipValidation,
     ] = None
 
     def __hash__(self) -> int:

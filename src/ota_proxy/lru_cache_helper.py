@@ -65,6 +65,7 @@ class LRUCacheHelper:
             table_name=table_name,
             con_factory=_con_factory,
             number_of_cons=thread_nums,
+            row_factory="table_spec_no_validation",
         )
 
         self._closed = False
