@@ -25,10 +25,7 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table._orm import (
-    FTDirORM,
-    FTRegularORMPool,
-)
+from ota_metadata.file_table._orm import FTDirORM, FTRegularORMPool
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import RSTORM, RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -68,6 +65,19 @@ class DeltaGenerator:
         "/usr",
         "/opt/nvidia",
         "/home/autoware/autoware.proj",
+    }
+
+    # entries start with the following paths will be ignored
+    EXCLUDE_PATHS = {
+        "/tmp",
+        "/dev",
+        "/proc",
+        "/sys",
+        "/lost+found",
+        "/media",
+        "/mnt",
+        "/run",
+        "/srv",
     }
 
     # introduce limitations here to prevent unexpected
@@ -239,26 +249,41 @@ class DeltaGenerator:
                     / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
 
-                # ------ check whether we should skip this folder ------ #
                 dir_should_fully_scan = False
+                dir_is_excluded = False
                 for parent in reversed(canonical_curdir_path.parents):
-                    if str(parent) in self.FULL_SCAN_PATHS:
+                    _cur_parent = str(parent)
+                    if _cur_parent in self.FULL_SCAN_PATHS:
                         dir_should_fully_scan = True
                         break
+                    elif _cur_parent in self.EXCLUDE_PATHS:
+                        dir_is_excluded = True
+                        break
 
-                dir_depth_exceeded = (
-                    len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH
-                )
+                if dir_is_excluded:
+                    dirnames.clear()
+                    continue
 
+                if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                    logger.warning(
+                        f"{canonical_curdir_path=} exceeds {self.MAX_FOLDER_DEEPTH=}, skip scan this folder"
+                    )
+                    dirnames.clear()
+                    continue
+
+                # If current dir is not:
+                #   1. the root folder
+                #   2. should fully scan folder
+                #   3. folder existed in the new OTA image
+                # skip scanning this folder and its subfolders.
                 _str_canon_fpath = str(canonical_curdir_path)
-                _should_skip_dir = dir_depth_exceeded or (
+                if (
                     _str_canon_fpath != CANONICAL_ROOT
                     and not dir_should_fully_scan
                     and not self._ft_dir_orm.orm_check_entry_exist(
                         path=_str_canon_fpath
                     )
-                )
-                if _should_skip_dir:
+                ):
                     dirnames.clear()
                     continue
 
