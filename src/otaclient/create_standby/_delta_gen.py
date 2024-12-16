@@ -29,7 +29,7 @@ from ota_metadata.file_table._orm import (
     FTDirORM,
     FTRegularORMPool,
 )
-from ota_metadata.legacy.metadata import OTAMetadata, conns_factory
+from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import RSTORM, RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
@@ -94,18 +94,20 @@ class DeltaGenerator:
         self._copy_dst = copy_dst
 
         # NOTE: we only need one thread for checking directory against database.
-        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable())
+        self._ft_dir_orm = FTDirORM(
+            ota_metadata.connect_fstable(),
+            table_name=FTDirORM.table_name,
+        )
+
         self._ft_regular_orm = FTRegularORMPool(
-            con_factory=conns_factory(
-                DB_CONN_NUMS, con_maker=ota_metadata.connect_fstable
-            ),
+            con_factory=ota_metadata.connect_fstable,
+            table_name=FTRegularORMPool.table_name,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_orm_pool",
         )
         self._rst_orm_pool = RSTableORMThreadPool(
-            con_factory=conns_factory(
-                DB_CONN_NUMS, con_maker=ota_metadata.connect_rstable
-            ),
+            RSTableORMThreadPool.table_name,
+            con_factory=ota_metadata.connect_rstable,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
         )
@@ -123,7 +125,7 @@ class DeltaGenerator:
         thread_local,
     ) -> None:
         # in default match_only mode, if the fpath doesn't exist in new, ignore
-        if not fully_scan and not self._ft_regular_orm.check_entry(
+        if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
             path=str(canonical_fpath)
         ):
             return
@@ -142,7 +144,7 @@ class DeltaGenerator:
 
             # If the resource we scan here is listed in the resouce table, copy it
             #   to the copy_dir at standby slot for later use.
-            if self._rst_orm_pool.check_entry(digest=hash_f.digest()):
+            if self._rst_orm_pool.orm_check_entry_exist(digest=hash_f.digest()):
                 dst_f.touch(exist_ok=False)  # take the seat ASAP
                 tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
                 self._status_report_queue.put_nowait(
@@ -252,7 +254,9 @@ class DeltaGenerator:
                 _should_skip_dir = dir_depth_exceeded or (
                     _str_canon_fpath != CANONICAL_ROOT
                     and not dir_should_fully_scan
-                    and not self._ft_dir_orm.check_entry(path=_str_canon_fpath)
+                    and not self._ft_dir_orm.orm_check_entry_exist(
+                        path=_str_canon_fpath
+                    )
                 )
                 if _should_skip_dir:
                     dirnames.clear()
