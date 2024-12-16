@@ -24,9 +24,20 @@ from pathlib import Path
 
 from simple_sqlite3_orm import utils
 
+from otaclient_common.logging import BurstSuppressFilter
+
 from .db import AsyncCacheMetaORM, CacheMeta
 
-logger = logging.getLogger(__name__)
+burst_suppressed_logger = logging.getLogger(f"{__name__}.db_error")
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger.addFilter(
+    BurstSuppressFilter(
+        f"{__name__}.db_error",
+        upper_logger_name=__name__,
+        burst_round_length=30,
+        burst_max=6,
+    )
+)
 
 
 class LRUCacheHelper:
@@ -81,7 +92,7 @@ class LRUCacheHelper:
         entry.last_access = int(time.time())
 
         if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
-            logger.error(f"db: failed to add {entry=}")
+            burst_suppressed_logger.error(f"db: failed to add {entry=}")
             return False
         return True
 
