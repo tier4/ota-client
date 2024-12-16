@@ -21,12 +21,12 @@ from typing import Any, ClassVar, Generator, Literal, Optional
 
 from simple_sqlite3_orm import (
     ConstrainRepr,
+    ORMBase,
+    ORMThreadPoolBase,
     TableSpec,
     TypeAffinityRepr,
 )
 from typing_extensions import Annotated, Self
-
-from ota_metadata.utils.orm_base import ORMBase, ORMPoolBase
 
 
 class ResourceTable(TableSpec):
@@ -90,6 +90,6 @@ class RSTORM(ORMBase[ResourceTable]):
         yield from _this_batch
 
 
-class RSTableORMThreadPool(ORMPoolBase[ResourceTable]):
+class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
 
     table_name: ClassVar[Literal["rs_table"]] = "rs_table"
