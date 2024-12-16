@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from ota_metadata.utils.orm_base import ORMBase, ORMPoolBase
+from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase
 
 from ._table import (
     FileTableDirectories,
@@ -31,7 +31,7 @@ class FTRegularORM(ORMBase[FileTableRegularFiles]):
     table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
 
 
-class FTRegularORMPool(ORMPoolBase[FileTableRegularFiles]):
+class FTRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 
     table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
 
