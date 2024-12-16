@@ -80,7 +80,7 @@ class LRUCacheHelper:
         entry.bucket_idx = bisect.bisect_right(self.bsize_list, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
-        if (await self._async_db.orm_insert_entry(entry, or_option="ignore")) != 1:
+        if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
             logger.error(f"db: failed to add {entry=}")
             return False
         return True
