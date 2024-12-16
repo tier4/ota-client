@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
-from ota_metadata.file_table._types import FileEntryAttrs, parse_packed_entry_attrs
+from ota_metadata.file_table._types import FileEntryAttrs
 from otaclient_common.typing import StrOrPath
 
 CANONICAL_ROOT = "/"
@@ -70,7 +70,7 @@ class FileTableBase(BaseModel):
         NOTE: the parsed entry_attrs will be cached once read.
         """
         if not self._parsed_entry_attrs:
-            self._parsed_entry_attrs = parse_packed_entry_attrs(self.entry_attrs)
+            self._parsed_entry_attrs = FileEntryAttrs.unpack(self.entry_attrs)
         return self._parsed_entry_attrs
 
     def set_xattr(self, _target: StrOrPath) -> None:

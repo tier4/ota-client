@@ -20,12 +20,12 @@ import re
 import stat
 
 from ota_metadata.file_table import (
+    FileEntryAttrs,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
     FTDirORM,
     FTNonRegularORM,
     FTRegularORM,
-    InodeTable,
 )
 
 from .rs_table import RSTORM, ResourceTable
@@ -68,11 +68,11 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FTDirORM) -> int:
 
             _new = FileTableNonRegularFiles(
                 path=path,
-                inode=InodeTable(
+                entry_attrs=FileEntryAttrs(
                     uid=uid,
                     gid=gid,
                     mode=mode,
-                ),
+                ).pack(),
             )
 
             _batch.append(_new)
@@ -101,12 +101,12 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FTNonRegularORM) -> int:
 
             _new = FileTableNonRegularFiles(
                 path=slink,
-                inode=InodeTable(
+                entry_attrs=FileEntryAttrs(
                     mode=mode,
                     uid=uid,
                     gid=gid,
-                ),
-                contents=srcpath.encode("utf-8"),
+                    contents=srcpath.encode("utf-8"),
+                ).pack(),
             )
 
             _batch.append(_new)
@@ -149,13 +149,13 @@ def parse_regulars_from_csv_file(
 
             _new = FileTableRegularFiles(
                 path=path,
-                inode=InodeTable(
+                entry_attrs=FileEntryAttrs(
                     mode=mode,
                     uid=uid,
                     gid=gid,
                     size=size,
                     inode=inode,
-                ),
+                ).pack(),
                 digest=sha256hash,
             )
 
