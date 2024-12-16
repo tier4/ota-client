@@ -19,15 +19,14 @@ import os
 import shutil
 import stat
 from pathlib import Path
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, Literal
 
-from pydantic import BaseModel, SkipValidation
+from pydantic import BaseModel
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
+from ota_metadata.file_table._types import FileEntryAttrs, parse_packed_entry_attrs
 from otaclient_common.typing import StrOrPath
-
-from ._types import InodeTableType, XattrType
 
 CANONICAL_ROOT = "/"
 
@@ -41,15 +40,14 @@ class FileTableBase(BaseModel):
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("PRIMARY KEY"),
-        SkipValidation,
     ]
 
-    inode: Annotated[
-        InodeTableType,
+    entry_attrs: Annotated[
+        bytes,
         TypeAffinityRepr(bytes),
         ConstrainRepr("NOT NULL"),
     ]
-    """msgpacked basic attrs from inode table for this file entry.
+    """msgpacked basic attrs for this file entry.
 
     Ref: https://www.kernel.org/doc/html/latest/filesystems/ext4/inodes.html
 
@@ -58,43 +56,48 @@ class FileTableBase(BaseModel):
     2. uid
     3. gid
     4. inode(when the file is hardlinked)
+    5. xattrs
+    6. contents
+
+    See file_table._types for more details.
     """
 
-    xattrs: Annotated[
-        Optional[XattrType],
-        TypeAffinityRepr(bytes),
-    ] = None
-    """msgpacked extended attrs for the entry.
+    _parsed_entry_attrs: FileEntryAttrs | None = None
 
-    It contains a dict of xattr names and xattr values.
-    """
+    @property
+    def parsed_entry_attrs(self) -> FileEntryAttrs:
+        """
+        NOTE: the parsed entry_attrs will be cached once read.
+        """
+        if not self._parsed_entry_attrs:
+            self._parsed_entry_attrs = parse_packed_entry_attrs(self.entry_attrs)
+        return self._parsed_entry_attrs
 
     def set_xattr(self, _target: StrOrPath) -> None:
         """Set the xattr of self onto the <_target>.
 
         NOTE: this method always don't follow symlink.
         """
-        if xattrs := self.xattrs:
-            for k, v in xattrs.items():
-                os.setxattr(
-                    path=_target,
-                    attribute=k,
-                    value=v.encode(),
-                    follow_symlinks=False,
-                )
+        for k, v in self.parsed_entry_attrs.iter_xattrs():
+            os.setxattr(
+                path=_target,
+                attribute=k,
+                value=v.encode(),
+                follow_symlinks=False,
+            )
 
     def set_perm(self, _target: StrOrPath) -> None:
         """Set the mode,uid,gid of self onto the <_target>.
 
         NOTE: this method always don't follow symlink.
         """
-        inode_table = self.inode
+        entry_attrs = self.parsed_entry_attrs
         # NOTE(20241213): chown will reset the sticky bit of the file!!!
         #   Remember to always put chown before chmod !!!
         os.chown(
-            _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
+            _target, uid=entry_attrs.uid, gid=entry_attrs.gid, follow_symlinks=False
         )
-        os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
+        os.chmod(_target, mode=entry_attrs.mode, follow_symlinks=False)
 
     def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
         """Return the fpath of self joined to <target_mnt>."""
@@ -109,7 +112,6 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
     digest: Annotated[
         bytes,
         TypeAffinityRepr(bytes),
-        SkipValidation,
     ]
 
     def prepare_target(
@@ -154,40 +156,33 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
         so only device num as 0,0 will be allowed.
     """
 
-    contents: Annotated[
-        Optional[bytes],
-        TypeAffinityRepr(bytes),
-        SkipValidation,
-    ] = None
-    """The contents of the file. Currently only used by symlink.
-
-    When is symlink, <contents> is the symlink target.
-    """
-
     def set_perm(self, _target: StrOrPath) -> None:
         """Set the mode,uid,gid of self onto the <_target>.
 
         NOTE: this method always don't follow symlink.
         """
-        inode_table = self.inode
+        entry_attrs = self.parsed_entry_attrs
 
         # NOTE(20241213): chown will reset the sticky bit of the file!!!
         #   Remember to always put chown before chmod !!!
         os.chown(
-            _target, uid=inode_table.uid, gid=inode_table.gid, follow_symlinks=False
+            _target, uid=entry_attrs.uid, gid=entry_attrs.gid, follow_symlinks=False
         )
         # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
         #   changing mode of symlink will even result in exception raised.
-        if not stat.S_ISLNK(inode_table.mode):
-            os.chmod(_target, mode=inode_table.mode, follow_symlinks=False)
+        if not stat.S_ISLNK(entry_attrs.mode):
+            os.chmod(_target, mode=entry_attrs.mode, follow_symlinks=False)
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
-        inode_table = self.inode
-        _mode = inode_table.mode
+        entry_attrs = self.parsed_entry_attrs
+        _mode = entry_attrs.mode
         if stat.S_ISLNK(_mode):
-            assert (_symlink_target_raw := self.contents), f"invalid entry {self}"
+            assert (
+                _symlink_target_raw := entry_attrs.contents
+            ), f"invalid entry {self}, entry is a symlink but no link target is defined"
+
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
             self.set_perm(_target_on_mnt)
