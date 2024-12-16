@@ -15,13 +15,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional
 
 from multidict import CIMultiDict
-from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
     ORMBase,
@@ -29,7 +29,7 @@ from simple_sqlite3_orm import (
     TypeAffinityRepr,
     utils,
 )
-from simple_sqlite3_orm._orm import AsyncORMThreadPoolBase
+from simple_sqlite3_orm._orm import AsyncORMBase
 from typing_extensions import Annotated
 
 from otaclient_common.typing import StrOrPath
@@ -60,41 +60,34 @@ class CacheMeta(TableSpec):
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("PRIMARY KEY"),
-        SkipValidation,
     ]
     url: Annotated[
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ]
     bucket_idx: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     last_access: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     cache_size: Annotated[
         int,
         TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
-        SkipValidation,
     ] = 0
     file_compression_alg: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        SkipValidation,
     ] = None
     content_encoding: Annotated[
         Optional[str],
         TypeAffinityRepr(str),
-        SkipValidation,
     ] = None
 
     def __hash__(self) -> int:
@@ -122,18 +115,38 @@ class CacheMeta(TableSpec):
         return res
 
 
-class CacheMetaORM(ORMBase[CacheMeta]): ...
+class CacheMetaORM(ORMBase[CacheMeta]):
+
+    def cachemeta_create_indexes(self) -> None:
+        _indexes = {
+            "bucket_idx_index": CacheMeta.table_create_index_stmt(
+                table_name=self.orm_table_name,
+                index_name="bucket_idx_index",
+                index_cols=("bucket_idx",),
+                if_not_exists=True,
+            ),
+            "last_access_index": CacheMeta.table_create_index_stmt(
+                table_name=self.orm_table_name,
+                index_name="last_access_index",
+                index_cols=("last_access",),
+                if_not_exists=True,
+            ),
+        }
+
+        for sql_stmt in _indexes.values():
+            self.orm_execute(sql_stmt)
 
 
-class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
+class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
 
     async def rotate_cache(
         self, bucket_idx: int, num: int
     ) -> Optional[list[CacheMeta]]:
         bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-        def _inner():
-            with self._con as con:
+        def _in_thread():
+            _orm_base = self._orm_threadpool._thread_scope_orm
+            with _orm_base._con as con:
                 # check if we have enough entries to rotate
                 select_stmt = self.orm_table_spec.table_select_stmt(
                     select_from=self.orm_table_name,
@@ -181,7 +194,10 @@ class AsyncCacheMetaORM(AsyncORMThreadPoolBase[CacheMeta]):
                     cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
                     return list(cur)
 
-        return await self._run_in_pool(_inner)
+        return await asyncio.wrap_future(
+            self._orm_threadpool._pool.submit(_in_thread),
+            loop=self._loop,
+        )
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
@@ -209,6 +225,7 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
     orm = CacheMetaORM(con, table_name)
     try:
         orm.orm_create_table(without_rowid=True)
+        orm.cachemeta_create_indexes()
         utils.enable_wal_mode(con, relax_sync_mode=True)
     finally:
         con.close()
