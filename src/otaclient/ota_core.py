@@ -72,7 +72,7 @@ from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
 from otaclient.create_standby._delta_gen import DeltaGenerator
 from otaclient.create_standby.rebuild_mode import RebuildMode
-from otaclient_common import human_readable_size
+from otaclient_common import human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -448,7 +448,6 @@ class _OTAUpdater:
             )
 
         # ------ init, processing metadata ------ #
-        logger.info("download and process OTA image metadata ...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -460,9 +459,13 @@ class _OTAUpdater:
         )
 
         try:
+            logger.info("verify and download OTA image metadata ...")
             self._download_metadata()
             _metadata_jwt = self._ota_metadata.metadata_jwt
             assert _metadata_jwt, "invalid metadata jwt"
+
+            logger.info("parse OTA image metadata files ...")
+            self._ota_metadata.parse_metafiles()
 
             logger.info(
                 "ota_metadata parsed finished: \n"
@@ -517,6 +520,18 @@ class _OTAUpdater:
 
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
         self._resource_dir_on_standby.mkdir(exist_ok=True)
+
+        logger.info("save the OTA image file_table to standby slot ...")
+        self._ota_metadata.save_fstable(
+            dst=replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+
+        logger.info("prepare and optimize file_table ...")
+        self._ota_metadata.prepare_fstable()
 
         # ------ in-update ------ #
         self._status_report_queue.put_nowait(
