@@ -105,8 +105,8 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FTNonRegularORM) -> int:
                     mode=mode,
                     uid=uid,
                     gid=gid,
-                    contents=srcpath.encode("utf-8"),
                 ),
+                contents=srcpath.encode("utf-8"),
             )
 
             _batch.append(_new)
