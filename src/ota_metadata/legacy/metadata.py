@@ -225,18 +225,14 @@ class OTAMetadata:
         try:
             _metadata_jwt = self.metadata_jwt
 
-            _ft_regular_orm = FTRegularORM(
-                self._fst_conn, table_name=FTRegularORM.table_name
-            )
+            _ft_regular_orm = FTRegularORM(self._fst_conn)
             _ft_regular_orm.orm_create_table()
-            _ft_dir_orm = FTDirORM(self._fst_conn, table_name=FTDirORM.table_name)
+            _ft_dir_orm = FTDirORM(self._fst_conn)
             _ft_dir_orm.orm_create_table()
-            _ft_non_regular_orm = FTNonRegularORM(
-                self._fst_conn, table_name=FTNonRegularORM.table_name
-            )
+            _ft_non_regular_orm = FTNonRegularORM(self._fst_conn)
             _ft_non_regular_orm.orm_create_table()
 
-            _rs_orm = RSTORM(self._rst_conn, table_name=RSTORM.table_name)
+            _rs_orm = RSTORM(self._rst_conn)
             _rs_orm.orm_create_table()
             try:
                 _dirs_num = parse_dirs_from_csv_file(
@@ -271,11 +267,12 @@ class OTAMetadata:
         with sqlite3.connect(Path(dst) / db_fname) as conn:
             self._fst_conn.backup(conn)
 
-    def pre_fstable(self) -> None:
+    def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
+        _orm = FTRegularORM(self._fst_conn)
         sort_and_replace(
-            FTRegularORM(self._fst_conn, table_name=FTRegularORM.table_name),
-            table_name=FTRegularORM.table_name,
+            _orm,  # type: ignore
+            table_name=_orm.orm_table_name,
             order_by_col="digest",
         )
 
@@ -289,11 +286,7 @@ class OTAMetadata:
 
     def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTDirORM(
-            _conn,
-            table_name=FTDirORM.table_name,
-            row_factory="table_spec_no_validation",
-        )
+        _ft_dir_orm = FTDirORM(_conn, row_factory="table_spec_no_validation")
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -303,11 +296,7 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTNonRegularORM(
-            _conn,
-            table_name=FTNonRegularORM.table_name,
-            row_factory="table_spec_no_validation",
-        )
+        _ft_dir_orm = FTNonRegularORM(_conn, row_factory="table_spec_no_validation")
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -317,18 +306,13 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTRegularORM(
-            _conn,
-            table_name=FTRegularORM.table_name,
-            row_factory="table_spec_no_validation",
-        )
+        _ft_dir_orm = FTRegularORM(_conn, row_factory="table_spec_no_validation")
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
             _conn.close()
 
     def connect_fstable(self) -> sqlite3.Connection:
-        """NOTE: this method must be called in the main thread."""
         _uri = f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared"
         _conn = sqlite3.connect(
             _uri,
@@ -340,7 +324,6 @@ class OTAMetadata:
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
-        """NOTE: this method must be called in the main thread."""
         _uri = f"file:{self.RSTABLE_DB_NAME}?mode=memory&cache=shared"
         _conn = sqlite3.connect(
             _uri,
@@ -390,9 +373,9 @@ class ResourceMeta:
 
     def _get_download_list_len(self) -> int:
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn, table_name=RSTORM.table_name, row_factory=None)
+        _orm = RSTORM(_conn, row_factory=None)
         _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.table_name,
+            select_from=_orm.orm_table_name,
             function="count",
         )
 
@@ -407,10 +390,10 @@ class ResourceMeta:
 
     def _get_download_size(self):
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn, table_name=RSTORM.table_name, row_factory=None)
+        _orm = RSTORM(_conn, row_factory=None)
 
         _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.table_name,
+            select_from=_orm.orm_table_name,
             select_cols=("original_size",),
             function="sum",
         )
@@ -474,7 +457,7 @@ class ResourceMeta:
     ) -> Generator[DownloadInfo, None, None]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn, table_name=RSTORM.table_name)
+        _orm = RSTORM(_conn)
         try:
             for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
