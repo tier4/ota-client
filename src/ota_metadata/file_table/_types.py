@@ -31,7 +31,6 @@ class FileEntryAttrs(NamedTuple):
     size: Optional[int] = None
     inode: Optional[int] = None
     xattrs: Optional[dict[str, str]] = None
-    contents: Optional[bytes] = None
 
     def iter_xattrs(self) -> Generator[tuple[str, str]]:
         if self.xattrs:
