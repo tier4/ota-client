@@ -72,7 +72,7 @@ def parse_dirs_from_csv_file(_fpath: str, _orm: FTDirORM) -> int:
                     uid=uid,
                     gid=gid,
                     mode=mode,
-                ).pack(),
+                ),
             )
 
             _batch.append(_new)
@@ -106,7 +106,7 @@ def parse_symlinks_from_csv_file(_fpath: str, _orm: FTNonRegularORM) -> int:
                     uid=uid,
                     gid=gid,
                     contents=srcpath.encode("utf-8"),
-                ).pack(),
+                ),
             )
 
             _batch.append(_new)
@@ -155,7 +155,7 @@ def parse_regulars_from_csv_file(
                     gid=gid,
                     size=size,
                     inode=inode,
-                ).pack(),
+                ),
                 digest=sha256hash,
             )
 
