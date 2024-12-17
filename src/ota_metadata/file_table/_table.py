@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
-from ota_metadata.file_table._types import FileEntryAttrs
+from ota_metadata.file_table._types import EntryAttrsType
 from otaclient_common.typing import StrOrPath
 
 CANONICAL_ROOT = "/"
@@ -43,7 +43,7 @@ class FileTableBase(BaseModel):
     ]
 
     entry_attrs: Annotated[
-        bytes,
+        EntryAttrsType,
         TypeAffinityRepr(bytes),
         ConstrainRepr("NOT NULL"),
     ]
@@ -62,23 +62,12 @@ class FileTableBase(BaseModel):
     See file_table._types for more details.
     """
 
-    _parsed_entry_attrs: FileEntryAttrs | None = None
-
-    @property
-    def parsed_entry_attrs(self) -> FileEntryAttrs:
-        """
-        NOTE: the parsed entry_attrs will be cached once read.
-        """
-        if not self._parsed_entry_attrs:
-            self._parsed_entry_attrs = FileEntryAttrs.unpack(self.entry_attrs)
-        return self._parsed_entry_attrs
-
     def set_xattr(self, _target: StrOrPath) -> None:
         """Set the xattr of self onto the <_target>.
 
         NOTE: this method always don't follow symlink.
         """
-        for k, v in self.parsed_entry_attrs.iter_xattrs():
+        for k, v in self.entry_attrs.iter_xattrs():
             os.setxattr(
                 path=_target,
                 attribute=k,
@@ -91,7 +80,7 @@ class FileTableBase(BaseModel):
 
         NOTE: this method always don't follow symlink.
         """
-        entry_attrs = self.parsed_entry_attrs
+        entry_attrs = self.entry_attrs
         # NOTE(20241213): chown will reset the sticky bit of the file!!!
         #   Remember to always put chown before chmod !!!
         os.chown(
@@ -161,7 +150,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
 
         NOTE: this method always don't follow symlink.
         """
-        entry_attrs = self.parsed_entry_attrs
+        entry_attrs = self.entry_attrs
 
         # NOTE(20241213): chown will reset the sticky bit of the file!!!
         #   Remember to always put chown before chmod !!!
@@ -176,7 +165,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
-        entry_attrs = self.parsed_entry_attrs
+        entry_attrs = self.entry_attrs
         _mode = entry_attrs.mode
         if stat.S_ISLNK(_mode):
             assert (
