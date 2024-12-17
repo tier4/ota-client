@@ -117,9 +117,7 @@ class RebuildMode:
         #   download from remote, which both cases are recorded previously, so we minus one
         #   entry when calculating the processed_files_num and processed_files_size.
         processed_files_num = len(entries) - 1
-        processed_files_size = processed_files_num * (
-            entries[0].parsed_entry_attrs.size or 0
-        )
+        processed_files_size = processed_files_num * (entries[0].entry_attrs.size or 0)
 
         _rs = self._resource_dir / digest.hex()
 
@@ -127,7 +125,7 @@ class RebuildMode:
         _normal: list[FileTableRegularFiles] = []
         try:
             for entry in entries:
-                if (_inode_group := entry.parsed_entry_attrs.inode) is not None:
+                if (_inode_group := entry.entry_attrs.inode) is not None:
                     _entries_list = _hardlinked.setdefault(_inode_group, [])
                     _entries_list.append(entry)
                 else:
