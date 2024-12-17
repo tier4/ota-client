@@ -48,7 +48,12 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm.utils import sort_and_replace
+from simple_sqlite3_orm.utils import (
+    enable_mmap,
+    enable_tmp_store_at_memory,
+    enable_wal_mode,
+    sort_and_replace,
+)
 
 from ota_metadata.file_table import (
     FTNonRegularORM,
@@ -99,9 +104,7 @@ class OTAMetadata:
     ENTRY_POINT = "metadata.jwt"
     DIGEST_ALG = "sha256"
     FSTABLE_DB = "file_table.sqlite3"
-
-    FSTABLE_DB_NAME = "ft_in_memory"
-    RSTABLE_DB_NAME = "rst_in_memory"
+    RSTABLE_DB = "resource_table.sqlite3"
 
     def __init__(
         self,
@@ -120,15 +123,11 @@ class OTAMetadata:
         self._work_dir = wd = Path(work_dir)
         wd.mkdir(exist_ok=True, parents=True)
 
+        self._fst_db = wd / self.FSTABLE_DB
+        self._rst_db = wd / self.RSTABLE_DB
+
         self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
-
-        self._fst_conns_set: set[sqlite3.Connection] = set()
-        self._rst_conns_set: set[sqlite3.Connection] = set()
-        # NOTE(20241213): for performance consideration, we now use in-memory databases.
-        # NOTE: keep at least one open connection all the time to prevent db being gced.
-        self._fst_conn = self.connect_fstable()
-        self._rst_conn = self.connect_rstable()
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
@@ -222,17 +221,19 @@ class OTAMetadata:
 
     def parse_metafiles(self):
         """Parse the metafiles after metafiles are downloaded."""
+        _fst_conn = self.connect_fstable()
+        _rst_conn = self.connect_rstable()
         try:
             _metadata_jwt = self.metadata_jwt
 
-            _ft_regular_orm = FTRegularORM(self._fst_conn)
+            _ft_regular_orm = FTRegularORM(_fst_conn)
             _ft_regular_orm.orm_create_table()
-            _ft_dir_orm = FTDirORM(self._fst_conn)
+            _ft_dir_orm = FTDirORM(_fst_conn)
             _ft_dir_orm.orm_create_table()
-            _ft_non_regular_orm = FTNonRegularORM(self._fst_conn)
+            _ft_non_regular_orm = FTNonRegularORM(_fst_conn)
             _ft_non_regular_orm.orm_create_table()
 
-            _rs_orm = RSTORM(self._rst_conn)
+            _rs_orm = RSTORM(_rst_conn)
             _rs_orm.orm_create_table()
             try:
                 _dirs_num = parse_dirs_from_csv_file(
@@ -256,8 +257,8 @@ class OTAMetadata:
                 logger.error(_err_msg)
 
                 # immediately close the in-memory db on failure to release memory
-                self._fst_conn.close()
-                self._rst_conn.close()
+                _fst_conn.close()
+                _rst_conn.close()
                 raise
         finally:
             shutil.rmtree(self._download_folder, ignore_errors=True)
@@ -265,11 +266,15 @@ class OTAMetadata:
     def save_fstable(self, dst: StrOrPath, db_fname: str = FSTABLE_DB) -> None:
         """Dump the file_table to <dst>/<db_fname>"""
         with sqlite3.connect(Path(dst) / db_fname) as conn:
-            self._fst_conn.backup(conn)
+            _fs_conn = self.connect_fstable()
+            try:
+                _fs_conn.backup(conn)
+            finally:
+                _fs_conn.close()
 
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
-        _orm = FTRegularORM(self._fst_conn)
+        _orm = FTRegularORM(self.connect_fstable)
         sort_and_replace(
             _orm,  # type: ignore
             table_name=_orm.orm_table_name,
@@ -313,36 +318,24 @@ class OTAMetadata:
             _conn.close()
 
     def connect_fstable(self) -> sqlite3.Connection:
-        _uri = f"file:{self.FSTABLE_DB_NAME}?mode=memory&cache=shared"
         _conn = sqlite3.connect(
-            _uri,
-            uri=True,
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
+            self._fst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        self._fst_conns_set.add(_conn)
+
+        enable_mmap(_conn)
+        enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
-        _uri = f"file:{self.RSTABLE_DB_NAME}?mode=memory&cache=shared"
         _conn = sqlite3.connect(
-            _uri,
-            uri=True,
-            check_same_thread=False,
-            timeout=DB_TIMEOUT,
+            self._rst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        self._rst_conns_set.add(_conn)
+
+        enable_mmap(_conn)
+        enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
         return _conn
-
-    def close_all_rst_conns(self) -> None:
-        for _conn in self._rst_conns_set:
-            _conn.close()
-        self._rst_conns_set.clear()
-
-    def close_all_fst_conns(self) -> None:
-        for _conn in self._fst_conns_set:
-            _conn.close()
-        self._fst_conns_set.clear()
 
 
 class ResourceMeta:
