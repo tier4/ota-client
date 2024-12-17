@@ -104,19 +104,14 @@ class DeltaGenerator:
         self._copy_dst = copy_dst
 
         # NOTE: we only need one thread for checking directory against database.
-        self._ft_dir_orm = FTDirORM(
-            ota_metadata.connect_fstable(),
-            table_name=FTDirORM.table_name,
-        )
+        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable())
 
         self._ft_regular_orm = FTRegularORMPool(
             con_factory=ota_metadata.connect_fstable,
-            table_name=FTRegularORMPool.table_name,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_orm_pool",
         )
         self._rst_orm_pool = RSTableORMThreadPool(
-            RSTableORMThreadPool.table_name,
             con_factory=ota_metadata.connect_rstable,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
@@ -185,15 +180,15 @@ class DeltaGenerator:
         After all the local resources have been collected, we check the copy_dir
             and remove presented entries from resource table.
         """
-        _rs_conn = self._ota_metadata.connect_rstable()
+        _rs_orm = RSTORM(self._ota_metadata.connect_rstable())
         _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
-            delete_from=RSTORM.table_name,
+            delete_from=_rs_orm.orm_table_name,
             where_cols=("digest",),
         )
 
         _delete_batches = []
         try:
-            with os.scandir(self._copy_dst) as it, _rs_conn as conn:
+            with os.scandir(self._copy_dst) as it, _rs_orm.orm_con as conn:
                 for entry in it:
                     entry_name = entry.name
                     if len(entry_name) != SHA256HEXSTRINGLEN:
@@ -218,7 +213,7 @@ class DeltaGenerator:
                     ({"digest": _value} for _value in _delete_batches),
                 )
         finally:
-            _rs_conn.close()
+            _rs_orm.orm_con.close()
 
     # API
 
