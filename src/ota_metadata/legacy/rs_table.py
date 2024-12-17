@@ -68,9 +68,12 @@ class ResourceTable(TableSpec):
         return hash(self.digest)
 
 
+RSTABLE_NAME = "rs_table"
+
+
 class RSTORM(ORMBase[ResourceTable]):
 
-    table_name: ClassVar[Literal["rs_table"]] = "rs_table"
+    _orm_table_name = RSTABLE_NAME
 
     def iter_all_with_shuffle(
         self, *, batch_size: int
@@ -92,4 +95,4 @@ class RSTORM(ORMBase[ResourceTable]):
 
 class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
 
-    table_name: ClassVar[Literal["rs_table"]] = "rs_table"
+    _orm_table_name = RSTABLE_NAME

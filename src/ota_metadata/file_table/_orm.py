@@ -15,8 +15,6 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Literal
-
 from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase
 
 from ._table import (
@@ -25,22 +23,26 @@ from ._table import (
     FileTableRegularFiles,
 )
 
+FT_REGULAR_TABLE_NAME = "ft_regular"
+FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
+FT_DIR_TABLE_NAME = "ft_dir"
+
 
 class FTRegularORM(ORMBase[FileTableRegularFiles]):
 
-    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
+    _orm_table_name = FT_REGULAR_TABLE_NAME
 
 
 class FTRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 
-    table_name: ClassVar[Literal["ft_regular"]] = "ft_regular"
+    _orm_table_name = FT_REGULAR_TABLE_NAME
 
 
 class FTNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
-    table_name: ClassVar[Literal["ft_non_regular"]] = "ft_non_regular"
+    _orm_table_name = FT_NON_REGULAR_TABLE_NAME
 
 
 class FTDirORM(ORMBase[FileTableDirectories]):
 
-    table_name: ClassVar[Literal["ft_dir"]] = "ft_dir"
+    _orm_table_name = FT_DIR_TABLE_NAME
