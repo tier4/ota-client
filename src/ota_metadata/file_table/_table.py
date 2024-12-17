@@ -19,9 +19,9 @@ import os
 import shutil
 import stat
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import ClassVar, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
@@ -40,6 +40,7 @@ class FileTableBase(BaseModel):
         str,
         TypeAffinityRepr(str),
         ConstrainRepr("PRIMARY KEY"),
+        SkipValidation,
     ]
 
     entry_attrs: Annotated[
@@ -57,7 +58,6 @@ class FileTableBase(BaseModel):
     3. gid
     4. inode(when the file is hardlinked)
     5. xattrs
-    6. contents
 
     See file_table._types for more details.
     """
@@ -101,6 +101,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
     digest: Annotated[
         bytes,
         TypeAffinityRepr(bytes),
+        SkipValidation,
     ]
 
     def prepare_target(
@@ -145,6 +146,13 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
         so only device num as 0,0 will be allowed.
     """
 
+    contents: Annotated[
+        Optional[bytes],
+        TypeAffinityRepr(bytes),
+        SkipValidation,
+    ] = None
+    """The contents of the file. Currently only used by symlink."""
+
     def set_perm(self, _target: StrOrPath) -> None:
         """Set the mode,uid,gid of self onto the <_target>.
 
@@ -169,7 +177,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
         _mode = entry_attrs.mode
         if stat.S_ISLNK(_mode):
             assert (
-                _symlink_target_raw := entry_attrs.contents
+                _symlink_target_raw := self.contents
             ), f"invalid entry {self}, entry is a symlink but no link target is defined"
 
             _symlink_target = _symlink_target_raw.decode()
