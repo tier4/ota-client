@@ -211,7 +211,20 @@ class OTAMetadata:
                 if failed_flag.is_set():
                     return  # let the upper caller handles the failure
 
-            # ------ step 4: parse OTA image metafiles ------ #
+            # ------ step 5: persist files list ------ #
+            _persist_meta = self._download_folder / _metadata_jwt.persistent.file
+            shutil.move(str(_persist_meta), self._work_dir)
+        except Exception as e:
+            logger.exception(
+                f"failure during downloading and verifying OTA image metafiles: {e!r}"
+            )
+            shutil.rmtree(self._download_folder, ignore_errors=True)
+
+    def parse_metafiles(self):
+        """Parse the metafiles after metafiles are downloaded."""
+        try:
+            _metadata_jwt = self.metadata_jwt
+
             _ft_regular_orm = FTRegularORM(
                 self._fst_conn, table_name=FTRegularORM.table_name
             )
@@ -242,13 +255,6 @@ class OTAMetadata:
                 logger.info(
                     f"csv parse finished: {_dirs_num=}, {_symlinks_num=}, {_regulars_num=}"
                 )
-
-                # NOTE: also check file_table definition at ota_metadata.file_table._table
-                sort_and_replace(
-                    _ft_regular_orm,  # type: ignore
-                    _ft_regular_orm.table_name,
-                    order_by_col="digest",
-                )
             except Exception as e:
                 _err_msg = f"failed to parse CSV metafiles: {e!r}"
                 logger.error(_err_msg)
@@ -257,12 +263,21 @@ class OTAMetadata:
                 self._fst_conn.close()
                 self._rst_conn.close()
                 raise
-
-            # ------ step 5: persist files list ------ #
-            _persist_meta = self._download_folder / _metadata_jwt.persistent.file
-            shutil.move(str(_persist_meta), self._work_dir)
         finally:
             shutil.rmtree(self._download_folder, ignore_errors=True)
+
+    def save_fstable(self, dst: StrOrPath, db_fname: str = FSTABLE_DB) -> None:
+        """Dump the file_table to <dst>/<db_fname>"""
+        with sqlite3.connect(Path(dst) / db_fname) as conn:
+            self._fst_conn.backup(conn)
+
+    def pre_fstable(self) -> None:
+        """Optimize the file_table to be ready for delta generation use."""
+        sort_and_replace(
+            FTRegularORM(self._fst_conn, table_name=FTRegularORM.table_name),
+            table_name=FTRegularORM.table_name,
+            order_by_col="digest",
+        )
 
     # helper methods
 
@@ -335,10 +350,6 @@ class OTAMetadata:
         )
         self._rst_conns_set.add(_conn)
         return _conn
-
-    def save_fstable(self, dst: StrOrPath) -> None:
-        """TODO: implement me!"""
-        # shutil.copy(self._work_dir / self.FSTABLE_DB, dst)
 
     def close_all_rst_conns(self) -> None:
         for _conn in self._rst_conns_set:
