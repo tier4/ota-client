@@ -132,6 +132,13 @@ class DeltaGenerator:
         fully_scan: bool,
         thread_local,
     ) -> None:
+        # ignore non-file file(include symlink)
+        # NOTE: for in-place update, we will recreate all the symlinks,
+        #       so we first remove all the symlinks
+        # NOTE: is_file also return True on symlink points to regular file!
+        if fpath.is_symlink() or not fpath.is_file():
+            return
+
         # in default match_only mode, if the fpath doesn't exist in new, ignore
         if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
             path=str(canonical_fpath)
@@ -250,6 +257,13 @@ class DeltaGenerator:
                     / delta_src_curdir_path.relative_to(self._delta_src_mount_point)
                 )
 
+                if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+                    logger.warning(
+                        f"{canonical_curdir_path=} exceeds {self.MAX_FOLDER_DEEPTH=}, skip scan this folder"
+                    )
+                    dirnames.clear()
+                    continue
+
                 dir_should_fully_scan = False
                 dir_is_excluded = False
                 for parent in reversed(canonical_curdir_path.parents):
@@ -262,13 +276,6 @@ class DeltaGenerator:
                         break
 
                 if dir_is_excluded:
-                    dirnames.clear()
-                    continue
-
-                if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
-                    logger.warning(
-                        f"{canonical_curdir_path=} exceeds {self.MAX_FOLDER_DEEPTH=}, skip scan this folder"
-                    )
                     dirnames.clear()
                     continue
 
@@ -299,13 +306,6 @@ class DeltaGenerator:
                 # process the files under this dir
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
-
-                    # ignore non-file file(include symlink)
-                    # NOTE: for in-place update, we will recreate all the symlinks,
-                    #       so we first remove all the symlinks
-                    # NOTE: is_file also return True on symlink points to regular file!
-                    if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
-                        continue
 
                     self._max_pending_tasks.acquire()
                     pool.submit(
