@@ -522,13 +522,16 @@ class _OTAUpdater:
         self._resource_dir_on_standby.mkdir(exist_ok=True)
 
         logger.info("save the OTA image file_table to standby slot ...")
-        self._ota_metadata.save_fstable(
-            dst=replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
-            )
+        _save_dst = replace_root(
+            cfg.IMAGE_META_DPATH,
+            cfg.CANONICAL_ROOT,
+            self._boot_controller.get_standby_slot_path(),
         )
+        Path(_save_dst).mkdir(exist_ok=True, parents=True)
+        try:
+            self._ota_metadata.save_fstable(dst=_save_dst)
+        except Exception as e:
+            logger.error(f"failed to save OTA image file_table to {_save_dst}: {e!r}")
 
         logger.info("prepare and optimize file_table ...")
         self._ota_metadata.prepare_fstable()
