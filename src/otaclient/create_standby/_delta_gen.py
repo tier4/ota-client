@@ -132,53 +132,55 @@ class DeltaGenerator:
         fully_scan: bool,
         thread_local,
     ) -> None:
-        # ignore non-file file(include symlink)
-        # NOTE: for in-place update, we will recreate all the symlinks,
-        #       so we first remove all the symlinks
-        # NOTE: is_file also return True on symlink points to regular file!
-        if fpath.is_symlink() or not fpath.is_file():
-            return
-
-        # in default match_only mode, if the fpath doesn't exist in new, ignore
-        if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
-            path=str(canonical_fpath)
-        ):
-            return
-
-        tmp_f = self._copy_dst / create_tmp_fname()
-
-        hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
-            hash_f = sha256()
-            with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
-                while read_size := src.readinto(hash_buffer):
-                    hash_f.update(hash_bufferview[:read_size])
-                    tmp_dst.write(hash_bufferview[:read_size])
+            # ignore non-file file(include symlink)
+            # NOTE: for in-place update, we will recreate all the symlinks,
+            #       so we first remove all the symlinks
+            # NOTE: is_file also return True on symlink points to regular file!
+            if fpath.is_symlink() or not fpath.is_file():
+                return
 
-            dst_f = self._copy_dst / hash_f.hexdigest()
+            # in default match_only mode, if the fpath doesn't exist in new, ignore
+            if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
+                path=str(canonical_fpath)
+            ):
+                return
 
-            # If the resource we scan here is listed in the resouce table, copy it
-            #   to the copy_dir at standby slot for later use.
-            if self._rst_orm_pool.orm_check_entry_exist(digest=hash_f.digest()):
-                dst_f.touch(exist_ok=False)  # take the seat ASAP
-                tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_size=fpath.stat().st_size,
-                            processed_file_num=1,
-                        ),
-                        session_id=self.session_id,
+            tmp_f = self._copy_dst / create_tmp_fname()
+            try:
+                hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
+
+                hash_f = sha256()
+                with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                    while read_size := src.readinto(hash_buffer):
+                        hash_f.update(hash_bufferview[:read_size])
+                        tmp_dst.write(hash_bufferview[:read_size])
+
+                dst_f = self._copy_dst / hash_f.hexdigest()
+
+                # If the resource we scan here is listed in the resouce table, copy it
+                #   to the copy_dir at standby slot for later use.
+                if self._rst_orm_pool.orm_check_entry_exist(digest=hash_f.digest()):
+                    dst_f.touch(exist_ok=False)  # take the seat ASAP
+                    tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                processed_file_size=fpath.stat().st_size,
+                                processed_file_num=1,
+                            ),
+                            session_id=self.session_id,
+                        )
                     )
-                )
+            finally:
+                tmp_f.unlink(missing_ok=True)
         except FileExistsError:
             pass  # normal rountine when multiple threads entering the critical zone
         except Exception as e:
             burst_suppressed_logger.exception(f"failed to proces {fpath}: {e!r}")
         finally:
             self._max_pending_tasks.release()  # always release se first
-            tmp_f.unlink(missing_ok=True)
 
     @staticmethod
     def _thread_worker_initializer(thread_local) -> None:
