@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Generator, NamedTuple, Optional
+from typing import NamedTuple, Optional
 
 from msgpack import Unpacker, packb
 from pydantic import PlainSerializer, PlainValidator
@@ -31,10 +31,6 @@ class FileEntryAttrs(NamedTuple):
     size: Optional[int] = None
     inode: Optional[int] = None
     xattrs: Optional[dict[str, str]] = None
-
-    def iter_xattrs(self) -> Generator[tuple[str, str]]:
-        if self.xattrs:
-            yield from self.xattrs.items()
 
     @classmethod
     def _validator(cls, _in: bytes | FileEntryAttrs) -> FileEntryAttrs:

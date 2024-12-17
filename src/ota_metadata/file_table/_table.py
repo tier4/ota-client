@@ -67,13 +67,14 @@ class FileTableBase(BaseModel):
 
         NOTE: this method always don't follow symlink.
         """
-        for k, v in self.entry_attrs.iter_xattrs():
-            os.setxattr(
-                path=_target,
-                attribute=k,
-                value=v.encode(),
-                follow_symlinks=False,
-            )
+        if xattrs := self.entry_attrs.xattrs:
+            for k, v in xattrs.items():
+                os.setxattr(
+                    path=_target,
+                    attribute=k,
+                    value=v.encode(),
+                    follow_symlinks=False,
+                )
 
     def set_perm(self, _target: StrOrPath) -> None:
         """Set the mode,uid,gid of self onto the <_target>.
