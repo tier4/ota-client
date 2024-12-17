@@ -59,7 +59,7 @@ from ota_metadata.file_table import (
     FTNonRegularORM,
     FTRegularORM,
 )
-from ota_metadata.file_table._orm import FTDirORM
+from ota_metadata.file_table._orm import FTDirORM, FTRegularORMPool
 from ota_metadata.file_table._table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
@@ -315,12 +315,13 @@ class OTAMetadata:
     def iter_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
-        _conn = self.connect_fstable()
-        _ft_dir_orm = FTRegularORM(_conn)
+        _ft_dir_orm = FTRegularORMPool(
+            con_factory=self.connect_fstable, number_of_cons=1
+        )
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
-            _conn.close()
+            _ft_dir_orm.orm_pool_shutdown()
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
