@@ -212,6 +212,9 @@ class DeltaGenerator:
                     _delete_stmt,
                     ({"digest": _value} for _value in _delete_batches),
                 )
+
+            with _rs_orm.orm_con as conn:
+                conn.execute("VACUUM;")
         finally:
             _rs_orm.orm_con.close()
 
