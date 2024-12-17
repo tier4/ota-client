@@ -25,7 +25,7 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table._orm import FTDirORM, FTRegularORMPool
+from ota_metadata.file_table._orm import FTDirORMPool, FTRegularORMPool
 from ota_metadata.legacy.metadata import OTAMetadata
 from ota_metadata.legacy.rs_table import RSTORM, RSTableORMThreadPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -103,13 +103,16 @@ class DeltaGenerator:
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
 
-        # NOTE: we only need one thread for checking directory against database.
-        self._ft_dir_orm = FTDirORM(ota_metadata.connect_fstable())
+        self._ft_dir_orm = FTDirORMPool(
+            con_factory=ota_metadata.connect_fstable,
+            number_of_cons=DB_CONN_NUMS,
+            thread_name_prefix="ft_dir_orm_pool",
+        )
 
         self._ft_regular_orm = FTRegularORMPool(
             con_factory=ota_metadata.connect_fstable,
             number_of_cons=DB_CONN_NUMS,
-            thread_name_prefix="ft_orm_pool",
+            thread_name_prefix="ft_reg_orm_pool",
         )
         self._rst_orm_pool = RSTableORMThreadPool(
             con_factory=ota_metadata.connect_rstable,
@@ -316,7 +319,7 @@ class DeltaGenerator:
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
-            self._ft_dir_orm.orm_con.close()
+            self._ft_dir_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
 
         logger.info("post delta calculation ...")
