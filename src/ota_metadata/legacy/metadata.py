@@ -291,7 +291,7 @@ class OTAMetadata:
 
     def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTDirORM(_conn, row_factory="table_spec_no_validation")
+        _ft_dir_orm = FTDirORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -301,7 +301,7 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTNonRegularORM(_conn, row_factory="table_spec_no_validation")
+        _ft_dir_orm = FTNonRegularORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -311,7 +311,7 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTRegularORM(_conn, row_factory="table_spec_no_validation")
+        _ft_dir_orm = FTRegularORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
