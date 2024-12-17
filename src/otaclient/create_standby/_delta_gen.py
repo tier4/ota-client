@@ -133,13 +133,6 @@ class DeltaGenerator:
         thread_local,
     ) -> None:
         try:
-            # ignore non-file file(include symlink)
-            # NOTE: for in-place update, we will recreate all the symlinks,
-            #       so we first remove all the symlinks
-            # NOTE: is_file also return True on symlink points to regular file!
-            if fpath.is_symlink() or not fpath.is_file():
-                return
-
             # in default match_only mode, if the fpath doesn't exist in new, ignore
             if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
                 path=str(canonical_fpath)
@@ -308,6 +301,13 @@ class DeltaGenerator:
                 # process the files under this dir
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
+
+                    # ignore non-file file(include symlink)
+                    # NOTE: for in-place update, we will recreate all the symlinks,
+                    #       so we first remove all the symlinks
+                    # NOTE: is_file also return True on symlink points to regular file!
+                    if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                        continue
 
                     self._max_pending_tasks.acquire()
                     pool.submit(
