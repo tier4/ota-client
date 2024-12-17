@@ -383,8 +383,8 @@ class ResourceMeta:
             _query = _orm.orm_execute(_sql_stmt)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
-            assert _query
-            return _query[0]
+            assert _query  # should be something like ((<int>,),)
+            return _query[0][0]
         finally:
             _conn.close()
 
@@ -402,8 +402,8 @@ class ResourceMeta:
             _query = _orm.orm_execute(_sql_stmt)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
-            assert _query
-            return _query[0]
+            assert _query  # should be something like ((<int>,),)
+            return _query[0][0]
         finally:
             _conn.close()
 
