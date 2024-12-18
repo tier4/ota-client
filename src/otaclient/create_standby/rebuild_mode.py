@@ -23,6 +23,7 @@ from queue import Queue
 from typing import Generator
 
 from ota_metadata.file_table._table import (
+    FileTableBase,
     FileTableDirectories,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
@@ -49,8 +50,19 @@ burst_suppressed_logger.addFilter(
 )
 
 
+def _failed_task_wrapper(_func):
+    def _wrapped(entry: FileTableBase):
+        try:
+            return _func(entry)
+        except Exception as e:
+            burst_suppressed_logger.warning(f"failed to process {entry}: {e!r}")
+
+    return _wrapped
+
+
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
+PROCESS_DIRS_CONCURRENCY = 64
 
 
 class RebuildMode:
@@ -229,17 +241,20 @@ class RebuildMode:
             )
 
     def _process_dir_entries(
-        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+        self, *, batch_size: int = PROCESS_DIRS_CONCURRENCY
     ) -> None:
         logger.info("process directories ...")
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_size,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            max_workers=1,  # we should only use one thread for the processing
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
-                func=partial(
-                    FileTableDirectories.prepare_target,
-                    target_mnt=self._standby_slot_mp,
+                func=_failed_task_wrapper(
+                    partial(
+                        FileTableDirectories.prepare_target,
+                        target_mnt=self._standby_slot_mp,
+                    )
                 ),
                 iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
             ):
