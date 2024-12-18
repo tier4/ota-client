@@ -55,7 +55,7 @@ def _failed_task_logging_wrapper(_func):
         try:
             return _func(entry)
         except Exception as e:
-            burst_suppressed_logger.warning(f"failed to process {entry}: {e!r}")
+            burst_suppressed_logger.exception(f"failed to process {entry}: {e!r}")
 
     return _wrapped
 
