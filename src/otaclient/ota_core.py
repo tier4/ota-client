@@ -656,12 +656,10 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-
-        # NOTE: we don't need to wait for sub ECUs if sub ECUs don't
-        #       depend on otaproxy on this ECU.
+  
         if proxy_info.enable_local_ota_proxy:
             wait_and_log(
-                check_flag=self.ecu_status_flags.any_requires_network.is_set,
+                check_flag=self.ecu_status_flags.any_in_update.is_set,
                 check_for=False,
                 message="permit reboot flag",
                 log_func=logger.info,
