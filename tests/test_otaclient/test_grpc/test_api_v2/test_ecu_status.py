@@ -471,7 +471,7 @@ class TestECUStatusStorage:
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware"},
-                    "in_update_child_ecus_id": {},
+                    "in_update_child_ecus_id": set(),
                     "failed_ecus_id": set(),
                     "success_ecus_id": {"p1", "p2"},
                 },
