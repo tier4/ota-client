@@ -50,7 +50,7 @@ burst_suppressed_logger.addFilter(
 )
 
 
-def _failed_task_wrapper(_func):
+def _failed_task_logging_wrapper(_func):
     def _wrapped(entry: FileTableBase):
         try:
             return _func(entry)
@@ -250,7 +250,7 @@ class RebuildMode:
             max_workers=1,  # we should only use one thread for the processing
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
-                func=_failed_task_wrapper(
+                func=_failed_task_logging_wrapper(
                     partial(
                         FileTableDirectories.prepare_target,
                         target_mnt=self._standby_slot_mp,
@@ -269,9 +269,11 @@ class RebuildMode:
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
-                func=partial(
-                    FileTableNonRegularFiles.prepare_target,
-                    target_mnt=self._standby_slot_mp,
+                func=_failed_task_logging_wrapper(
+                    partial(
+                        FileTableNonRegularFiles.prepare_target,
+                        target_mnt=self._standby_slot_mp,
+                    )
                 ),
                 iterable=self._ota_metadata.iter_non_regular_entries(
                     batch_size=batch_size
