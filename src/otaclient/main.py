@@ -116,7 +116,7 @@ def main() -> None:  # pragma: no cover
     local_otaclient_op_queue = mp_ctx.Queue()
     local_otaclient_resp_queue = mp_ctx.Queue()
     ecu_status_flags = MultipleECUStatusFlags(
-        any_in_update=mp_ctx.Event(),
+        any_child_ecu_in_update=mp_ctx.Event(),
         any_requires_network=mp_ctx.Event(),
         all_success=mp_ctx.Event(),
     )
