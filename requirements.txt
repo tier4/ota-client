@@ -14,5 +14,5 @@ requests<2.33,>=2.32
 simple-sqlite3-orm<0.6,>=0.5
 typing-extensions>=4.6.3
 urllib3<2.3,>=2.2.2
-uvicorn[standard]>=0.30,<0.33
+uvicorn[standard]>=0.30,<0.35
 zstandard<0.24,>=0.22

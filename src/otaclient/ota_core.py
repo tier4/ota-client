@@ -656,10 +656,10 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-  
+
         if proxy_info.enable_local_ota_proxy:
             wait_and_log(
-                check_flag=self.ecu_status_flags.any_in_update.is_set,
+                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
                 check_for=False,
                 message="permit reboot flag",
                 log_func=logger.info,
