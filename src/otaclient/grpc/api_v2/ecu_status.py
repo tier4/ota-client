@@ -195,10 +195,11 @@ class ECUStatusStorage:
                 "new ECU(s) that acks update request and enters OTA update detected"
                 f"{_new_in_update_ecu}, current updating ECUs: {in_update_ecus_id}"
             )
-        if in_update_ecus_id:
-            ecu_status_flags.any_in_update.set()
+
+        if self.in_update_child_ecus_id:
+            ecu_status_flags.any_child_ecu_in_update.set()
         else:
-            ecu_status_flags.any_in_update.clear()
+            ecu_status_flags.any_child_ecu_in_update.clear()
 
         # check if there is any failed child/self ECU in tracked active ECUs set
         _old_failed_ecus_id = self.failed_ecus_id
@@ -346,7 +347,10 @@ class ECUStatusStorage:
 
             ecu_status_flags.all_success.clear()
             ecu_status_flags.any_requires_network.set()
-            ecu_status_flags.any_in_update.set()
+            if self.in_update_child_ecus_id:
+                ecu_status_flags.any_child_ecu_in_update.set()
+            else:
+                ecu_status_flags.any_child_ecu_in_update.clear()
 
     def get_polling_interval(self) -> int:
         """Return <ACTIVE_POLLING_INTERVAL> if there is active OTA update,
@@ -355,11 +359,8 @@ class ECUStatusStorage:
         NOTE: use get_polling_waiter if want to wait, only call this method
             if one only wants to get the polling interval value.
         """
-        ecu_status_flags = self.ecu_status_flags
         return (
-            ACTIVE_POLLING_INTERVAL
-            if ecu_status_flags.any_in_update.is_set()
-            else IDLE_POLLING_INTERVAL
+            ACTIVE_POLLING_INTERVAL if self.in_update_ecus_id else IDLE_POLLING_INTERVAL
         )
 
     def get_polling_waiter(self):
@@ -377,13 +378,12 @@ class ECUStatusStorage:
         _inner_wait_interval = 1  # second
 
         async def _waiter():
-            ecu_status_flags = self.ecu_status_flags
-            if ecu_status_flags.any_in_update.is_set():
+            if self.in_update_ecus_id:
                 await asyncio.sleep(ACTIVE_POLLING_INTERVAL)
                 return
 
             for _ in range(math.ceil(IDLE_POLLING_INTERVAL / _inner_wait_interval)):
-                if ecu_status_flags.any_in_update.is_set():
+                if self.in_update_ecus_id:
                     return
                 await asyncio.sleep(_inner_wait_interval)
 
