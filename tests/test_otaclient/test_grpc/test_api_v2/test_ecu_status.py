@@ -434,6 +434,54 @@ class TestECUStatusStorage:
                     "all_success": False,
                 },
             ),
+            # case 3:
+            # only main ECU doing OTA update.
+            (
+                # local ECU status: UPDATING
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.UPDATING,
+                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                ),
+                # sub ECUs status
+                [
+                    # p1: SUCCESS
+                    api_types.StatusResponse(
+                        available_ecu_ids=["p1"],
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
+                                ecu_id="p1",
+                                ota_status=api_types.StatusOta.SUCCESS,
+                            ),
+                        ],
+                    ),
+                    # p2: SUCCESS
+                    api_types.StatusResponse(
+                        available_ecu_ids=["p2"],
+                        ecu=[
+                            api_types.StatusResponseEcu(
+                                ecu_id="p2",
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.SUCCESS,
+                                ),
+                            )
+                        ],
+                    ),
+                ],
+                # expected overal ECUs status report set by on_ecus_accept_update_request,
+                {
+                    "lost_ecus_id": set(),
+                    "in_update_ecus_id": {"autoware"},
+                    "in_update_child_ecus_id": {},
+                    "failed_ecus_id": set(),
+                    "success_ecus_id": {"p1", "p2"},
+                },
+                # ecu_status_flags
+                {
+                    "any_child_ecu_in_update": False,
+                    "any_requires_network": True,
+                    "all_success": False,
+                },
+            ),
         ),
     )
     async def test_overall_ecu_status_report_generation(
@@ -563,55 +611,6 @@ class TestECUStatusStorage:
                 # ecu_status_flags
                 {
                     "any_child_ecu_in_update": True,
-                    "any_requires_network": True,
-                    "all_success": False,
-                },
-            ),
-            # case 3:
-            # only main ECU doing OTA update.
-            (
-                # local ECU status: UPDATING
-                _internal_types.OTAClientStatus(
-                    ota_status=_internal_types.OTAStatus.UPDATING,
-                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
-                ),
-                # sub ECUs status
-                [
-                    # p1: SUCCESS
-                    api_types.StatusResponse(
-                        available_ecu_ids=["p1"],
-                        ecu_v2=[
-                            api_types.StatusResponseEcuV2(
-                                ecu_id="p1",
-                                ota_status=api_types.StatusOta.SUCCESS,
-                            ),
-                        ],
-                    ),
-                    # p2: SUCCESS
-                    api_types.StatusResponse(
-                        available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
-                                ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.SUCCESS,
-                                ),
-                            )
-                        ],
-                    ),
-                ],
-                ["p1"],
-                # expected overal ECUs status report set by on_ecus_accept_update_request,
-                {
-                    "lost_ecus_id": set(),
-                    "in_update_ecus_id": {"autoware"},
-                    "in_update_child_ecus_id": {},
-                    "failed_ecus_id": set(),
-                    "success_ecus_id": {"p1", "p2"},
-                },
-                # ecu_status_flags
-                {
-                    "any_child_ecu_in_update": False,
                     "any_requires_network": True,
                     "all_success": False,
                 },
