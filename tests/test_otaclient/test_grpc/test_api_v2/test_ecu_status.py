@@ -53,7 +53,7 @@ class TestECUStatusStorage:
         # init and setup the ecu_storage
         # NOTE: here we use threading.Event instead
         self.ecu_status_flags = ecu_status_flags = MultipleECUStatusFlags(
-            any_in_update=threading.Event(),  # type: ignore[assignment]
+            any_child_ecu_in_update=threading.Event(),  # type: ignore[assignment]
             any_requires_network=threading.Event(),  # type: ignore[assignment]
             all_success=threading.Event(),  # type: ignore[assignment]
         )
@@ -380,7 +380,7 @@ class TestECUStatusStorage:
                 },
                 # ecu_status_flags
                 {
-                    "any_in_update": True,
+                    "any_child_ecu_in_update": True,
                     "any_requires_network": True,
                     "all_success": False,
                 },
@@ -429,7 +429,7 @@ class TestECUStatusStorage:
                 },
                 # ecu_status_flags
                 {
-                    "any_in_update": True,
+                    "any_child_ecu_in_update": True,
                     "any_requires_network": True,
                     "all_success": False,
                 },
@@ -510,7 +510,7 @@ class TestECUStatusStorage:
                 },
                 # ecu_status_flags
                 {
-                    "any_in_update": True,
+                    "any_child_ecu_in_update": True,
                     "any_requires_network": True,
                     "all_success": False,
                 },
@@ -562,7 +562,56 @@ class TestECUStatusStorage:
                 },
                 # ecu_status_flags
                 {
-                    "any_in_update": True,
+                    "any_child_ecu_in_update": True,
+                    "any_requires_network": True,
+                    "all_success": False,
+                },
+            ),
+            # case 3:
+            # only main ECU doing OTA update.
+            (
+                # local ECU status: UPDATING
+                _internal_types.OTAClientStatus(
+                    ota_status=_internal_types.OTAStatus.UPDATING,
+                    update_phase=_internal_types.UpdatePhase.DOWNLOADING_OTA_FILES,
+                ),
+                # sub ECUs status
+                [
+                    # p1: SUCCESS
+                    api_types.StatusResponse(
+                        available_ecu_ids=["p1"],
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
+                                ecu_id="p1",
+                                ota_status=api_types.StatusOta.SUCCESS,
+                            ),
+                        ],
+                    ),
+                    # p2: SUCCESS
+                    api_types.StatusResponse(
+                        available_ecu_ids=["p2"],
+                        ecu=[
+                            api_types.StatusResponseEcu(
+                                ecu_id="p2",
+                                status=api_types.Status(
+                                    status=api_types.StatusOta.SUCCESS,
+                                ),
+                            )
+                        ],
+                    ),
+                ],
+                ["p1"],
+                # expected overal ECUs status report set by on_ecus_accept_update_request,
+                {
+                    "lost_ecus_id": set(),
+                    "in_update_ecus_id": {"autoware"},
+                    "in_update_child_ecus_id": {},
+                    "failed_ecus_id": set(),
+                    "success_ecus_id": {"p1", "p2"},
+                },
+                # ecu_status_flags
+                {
+                    "any_child_ecu_in_update": False,
                     "any_requires_network": True,
                     "all_success": False,
                 },
@@ -604,15 +653,18 @@ class TestECUStatusStorage:
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
 
-    async def test_polling_waiter_switching_from_idling_to_active(self):
+    async def test_polling_waiter_switching_from_idling_to_active(
+        self, mocker: pytest_mock.MockerFixture
+    ):
         """Waiter should immediately return if active_ota_update_present is set."""
         _sleep_time, _mocked_interval = 3, 60
 
+        mocker.patch(f"{ECU_STATUS_MODULE}.IDLE_POLLING_INTERVAL", _mocked_interval)
+
         async def _event_setter():
             await asyncio.sleep(_sleep_time)
-            self.ecu_status_flags.any_in_update.set()
+            await self.ecu_storage.on_ecus_accept_update_request({"autoware"})
 
-        self.ecu_status_flags.any_in_update.clear()
         _waiter = self.ecu_storage.get_polling_waiter()
         asyncio.create_task(_event_setter())
         # waiter should return on active_ota_update_present is set, instead of waiting the
