@@ -36,7 +36,7 @@ def _check_same_stat(
     is_symlink: bool = False,
     check_size: bool = False,
 ):
-    _stat_from_fpath = _fpath.stat()
+    _stat_from_fpath = os.stat(_fpath, follow_symlinks=False)
     assert _stat_from_fpath.st_uid == _entry.uid
     assert _stat_from_fpath.st_gid == _entry.gid
 
@@ -93,12 +93,12 @@ def test_dir(_in: FileTableDirectories, tmp_path: Path):
 
     _fpath_on_target = tmp_path / Path(_in.path).relative_to("/")
     assert _fpath_on_target == _in.fpath_on_target(target_mnt=target)
-    assert _check_same_stat(_fpath_on_target, _in.entry_attrs)
+    _check_same_stat(_fpath_on_target, _in.entry_attrs)
     if _xattrs := _in.entry_attrs.xattrs:
-        assert _check_xattr(_fpath_on_target, _xattrs)
+        _check_xattr(_fpath_on_target, _xattrs)
 
 
-TEST_FILE_SIZE = 128  # bytes
+TEST_FILE_SIZE = 64  # bytes
 
 
 @pytest.mark.parametrize(
@@ -191,9 +191,13 @@ def test_regular_file(
     _src_inode = src.stat().st_ino
 
     target = tmp_path
+    _fpath_on_target = tmp_path / Path(_in.path).relative_to("/")
+    # NOTE that prepare_target doesn't prepare the parents of the entry,
+    #   we need to do it by ourselves.
+    _fpath_on_target.parent.mkdir(exist_ok=True, parents=True)
+
     _in.prepare_target(src, target_mnt=target, prepare_method=prepare_method)
 
-    _fpath_on_target = tmp_path / Path(_in.path).relative_to("/")
     _check_same_stat(_fpath_on_target, _in.entry_attrs, check_size=True)
 
     if prepare_method == "hardlink":
@@ -222,8 +226,11 @@ def test_regular_file(
     ),
 )
 def test_non_regular_file(_in: FileTableNonRegularFiles, tmp_path: Path):
-    _in.prepare_target(target_mnt=tmp_path)
     _fpath_on_target = tmp_path / Path(_in.path).relative_to("/")
+    # NOTE: symlink preapre_target doesn't prepare parent, we need to do it by ourselves.
+    _fpath_on_target.parent.mkdir(exist_ok=True, parents=True)
 
-    assert _check_same_stat(_fpath_on_target, _in.entry_attrs, is_symlink=True)
+    _in.prepare_target(target_mnt=tmp_path)
+
+    _check_same_stat(_fpath_on_target, _in.entry_attrs, is_symlink=True)
     assert _in.contents and os.readlink(_fpath_on_target) == _in.contents.decode()
