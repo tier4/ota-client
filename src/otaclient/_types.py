@@ -126,7 +126,7 @@ class OTAClientStatus:
 
 @dataclass
 class MultipleECUStatusFlags:
-    any_in_update: mp_sync.Event
+    any_child_ecu_in_update: mp_sync.Event
     any_requires_network: mp_sync.Event
     all_success: mp_sync.Event
 
