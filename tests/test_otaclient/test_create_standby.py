@@ -106,7 +106,7 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
     ):
         status_collector, status_report_queue = ota_status_collector
         ecu_status_flags = mocker.MagicMock()
-        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+        ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
 
