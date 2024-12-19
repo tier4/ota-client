@@ -213,7 +213,7 @@ class ECUStatusStorage:
             and status.ecu_id not in lost_ecus
         }
         # NOTE: all_success doesn't count the lost ECUs
-        if len(self.success_ecus_id) == len(self._available_ecu_ids):
+        if self.success_ecus_id == set(self._available_ecu_ids):
             ecu_status_flags.all_success.set()
         else:
             ecu_status_flags.all_success.clear()
