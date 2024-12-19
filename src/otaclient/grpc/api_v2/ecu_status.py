@@ -95,26 +95,12 @@ class ECUStatusStorage:
         # ECU status storage
         self.storage_last_updated_timestamp = 0
 
-        # ECUs that are/will be active during an OTA session,
-        #   at init it will be the ECUs listed in available_ecu_ids defined
-        #   in ecu_info.yaml.
-        # When receives update request, the list will be set to include ECUs
-        #   listed in the update request, and be extended by merging
-        #   available_ecu_ids in sub ECUs' status report.
-        # Internally referenced when generating overall ECU status report.
-        # TODO: in the future if otaclient can preserve OTA session info,
-        #       ECUStatusStorage should restore the tracked_active_ecus info
-        #       in the saved session info.
-        self._tracked_active_ecus: _OrderedSet[str] = _OrderedSet(
-            ecu_info.get_available_ecu_ids()
-        )
-
         # The attribute that will be exported in status API response,
-        # NOTE(20230801): available_ecu_ids only serves information purpose,
-        #                 it should only be updated with ecu_info.yaml or merging
-        #                 available_ecu_ids field in sub ECUs' status report.
         # NOTE(20230801): for web.auto user, available_ecu_ids in status API response
         #                 will be used to generate update request list, so be-careful!
+        # NOTE(20241219): we will only look at status of ECUs listed in available_ecu_ids.
+        #                 ECUs that in the secondaries field but no in available_ecu_ids field
+        #                 are considered to be the ECUs not ready for OTA. See ecu_info.yaml doc.
         self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
             ecu_info.get_available_ecu_ids()
         )
@@ -185,7 +171,7 @@ class ECUStatusStorage:
             for status in chain(
                 self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-            if status.ecu_id in self._tracked_active_ecus
+            if status.ecu_id in self._available_ecu_ids
             and status.is_in_update
             and status.ecu_id not in lost_ecus
         }
@@ -208,7 +194,7 @@ class ECUStatusStorage:
             for status in chain(
                 self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-            if status.ecu_id in self._tracked_active_ecus
+            if status.ecu_id in self._available_ecu_ids
             and status.is_failed
             and status.ecu_id not in lost_ecus
         }
@@ -224,7 +210,7 @@ class ECUStatusStorage:
                 for status in chain(
                     self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
                 )
-                if status.ecu_id in self._tracked_active_ecus
+                if status.ecu_id in self._available_ecu_ids
                 and status.ecu_id not in lost_ecus
             )
         ):
@@ -241,12 +227,12 @@ class ECUStatusStorage:
             for status in chain(
                 self._all_ecus_status_v2.values(), self._all_ecus_status_v1.values()
             )
-            if status.ecu_id in self._tracked_active_ecus
+            if status.ecu_id in self._available_ecu_ids
             and status.is_success
             and status.ecu_id not in lost_ecus
         }
         # NOTE: all_success doesn't count the lost ECUs
-        if len(self.success_ecus_id) == len(self._tracked_active_ecus):
+        if len(self.success_ecus_id) == len(self._available_ecu_ids):
             ecu_status_flags.all_success.set()
         else:
             ecu_status_flags.all_success.clear()
@@ -335,8 +321,6 @@ class ECUStatusStorage:
         """
         ecu_status_flags = self.ecu_status_flags
         async with self._properties_update_lock:
-            self._tracked_active_ecus = _OrderedSet(ecus_accept_update)
-
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
             self.failed_ecus_id -= ecus_accept_update
