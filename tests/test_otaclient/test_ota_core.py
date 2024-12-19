@@ -161,7 +161,7 @@ class TestOTAUpdater:
     ) -> None:
         _, report_queue = ota_status_collector
         ecu_status_flags = mocker.MagicMock()
-        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+        ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
 
@@ -202,7 +202,7 @@ class TestOTAUpdater:
         assert _downloaded_files_size == self._delta_bundle.total_download_files_size
 
         # assert the control_flags has been waited
-        ecu_status_flags.any_requires_network.is_set.assert_called_once()
+        ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
 
         assert _updater.update_version == str(cfg.UPDATE_VERSION)
 
@@ -235,7 +235,7 @@ class TestOTAClient:
     ):
         _, status_report_queue = ota_status_collector
         ecu_status_flags = mocker.MagicMock()
-        ecu_status_flags.any_requires_network.is_set = mocker.MagicMock(
+        ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
 
