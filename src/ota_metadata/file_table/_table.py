@@ -79,17 +79,12 @@ class FileTableBase(BaseModel):
                 )
 
     def set_perm(self, _target: StrOrPath) -> None:
-        """Set the mode,uid,gid of self onto the <_target>.
-
-        NOTE: this method always don't follow symlink.
-        """
+        """Set the mode,uid,gid of self onto the <_target>."""
         entry_attrs = self.entry_attrs
         # NOTE(20241213): chown will reset the sticky bit of the file!!!
         #   Remember to always put chown before chmod !!!
-        os.chown(
-            _target, uid=entry_attrs.uid, gid=entry_attrs.gid, follow_symlinks=False
-        )
-        os.chmod(_target, mode=entry_attrs.mode, follow_symlinks=False)
+        os.chown(_target, uid=entry_attrs.uid, gid=entry_attrs.gid)
+        os.chmod(_target, mode=entry_attrs.mode)
 
     def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
         """Return the fpath of self joined to <target_mnt>."""
@@ -171,7 +166,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
         # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
         #   changing mode of symlink will even result in exception raised.
         if not stat.S_ISLNK(entry_attrs.mode):
-            os.chmod(_target, mode=entry_attrs.mode, follow_symlinks=False)
+            os.chmod(_target, mode=entry_attrs.mode)
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
