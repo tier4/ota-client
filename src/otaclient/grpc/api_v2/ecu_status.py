@@ -340,10 +340,10 @@ class ECUStatusStorage:
             self.last_update_request_received_timestamp = int(time.time())
             self.lost_ecus_id -= ecus_accept_update
             self.failed_ecus_id -= ecus_accept_update
+            self.success_ecus_id -= ecus_accept_update
 
             self.in_update_ecus_id.update(ecus_accept_update)
             self.in_update_child_ecus_id = self.in_update_ecus_id - {self.my_ecu_id}
-            self.success_ecus_id -= ecus_accept_update
 
             ecu_status_flags.all_success.clear()
             ecu_status_flags.any_requires_network.set()
