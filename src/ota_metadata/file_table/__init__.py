@@ -13,22 +13,21 @@
 # limitations under the License.
 
 
-import logging
+from ._orm import FTDirORM, FTNonRegularORM, FTRegularORM, FTRegularORMPool
+from ._table import (
+    FileTableDirectories,
+    FileTableNonRegularFiles,
+    FileTableRegularFiles,
+)
+from ._types import FileEntryAttrs
 
-from otaclient.configs import CreateStandbyMechanism
-from otaclient.configs._cfg_configurable import CREATE_STANDBY_METHOD_LTIERAL
-
-logger = logging.getLogger(__name__)
-
-
-def get_standby_slot_creator(mode: CREATE_STANDBY_METHOD_LTIERAL):
-    logger.info(f"use slot update mechanism: {mode!r}")
-    if mode == CreateStandbyMechanism.REBUILD:
-        from .rebuild_mode import RebuildMode
-
-        return RebuildMode
-
-    raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
-
-
-__all__ = ("get_standby_slot_creator",)
+__all__ = [
+    "FTNonRegularORM",
+    "FTRegularORM",
+    "FTDirORM",
+    "FTRegularORMPool",
+    "FileTableNonRegularFiles",
+    "FileTableRegularFiles",
+    "FileTableDirectories",
+    "FileEntryAttrs",
+]
