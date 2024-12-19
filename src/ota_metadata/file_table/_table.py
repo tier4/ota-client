@@ -11,9 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-NOTE: xattrs is not supported by legacy OTA image spec! So comment out set_xattrs now.
-"""
+
 
 from __future__ import annotations
 
@@ -114,7 +112,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         if prepare_method == "copy":
             shutil.copy(_rs, _target_on_mnt)
             self.set_perm(_target_on_mnt)
-            # self.set_xattr(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         if prepare_method == "hardlink":
@@ -124,13 +122,13 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
             #   to file paths point to the same inode, for simplicity here we just
             #   do it everytime.
             self.set_perm(_target_on_mnt)
-            # self.set_xattr(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         if prepare_method == "move":
             shutil.move(str(_rs), _target_on_mnt)
             self.set_perm(_target_on_mnt)
-            # self.set_xattr(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
 
 
 class FileTableNonRegularFiles(TableSpec, FileTableBase):
@@ -181,14 +179,14 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
             self.set_perm(_target_on_mnt)
-            # self.set_xattr(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         if stat.S_ISCHR(_mode):
             _device_num = os.makedev(0, 0)
             os.mknod(_target_on_mnt, mode=_mode, device=_device_num)
             self.set_perm(_target_on_mnt)
-            # self.set_xattr(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
             return
 
         raise ValueError(f"invalid entry {self}")
@@ -201,4 +199,4 @@ class FileTableDirectories(TableSpec, FileTableBase):
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
         _target_on_mnt.mkdir(exist_ok=True, parents=True)
         self.set_perm(_target_on_mnt)
-        # self.set_xattr(_target_on_mnt)
+        self.set_xattr(_target_on_mnt)
