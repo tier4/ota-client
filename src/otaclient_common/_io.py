@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared helper functions for IO."""
 
-
 from __future__ import annotations
 
 import hashlib

@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared utils, only used by otaclient package."""
 
-
 from __future__ import annotations
 
 import itertools

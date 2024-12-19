@@ -13,7 +13,6 @@
 # limitations under the License.
 """Entrypoint of otaclient."""
 
-
 from __future__ import annotations
 
 import atexit

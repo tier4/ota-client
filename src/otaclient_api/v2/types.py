@@ -13,7 +13,6 @@
 # limitations under the License.
 """Defined wrappers for otaclient_v2 protobuf message types."""
 
-
 from __future__ import annotations
 
 from abc import abstractmethod

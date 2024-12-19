@@ -13,7 +13,6 @@
 # limitations under the License.
 """ECU metadatas definition and parsing logic."""
 
-
 from __future__ import annotations
 
 import logging

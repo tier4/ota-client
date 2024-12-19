@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTA Service API v2 implementation."""
 
-
 from __future__ import annotations
 
 import asyncio

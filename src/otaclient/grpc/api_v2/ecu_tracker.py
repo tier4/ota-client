@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tracker that queries and stores ECU status from all defined ECUs."""
 
-
 from __future__ import annotations
 
 import asyncio
@@ -48,7 +47,6 @@ _ACTIVE_POLL_LOCAL_ON_STARTUP = 0.1
 
 
 class ECUTracker:
-
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,

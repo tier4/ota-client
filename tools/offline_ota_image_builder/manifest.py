@@ -19,7 +19,6 @@ external cache source image will be placed at the image rootfs.
 Check README.md for the spec.
 """
 
-
 import json
 from dataclasses import asdict, dataclass, field
 from typing import List

@@ -13,7 +13,6 @@
 # limitations under the License.
 """otaclient internal uses consts, should not be changed from external."""
 
-
 from __future__ import annotations
 
 from otaclient_common import replace_root
@@ -29,7 +28,6 @@ class CreateStandbyMechanism(StrEnum):
 
 
 class Consts:
-
     CANONICAL_ROOT = CANONICAL_ROOT
 
     @property

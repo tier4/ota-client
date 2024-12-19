@@ -30,7 +30,6 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
     still expecting new mechanism to fundamentally resolve this issue.
 """
 
-
 from __future__ import annotations
 
 import logging

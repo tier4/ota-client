@@ -83,7 +83,6 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
 
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
-
         # ------ mock boot_controller ------ #
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)

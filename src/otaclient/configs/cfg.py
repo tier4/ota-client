@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 else:
 
     class _OTAClientConfigs:
-
         # NOTE(20241108): still use __getattr__ to allow changing/mocking attributes
         #   for easy testing.
         def __getattr__(self, name: str) -> Any:

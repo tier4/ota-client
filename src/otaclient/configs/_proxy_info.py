@@ -13,7 +13,6 @@
 # limitations under the License.
 """proxy_info.yaml definition and parsing logic."""
 
-
 from __future__ import annotations
 
 import logging

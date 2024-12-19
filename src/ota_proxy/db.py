@@ -116,7 +116,6 @@ class CacheMeta(TableSpec):
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
-
     def cachemeta_create_indexes(self) -> None:
         _indexes = {
             "bucket_idx_index": CacheMeta.table_create_index_stmt(
@@ -138,7 +137,6 @@ class CacheMetaORM(ORMBase[CacheMeta]):
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
-
     async def rotate_cache(
         self, bucket_idx: int, num: int
     ) -> Optional[list[CacheMeta]]:
