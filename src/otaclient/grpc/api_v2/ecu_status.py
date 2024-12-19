@@ -44,7 +44,6 @@ import logging
 import math
 import time
 from itertools import chain
-from typing import Dict, Iterable, Optional
 
 from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
@@ -62,23 +61,6 @@ DISCONNECTED_ECU_TIMEOUT_FACTOR = 3
 
 IDLE_POLLING_INTERVAL = 10  # second
 ACTIVE_POLLING_INTERVAL = 1  # seconds
-
-
-class _OrderedSet(Dict[T, None]):
-    def __init__(self, _input: Optional[Iterable[T]]):
-        if _input:
-            for elem in _input:
-                self[elem] = None
-        super().__init__()
-
-    def add(self, value: T):
-        self[value] = None
-
-    def remove(self, value: T):
-        super().pop(value)
-
-    def discard(self, value: T):
-        super().pop(value, None)
 
 
 class ECUStatusStorage:
@@ -101,7 +83,7 @@ class ECUStatusStorage:
         # NOTE(20241219): we will only look at status of ECUs listed in available_ecu_ids.
         #                 ECUs that in the secondaries field but no in available_ecu_ids field
         #                 are considered to be the ECUs not ready for OTA. See ecu_info.yaml doc.
-        self._available_ecu_ids: _OrderedSet[str] = _OrderedSet(
+        self._available_ecu_ids: dict[str, None] = dict.fromkeys(
             ecu_info.get_available_ecu_ids()
         )
 
