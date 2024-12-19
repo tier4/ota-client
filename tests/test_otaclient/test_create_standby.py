@@ -145,7 +145,7 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         # ------ assertions ------ #
         persist_handler.assert_called_once()
 
-        ecu_status_flags.any_requires_network.is_set.assert_called_once()
+        ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
         # --- ensure the update stats are collected
         collected_status = status_collector.otaclient_status
         assert collected_status
