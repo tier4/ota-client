@@ -91,6 +91,7 @@ def main() -> None:  # pragma: no cover
     logger.info("started")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
+    logger.info(f"proxy_info.yaml: \n{proxy_info}")
 
     check_other_otaclient(cfg.OTACLIENT_PID_FILE)
     create_otaclient_rundir(cfg.RUN_DIR)
