@@ -489,9 +489,14 @@ class _OTAUpdater:
         self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
         # ------ in-update ------ #
+        # NOTE(20230907): standby slot creator doesn't need to
+        #                 treat the files under /boot specially, it is
+        #                 boot controller's responsibility to get the
+        #                 kernel/initrd.img from standby slot and prepare
+        #                 them to actual boot dir.
         standby_slot_creator = self._create_standby_cls(
             ota_metadata=otameta,
-            boot_dir=str(self._boot_controller.get_standby_boot_dir()),
+            boot_dir=str(Path(cfg.STANDBY_SLOT_MNT) / "boot"),
             active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
             status_report_queue=self._status_report_queue,

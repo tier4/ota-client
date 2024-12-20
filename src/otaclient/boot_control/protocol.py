@@ -19,8 +19,6 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Protocol
 
-from typing_extensions import deprecated
-
 from otaclient._types import OTAStatus
 
 
@@ -38,22 +36,6 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def get_standby_slot_path(self) -> Path:
         """Get the Path points to the standby slot mount point."""
-
-    @deprecated(
-        "standby slot creator doesn't need to treat the files under /boot specially"
-    )
-    @abstractmethod
-    def get_standby_boot_dir(self) -> Path:
-        """Get the Path points to the standby slot's boot folder.
-
-        NOTE(20230907): this will always return the path to
-                        <standby_slots_mount_point>/boot.
-        DEPRECATED(20230907): standby slot creator doesn't need to
-                        treat the files under /boot specially, it is
-                        boot controller's responsibility to get the
-                        kernel/initrd.img from standby slot and prepare
-                        them to actual boot dir.
-        """
 
     @abstractmethod
     def load_version(self) -> str:
