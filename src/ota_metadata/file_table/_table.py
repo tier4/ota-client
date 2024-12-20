@@ -31,8 +31,6 @@ from otaclient_common.typing import StrOrPath
 
 CANONICAL_ROOT = "/"
 
-PrepareMethod = Literal["move", "hardlink", "copy"]
-
 
 class FileTableBase(BaseModel):
     schema_ver: ClassVar[Literal[1]] = 1
@@ -110,7 +108,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         _rs: StrOrPath,
         *,
         target_mnt: StrOrPath,
-        prepare_method: PrepareMethod,
+        prepare_method: Literal["move", "hardlink", "copy"],
     ) -> None:
         _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
