@@ -36,6 +36,7 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+import otaclient.configs.cfg as otaclient_cfg
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from ota_metadata.utils.cert_store import (
@@ -701,6 +702,21 @@ class OTAClient:
 
             self.ca_chains_store = CAChainStore()
 
+        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
+            logger.error(
+                "ecu_info.yaml file is not loaded properly, will reject any OTA request."
+            )
+            self._live_ota_status = OTAStatus.FAILURE
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.FAILURE,
+                        failure_reason="ecu_info.yaml file is broken, reject any OTA request.",
+                    ),
+                )
+            )
+            return
+
         self.started = True
         logger.info("otaclient started")
         logger.info(f"firmware_version: {self.current_version}")
@@ -826,6 +842,16 @@ class OTAClient:
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
+                continue
+
+            if not self.started:
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
+                        msg="otaclient is not started",
+                        session_id=request.session_id,
+                    )
+                )
                 continue
 
             if _now < _allow_request_after or self.is_busy:
