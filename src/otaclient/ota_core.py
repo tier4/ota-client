@@ -682,6 +682,7 @@ class OTAClient:
                 ),
             )
         )
+        logger.info(f"firmware_version: {self.current_version}")
 
         # ------ load CA store ------ #
         self.ca_chains_store = None
@@ -699,6 +700,7 @@ class OTAClient:
             logger.error(
                 "ecu_info.yaml file is not loaded properly, will reject any OTA request."
             )
+            logger.error(f"set live_ota_status to {OTAStatus.FAILURE!r}")
             self._live_ota_status = OTAStatus.FAILURE
             status_report_queue.put_nowait(
                 StatusReport(
@@ -722,7 +724,6 @@ class OTAClient:
 
             self.started = True
             logger.info("otaclient started")
-            logger.info(f"firmware_version: {self.current_version}")
 
     def _on_failure(
         self,
