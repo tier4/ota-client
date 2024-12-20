@@ -673,17 +673,7 @@ class OTAClient:
             )
             return
 
-        # load and report booted OTA status
-        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
-        self._live_ota_status = _boot_ctrl_loaded_ota_status
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
+        # ------ load firmware version ------ #
         self.current_version = self.boot_controller.load_version()
         status_report_queue.put_nowait(
             StatusReport(
@@ -693,6 +683,7 @@ class OTAClient:
             )
         )
 
+        # ------ load CA store ------ #
         self.ca_chains_store = None
         try:
             self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
@@ -702,6 +693,8 @@ class OTAClient:
 
             self.ca_chains_store = CAChainStore()
 
+        # load and report booted OTA status
+        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
             logger.error(
                 "ecu_info.yaml file is not loaded properly, will reject any OTA request."
@@ -715,11 +708,19 @@ class OTAClient:
                     ),
                 )
             )
-            return
+        else:
+            self._live_ota_status = _boot_ctrl_loaded_ota_status
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=_boot_ctrl_loaded_ota_status,
+                    ),
+                )
+            )
 
-        self.started = True
-        logger.info("otaclient started")
-        logger.info(f"firmware_version: {self.current_version}")
+            self.started = True
+            logger.info("otaclient started")
+            logger.info(f"firmware_version: {self.current_version}")
 
     def _on_failure(
         self,
