@@ -36,6 +36,7 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+import otaclient.configs.cfg as otaclient_cfg
 from ota_metadata.legacy import parser as ota_metadata_parser
 from ota_metadata.legacy import types as ota_metadata_types
 from ota_metadata.utils.cert_store import (
@@ -672,17 +673,7 @@ class OTAClient:
             )
             return
 
-        # load and report booted OTA status
-        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
-        self._live_ota_status = _boot_ctrl_loaded_ota_status
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
+        # ------ load firmware version ------ #
         self.current_version = self.boot_controller.load_version()
         status_report_queue.put_nowait(
             StatusReport(
@@ -691,7 +682,9 @@ class OTAClient:
                 ),
             )
         )
+        logger.info(f"firmware_version: {self.current_version}")
 
+        # ------ load CA store ------ #
         self.ca_chains_store = None
         try:
             self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
@@ -701,9 +694,36 @@ class OTAClient:
 
             self.ca_chains_store = CAChainStore()
 
-        self.started = True
-        logger.info("otaclient started")
-        logger.info(f"firmware_version: {self.current_version}")
+        # load and report booted OTA status
+        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
+        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
+            logger.error(
+                "ecu_info.yaml file is not loaded properly, will reject any OTA request."
+            )
+            logger.error(f"set live_ota_status to {OTAStatus.FAILURE!r}")
+            self._live_ota_status = OTAStatus.FAILURE
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.FAILURE,
+                        failure_type=FailureType.UNRECOVERABLE,
+                        failure_reason="ecu_info.yaml file is broken, please check /boot/ota/ecu_info.yaml. "
+                        "reject any OTA request.",
+                    ),
+                )
+            )
+        else:
+            self._live_ota_status = _boot_ctrl_loaded_ota_status
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=_boot_ctrl_loaded_ota_status,
+                    ),
+                )
+            )
+
+            self.started = True
+            logger.info("otaclient started")
 
     def _on_failure(
         self,
@@ -838,6 +858,19 @@ class OTAClient:
                 resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_BUSY,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
+
+            elif not self.started:
+                _err_msg = (
+                    "otaclient is not started, might be due to broken ecu_info.yaml"
+                )
+                logger.error(_err_msg)
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
                         msg=_err_msg,
                         session_id=request.session_id,
                     )

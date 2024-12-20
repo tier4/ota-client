@@ -21,6 +21,7 @@ import logging
 import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
 
+import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     IPCRequest,
     IPCResEnum,
@@ -110,6 +111,22 @@ class OTAClientAPIServicer:
         logger.info(f"receive update request: {request}")
         update_acked_ecus = set()
         response = api_types.UpdateResponse()
+
+        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
+        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
+        #                 to upper is by status API.
+        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
+            logger.error(
+                "ecu_info.yaml is not loaded properly, reject any update request"
+            )
+            for _update_req in request.iter_ecu():
+                response.add_ecu(
+                    api_types.UpdateResponseEcu(
+                        ecu_id=_update_req.ecu_id,
+                        result=api_types.FailureType.UNRECOVERABLE,
+                    )
+                )
+            return response
 
         # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
@@ -224,6 +241,22 @@ class OTAClientAPIServicer:
     ) -> api_types.RollbackResponse:
         logger.info(f"receive rollback request: {request}")
         response = api_types.RollbackResponse()
+
+        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
+        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
+        #                 to upper is by status API.
+        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
+            logger.error(
+                "ecu_info.yaml is not loaded properly, reject any rollback request"
+            )
+            for _rollback_req in request.iter_ecu():
+                response.add_ecu(
+                    api_types.RollbackResponseEcu(
+                        ecu_id=_rollback_req.ecu_id,
+                        result=api_types.FailureType.UNRECOVERABLE,
+                    )
+                )
+            return response
 
         # first: dispatch rollback request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
