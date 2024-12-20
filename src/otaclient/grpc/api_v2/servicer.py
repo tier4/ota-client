@@ -115,15 +115,7 @@ class OTAClientAPIServicer:
         # NOTE(20241220): due to the fact that OTA Service API doesn't have field
         #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
         #                 to upper is by status API.
-        #                 Here we only immediately accept the OTA update request for main ECU,
-        #                 fails other ECUs, and let main ECU's OTA status tells what is going on.
         if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
-            response.add_ecu(
-                api_types.UpdateResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-            )
             for _update_req in request.iter_ecu():
                 response.add_ecu(
                     api_types.UpdateResponseEcu(
