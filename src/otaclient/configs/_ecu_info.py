@@ -129,7 +129,7 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> tuple[bool, ECUInfo]:
 
     Returns:
         tuple[bool, ECUInfo]: bool indicates whether the provided ecu_info.yaml file
-            is loaded properly, if False, it loading ecu_info.yaml file failed and
+            is loaded properly, if False, it means loading ecu_info.yaml file failed and
             the default ecu_info is used.
     """
     try:

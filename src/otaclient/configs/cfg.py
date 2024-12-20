@@ -75,4 +75,6 @@ cfg = _OTAClientConfigs()
 ECU_INFO_LOADED_SUCCESSFULLY, ecu_info = parse_ecu_info(
     ecu_info_file=cfg.ECU_INFO_FPATH
 )
-proxy_info = parse_proxy_info(proxy_info_file=cfg.PROXY_INFO_FPATH)
+PROXY_INFO_LOADED_SUCCESSFULLY, proxy_info = parse_proxy_info(
+    proxy_info_file=cfg.PROXY_INFO_FPATH
+)
