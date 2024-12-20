@@ -323,7 +323,7 @@ class OTAClientStatusCollector:
                     self.load_report(report)
                     and self._status
                     and (
-                        isinstance(report, OTAStatusChangeReport)
+                        isinstance(report.payload, OTAStatusChangeReport)
                         or _now > _next_shm_push
                     )
                 ):
