@@ -848,7 +848,7 @@ class GrubController(BootControllerProtocol):
     def _copy_boot_files_from_standby_slot(self):
         """Copy boot files under <standby_slot_mp>/boot to standby ota-partition folder."""
         standby_ota_partition_dir = self._ota_status_control.standby_ota_status_dir
-        for f in self._mp_control.standby_boot_dir.iterdir():
+        for f in (self._mp_control.standby_slot_mount_point / "boot").iterdir():
             if f.is_file() and not f.is_symlink():
                 shutil.copy(f, standby_ota_partition_dir)
 
@@ -856,9 +856,6 @@ class GrubController(BootControllerProtocol):
 
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
-
-    def get_standby_boot_dir(self) -> Path:  # pragma: no cover
-        return self._mp_control.standby_boot_dir
 
     def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
