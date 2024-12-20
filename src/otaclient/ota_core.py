@@ -698,6 +698,7 @@ class OTAClient:
 
         self.started = True
         logger.info("otaclient started")
+        logger.info(f"firmware_version: {self.current_version}")
 
     def _on_failure(
         self,
