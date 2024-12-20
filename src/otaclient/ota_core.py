@@ -848,7 +848,7 @@ class OTAClient:
                 resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_OTHER,
-                        msg="otaclient is not started",
+                        msg="otaclient is not started, might be due to broken ecu_info.yaml",
                         session_id=request.session_id,
                     )
                 )
