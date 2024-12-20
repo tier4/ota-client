@@ -21,6 +21,7 @@ import logging
 import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
 
+import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     IPCRequest,
     IPCResEnum,
@@ -110,6 +111,27 @@ class OTAClientAPIServicer:
         logger.info(f"receive update request: {request}")
         update_acked_ecus = set()
         response = api_types.UpdateResponse()
+
+        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
+        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
+        #                 to upper is by status API.
+        #                 Here we only immediately accept the OTA update request for main ECU,
+        #                 fails other ECUs, and let main ECU's OTA status tells what is going on.
+        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
+            response.add_ecu(
+                api_types.UpdateResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            )
+            for _update_req in request.iter_ecu():
+                response.add_ecu(
+                    api_types.UpdateResponseEcu(
+                        ecu_id=_update_req.ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                    )
+                )
+            return response
 
         # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
