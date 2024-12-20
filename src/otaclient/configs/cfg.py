@@ -38,6 +38,19 @@ __all__ = [
 cfg_configurable = set_configs()
 cfg_consts = Consts()
 
+ECU_INFO_LOADED_SUCCESSFULLY: bool
+"""A const set at startup time ecu_info.yaml parsing.
+
+If it is False, it means that the ecu_info.yaml file is invalid,
+    and the default ecu_info(defined in _ecu_info module) is used.
+"""
+PROXY_INFO_LOADED_SUCCESSFULLY: bool
+"""A const set at startup time proxy_info.yaml parsing.
+
+If it is False, it means that the proxy_info.yaml file is invalid,
+    and the default proxy_info(defined in _proxy_info module) is used.
+"""
+
 if TYPE_CHECKING:
 
     class _OTAClientConfigs(ConfigurableSettings, Consts):
@@ -59,5 +72,9 @@ else:
 
 
 cfg = _OTAClientConfigs()
-ecu_info = parse_ecu_info(ecu_info_file=cfg.ECU_INFO_FPATH)
-proxy_info = parse_proxy_info(proxy_info_file=cfg.PROXY_INFO_FPATH)
+ECU_INFO_LOADED_SUCCESSFULLY, ecu_info = parse_ecu_info(
+    ecu_info_file=cfg.ECU_INFO_FPATH
+)
+PROXY_INFO_LOADED_SUCCESSFULLY, proxy_info = parse_proxy_info(
+    proxy_info_file=cfg.PROXY_INFO_FPATH
+)

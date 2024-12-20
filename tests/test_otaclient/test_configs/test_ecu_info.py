@@ -143,7 +143,7 @@ def test_ecu_info(tmp_path: Path, ecu_info_yaml: str, expected_ecu_info: ECUInfo
     (ecu_info_file := ota_dir / "ecu_info.yaml").write_text(ecu_info_yaml)
 
     # --- execution --- #
-    loaded_ecu_info = parse_ecu_info(ecu_info_file)
+    _, loaded_ecu_info = parse_ecu_info(ecu_info_file)
 
     # --- assertion --- #
     assert loaded_ecu_info == expected_ecu_info
