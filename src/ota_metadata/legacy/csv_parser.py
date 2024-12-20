@@ -69,7 +69,7 @@ _reginf_pa = re.compile(
 )
 """Regular file entry's CSV pattern.
 
-Note that <compressed_alg> only has `zst` now. 
+Note that <compressed_alg> only has `zst` now.
 
 Examples:
 0644,1000,1000,1,e67fba5d420c04fbed75ecda357bdde3c9c90d65f4f290f14a19f28aef7019df,'README.md',1234,
