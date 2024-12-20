@@ -28,26 +28,26 @@ FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
 FT_DIR_TABLE_NAME = "ft_dir"
 
 
-class FTRegularORM(ORMBase[FileTableRegularFiles]):
+class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     _orm_table_name = FT_REGULAR_TABLE_NAME
 
 
-class FTRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
+class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 
     _orm_table_name = FT_REGULAR_TABLE_NAME
 
 
-class FTNonRegularORM(ORMBase[FileTableNonRegularFiles]):
+class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     _orm_table_name = FT_NON_REGULAR_TABLE_NAME
 
 
-class FTDirORM(ORMBase[FileTableDirectories]):
+class FileTableDirORM(ORMBase[FileTableDirectories]):
 
     _orm_table_name = FT_DIR_TABLE_NAME
 
 
-class FTDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
+class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
 
     _orm_table_name = FT_DIR_TABLE_NAME

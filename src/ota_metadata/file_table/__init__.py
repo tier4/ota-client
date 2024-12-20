@@ -13,7 +13,12 @@
 # limitations under the License.
 
 
-from ._orm import FTDirORM, FTNonRegularORM, FTRegularORM, FTRegularORMPool
+from ._orm import (
+    FileTableDirORM,
+    FileTableNonRegularORM,
+    FileTableRegularORM,
+    FileTableRegularORMPool,
+)
 from ._table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
@@ -22,10 +27,10 @@ from ._table import (
 from ._types import FileEntryAttrs
 
 __all__ = [
-    "FTNonRegularORM",
-    "FTRegularORM",
-    "FTDirORM",
-    "FTRegularORMPool",
+    "FileTableNonRegularORM",
+    "FileTableRegularORM",
+    "FileTableDirORM",
+    "FileTableRegularORMPool",
     "FileTableNonRegularFiles",
     "FileTableRegularFiles",
     "FileTableDirectories",
