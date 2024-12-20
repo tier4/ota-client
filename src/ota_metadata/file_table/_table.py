@@ -18,8 +18,9 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+from abc import abstractmethod
 from pathlib import Path
-from typing import ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal, Optional
 
 from pydantic import BaseModel, SkipValidation
 from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
@@ -89,6 +90,10 @@ class FileTableBase(BaseModel):
         _canonical_path = Path(self.path)
         _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
         return _target_on_mnt
+
+    @abstractmethod
+    def prepare_target(self, *args: Any, target_mnt: StrOrPath, **kwargs) -> None:
+        raise NotImplementedError
 
 
 class FileTableRegularFiles(TableSpec, FileTableBase):
