@@ -848,16 +848,6 @@ class OTAClient:
             except Empty:
                 continue
 
-            if not self.started:
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.REJECT_OTHER,
-                        msg="otaclient is not started, might be due to broken ecu_info.yaml",
-                        session_id=request.session_id,
-                    )
-                )
-                continue
-
             if _now < _allow_request_after or self.is_busy:
                 _err_msg = (
                     f"otaclient is busy at {self._live_ota_status} or "
@@ -868,6 +858,19 @@ class OTAClient:
                 resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_BUSY,
+                        msg=_err_msg,
+                        session_id=request.session_id,
+                    )
+                )
+
+            elif not self.started:
+                _err_msg = (
+                    "otaclient is not started, might be due to broken ecu_info.yaml"
+                )
+                logger.error(_err_msg)
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
                         msg=_err_msg,
                         session_id=request.session_id,
                     )
