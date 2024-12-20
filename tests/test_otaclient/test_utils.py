@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 class _TickingFlag:
-
     def __init__(self, trigger_in: int) -> None:
         self._trigger_time = time.time() + trigger_in
 

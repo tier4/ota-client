@@ -631,7 +631,6 @@ class _OTARollbacker:
 
 
 class OTAClient:
-
     def __init__(
         self,
         *,
@@ -844,7 +843,6 @@ class OTAClient:
                 )
 
             elif isinstance(request, UpdateRequestV2):
-
                 _update_thread = threading.Thread(
                     target=self.update,
                     args=[request],
@@ -881,7 +879,6 @@ class OTAClient:
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
             else:
-
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
                 resp_queue.put_nowait(

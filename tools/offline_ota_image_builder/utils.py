@@ -13,7 +13,6 @@
 # limitations under the License.
 """Shared utils among package."""
 
-
 from os import PathLike
 from typing import Union
 

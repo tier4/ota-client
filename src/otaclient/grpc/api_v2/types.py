@@ -13,7 +13,6 @@
 # limitations under the License.
 """Helpers for converting otaclient internal used types into api_v2 types."""
 
-
 from __future__ import annotations
 
 import time

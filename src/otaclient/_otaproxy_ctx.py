@@ -16,7 +16,6 @@
 The API exposed by this module is meant to be controlled by otaproxy managing thread only.
 """
 
-
 from __future__ import annotations
 
 import asyncio

@@ -44,7 +44,6 @@ CONTINUES_FAILURE_COUNT_ATTRNAME = "continues_failed_count"
 
 
 class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
-
     def __init__(
         self,
         max_concurrent: int,
@@ -259,7 +258,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 if TYPE_CHECKING:
 
     class ThreadPoolExecutorWithRetry:
-
         def __init__(
             self,
             max_concurrent: int,

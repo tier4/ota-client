@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared libs for otaclient."""
 
-
 from __future__ import annotations
 
 import importlib.util
