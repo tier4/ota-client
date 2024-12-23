@@ -452,7 +452,7 @@ class OTACache:
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
         return (
-            read_file(cache_file, executor=self._executor),
+            read_file(cache_file),
             meta_db_entry.export_headers_to_client(),
         )
 
@@ -482,7 +482,7 @@ class OTACache:
                     file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
                 )
             )
-            return read_file(cache_file_zst, executor=self._executor), _header
+            return read_file(cache_file_zst), _header
 
         if cache_file.is_file():
             _header = CIMultiDict()
@@ -491,7 +491,7 @@ class OTACache:
                     file_sha256=cache_identifier
                 )
             )
-            return read_file(cache_file, executor=self._executor), _header
+            return read_file(cache_file), _header
 
     async def _retrieve_file_by_new_caching(
         self,

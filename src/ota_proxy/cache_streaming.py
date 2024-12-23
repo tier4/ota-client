@@ -26,7 +26,7 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
-import aiofiles
+from anyio import open_file
 
 from otaclient_common.common import get_backoff
 from otaclient_common.typing import StrOrPath
@@ -147,7 +147,7 @@ class CacheTracker:
         """
         logger.debug(f"start to cache for {cache_meta=}...")
         try:
-            async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
+            async with await open_file(self.fpath, "wb") as f:
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
@@ -202,7 +202,7 @@ class CacheTracker:
         """
         err_count, _bytes_read = 0, 0
         try:
-            async with aiofiles.open(self.fpath, "rb", executor=self._executor) as f:
+            async with await open_file(self.fpath, "rb") as f:
                 while (
                     not self._writer_finished.is_set()
                     or _bytes_read < self._bytes_written
