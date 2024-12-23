@@ -20,13 +20,13 @@ import logging
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncIterator, Mapping, Optional
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
 import anyio
+import anyio.to_thread
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common.common import get_backoff
@@ -134,10 +134,6 @@ class OTACache:
             db_f.unlink(missing_ok=True)
             self._init_cache = True  # force init cache on db file cleanup
 
-        self._executor = ThreadPoolExecutor(
-            thread_name_prefix="ota_cache_fileio_executor"
-        )
-
         self._external_cache_data_dir = None
         self._external_cache_mp = None
         if external_cache_mnt_point and mount_external_cache(external_cache_mnt_point):
@@ -196,7 +192,12 @@ class OTACache:
                     await tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
-            self._executor.submit(self._background_check_free_space)
+            _free_space_check_thread = threading.Thread(
+                target=self._background_check_free_space,
+                daemon=True,
+                name="ota_cache_free_space_checker",
+            )
+            _free_space_check_thread.start()
 
             # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(
@@ -225,7 +226,6 @@ class OTACache:
             if not self._closed:
                 self._closed = True
                 await self._session.close()
-                self._executor.shutdown(wait=True)
 
                 if self._cache_enabled:
                     self._lru_helper.close()
@@ -314,7 +314,7 @@ class OTACache:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
             )
-            self._executor.submit(self._cache_entries_cleanup, _hashes)
+            await anyio.to_thread.run_sync(self._cache_entries_cleanup, _hashes)
             return True
         else:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
@@ -537,7 +537,6 @@ class OTACache:
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=self._base_dir,
-            executor=self._executor,
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )

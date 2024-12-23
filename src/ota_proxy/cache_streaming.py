@@ -22,7 +22,6 @@ import logging
 import os
 import threading
 import weakref
-from concurrent.futures import Executor
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
@@ -102,7 +101,6 @@ class CacheTracker:
         *,
         base_dir: StrOrPath,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
-        executor: Executor,
         below_hard_limit_event: threading.Event,
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
@@ -114,7 +112,6 @@ class CacheTracker:
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
 
-        self._executor = executor
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
