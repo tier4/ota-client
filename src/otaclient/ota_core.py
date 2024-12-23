@@ -707,7 +707,7 @@ class OTAClient:
                     payload=OTAStatusChangeReport(
                         new_ota_status=OTAStatus.FAILURE,
                         failure_type=FailureType.UNRECOVERABLE,
-                        failure_reason="ecu_info.yaml file is broken, please check /boot/ota/ecu_info.yaml. "
+                        failure_reason=f"ecu_info.yaml file is broken or missing, please check {cfg.ECU_INFO_FPATH}. "
                         "reject any OTA request.",
                     ),
                 )
