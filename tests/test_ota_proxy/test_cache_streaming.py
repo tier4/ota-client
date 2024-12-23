@@ -87,7 +87,6 @@ class TestOngoingCachingRegister:
         _tracker = CacheTracker(
             cache_identifier=self.URL,
             base_dir=self.base_dir,
-            executor=None,  # type: ignore
             commit_cache_cb=None,  # type: ignore
             below_hard_limit_event=None,  # type: ignore
         )
