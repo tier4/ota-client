@@ -26,6 +26,7 @@ from concurrent.futures import Executor
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
+import anyio
 from anyio import open_file
 
 from otaclient_common.common import get_backoff
@@ -105,7 +106,7 @@ class CacheTracker:
         below_hard_limit_event: threading.Event,
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.save_path = Path(base_dir) / cache_identifier
+        self.save_path = anyio.Path(base_dir) / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
@@ -179,7 +180,7 @@ class CacheTracker:
             await self._commit_cache_cb(cache_meta)
             # finalize the cache file, skip finalize if the target file is
             #   already presented.
-            if not self.save_path.is_file():
+            if not await self.save_path.is_file():
                 os.link(self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
