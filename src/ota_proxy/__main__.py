@@ -16,10 +16,7 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
-
-import uvloop
 
 from . import run_otaproxy
 from .config import config as cfg
@@ -78,17 +75,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logger.info(f"launch ota_proxy at {args.host}:{args.port}")
-    uvloop.install()
-    asyncio.run(
-        run_otaproxy(
-            host=args.host,
-            port=args.port,
-            cache_dir=args.cache_dir,
-            cache_db_f=args.cache_db_file,
-            enable_cache=args.enable_cache,
-            upper_proxy=args.upper_proxy,
-            enable_https=args.enable_https,
-            init_cache=args.init_cache,
-            external_cache_mnt_point=args.external_cache_mnt_point,
-        )
+    run_otaproxy(
+        host=args.host,
+        port=args.port,
+        cache_dir=args.cache_dir,
+        cache_db_f=args.cache_db_file,
+        enable_cache=args.enable_cache,
+        upper_proxy=args.upper_proxy,
+        enable_https=args.enable_https,
+        init_cache=args.init_cache,
+        external_cache_mnt_point=args.external_cache_mnt_point,
     )

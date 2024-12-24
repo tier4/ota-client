@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import multiprocessing as mp
 import time
 from pathlib import Path
@@ -27,17 +26,15 @@ def otaproxy_process(cache_dir: str):
     ota_cache_dir = Path(cache_dir)
     ota_cache_db = ota_cache_dir / "cache_db"
 
-    asyncio.run(
-        run_otaproxy(
-            host="127.0.0.1",
-            port=8082,
-            init_cache=True,
-            cache_dir=str(ota_cache_dir),
-            cache_db_f=str(ota_cache_db),
-            upper_proxy="",
-            enable_cache=True,
-            enable_https=False,
-        ),
+    run_otaproxy(
+        host="127.0.0.1",
+        port=8082,
+        init_cache=True,
+        cache_dir=str(ota_cache_dir),
+        cache_db_f=str(ota_cache_db),
+        upper_proxy="",
+        enable_cache=True,
+        enable_https=False,
     )
 
 

@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-from concurrent.futures import Executor
 from hashlib import sha256
 from os import PathLike
 from typing import AsyncIterator
 
-import aiofiles
+from anyio import open_file
 
 from .config import config as cfg
 
 
-async def read_file(fpath: PathLike, *, executor: Executor) -> AsyncIterator[bytes]:
-    """Open and read a file asynchronously with aiofiles."""
-    async with aiofiles.open(fpath, "rb", executor=executor) as f:
+async def read_file(fpath: PathLike) -> AsyncIterator[bytes]:
+    """Open and read a file asynchronously."""
+    async with await open_file(fpath, "rb") as f:
         while data := await f.read(cfg.CHUNK_SIZE):
             yield data
 

@@ -33,7 +33,7 @@ __all__ = (
 )
 
 
-async def run_otaproxy(
+def run_otaproxy(
     host: str,
     port: int,
     *,
@@ -45,6 +45,7 @@ async def run_otaproxy(
     enable_https: bool,
     external_cache_mnt_point: str | None = None,
 ):
+    import anyio
     import uvicorn
 
     from . import App, OTACache
@@ -69,4 +70,4 @@ async def run_otaproxy(
         http="h11",
     )
     _server = uvicorn.Server(_config)
-    await _server.serve()
+    anyio.run(_server.serve, backend="asyncio", backend_options={"use_uvloop": True})

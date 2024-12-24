@@ -22,11 +22,11 @@ import logging
 import os
 import threading
 import weakref
-from concurrent.futures import Executor
 from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
-import aiofiles
+import anyio
+from anyio import open_file
 
 from otaclient_common.common import get_backoff
 from otaclient_common.typing import StrOrPath
@@ -101,11 +101,10 @@ class CacheTracker:
         *,
         base_dir: StrOrPath,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
-        executor: Executor,
         below_hard_limit_event: threading.Event,
     ):
         self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.save_path = Path(base_dir) / cache_identifier
+        self.save_path = anyio.Path(base_dir) / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
@@ -113,7 +112,6 @@ class CacheTracker:
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
 
-        self._executor = executor
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
@@ -147,7 +145,7 @@ class CacheTracker:
         """
         logger.debug(f"start to cache for {cache_meta=}...")
         try:
-            async with aiofiles.open(self.fpath, "wb", executor=self._executor) as f:
+            async with await open_file(self.fpath, "wb") as f:
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
@@ -179,7 +177,7 @@ class CacheTracker:
             await self._commit_cache_cb(cache_meta)
             # finalize the cache file, skip finalize if the target file is
             #   already presented.
-            if not self.save_path.is_file():
+            if not await self.save_path.is_file():
                 os.link(self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
@@ -202,7 +200,7 @@ class CacheTracker:
         """
         err_count, _bytes_read = 0, 0
         try:
-            async with aiofiles.open(self.fpath, "rb", executor=self._executor) as f:
+            async with await open_file(self.fpath, "rb") as f:
                 while (
                     not self._writer_finished.is_set()
                     or _bytes_read < self._bytes_written
