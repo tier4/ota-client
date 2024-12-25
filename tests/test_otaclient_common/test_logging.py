@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import logging
 import time
 
 from pytest import LogCaptureFixture
@@ -21,16 +20,14 @@ from pytest import LogCaptureFixture
 from otaclient_common import logging as _logging
 
 
-def test_BurstSuppressFilter(caplog: LogCaptureFixture):
+def test_burst_logging(caplog: LogCaptureFixture):
     logger_name = "test_BurstSuppressFilter"
-    logger = logging.getLogger(logger_name)
     burst_round_length = 1
-    logger.addFilter(
-        _logging.BurstSuppressFilter(
-            logger_name,
-            burst_max=1,
-            burst_round_length=burst_round_length,
-        )
+
+    logger = _logging.get_burst_suppressed_logger(
+        logger_name,
+        burst_max=1,
+        burst_round_length=burst_round_length,
     )
 
     # test loggging suppressing
