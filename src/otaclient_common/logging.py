@@ -88,7 +88,11 @@ def get_burst_suppressed_logger(
         this_logger_name = _logger.name
 
     if not isinstance(upper_logger_name, str):
-        upper_logger_name = this_logger_name.split(".")[0]
+        _parents = this_logger_name.split(".")[:-1]
+        if _parents:
+            upper_logger_name = _parents[-1]
+        else:  # NOTE: will be the root logger
+            upper_logger_name = None
 
     this_logger.addFilter(
         BurstSuppressFilter(
