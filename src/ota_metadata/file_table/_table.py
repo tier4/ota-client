@@ -27,7 +27,10 @@ from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
 from ota_metadata.file_table._types import EntryAttrsType
+from otaclient_common.logging import get_burst_suppressed_logger
 from otaclient_common.typing import StrOrPath
+
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
 CANONICAL_ROOT = "/"
 
@@ -110,28 +113,33 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
         target_mnt: StrOrPath,
         prepare_method: Literal["move", "hardlink", "copy"],
     ) -> None:
-        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
+        try:
+            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
-        if prepare_method == "copy":
-            shutil.copy(_rs, _target_on_mnt)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-            return
+            if prepare_method == "copy":
+                shutil.copy(_rs, _target_on_mnt)
+                self.set_perm(_target_on_mnt)
+                self.set_xattr(_target_on_mnt)
+                return
 
-        if prepare_method == "hardlink":
-            # NOTE: os.link will make dst a hardlink to src.
-            os.link(_rs, _target_on_mnt)
-            # NOTE: although we actually don't need to set_perm and set_xattr everytime
-            #   to file paths point to the same inode, for simplicity here we just
-            #   do it everytime.
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-            return
+            if prepare_method == "hardlink":
+                # NOTE: os.link will make dst a hardlink to src.
+                os.link(_rs, _target_on_mnt)
+                # NOTE: although we actually don't need to set_perm and set_xattr everytime
+                #   to file paths point to the same inode, for simplicity here we just
+                #   do it everytime.
+                self.set_perm(_target_on_mnt)
+                self.set_xattr(_target_on_mnt)
+                return
 
-        if prepare_method == "move":
-            shutil.move(str(_rs), _target_on_mnt)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
+            if prepare_method == "move":
+                shutil.move(str(_rs), _target_on_mnt)
+                self.set_perm(_target_on_mnt)
+                self.set_xattr(_target_on_mnt)
+        except Exception as e:
+            burst_suppressed_logger.exception(
+                f"failed on preparing {self}, {_rs=}: {e!r}"
+            )
 
 
 class FileTableNonRegularFiles(TableSpec, FileTableBase):
@@ -170,36 +178,42 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
             os.chmod(_target, mode=entry_attrs.mode)
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
-        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
+        try:
+            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
 
-        entry_attrs = self.entry_attrs
-        _mode = entry_attrs.mode
-        if stat.S_ISLNK(_mode):
-            assert (
-                _symlink_target_raw := self.contents
-            ), f"invalid entry {self}, entry is a symlink but no link target is defined"
+            entry_attrs = self.entry_attrs
+            _mode = entry_attrs.mode
+            if stat.S_ISLNK(_mode):
+                assert (
+                    _symlink_target_raw := self.contents
+                ), f"invalid entry {self}, entry is a symlink but no link target is defined"
 
-            _symlink_target = _symlink_target_raw.decode()
-            _target_on_mnt.symlink_to(_symlink_target)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-            return
+                _symlink_target = _symlink_target_raw.decode()
+                _target_on_mnt.symlink_to(_symlink_target)
+                self.set_perm(_target_on_mnt)
+                self.set_xattr(_target_on_mnt)
+                return
 
-        if stat.S_ISCHR(_mode):
-            _device_num = os.makedev(0, 0)
-            os.mknod(_target_on_mnt, mode=_mode, device=_device_num)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-            return
+            if stat.S_ISCHR(_mode):
+                _device_num = os.makedev(0, 0)
+                os.mknod(_target_on_mnt, mode=_mode, device=_device_num)
+                self.set_perm(_target_on_mnt)
+                self.set_xattr(_target_on_mnt)
+                return
 
-        raise ValueError(f"invalid entry {self}")
+            raise ValueError(f"invalid entry {self}")
+        except Exception as e:
+            burst_suppressed_logger.exception(f"failed on preparing {self}: {e!r}")
 
 
 class FileTableDirectories(TableSpec, FileTableBase):
     """DB table for directory entries."""
 
     def prepare_target(self, *, target_mnt: StrOrPath) -> None:
-        _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-        _target_on_mnt.mkdir(exist_ok=True, parents=True)
-        self.set_perm(_target_on_mnt)
-        self.set_xattr(_target_on_mnt)
+        try:
+            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
+            _target_on_mnt.mkdir(exist_ok=True, parents=True)
+            self.set_perm(_target_on_mnt)
+            self.set_xattr(_target_on_mnt)
+        except Exception as e:
+            burst_suppressed_logger.exception(f"failed on preparing {self}: {e!r}")
