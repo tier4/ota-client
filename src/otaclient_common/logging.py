@@ -13,10 +13,11 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 import itertools
 import logging
 import time
-from typing import Optional
 
 
 class BurstSuppressFilter(logging.Filter):
@@ -25,7 +26,7 @@ class BurstSuppressFilter(logging.Filter):
         name: str,
         burst_max: int,
         burst_round_length: int,
-        upper_logger_name: Optional[str] = None,
+        upper_logger_name: str | None = None,
     ) -> None:
         self.name = name
         self.upper_logger_name = upper_logger_name
@@ -61,3 +62,39 @@ class BurstSuppressFilter(logging.Filter):
             )
             self._round_warned = True
         return False
+
+
+def get_burst_suppressed_logger(
+    _logger: logging.Logger | str,
+    *,
+    upper_logger_name: str | None = None,
+    burst_max: int = 6,
+    burst_round_length: int = 30,
+) -> None:
+    """Configure the logger by <_logger> and attach a burst_suppressed_filter to it
+
+    Args:
+        _logger (logging.Logger | str): an logger object or the name of the logger.
+        upper_logger_name (str | None, optional): upper_logger for logging the log suppressed warning.
+            If not specified, will be the direct upper logger of the <_logger>. Defaults to None.
+        burst_max (int, optional): how many logs can be emitted per round. Defaults to 6.
+        burst_round_length (int, optional): the time span of suppressing round. Defaults to 30 (seconds).
+    """
+    if isinstance(_logger, str):
+        this_logger_name = _logger
+        this_logger = logging.getLogger(this_logger_name)
+    else:
+        this_logger = _logger
+        this_logger_name = _logger.name
+
+    if not isinstance(upper_logger_name, str):
+        upper_logger_name = this_logger_name.split(".")[0]
+
+    this_logger.addFilter(
+        BurstSuppressFilter(
+            this_logger_name,
+            upper_logger_name=upper_logger_name,
+            burst_max=burst_max,
+            burst_round_length=burst_round_length,
+        )
+    )
