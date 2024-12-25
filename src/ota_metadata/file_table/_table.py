@@ -138,7 +138,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
                 self.set_xattr(_target_on_mnt)
         except Exception as e:
             burst_suppressed_logger.exception(
-                f"failed on preparing {self}, {_rs=}: {e!r}"
+                f"failed on preparing {self!r}, {_rs=}: {e!r}"
             )
 
 
@@ -203,7 +203,7 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
 
             raise ValueError(f"invalid entry {self}")
         except Exception as e:
-            burst_suppressed_logger.exception(f"failed on preparing {self}: {e!r}")
+            burst_suppressed_logger.exception(f"failed on preparing {self!r}: {e!r}")
 
 
 class FileTableDirectories(TableSpec, FileTableBase):
@@ -216,4 +216,4 @@ class FileTableDirectories(TableSpec, FileTableBase):
             self.set_perm(_target_on_mnt)
             self.set_xattr(_target_on_mnt)
         except Exception as e:
-            burst_suppressed_logger.exception(f"failed on preparing {self}: {e!r}")
+            burst_suppressed_logger.exception(f"failed on preparing {self!r}: {e!r}")
