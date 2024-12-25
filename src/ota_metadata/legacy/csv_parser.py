@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ota_metadata.file_table import (
     FileEntryAttrs,
+    FileTableDirectories,
     FileTableDirORM,
     FileTableNonRegularFiles,
     FileTableNonRegularORM,
@@ -46,7 +47,7 @@ def de_escape(s: str) -> str:
 DIR_CSV_PATTERN = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
 
 
-def parse_dirs_csv_line(line: str) -> FileTableNonRegularFiles:
+def parse_dirs_csv_line(line: str) -> FileTableDirectories:
     """Directory entry's CSV pattern.
 
     Examples:
@@ -66,7 +67,7 @@ def parse_dirs_csv_line(line: str) -> FileTableNonRegularFiles:
     gid = int(_ma.group("gid"))
     path = de_escape(_ma.group("path")[1:-1])
 
-    return FileTableNonRegularFiles(
+    return FileTableDirectories(
         path=path,
         entry_attrs=FileEntryAttrs(
             uid=uid,
