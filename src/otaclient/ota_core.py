@@ -67,7 +67,12 @@ from otaclient._types import (
 )
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
-from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.configs.cfg import (
+    ECU_INFO_LOADED_SUCCESSFULLY,
+    cfg,
+    ecu_info,
+    proxy_info,
+)
 from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
     get_standby_slot_creator,
@@ -864,9 +869,10 @@ class OTAClient:
                 )
 
             elif not self.started:
-                _err_msg = (
-                    "otaclient is not started, might be due to broken ecu_info.yaml"
-                )
+                _err_msg = "reject OTA request due to otaclient is not (yet) started."
+                if not ECU_INFO_LOADED_SUCCESSFULLY:
+                    _err_msg = f"reject OTA request due to {cfg.ECU_INFO_FPATH} missing or broken"
+
                 logger.error(_err_msg)
                 resp_queue.put_nowait(
                     IPCResponse(
