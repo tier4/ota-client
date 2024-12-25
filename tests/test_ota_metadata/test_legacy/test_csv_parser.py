@@ -208,17 +208,22 @@ def test_parse_and_import_regulars_txt():
         "file:rs_table?mode=memory", uri=True
     ) as rs_table_conn:
         ft_table_orm = FileTableRegularORM(ft_table_conn)
+        ft_table_orm.orm_create_table()
+
         rs_table_orm = ResourceTableORM(rs_table_conn)
+        rs_table_orm.orm_create_table()
         parse_regulars_from_csv_file(regulars_txt, ft_table_orm, rs_table_orm)
 
 
 def test_parse_and_import_dirs_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableDirORM(conn)
+        orm.orm_create_table()
         parse_dirs_from_csv_file(dirs_txt, orm)
 
 
 def test_parse_and_import_symlinks_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableNonRegularORM(conn)
+        orm.orm_create_table()
         parse_symlinks_from_csv_file(symlinks_txt, orm)
