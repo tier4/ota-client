@@ -218,7 +218,7 @@ def parse_regulars_csv_line(line: str) -> tuple[FileTableRegularFiles, ResourceT
         digest=sha256hash,
     )
 
-    # NOTE: in revision3 we add compression support, and compressed version of resource
+    # NOTE: in rev4 of OTA image metadata we add compression support, and compressed version of resource
     #       can be retrieved by sha256digest in the OTA image's blob storage.
     #       However, pre-revision3, all the files are just stored with its full path under
     #       the `data` folder at OTA image.
