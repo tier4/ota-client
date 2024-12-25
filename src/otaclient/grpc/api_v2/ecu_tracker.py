@@ -27,19 +27,11 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common.logging import BurstSuppressFilter
+from otaclient_common.logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = logging.getLogger(f"{__name__}.local_ecu_check")
-# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.local_ecu_check",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
+# NOTE: suppress error loggings from checking local ECU's status shm
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.local_ecu_check")
 
 # actively polling ECUs status until we get the first valid response
 #   when otaclient is just starting.

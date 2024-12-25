@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 import aiohttp
 from multidict import CIMultiDict, CIMultiDictProxy
 
-from otaclient_common.logging import BurstSuppressFilter
+from otaclient_common.logging import get_burst_suppressed_logger
 
 from ._consts import (
     BHEADER_AUTHORIZATION,
@@ -46,16 +46,8 @@ from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = logging.getLogger(f"{__name__}.request_error")
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.request_error",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_error")
 
 # only expose app
 __all__ = ("App",)

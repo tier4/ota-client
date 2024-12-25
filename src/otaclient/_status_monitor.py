@@ -35,19 +35,11 @@ from otaclient._types import (
     UpdateTiming,
 )
 from otaclient._utils import SharedOTAClientStatusWriter
-from otaclient_common.logging import BurstSuppressFilter
+from otaclient_common.logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = logging.getLogger(f"{__name__}.shm_push")
-# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.shm_push",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
+# NOTE: suppress error logging for pushing OTA status to shm
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.shm_push")
 
 _status_report_queue: queue.Queue | None = None
 
