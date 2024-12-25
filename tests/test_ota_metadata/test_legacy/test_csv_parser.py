@@ -18,23 +18,38 @@ NOTE: the test cases are mostly re-used from the previous implementation.
 
 from __future__ import annotations
 
+import sqlite3
 import stat
+from pathlib import Path
 
 import pytest
 
 from ota_metadata.file_table import (
     FileEntryAttrs,
     FileTableDirectories,
+    FileTableDirORM,
     FileTableNonRegularFiles,
+    FileTableNonRegularORM,
     FileTableRegularFiles,
+    FileTableRegularORM,
 )
 from ota_metadata.legacy.csv_parser import (
     parse_dirs_csv_line,
+    parse_dirs_from_csv_file,
     parse_persists_csv_line,
     parse_regulars_csv_line,
+    parse_regulars_from_csv_file,
     parse_symlinks_csv_line,
+    parse_symlinks_from_csv_file,
 )
-from ota_metadata.legacy.rs_table import ResourceTable
+from ota_metadata.legacy.rs_table import ResourceTable, ResourceTableORM
+from tests.conftest import TestConfiguration as test_cfg
+
+OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
+
+#
+# ------ test CSV line parser ------ #
+#
 
 
 # try to include as any special characters as possible
@@ -175,3 +190,35 @@ def test_symlinks_txt(_input: str, _expected: FileTableNonRegularFiles):
 )
 def test_persistent_txt(_input: str, _expected: str):
     assert parse_persists_csv_line(_input) == _expected
+
+
+#
+# ------ test import sqlite3 database ------ #
+#
+
+regulars_txt = OTA_IMAGE_ROOT / "regulars.txt"
+dirs_txt = OTA_IMAGE_ROOT / "dirs.txt"
+symlinks_txt = OTA_IMAGE_ROOT / "symlinks.txt"
+
+
+def test_parse_and_import_regulars_txt():
+    with sqlite3.connect(
+        "file:ft_table?mode=memory", uri=True
+    ) as ft_table_conn, sqlite3.connect(
+        "file:rs_table?mode=memory", uri=True
+    ) as rs_table_conn:
+        ft_table_orm = FileTableRegularORM(ft_table_conn)
+        rs_table_orm = ResourceTableORM(rs_table_conn)
+        parse_regulars_from_csv_file(regulars_txt, ft_table_orm, rs_table_orm)
+
+
+def test_parse_and_import_dirs_txt():
+    with sqlite3.connect(":memory:") as conn:
+        orm = FileTableDirORM(conn)
+        parse_dirs_from_csv_file(dirs_txt, orm)
+
+
+def test_parse_and_import_symlinks_txt():
+    with sqlite3.connect(":memory:") as conn:
+        orm = FileTableNonRegularORM(conn)
+        parse_symlinks_from_csv_file(symlinks_txt, orm)
