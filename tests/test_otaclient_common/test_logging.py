@@ -13,40 +13,48 @@
 # limitations under the License.
 
 
-import logging
 import time
 
 from pytest import LogCaptureFixture
 
 from otaclient_common import logging as _logging
 
+TEST_ROUND = 10
+TEST_LOGGINGS_NUM = 3000
 
-def test_BurstSuppressFilter(caplog: LogCaptureFixture):
-    logger_name = "test_BurstSuppressFilter"
-    logger = logging.getLogger(logger_name)
+
+def test_burst_logging(caplog: LogCaptureFixture):
+    logger_name = "upper_logger.intermediate_logger.this_logger"
+    upper_logger = "upper_logger.intermediate_logger"
+
     burst_round_length = 1
-    logger.addFilter(
-        _logging.BurstSuppressFilter(
-            logger_name,
-            burst_max=1,
-            burst_round_length=burst_round_length,
-        )
+
+    logger = _logging.get_burst_suppressed_logger(
+        logger_name,
+        # NOTE: test upper_logger_name calculated from logger_name
+        burst_max=1,
+        burst_round_length=burst_round_length,
     )
 
     # test loggging suppressing
     # NOTE: outer loop ensures that suppression only works
     #       within each burst_round, and should be refresed
     #       in new round.
-    for _ in range(2):
-        for idx in range(2000):
+    for _ in range(TEST_ROUND):
+        for idx in range(TEST_LOGGINGS_NUM):
             logger.error(idx)
         time.sleep(burst_round_length * 2)
         logger.error("burst_round end")
 
-        # the four logging lines are:
+        # For each round, the loggings will be as follow:
         #   1. logger.error(idx) # idx==0
         #   2. a warning of exceeded loggings are suppressed
         #   3. a warning of how many loggings are suppressed
         #   4. logger.error("burst_round end")
-        assert len(caplog.records) <= 4
+        # NOTE that the logger.error("burst_round end") will be included in the
+        #   next burst_suppressing roud, so excepts for the first round, we will
+        #   only have three records.
+        assert len(records := caplog.records) <= 4
+        # warning msg comes from upper_logger
+        assert records[1].name == upper_logger
         caplog.clear()
