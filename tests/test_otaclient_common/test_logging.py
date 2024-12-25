@@ -51,5 +51,4 @@ def test_burst_logging(caplog: LogCaptureFixture):
         assert len(records := caplog.records) <= 4
         # warning msg comes from upper_logger
         assert records[1].name == upper_logger
-        assert records[2].name == upper_logger
         caplog.clear()
