@@ -264,3 +264,12 @@ def parse_regulars_from_csv_file(
     finally:
         if cleanup:
             Path(_fpath).unlink(missing_ok=True)
+
+
+#
+# ------ persists.txt CSV parser implementation ------ #
+#
+
+
+def parse_persists_csv_line(line: str) -> str:
+    return de_escape(line.strip()[1:-1])
