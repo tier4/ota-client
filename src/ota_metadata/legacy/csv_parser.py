@@ -30,7 +30,7 @@ from ota_metadata.file_table import (
     FileTableRegularORM,
 )
 
-from .rs_table import RSTORM, ResourceTable
+from .rs_table import ResourceTableORM, ResourceTable
 
 ENTRIES_PROCESS_BATCH_SIZE = 2048
 
@@ -239,7 +239,11 @@ def parse_regulars_csv_line(line: str) -> tuple[FileTableRegularFiles, ResourceT
 
 
 def parse_regulars_from_csv_file(
-    _fpath: str, _orm: FileTableRegularORM, _orm_rs: RSTORM, *, cleanup: bool = True
+    _fpath: str,
+    _orm: FileTableRegularORM,
+    _orm_rs: ResourceTableORM,
+    *,
+    cleanup: bool = True,
 ) -> int:
     """Compatibility to the plaintext regulars.txt."""
     _batch, _batch_rs, _batch_cnt = [], [], 0
