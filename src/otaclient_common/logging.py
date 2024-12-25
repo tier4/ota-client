@@ -90,7 +90,7 @@ def get_burst_suppressed_logger(
     if not isinstance(upper_logger_name, str):
         _parents = this_logger_name.split(".")[:-1]
         if _parents:
-            upper_logger_name = _parents[-1]
+            upper_logger_name = ".".join(_parents)
         else:  # NOTE: will be the root logger
             upper_logger_name = None
 
