@@ -29,8 +29,9 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
     FileTableRegularORM,
 )
+from otaclient_common.typing import StrOrPath
 
-from .rs_table import ResourceTableORM, ResourceTable
+from .rs_table import ResourceTable, ResourceTableORM
 
 ENTRIES_PROCESS_BATCH_SIZE = 2048
 
@@ -78,7 +79,7 @@ def parse_dirs_csv_line(line: str) -> FileTableDirectories:
 
 
 def parse_dirs_from_csv_file(
-    _fpath: str, _orm: FileTableDirORM, *, cleanup: bool = True
+    _fpath: StrOrPath, _orm: FileTableDirORM, *, cleanup: bool = True
 ) -> int:
     """Compatibility to the plaintext CSV dirs.txt."""
     _batch, _batch_cnt = [], 0
@@ -138,7 +139,7 @@ def parse_symlinks_csv_line(line: str) -> FileTableNonRegularFiles:
 
 
 def parse_symlinks_from_csv_file(
-    _fpath: str, _orm: FileTableNonRegularORM, *, cleanup: bool = True
+    _fpath: StrOrPath, _orm: FileTableNonRegularORM, *, cleanup: bool = True
 ) -> int:
     """Compatibility to the plaintext symlinks.txt."""
     _batch, _batch_cnt = [], 0
@@ -239,7 +240,7 @@ def parse_regulars_csv_line(line: str) -> tuple[FileTableRegularFiles, ResourceT
 
 
 def parse_regulars_from_csv_file(
-    _fpath: str,
+    _fpath: StrOrPath,
     _orm: FileTableRegularORM,
     _orm_rs: ResourceTableORM,
     *,
