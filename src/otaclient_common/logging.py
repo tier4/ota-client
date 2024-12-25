@@ -70,7 +70,7 @@ def get_burst_suppressed_logger(
     upper_logger_name: str | None = None,
     burst_max: int = 6,
     burst_round_length: int = 30,
-) -> None:
+) -> logging.Logger:
     """Configure the logger by <_logger> and attach a burst_suppressed_filter to it
 
     Args:
@@ -98,3 +98,4 @@ def get_burst_suppressed_logger(
             burst_round_length=burst_round_length,
         )
     )
+    return this_logger
