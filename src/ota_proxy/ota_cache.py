@@ -20,12 +20,13 @@ import logging
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncIterator, Mapping, Optional
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
+import anyio
+import anyio.to_thread
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common.common import get_backoff
@@ -133,10 +134,6 @@ class OTACache:
             db_f.unlink(missing_ok=True)
             self._init_cache = True  # force init cache on db file cleanup
 
-        self._executor = ThreadPoolExecutor(
-            thread_name_prefix="ota_cache_fileio_executor"
-        )
-
         self._external_cache_data_dir = None
         self._external_cache_mp = None
         if external_cache_mnt_point and mount_external_cache(external_cache_mnt_point):
@@ -145,7 +142,7 @@ class OTACache:
             )
             self._external_cache_mp = external_cache_mnt_point
             self._external_cache_data_dir = (
-                Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
+                anyio.Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
             )
 
         self._storage_below_hard_limit_event = threading.Event()
@@ -189,11 +186,18 @@ class OTACache:
 
             # reuse the previously left ota_cache
             else:  # cleanup unfinished tmp files
-                for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
-                    tmp_f.unlink(missing_ok=True)
+                async for tmp_f in anyio.Path(self._base_dir).glob(
+                    f"{cfg.TMP_FILE_PREFIX}*"
+                ):
+                    await tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
-            self._executor.submit(self._background_check_free_space)
+            _free_space_check_thread = threading.Thread(
+                target=self._background_check_free_space,
+                daemon=True,
+                name="ota_cache_free_space_checker",
+            )
+            _free_space_check_thread.start()
 
             # init cache helper(and connect to ota_cache db)
             self._lru_helper = LRUCacheHelper(
@@ -222,7 +226,6 @@ class OTACache:
             if not self._closed:
                 self._closed = True
                 await self._session.close()
-                self._executor.shutdown(wait=True)
 
                 if self._cache_enabled:
                     self._lru_helper.close()
@@ -311,7 +314,7 @@ class OTACache:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
             )
-            self._executor.submit(self._cache_entries_cleanup, _hashes)
+            await anyio.to_thread.run_sync(self._cache_entries_cleanup, _hashes)
             return True
         else:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
@@ -429,7 +432,7 @@ class OTACache:
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        cache_file = self._base_dir / cache_identifier
+        cache_file = anyio.Path(self._base_dir / cache_identifier)
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -437,11 +440,11 @@ class OTACache:
         #   cache_commit_callback to rename the tmp file.
         _retry_count_max, _factor, _backoff_max = 6, 0.01, 0.1  # 0.255s in total
         for _retry_count in range(_retry_count_max):
-            if cache_file.is_file():
+            if await cache_file.is_file():
                 break
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
 
-        if not cache_file.is_file():
+        if not await cache_file.is_file():
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
@@ -452,7 +455,7 @@ class OTACache:
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
         return (
-            read_file(cache_file, executor=self._executor),
+            read_file(cache_file),
             meta_db_entry.export_headers_to_client(),
         )
 
@@ -470,11 +473,11 @@ class OTACache:
 
         cache_identifier = client_cache_policy.file_sha256
         cache_file = self._external_cache_data_dir / cache_identifier
-        cache_file_zst = cache_file.with_suffix(
-            f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}"
+        cache_file_zst = anyio.Path(
+            cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
 
-        if cache_file_zst.is_file():
+        if await cache_file_zst.is_file():
             _header = CIMultiDict()
             _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
                 OTAFileCacheControl.export_kwargs_as_header(
@@ -482,16 +485,16 @@ class OTACache:
                     file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
                 )
             )
-            return read_file(cache_file_zst, executor=self._executor), _header
+            return read_file(cache_file_zst), _header
 
-        if cache_file.is_file():
+        if await cache_file.is_file():
             _header = CIMultiDict()
             _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
                 OTAFileCacheControl.export_kwargs_as_header(
                     file_sha256=cache_identifier
                 )
             )
-            return read_file(cache_file, executor=self._executor), _header
+            return read_file(cache_file), _header
 
     async def _retrieve_file_by_new_caching(
         self,
@@ -534,7 +537,6 @@ class OTACache:
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=self._base_dir,
-            executor=self._executor,
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )

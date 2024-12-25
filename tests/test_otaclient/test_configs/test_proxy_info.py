@@ -106,6 +106,6 @@ logger = logging.getLogger(__name__)
 def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: ProxyInfo):
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)
-    _proxy_info = parse_proxy_info(str(proxy_info_file))
+    _, _proxy_info = parse_proxy_info(str(proxy_info_file))
 
     assert _proxy_info == _expected

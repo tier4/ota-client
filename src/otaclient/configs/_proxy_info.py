@@ -123,26 +123,36 @@ def _deprecation_check(_in: dict[str, Any]) -> None:
 
 # NOTE: this default is for backward compatible with old device
 #       that doesn't have proxy_info.yaml installed.
+# NOTE(20241220): this default proxy_info should allow a single ECU
+#                 environment works without problem.
 DEFAULT_PROXY_INFO = ProxyInfo(
     format_version=1,
     enable_local_ota_proxy=True,
+    upper_ota_proxy=None,
 )
 
 
-def parse_proxy_info(proxy_info_file: StrOrPath) -> ProxyInfo:
+def parse_proxy_info(proxy_info_file: StrOrPath) -> tuple[bool, ProxyInfo]:
+    """Parse the proxy_info.yaml file located at <proxy_info_file>.
+
+    Returns:
+        tuple[bool, ProxyInfo]: bool indicates whether the provided proxy_info.yaml file
+            is loaded properly, if False, it means loading proxy_info.yaml file failed and
+            the default proxy_info is used.
+    """
     try:
         _raw_yaml_str = Path(proxy_info_file).read_text()
     except FileNotFoundError as e:
         logger.warning(f"{proxy_info_file=} not found: {e!r}")
         logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")
-        return DEFAULT_PROXY_INFO
+        return False, DEFAULT_PROXY_INFO
 
     try:
         loaded_proxy_info = yaml.safe_load(_raw_yaml_str)
         assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
         _deprecation_check(loaded_proxy_info)
-        return ProxyInfo.model_validate(loaded_proxy_info, strict=True)
+        return True, ProxyInfo.model_validate(loaded_proxy_info, strict=True)
     except Exception as e:
         logger.warning(f"{proxy_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")
-        return DEFAULT_PROXY_INFO
+        return False, DEFAULT_PROXY_INFO

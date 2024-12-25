@@ -17,27 +17,17 @@
 from __future__ import annotations
 
 import bisect
-import logging
 import sqlite3
 import time
 from pathlib import Path
 
 from simple_sqlite3_orm import utils
 
-from otaclient_common.logging import BurstSuppressFilter
+from otaclient_common.logging import get_burst_suppressed_logger
 
 from .db import AsyncCacheMetaORM, CacheMeta
 
-burst_suppressed_logger = logging.getLogger(f"{__name__}.db_error")
-# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.db_error",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.db_error")
 
 
 class LRUCacheHelper:

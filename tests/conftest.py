@@ -252,14 +252,16 @@ local_ota_proxy_listen_port: 8082
 def ecu_info_fixture(tmp_path: Path) -> ECUInfo:
     _yaml_f = tmp_path / "ecu_info.yaml"
     _yaml_f.write_text(ECU_INFO_YAML)
-    return parse_ecu_info(_yaml_f)
+    _, res = parse_ecu_info(_yaml_f)
+    return res
 
 
 @pytest.fixture
 def proxy_info_fixture(tmp_path: Path) -> ProxyInfo:
     _yaml_f = tmp_path / "proxy_info.yaml"
     _yaml_f.write_text(PROXY_INFO_YAML)
-    return parse_proxy_info(_yaml_f)
+    _, res = parse_proxy_info(_yaml_f)
+    return res
 
 
 MAX_TRACEBACK_SIZE = 2048

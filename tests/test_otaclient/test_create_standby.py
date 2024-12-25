@@ -88,7 +88,6 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         self._boot_control = typing.cast(
             BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
         )
-        self._boot_control.get_standby_boot_dir.return_value = self.slot_b_boot_dir  # type: ignore
 
         # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_CORE_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
