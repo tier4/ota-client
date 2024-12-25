@@ -18,6 +18,7 @@ NOTE: the test cases are mostly re-used from the previous implementation.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import stat
 from pathlib import Path
@@ -44,6 +45,8 @@ from ota_metadata.legacy.csv_parser import (
 )
 from ota_metadata.legacy.rs_table import ResourceTable, ResourceTableORM
 from tests.conftest import TestConfiguration as test_cfg
+
+logger = logging.getLogger(__name__)
 
 OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
 
@@ -212,18 +215,26 @@ def test_parse_and_import_regulars_txt():
 
         rs_table_orm = ResourceTableORM(rs_table_conn)
         rs_table_orm.orm_create_table()
-        parse_regulars_from_csv_file(regulars_txt, ft_table_orm, rs_table_orm)
+        _imported = parse_regulars_from_csv_file(
+            regulars_txt, ft_table_orm, rs_table_orm, cleanup=False
+        )
+        logger.info(f"imported {_imported} entries")
+        assert _imported > 0
 
 
 def test_parse_and_import_dirs_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableDirORM(conn)
         orm.orm_create_table()
-        parse_dirs_from_csv_file(dirs_txt, orm)
+        _imported = parse_dirs_from_csv_file(dirs_txt, orm, cleanup=False)
+        logger.info(f"imported {_imported} entries")
+        assert _imported > 0
 
 
 def test_parse_and_import_symlinks_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableNonRegularORM(conn)
         orm.orm_create_table()
-        parse_symlinks_from_csv_file(symlinks_txt, orm)
+        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm, cleanup=False)
+        logger.info(f"imported {_imported} entries")
+        assert _imported > 0
