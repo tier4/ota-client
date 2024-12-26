@@ -19,11 +19,15 @@ import logging
 from pathlib import Path
 
 import pytest
+import pytest_mock
 
+import otaclient.configs._proxy_info as _proxy_info_module
 from otaclient.configs import ProxyInfo
 from otaclient.configs._proxy_info import DEFAULT_PROXY_INFO, parse_proxy_info
 
 logger = logging.getLogger(__name__)
+
+MODULE_NAME = _proxy_info_module.__name__
 
 
 @pytest.mark.parametrize(
@@ -35,7 +39,7 @@ logger = logging.getLogger(__name__)
         # NOTE: this default value is for x1 backward compatibility.
         (
             "# this is an empty file",
-            DEFAULT_PROXY_INFO,
+            (False, DEFAULT_PROXY_INFO),
         ),
         # ------ case 2: typical sub ECU's proxy_info.yaml ------ #
         (
@@ -45,16 +49,19 @@ logger = logging.getLogger(__name__)
                 "enable_local_ota_proxy_cache: true\n"
                 'logging_server: "http://10.0.0.1:8083"\n'
             ),
-            ProxyInfo(
-                **{
-                    "format_version": 1,
-                    "upper_ota_proxy": "http://10.0.0.1:8082",
-                    "enable_local_ota_proxy": True,
-                    "enable_local_ota_proxy_cache": True,
-                    "local_ota_proxy_listen_addr": "0.0.0.0",
-                    "local_ota_proxy_listen_port": 8082,
-                    "logging_server": "http://10.0.0.1:8083",
-                }
+            (
+                True,
+                ProxyInfo(
+                    **{
+                        "format_version": 1,
+                        "upper_ota_proxy": "http://10.0.0.1:8082",
+                        "enable_local_ota_proxy": True,
+                        "enable_local_ota_proxy_cache": True,
+                        "local_ota_proxy_listen_addr": "0.0.0.0",
+                        "local_ota_proxy_listen_port": 8082,
+                        "logging_server": "http://10.0.0.1:8083",
+                    }
+                ),
             ),
         ),
         # ------ case 3: invalid/corrupted proxy_info.yaml ------ #
@@ -63,7 +70,7 @@ logger = logging.getLogger(__name__)
         # proxy_info.yaml will be used.
         (
             "not a valid proxy_info.yaml",
-            DEFAULT_PROXY_INFO,
+            (False, DEFAULT_PROXY_INFO),
         ),
         # ------ case 4: proxy_info.yaml is valid yaml but contains invalid fields ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
@@ -81,31 +88,39 @@ logger = logging.getLogger(__name__)
                 "local_ota_proxy_listen_addr: 123\n"
                 'local_ota_proxy_listen_port: "2808"\n'
             ),
-            DEFAULT_PROXY_INFO,
+            (False, DEFAULT_PROXY_INFO),
         ),
         # ------ case 5: corrupted/invalid yaml ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
         (
             "/t/t/t/t/t/t/t/tyaml file should not contain tabs/t/t/t/",
-            DEFAULT_PROXY_INFO,
+            (False, DEFAULT_PROXY_INFO),
         ),
         # ------ case 6: backward compatibility test ------ #
         # for superseded field, the corresponding field should be assigned.
         # for removed field, it should not impact the config file loading.
         (
             "enable_ota_proxy: true\ngateway: false\n",
-            DEFAULT_PROXY_INFO,
+            (True, DEFAULT_PROXY_INFO),
         ),
         # ------ case 7(20240626): NetworkPort allow str value ------ #
         (
             'local_ota_proxy_listen_port: "8082"',
-            ProxyInfo(local_ota_proxy_listen_port=8082),
+            (True, ProxyInfo(local_ota_proxy_listen_port=8082)),
         ),
     ),
 )
-def test_proxy_info(tmp_path: Path, _input_yaml: str, _expected: ProxyInfo):
+def test_proxy_info(
+    tmp_path: Path,
+    _input_yaml: str,
+    _expected: tuple[bool, ProxyInfo],
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    # disable deprecation warning on test
+    mocker.patch(f"{MODULE_NAME}._deprecation_check")
+
     proxy_info_file = tmp_path / "proxy_info.yml"
     proxy_info_file.write_text(_input_yaml)
-    _, _proxy_info = parse_proxy_info(str(proxy_info_file))
+    _res = parse_proxy_info(str(proxy_info_file))
 
-    assert _proxy_info == _expected
+    assert _res == _expected

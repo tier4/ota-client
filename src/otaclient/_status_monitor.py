@@ -310,7 +310,15 @@ class OTAClientStatusCollector:
                     break
 
                 # ------ push status on load_report ------ #
-                if self.load_report(report) and self._status and _now > _next_shm_push:
+                # NOTE: always push OTAStatus change report
+                if (
+                    self.load_report(report)
+                    and self._status
+                    and (
+                        isinstance(report.payload, OTAStatusChangeReport)
+                        or _now > _next_shm_push
+                    )
+                ):
                     try:
                         self._shm_status.write_msg(self._status)
                         _next_shm_push = _now + self.shm_push_interval
