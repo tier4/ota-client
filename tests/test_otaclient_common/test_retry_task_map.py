@@ -47,7 +47,6 @@ def _thread_initializer(msg: str) -> None:
 
 
 class TestRetryTaskMap:
-
     @pytest.fixture(autouse=True)
     def setup(self) -> None:
         self._start_time = time.time()

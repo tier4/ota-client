@@ -20,7 +20,6 @@ The length-delimited stream layout is as follow:
 Which <len> will be 4 bytes unsigned int in big-endian layout.
 """
 
-
 from typing import BinaryIO, Generic, Iterable, Optional, Type
 
 from otaclient_common.proto_wrapper import MessageType, MessageWrapperType

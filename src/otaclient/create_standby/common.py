@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common used helpers, classes and functions for different bank creating methods."""
 
-
 from __future__ import annotations
 
 import contextlib

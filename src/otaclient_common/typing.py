@@ -52,7 +52,6 @@ else:
     #   besides here, we implement __str__ to use str type's one, to align with
     #   the behavior of >= 3.11.
     class StrEnum(str, Enum):
-
         def __str__(self) -> str:
             return str.__str__(self)
 
