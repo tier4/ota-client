@@ -75,7 +75,7 @@ class ResourceTable(TableSpec):
         return hash(self.digest)
 
 
-class RSTORM(ORMBase[ResourceTable]):
+class ResourceTableORM(ORMBase[ResourceTable]):
 
     _orm_table_name = RSTABLE_NAME
 
@@ -95,6 +95,6 @@ class RSTORM(ORMBase[ResourceTable]):
         yield from _this_batch
 
 
-class RSTableORMThreadPool(ORMThreadPoolBase[ResourceTable]):
+class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
 
     _orm_table_name = RSTABLE_NAME
