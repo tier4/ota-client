@@ -113,7 +113,7 @@ class MetadataJWTParser:
         self.payload_bytes = base64.urlsafe_b64decode(jwt_list[1])
 
         # parse metadata payload into OTAMetadata
-        self.metadata_jwt = _jwt = _MetadataJWTClaimsLayout.parse_payload(
+        self.metadata_jwt = _jwt = MetadataJWTClaimsLayout.parse_payload(
             self.payload_bytes
         )
         logger.info(f"parsed metadata.jwt: {_jwt!r}")
@@ -165,11 +165,11 @@ class MetadataJWTParser:
             logger.error(msg)
             raise MetadataJWTVerificationFailed(msg) from e
 
-    def get_metadata_jwt(self) -> _MetadataJWTClaimsLayout:
+    def get_metadata_jwt(self) -> MetadataJWTClaimsLayout:
         return self.metadata_jwt
 
 
-class _MetadataJWTClaimsLayout(BaseModel):
+class MetadataJWTClaimsLayout(BaseModel):
     """Version1 metadata.jwt payload mapping and parsing."""
 
     SCHEME_VERSION: ClassVar[int] = 1
