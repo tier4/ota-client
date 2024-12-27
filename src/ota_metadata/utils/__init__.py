@@ -11,3 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+
+@dataclass
+class DownloadInfo:
+    url: str
+    dst: Path
+    original_size: int = 0
+    """NOTE: we are using transparent decompression, so we always use the original_size."""
+    digest_alg: Optional[str] = None
+    digest: Optional[str] = None
+    compression_alg: Optional[str] = None
