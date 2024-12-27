@@ -47,7 +47,12 @@ from ota_metadata.file_table import (
     FileTableNonRegularFiles,
     FileTableRegularFiles,
 )
-from ota_metadata.file_table._orm import FileTableDirORM, FileTableRegularORM
+from ota_metadata.file_table._orm import (
+    FileTableDirORM,
+    FileTableNonRegularORM,
+    FileTableRegularORM,
+    FileTableRegularORMPool,
+)
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common.common import urljoin_ensure_base
@@ -64,7 +69,7 @@ from .metadata_jwt import (
     MetadataJWTParser,
     MetadataJWTVerificationFailed,
 )
-from .rs_table import ResourceTableORM, ResourceTable
+from .rs_table import ResourceTable, ResourceTableORM
 
 logger = logging.getLogger(__name__)
 
@@ -209,14 +214,14 @@ class OTAMetadata:
         try:
             _metadata_jwt = self.metadata_jwt
 
-            _ft_regular_orm = FTRegularORM(_fst_conn)
+            _ft_regular_orm = FileTableRegularORM(_fst_conn)
             _ft_regular_orm.orm_create_table()
-            _ft_dir_orm = FTDirORM(_fst_conn)
+            _ft_dir_orm = FileTableDirORM(_fst_conn)
             _ft_dir_orm.orm_create_table()
-            _ft_non_regular_orm = FTNonRegularORM(_fst_conn)
+            _ft_non_regular_orm = FileTableNonRegularORM(_fst_conn)
             _ft_non_regular_orm.orm_create_table()
 
-            _rs_orm = RSTORM(_rst_conn)
+            _rs_orm = ResourceTableORM(_rst_conn)
             _rs_orm.orm_create_table()
             try:
                 _dirs_num = parse_dirs_from_csv_file(
@@ -262,7 +267,7 @@ class OTAMetadata:
 
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
-        _orm = FTRegularORM(self.connect_fstable)
+        _orm = FileTableRegularORM(self.connect_fstable)
         sort_and_replace(
             _orm,  # type: ignore
             table_name=_orm.orm_table_name,
@@ -279,7 +284,7 @@ class OTAMetadata:
 
     def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTDirORM(_conn)
+        _ft_dir_orm = FileTableDirORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -289,7 +294,7 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
         _conn = self.connect_fstable()
-        _ft_dir_orm = FTNonRegularORM(_conn)
+        _ft_dir_orm = FileTableNonRegularORM(_conn)
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
@@ -298,7 +303,7 @@ class OTAMetadata:
     def iter_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
-        _ft_dir_orm = FTRegularORMPool(
+        _ft_dir_orm = FileTableRegularORMPool(
             con_factory=self.connect_fstable, number_of_cons=1
         )
         try:
@@ -355,7 +360,7 @@ class ResourceMeta:
 
     def _get_download_list_len(self) -> int:
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn, row_factory=None)
+        _orm = ResourceTableORM(_conn, row_factory=None)
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=_orm.orm_table_name,
             function="count",
@@ -372,7 +377,7 @@ class ResourceMeta:
 
     def _get_download_size(self):
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn, row_factory=None)
+        _orm = ResourceTableORM(_conn, row_factory=None)
 
         _sql_stmt = ResourceTable.table_select_stmt(
             select_from=_orm.orm_table_name,
@@ -439,7 +444,7 @@ class ResourceMeta:
     ) -> Generator[DownloadInfo, None, None]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
         _conn = self._ota_metadata.connect_rstable()
-        _orm = RSTORM(_conn)
+        _orm = ResourceTableORM(_conn)
         try:
             for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
