@@ -19,13 +19,118 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from enum import Enum
 from queue import Queue
 from threading import Event, Thread
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
+import grpc
 import requests
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2 as log_pb2,
+)
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
+)
+from pydantic import AnyHttpUrl
 
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+
+
+class LogType(Enum):
+    LOG = "log"
+    METRICS = "metrics"
+
+
+@dataclass
+class QueueData:
+    """Queue data format for logging."""
+
+    log_type: LogType
+    message: str
+
+
+class Transmitter(ABC):
+    def __init__(self, logging_upload_endpoint, ecu_id: str):
+        self.ecu_id = ecu_id
+
+    @abstractmethod
+    def send(self, log_type: LogType, message: str, timeout: int) -> None:
+        pass
+
+    @abstractmethod
+    def check(self, timeout: int) -> None:
+        pass
+
+
+class TransmitterGrpc(Transmitter):
+    def __init__(self, logging_upload_grpc_endpoint: AnyHttpUrl, ecu_id: str):
+        super().__init__(logging_upload_grpc_endpoint, ecu_id)
+
+        parsed_url = urlparse(str(logging_upload_grpc_endpoint))
+        log_upload_endpoint = parsed_url.netloc
+        channel = grpc.insecure_channel(log_upload_endpoint)
+        self._stub = log_v1_grpc.OTAClientIoTLoggingServiceStub(channel)
+
+    def send(self, log_type: LogType, message: str, timeout: int) -> None:
+        pb2_log_type = (
+            log_pb2.LogType.METRICS
+            if log_type == LogType.METRICS
+            else log_pb2.LogType.LOG
+        )
+        log_entry = log_pb2.PutLogRequest(
+            ecu_id=self.ecu_id, log_type=pb2_log_type, message=message
+        )
+        self._stub.PutLog(log_entry, timeout=timeout)
+
+    def check(self, timeout: int) -> None:
+        # health check
+        log_entry = log_pb2.HealthCheckRequest()
+        self._stub.Check(log_entry)
+
+
+class TransmitterHttp(Transmitter):
+    def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
+        super().__init__(logging_upload_endpoint, ecu_id)
+
+        _endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
+        self.log_upload_endpoint = urljoin(_endpoint, ecu_id)
+        self._session = requests.Session()
+
+    def send(self, log_type: LogType, message: str, timeout: int) -> None:
+        # support only LogType.LOG
+        self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
+
+    def check(self, timeout: int) -> None:
+        resp = self._session.head(self.log_upload_endpoint, timeout=timeout)
+        resp.raise_for_status()
+
+
+class TransmitterFactory:
+    @staticmethod
+    def create(
+        logging_upload_endpoint: AnyHttpUrl,
+        logging_upload_grpc_endpoint: AnyHttpUrl | None,
+        ecu_id: str,
+    ):
+        if not logging_upload_grpc_endpoint:
+            return TransmitterHttp(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
+
+        try:
+            _transmitter_grpc = TransmitterGrpc(
+                logging_upload_grpc_endpoint=logging_upload_grpc_endpoint, ecu_id=ecu_id
+            )
+            _transmitter_grpc.check(timeout=3)
+            return _transmitter_grpc
+        except Exception:
+            return TransmitterHttp(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
 
 
 class _LogTeeHandler(logging.Handler):
@@ -33,18 +138,62 @@ class _LogTeeHandler(logging.Handler):
 
     def __init__(self, max_backlog: int = 2048) -> None:
         super().__init__()
-        self._queue: Queue[str | None] = Queue(maxsize=max_backlog)
+        self._queue: Queue[QueueData | None] = Queue(maxsize=max_backlog)
 
     def emit(self, record: logging.LogRecord) -> None:
         with contextlib.suppress(Exception):
-            self._queue.put_nowait(self.format(record))
+            _log_type = getattr(record, "log_type", LogType.LOG)  # default to LOG
+            # if a message is log message, format the message with the formatter
+            # otherwise(metric message), use the raw message
+            _message = (
+                self.format(record) if _log_type == LogType.LOG else record.getMessage()
+            )
+            self._queue.put_nowait(QueueData(_log_type, _message))
 
-    def start_upload_thread(self, endpoint_url: str):
+    def _wait_for_log_server_up(
+        self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str
+    ) -> None:
+        """Wait for the logging server to be up.
+
+        This is a blocking call. It will keep trying to connect to the server until it succeeds.
+        """
+        while True:
+            try:
+                # send empty message via HTTP and check if logging server is up
+                # because HEAD is not supported by old iot-logger server
+                TransmitterHttp(logging_upload_endpoint, ecu_id).send(
+                    log_type=LogType.LOG, message="", timeout=1
+                )
+                break
+            except (
+                requests.HTTPError,
+                requests.ConnectionError,
+                ConnectionRefusedError,
+            ):
+                # ignore the such exceptions and continue
+                pass
+            time.sleep(1)
+
+    def start_upload_thread(
+        self,
+        logging_upload_endpoint: AnyHttpUrl,
+        logging_upload_grpc_endpoint: AnyHttpUrl | None,
+        ecu_id: str,
+    ) -> None:
+        LOG_TRANSMITTER_TIMEOUT_SEC = 3
+
         log_queue = self._queue
         stop_logging_upload = Event()
 
         def _thread_main():
-            _session = requests.Session()
+            self._wait_for_log_server_up(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
+            _transmitter = TransmitterFactory.create(
+                logging_upload_endpoint=logging_upload_endpoint,
+                logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
+                ecu_id=ecu_id,
+            )
 
             while not stop_logging_upload.is_set():
                 entry = log_queue.get()
@@ -54,7 +203,11 @@ class _LogTeeHandler(logging.Handler):
                     continue  # skip uploading empty log line
 
                 with contextlib.suppress(Exception):
-                    _session.post(endpoint_url, data=entry, timeout=3)
+                    _transmitter.send(
+                        log_type=entry.log_type,
+                        message=entry.message,
+                        timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
+                    )
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
         log_upload_thread.start()
@@ -68,7 +221,7 @@ class _LogTeeHandler(logging.Handler):
 
 
 def configure_logging() -> None:
-    """Configure logging with http handler."""
+    """Configure logging with http/gRPC handler."""
     # ------ suppress logging from non-first-party modules ------ #
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
@@ -79,15 +232,18 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-        logging_upload_endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
+        logging_upload_grpc_endpoint = proxy_info.logging_server_grpc
 
         log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         log_upload_handler.setFormatter(fmt)
 
         # star the logging thread
-        log_upload_endpoint = urljoin(logging_upload_endpoint, ecu_info.ecu_id)
-        log_upload_handler.start_upload_thread(log_upload_endpoint)
+        log_upload_handler.start_upload_thread(
+            logging_upload_endpoint=logging_upload_endpoint,
+            logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
+            ecu_id=ecu_info.ecu_id,
+        )
 
     for logger_name, loglevel in cfg.LOG_LEVEL_TABLE.items():
         _logger = logging.getLogger(logger_name)
