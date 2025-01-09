@@ -21,11 +21,16 @@ import contextlib
 import logging
 from queue import Queue
 from threading import Event, Thread
-from urllib.parse import urljoin
 
-import requests
+import grpc
 
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient_common.otaclient_iot_logging_server.v1 import (
+    otaclient_iot_logging_server_v1_pb2 as log_pb2,
+)
+from otaclient_common.otaclient_iot_logging_server.v1 import (
+    otaclient_iot_logging_server_v1_pb2_grpc as log_pb2_grpc,
+)
 
 
 class _LogTeeHandler(logging.Handler):
@@ -39,12 +44,13 @@ class _LogTeeHandler(logging.Handler):
         with contextlib.suppress(Exception):
             self._queue.put_nowait(self.format(record))
 
-    def start_upload_thread(self, endpoint_url: str):
+    def start_upload_thread(self, logging_upload_channel: str, ecu_id: str) -> None:
         log_queue = self._queue
         stop_logging_upload = Event()
 
         def _thread_main():
-            _session = requests.Session()
+            channel = grpc.insecure_channel(logging_upload_channel)
+            stub = log_pb2_grpc.OtaClientIoTLoggingServiceStub(channel)
 
             while not stop_logging_upload.is_set():
                 entry = log_queue.get()
@@ -54,7 +60,8 @@ class _LogTeeHandler(logging.Handler):
                     continue  # skip uploading empty log line
 
                 with contextlib.suppress(Exception):
-                    _session.post(endpoint_url, data=entry, timeout=3)
+                    log_entry = log_pb2.PutLogRequest(message=entry, ecu_id=ecu_id)
+                    stub.PutLog(log_entry)
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
         log_upload_thread.start()
@@ -68,7 +75,7 @@ class _LogTeeHandler(logging.Handler):
 
 
 def configure_logging() -> None:
-    """Configure logging with http handler."""
+    """Configure logging with gRPC handler."""
     # ------ suppress logging from non-first-party modules ------ #
     # NOTE: force to reload the basicConfig, this is for overriding setting
     #       when launching subprocess.
@@ -78,16 +85,13 @@ def configure_logging() -> None:
 
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
-    if logging_upload_endpoint := proxy_info.logging_server:
-        logging_upload_endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
-
+    if logging_upload_channel := proxy_info.logging_server:
         log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         log_upload_handler.setFormatter(fmt)
 
         # star the logging thread
-        log_upload_endpoint = urljoin(logging_upload_endpoint, ecu_info.ecu_id)
-        log_upload_handler.start_upload_thread(log_upload_endpoint)
+        log_upload_handler.start_upload_thread(logging_upload_channel, ecu_info.ecu_id)
 
     for logger_name, loglevel in cfg.LOG_LEVEL_TABLE.items():
         _logger = logging.getLogger(logger_name)
