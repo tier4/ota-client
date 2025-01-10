@@ -10,16 +10,6 @@ class LogType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     LOG: _ClassVar[LogType]
     METRICS: _ClassVar[LogType]
 
-class LogLevel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = []
-    UNSPECIFIC: _ClassVar[LogLevel]
-    TRACE: _ClassVar[LogLevel]
-    DEBUG: _ClassVar[LogLevel]
-    INFO: _ClassVar[LogLevel]
-    WARN: _ClassVar[LogLevel]
-    ERROR: _ClassVar[LogLevel]
-    FATAL: _ClassVar[LogLevel]
-
 class ErrorCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = []
     NO_FAILURE: _ClassVar[ErrorCode]
@@ -29,36 +19,23 @@ class ErrorCode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 
 LOG: LogType
 METRICS: LogType
-UNSPECIFIC: LogLevel
-TRACE: LogLevel
-DEBUG: LogLevel
-INFO: LogLevel
-WARN: LogLevel
-ERROR: LogLevel
-FATAL: LogLevel
 NO_FAILURE: ErrorCode
 SERVER_QUEUE_FULL: ErrorCode
 NOT_ALLOWED_ECU_ID: ErrorCode
 NO_MESSAGE: ErrorCode
 
 class PutLogRequest(_message.Message):
-    __slots__ = ["ecu_id", "log_type", "timestamp", "level", "message"]
+    __slots__ = ["ecu_id", "log_type", "message"]
     ECU_ID_FIELD_NUMBER: _ClassVar[int]
     LOG_TYPE_FIELD_NUMBER: _ClassVar[int]
-    TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
-    LEVEL_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_FIELD_NUMBER: _ClassVar[int]
     ecu_id: str
     log_type: LogType
-    timestamp: int
-    level: LogLevel
     message: str
     def __init__(
         self,
         ecu_id: _Optional[str] = ...,
         log_type: _Optional[_Union[LogType, str]] = ...,
-        timestamp: _Optional[int] = ...,
-        level: _Optional[_Union[LogLevel, str]] = ...,
         message: _Optional[str] = ...,
     ) -> None: ...
 
