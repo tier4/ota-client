@@ -19,30 +19,50 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from queue import Queue
 from threading import Event, Thread
 
 import grpc
 
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common.otaclient_iot_logging_server.v1 import (
+from otaclient.grpc.log_v1 import (
     otaclient_iot_logging_server_v1_pb2 as log_pb2,
 )
-from otaclient_common.otaclient_iot_logging_server.v1 import (
-    otaclient_iot_logging_server_v1_pb2_grpc as log_pb2_grpc,
+from otaclient.grpc.log_v1 import (
+    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
 )
+
+
+class LogType(Enum):
+    LOG = 0
+    METRICS = 1
 
 
 class _LogTeeHandler(logging.Handler):
     """Implementation of teeing local logs to a remote otaclient-iot-logger server."""
 
+    @dataclass
+    class QueueData:
+        """Queue data format for logging."""
+
+        log_type: LogType
+        message: str
+
     def __init__(self, max_backlog: int = 2048) -> None:
         super().__init__()
-        self._queue: Queue[str | None] = Queue(maxsize=max_backlog)
+        self._queue: Queue[_LogTeeHandler.QueueData | None] = Queue(maxsize=max_backlog)
 
     def emit(self, record: logging.LogRecord) -> None:
         with contextlib.suppress(Exception):
-            self._queue.put_nowait(self.format(record))
+            _log_type = getattr(record, "log_type", LogType.LOG)  # default to LOG
+            # if a message is log message, format the message with the formatter
+            # otherwise(metric message), use the raw message
+            _message = (
+                self.format(record) if _log_type == LogType.LOG else record.getMessage()
+            )
+            self._queue.put_nowait(_LogTeeHandler.QueueData(_log_type, _message))
 
     def start_upload_thread(self, logging_upload_channel: str, ecu_id: str) -> None:
         log_queue = self._queue
@@ -50,7 +70,7 @@ class _LogTeeHandler(logging.Handler):
 
         def _thread_main():
             channel = grpc.insecure_channel(logging_upload_channel)
-            stub = log_pb2_grpc.OtaClientIoTLoggingServiceStub(channel)
+            stub = log_v1_grpc.OtaClientIoTLoggingServiceStub(channel)
 
             while not stop_logging_upload.is_set():
                 entry = log_queue.get()
@@ -60,7 +80,15 @@ class _LogTeeHandler(logging.Handler):
                     continue  # skip uploading empty log line
 
                 with contextlib.suppress(Exception):
-                    log_entry = log_pb2.PutLogRequest(message=entry, ecu_id=ecu_id)
+                    # convert to the protobuf log type
+                    pb2_log_type = (
+                        log_pb2.LogType.METRICS
+                        if entry.log_type == LogType.METRICS
+                        else log_pb2.LogType.LOG
+                    )
+                    log_entry = log_pb2.PutLogRequest(
+                        ecu_id=ecu_id, log_type=pb2_log_type, message=entry.message
+                    )
                     stub.PutLog(log_entry)
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
