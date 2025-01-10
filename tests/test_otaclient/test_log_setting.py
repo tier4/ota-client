@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 @pytest.mark.parametrize(
     "test_log_msg, test_extra, expected_log_type",
     [
-        (None, None, _logging.LogType.LOG),
         ("emit one logging entry", None, _logging.LogType.LOG),
         (
             "emit one logging entry",

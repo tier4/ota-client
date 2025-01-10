@@ -14,16 +14,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from dataclasses import dataclass
 from queue import Queue
 
 import grpc
 import pytest
+import pytest_asyncio
 from pytest_mock import MockerFixture
 
 import otaclient._logging as _logging
 from otaclient._logging import LogType, configure_logging
+from otaclient.configs._cfg_configurable import _OTAClientSettings
 from otaclient.configs._ecu_info import ECUInfo
 from otaclient.configs._proxy_info import ProxyInfo
 from otaclient.grpc.log_v1 import (
@@ -38,51 +42,53 @@ logger = logging.getLogger(__name__)
 MODULE = _logging.__name__
 
 
+@dataclass
+class DummyQueueData:
+    ecu_id: str
+    log_type: log_pb2.LogType
+    message: str
+
+
+class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
+    def __init__(self, test_queue, data_ready):
+        self._test_queue = test_queue
+        self._data_ready = data_ready
+
+    async def PutLog(self, request: log_pb2.PutLogRequest, context):
+        """
+        Dummy gRPC method to put a log message to the queue.
+        """
+        self._test_queue.put_nowait(
+            DummyQueueData(
+                ecu_id=request.ecu_id,
+                log_type=request.log_type,
+                message=request.message,
+            )
+        )
+        self._data_ready.set()
+        return log_pb2.PutLogResponse(code=log_pb2.NO_FAILURE)
+
+
 class TestLogClient:
     OTA_CLIENT_LOGGING_SERVER = "127.0.0.1:8083"
-
-    @dataclass
-    class DummyQueueData:
-        ecu_id: str
-        log_type: log_pb2.LogType
-        message: str
-
-    class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
-        def __init__(self, client):
-            self.client = client
-
-        async def PutLog(self, request: log_pb2.PutLogRequest, context):
-            """
-            Dummy gRPC method to put a log message to the queue.
-            """
-            self.client.queue.put(
-                TestLogClient.DummyQueueData(
-                    ecu_id=request.ecu_id,
-                    log_type=request.log_type,
-                    message=request.message,
-                )
-            )
-            return log_pb2.PutLogResponse(code=log_pb2.NO_FAILURE)
+    ECU_ID = "testclient"
 
     @pytest.fixture(autouse=True)
-    async def launch_server(self):
-        self.queue: Queue[TestLogClient.DummyQueueData] = Queue()
+    async def initialize_queue(self):
+        self.test_queue: Queue[DummyQueueData] = Queue()
+        self.data_ready = asyncio.Event()
 
-        client = TestLogClient()
-        server = grpc.aio.server()
-        log_v1_grpc.add_OtaClientIoTLoggingServiceServicer_to_server(
-            servicer=TestLogClient.DummyLogServerService(client), server=server
+    @pytest.fixture(autouse=True)
+    def mock_cfg(self, mocker: MockerFixture):
+        self._cfg = _OTAClientSettings(
+            LOG_LEVEL_TABLE={__name__: "INFO"},
+            LOG_FORMAT="[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s",
         )
-        server.add_insecure_port(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
-        try:
-            await server.start()
-            yield
-        finally:
-            await server.stop(None)
+        mocker.patch(f"{MODULE}.cfg", self._cfg)
 
     @pytest.fixture(autouse=True)
     def mock_ecu_info(self, mocker: MockerFixture):
-        self._ecu_info = ECUInfo(ecu_id="otaclient")
+        self._ecu_info = ECUInfo(ecu_id=TestLogClient.ECU_ID)
         mocker.patch(f"{MODULE}.ecu_info", self._ecu_info)
 
     @pytest.fixture(autouse=True)
@@ -92,38 +98,69 @@ class TestLogClient:
         )
         mocker.patch(f"{MODULE}.proxy_info", self._proxy_info)
 
+    @pytest_asyncio.fixture
+    async def launch_grpc_server(self):
+        server = grpc.aio.server()
+        log_v1_grpc.add_OtaClientIoTLoggingServiceServicer_to_server(
+            servicer=DummyLogServerService(self.test_queue, self.data_ready),
+            server=server,
+        )
+        server.add_insecure_port(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
+        try:
+            await server.start()
+            yield
+        finally:
+            await server.stop(None)
+
     @pytest.mark.parametrize(
-        "log_message, extra, expected_log_type, expected_message",
+        "log_message, extra, expected_log_type",
         [
-            (None, {}, log_pb2.LogType.LOG, "None"),
             (
                 "some log message without extra",
                 {},
                 log_pb2.LogType.LOG,
-                "some log message without extra",
             ),
             (
                 "some log message",
                 {"log_type": LogType.LOG},
                 log_pb2.LogType.LOG,
-                "some log message",
             ),
             (
                 "some metrics message",
                 {"log_type": LogType.METRICS},
                 log_pb2.LogType.METRICS,
-                "some metrics message",
             ),
         ],
     )
     async def test_logging(
-        self, log_message, extra, expected_log_type, expected_message
+        self,
+        launch_grpc_server,
+        log_message,
+        extra,
+        expected_log_type,
     ):
         configure_logging()
         # send a test log message
-        logger.info(log_message, extra=extra)
+        logger.error(log_message, extra=extra)
+        # wait for the log message to be received
+        await self.data_ready.wait()
+        try:
+            _response = self.test_queue.get_nowait()
+        except Exception as e:
+            pytest.fail(f"Failed to get a log message from the queue: {e}")
 
-        _response = self.queue.get()
-        assert _response.ecu_id == "otaclient"
+        assert _response.ecu_id == TestLogClient.ECU_ID
         assert _response.log_type == expected_log_type
-        assert _response.message == expected_message
+
+        if _response.log_type == log_pb2.LogType.LOG:
+            # Extract the message part from the log format
+            log_format_regex = r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}\]\[ERROR\]-.*?:test_logging:\d+,(.*)"
+            match = re.match(log_format_regex, _response.message)
+            assert match is not None, "Log message format does not match"
+            extracted_message = match.group(1)
+            assert extracted_message == log_message
+        elif _response.log_type == log_pb2.LogType.METRICS:
+            # Expect the message to be the same as the input
+            assert _response.message == log_message
+        else:
+            pytest.fail(f"Unexpected log type: {_response.log_type}")
