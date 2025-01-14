@@ -111,6 +111,23 @@ class TestLogClient:
             yield
         finally:
             await server.stop(None)
+            await server.wait_for_termination()
+
+    @pytest.fixture
+    def restore_logging(self):
+        # confiure_logging() is called in the test, so we need to restore the original logging configuration
+        # Save the current logging configuration
+        original_handlers = logging.root.handlers[:]
+        original_level = logging.root.level
+        original_formatters = [handler.formatter for handler in logging.root.handlers]
+
+        yield
+
+        # Restore the original logging configuration
+        logging.root.handlers = original_handlers
+        logging.root.level = original_level
+        for handler, formatter in zip(logging.root.handlers, original_formatters):
+            handler.setFormatter(formatter)
 
     @pytest.mark.parametrize(
         "log_message, extra, expected_log_type",
@@ -135,6 +152,7 @@ class TestLogClient:
     async def test_logging(
         self,
         launch_grpc_server,
+        restore_logging,
         log_message,
         extra,
         expected_log_type,
@@ -144,6 +162,8 @@ class TestLogClient:
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
         await self.data_ready.wait()
+        self.data_ready.clear()
+
         try:
             _response = self.test_queue.get_nowait()
         except Exception as e:
@@ -154,7 +174,8 @@ class TestLogClient:
 
         if _response.log_type == log_pb2.LogType.LOG:
             # Extract the message part from the log format
-            log_format_regex = r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}\]\[ERROR\]-.*?:test_logging:\d+,(.*)"
+            # e.g. [2022-01-01 00:00:00,000][ERROR]-test_log_client:test_log_client:123,some log message
+            log_format_regex = r"\[.*?\]\[.*?\]-.*?:.*?:\d+,(.*)"
             match = re.match(log_format_regex, _response.message)
             assert match is not None, "Log message format does not match"
             extracted_message = match.group(1)
