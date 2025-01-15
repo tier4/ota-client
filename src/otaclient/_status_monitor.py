@@ -289,7 +289,7 @@ class OTAClientStatusCollector:
         self._status = None
         self._shm_status = shm_status
 
-        self.metrics = OTAMetrics()
+        self._metrics = OTAMetrics()
 
         atexit.register(shm_status.atexit)
 
@@ -303,7 +303,7 @@ class OTAClientStatusCollector:
         if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
             # metrics
-            self.metrics.update(current_firmware_version=payload.firmware_version)
+            self._metrics.update(current_firmware_version=payload.firmware_version)
             return True
 
         # ------ on session start/end ------ #
@@ -314,7 +314,7 @@ class OTAClientStatusCollector:
                 payload.failure_traceback = _traceback[-self.max_traceback_size :]
 
             # metrics
-            self.metrics.update(
+            self._metrics.update(
                 failure_type=payload.failure_type,
                 failure_reason=payload.failure_reason,
                 failure_traceback=payload.failure_traceback,
@@ -336,11 +336,11 @@ class OTAClientStatusCollector:
             )
             return False
         if isinstance(payload, OTAUpdatePhaseChangeReport):
-            return _on_update_phase_changed(status_storage, payload, self.metrics)
+            return _on_update_phase_changed(status_storage, payload, self._metrics)
         if isinstance(payload, UpdateProgressReport):
-            return _on_update_progress(status_storage, payload, self.metrics)
+            return _on_update_progress(status_storage, payload, self._metrics)
         if isinstance(payload, SetUpdateMetaReport):
-            return _on_update_meta(status_storage, payload, self.metrics)
+            return _on_update_meta(status_storage, payload, self._metrics)
         return False
 
     def _status_collector_thread(self) -> None:
@@ -388,3 +388,7 @@ class OTAClientStatusCollector:
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
         return self._status
+
+    @property
+    def otaclient_metrics(self) -> OTAMetrics | None:
+        return self._metrics

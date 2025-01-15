@@ -19,7 +19,6 @@ import logging
 from dataclasses import dataclass
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import (
     ecu_info,
 )
@@ -64,7 +63,6 @@ class OTAMetrics:
         ota_image_total_files_num: int = 0
         ota_image_total_files_size: int = 0
         ota_image_total_resources_num: int = 0
-        ota_image_total_resources_size: int = 0
         ota_image_total_non_regular_files_num: int = 0
         ota_image_total_directories_num: int = 0
         delta_reuse_resources_num: int = 0
@@ -78,7 +76,7 @@ class OTAMetrics:
         downloaded_errors: int = 0
 
     def __init__(self):
-        self.metrics_data = self.OTAMetricsData()
+        self.data = self.OTAMetricsData()
 
     def update(self, **kwargs):
         """
@@ -87,8 +85,8 @@ class OTAMetrics:
         :param kwargs: Key-value pairs to update in metrics_data.
         """
         for key, value in kwargs.items():
-            if hasattr(self.metrics_data, key):
-                setattr(self.metrics_data, key, value)
+            if hasattr(self.data, key):
+                setattr(self.data, key, value)
             else:
                 logger.warning(f"Key {key} is not found in metrics_data.")
 
@@ -99,4 +97,4 @@ class OTAMetrics:
         # publishing the metrics via logging
         # logger.info(json.dumps(self.metrics_data), extra={"log_type": LogType.METRICS})
 
-        logger.info(json.dumps(self.metrics_data))
+        logger.info(json.dumps(self.data))
