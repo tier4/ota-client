@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass
 
 from _otaclient_version import __version__
+
 from otaclient.configs.cfg import (
     ecu_info,
 )
