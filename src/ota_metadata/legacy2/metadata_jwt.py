@@ -113,10 +113,11 @@ class MetadataJWTParser:
         self.payload_bytes = base64.urlsafe_b64decode(jwt_list[1])
 
         # parse metadata payload into OTAMetadata
-        self.metadata_jwt = _jwt = MetadataJWTClaimsLayout.parse_payload(
-            self.payload_bytes
-        )
-        logger.info(f"parsed metadata.jwt: {_jwt!r}")
+        self._metadata_jwt = MetadataJWTClaimsLayout.parse_payload(self.payload_bytes)
+
+    @property
+    def metadata_jwt(self) -> MetadataJWTClaimsLayout:
+        return self._metadata_jwt
 
     def verify_metadata_cert(self, metadata_cert: bytes) -> None:
         """Verify the metadata's sign certificate against local pinned CA.
@@ -164,9 +165,6 @@ class MetadataJWTParser:
             msg = f"failed to verify metadata against sign cert: {e!r}"
             logger.error(msg)
             raise MetadataJWTVerificationFailed(msg) from e
-
-    def get_metadata_jwt(self) -> MetadataJWTClaimsLayout:
-        return self.metadata_jwt
 
 
 class MetadataJWTClaimsLayout(BaseModel):
