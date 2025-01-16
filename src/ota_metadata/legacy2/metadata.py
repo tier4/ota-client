@@ -373,7 +373,7 @@ class ResourceMeta:
             assert isinstance(res := _query[0][0], int)
             return res
         except Exception as e:
-            logger.warning(f"failed to get download_list_len: {e!r}")
+            logger.warning(f"failed to get resources_count: {e!r}")
             return 0
         finally:
             _conn.close()
@@ -397,7 +397,7 @@ class ResourceMeta:
             assert isinstance(res := _query[0][0], int)
             return res
         except Exception as e:
-            logger.warning(f"failed to get download_size: {e!r}")
+            logger.warning(f"failed to get resources_size_sum: {e!r}")
             return 0
         finally:
             _conn.close()
