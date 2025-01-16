@@ -347,6 +347,7 @@ class ResourceMeta:
         self.data_dir_url = urljoin_ensure_base(
             base_url, ota_metadata.metadata_jwt.rootfs_directory
         )
+
         self.compressed_data_dir_url = None
         if _compressed_data := ota_metadata.metadata_jwt.compressed_rootfs_directory:
             self.compressed_data_dir_url = urljoin_ensure_base(
@@ -355,10 +356,8 @@ class ResourceMeta:
 
         self._copy_dst = copy_dst
 
-        self.download_list_len = self._get_download_list_len()
-        self.download_size = self._get_download_size()
-
-    def _get_download_list_len(self) -> int:
+    @property
+    def resources_count(self) -> int:
         _conn = self._ota_metadata.connect_rstable()
         _orm = ResourceTableORM(_conn, row_factory=None)
         _sql_stmt = ResourceTable.table_select_stmt(
@@ -371,11 +370,16 @@ class ResourceMeta:
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
-            return _query[0][0]
+            assert isinstance(res := _query[0][0], int)
+            return res
+        except Exception as e:
+            logger.warning(f"failed to get download_list_len: {e!r}")
+            return 0
         finally:
             _conn.close()
 
-    def _get_download_size(self):
+    @property
+    def resources_size_sum(self) -> int:
         _conn = self._ota_metadata.connect_rstable()
         _orm = ResourceTableORM(_conn, row_factory=None)
 
@@ -390,7 +394,11 @@ class ResourceMeta:
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
-            return _query[0][0]
+            assert isinstance(res := _query[0][0], int)
+            return res
+        except Exception as e:
+            logger.warning(f"failed to get download_size: {e!r}")
+            return 0
         finally:
             _conn.close()
 
@@ -439,9 +447,7 @@ class ResourceMeta:
             digest_alg=DIGEST_ALG,
         )
 
-    def get_download_list(
-        self, *, batch_size: int
-    ) -> Generator[DownloadInfo, None, None]:
+    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
         _conn = self._ota_metadata.connect_rstable()
         _orm = ResourceTableORM(_conn)
