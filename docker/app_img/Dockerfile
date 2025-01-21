@@ -5,8 +5,8 @@ FROM ${UBUNTU_BASE} AS image_build
 ARG OTACLIENT_WHL
 COPY ./${OTACLIENT_WHL} /tmp
 
-ENV OTACLIENT_INSTALLATION="/opt/ota/client"
-ENV OTACLIENT_VENV="/opt/ota/client/venv"
+ARG OTACLIENT_INSTALLATION="/otaclient"
+ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
 RUN set -eux; \
     apt-get update -qq; \
@@ -27,7 +27,7 @@ RUN set -eux; \
     # NOTE: copy from docker official python3 dockerfile
 	find ${OTACLIENT_VENV} -depth \
 		\( \
-			\( -type d -a \( -name test -o -name tests -o -name idle_test \) \) \
+			\( -type d -a \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \) \
 			-o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
 		\) -exec rm -rf '{}' + \
 	; \
@@ -41,14 +41,16 @@ RUN set -eux; \
 FROM ${UBUNTU_BASE}
 
 ARG OTACLIENT_VERSION
+ARG OTACLIENT_INSTALLATION="/otaclient"
 
-COPY --from=image_build /opt/ota/client /opt/ota/client
+COPY --from=image_build ${OTACLIENT_INSTALLATION} ${OTACLIENT_INSTALLATION}
 
 ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
-ENV OTACLIENT_INSTALLATION="/opt/ota/client"
-ENV OTACLIENT_VENV="/opt/ota/client/venv"
+ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
+ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
 RUN set -eux; \
+    ln -s ${OTACLIENT_VENV}/bin/python3 /otaclient_py3; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         python3; \
@@ -59,4 +61,4 @@ RUN set -eux; \
         /var/lib/apt/lists/* \
         /var/tmp/*
 
-CMD ["/opt/ota/client/venv/bin/python3", "-m", "otaclient"]
+CMD ["sh", "-c", "${OTACLIENT_VENV}/bin/python3 -m otaclient"]
