@@ -18,7 +18,7 @@ RUN set -eux; \
     mkdir -p ${OTACLIENT_VENV}; \
     cd ${OTACLIENT_INSTALLATION}; \
     python3 -m venv ${OTACLIENT_VENV}; \
-    source ${OTACLIENT_VENV}/bin/activate; \
+    . ${OTACLIENT_VENV}/bin/activate; \
     # install otaclient
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
@@ -34,7 +34,7 @@ FROM scratch
 
 ARG OTACLIENT_VERSION
 
-COPY --from image_build / /
+COPY --from=image_build / /
 
 ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
 ENV OTACLIENT_INSTALLATION="/opt/ota/client"
