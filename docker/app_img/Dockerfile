@@ -1,4 +1,4 @@
-ARG UBUNTU_BASE="ubuntu:24.04"
+ARG UBUNTU_BASE="ubuntu:22.04"
 
 FROM ${UBUNTU_BASE} AS image_build
 
