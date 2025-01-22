@@ -25,7 +25,6 @@ from simple_sqlite3_orm import (
     ORMBase,
     ORMThreadPoolBase,
     TableSpec,
-    TypeAffinityRepr,
 )
 from typing_extensions import Annotated, Self
 
@@ -37,7 +36,6 @@ class ResourceTable(TableSpec):
 
     digest: Annotated[
         bytes,
-        TypeAffinityRepr(bytes),
         ConstrainRepr("PRIMARY KEY"),
         SkipValidation,
     ]
@@ -45,14 +43,12 @@ class ResourceTable(TableSpec):
 
     path: Annotated[
         Optional[str],
-        TypeAffinityRepr(str),
         SkipValidation,
     ] = None
     """NOTE: only for resource without zstd compression."""
 
     original_size: Annotated[
         int,
-        TypeAffinityRepr(int),
         ConstrainRepr("NOT NULL"),
         SkipValidation,
     ]
@@ -60,7 +56,6 @@ class ResourceTable(TableSpec):
 
     compression_alg: Annotated[
         Optional[str],
-        TypeAffinityRepr(str),
         SkipValidation,
     ] = None
     """The compression algorthim used to compressed the resource.
