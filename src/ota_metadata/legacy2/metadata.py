@@ -93,11 +93,13 @@ class OTAMetadata:
     DIGEST_ALG = "sha256"
     FSTABLE_DB = "file_table.sqlite3"
     RSTABLE_DB = "resource_table.sqlite3"
+    PERSIST_META_FNAME = "persists.txt"
 
     def __init__(
         self,
         *,
         base_url: str,
+        session_dir: StrOrPath,
         work_dir: StrOrPath,
         ca_chains_store: CAChainStore,
     ) -> None:
@@ -111,11 +113,9 @@ class OTAMetadata:
         self._work_dir = wd = Path(work_dir)
         wd.mkdir(exist_ok=True, parents=True)
 
-        self._fst_db = wd / self.FSTABLE_DB
-        self._rst_db = wd / self.RSTABLE_DB
-
-        self._download_folder = df = Path(work_dir) / f".download_{os.urandom(4).hex()}"
-        df.mkdir(exist_ok=True, parents=True)
+        self._session_dir = Path(session_dir)
+        self._fst_db = self._session_dir / self.FSTABLE_DB
+        self._rst_db = self._session_dir / self.RSTABLE_DB
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
@@ -129,127 +129,179 @@ class OTAMetadata:
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
 
+    def _prepare_metadata(
+        self,
+        _download_dir: Path,
+        condition: threading.Condition,
+    ) -> Generator[DownloadInfo]:
+        """Download raw metadata.jwt, parse and verify it.
+
+        After processing is finished, assigned the parsed metadata to inst.
+        """
+
+        # ------ step 1: download metadata.jwt ------ #
+        _metadata_jwt_fpath = _download_dir / self.ENTRY_POINT
+        with condition:
+            yield DownloadInfo(
+                url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
+                dst=_metadata_jwt_fpath,
+            )
+            condition.wait()  # wait for download finished
+
+        _parser = MetadataJWTParser(
+            _metadata_jwt_fpath.read_text(),
+            ca_chains_store=self._ca_store,
+        )
+
+        # get not yet verified parsed ota_metadata
+        _metadata_jwt = _parser.metadata_jwt
+        _metadata_jwt_fpath.unlink(missing_ok=True)
+
+        # ------ step 2: download the certificate itself ------ #
+        cert_info = _metadata_jwt.certificate
+        cert_fname, cert_hash = cert_info.file, cert_info.hash
+
+        _cert_fpath = _download_dir / cert_fname
+        with condition:
+            yield DownloadInfo(
+                url=urljoin_ensure_base(self._base_url, cert_fname),
+                dst=_cert_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=cert_hash,
+            )
+            condition.wait()
+
+        cert_bytes = _cert_fpath.read_bytes()
+        _parser.verify_metadata_cert(cert_bytes)
+        _parser.verify_metadata_signature(cert_bytes)
+
+        # only after the verification, assign the jwt to self
+        self._metadata_jwt = _metadata_jwt
+        _cert_fpath.unlink(missing_ok=True)
+
+    def _prepare_ota_image_metadata(
+        self, _download_dir: Path, condition: threading.Condition
+    ) -> Generator[DownloadInfo]:
+        """Download filetable related OTA image metadata files.
+
+        Including:
+            1. regular
+            2. directory
+            3. symboliclink
+        """
+        metadata_jwt = self.metadata_jwt
+
+        # ------ setup database ------ #
+        fst_conn = self.connect_fstable()
+        rst_conn = self.connect_rstable()
+
+        ft_regular_orm = FileTableRegularORM(fst_conn)
+        ft_regular_orm.orm_create_table()
+        ft_dir_orm = FileTableDirORM(fst_conn)
+        ft_dir_orm.orm_create_table()
+        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
+        ft_non_regular_orm.orm_create_table()
+
+        rs_orm = ResourceTableORM(rst_conn)
+        rs_orm.orm_create_table()
+
+        # ------ download and parse regular ------ #
+        regular_meta = metadata_jwt.regular
+        regular_download_url = urljoin_ensure_base(self._base_url, regular_meta.file)
+        regular_save_fpath = _download_dir / regular_meta.file
+        with condition:
+            yield DownloadInfo(
+                url=regular_download_url,
+                dst=regular_save_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=regular_meta.hash,
+            )
+            condition.wait()  # wait for download finished
+
+        self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
+            _fpath=regular_save_fpath,
+            _orm=ft_regular_orm,
+            _orm_rs=rs_orm,
+        )
+        regular_save_fpath.unlink(missing_ok=True)
+
+        # ------ download and parse non-regular ------ #
+        dir_meta = metadata_jwt.directory
+        dir_download_url = urljoin_ensure_base(self._base_url, dir_meta.file)
+        dir_save_fpath = _download_dir / dir_meta.file
+
+        symlink_meta = metadata_jwt.symboliclink
+        symlink_download_url = urljoin_ensure_base(self._base_url, symlink_meta.file)
+        symlink_save_fpath = _download_dir / symlink_meta.file
+
+        _to_be_downloaded: list[tuple[str, Path, str]] = [
+            (dir_download_url, dir_save_fpath, dir_meta.hash),
+            (symlink_download_url, symlink_save_fpath, symlink_meta.hash),
+        ]
+        with condition:
+            for _url, _dst, _hash in _to_be_downloaded:
+                yield DownloadInfo(
+                    url=_url, dst=_dst, digest_alg=self.DIGEST_ALG, digest=_hash
+                )
+            condition.wait()  # wait for download finished
+
+        dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+        symlinks_num = parse_symlinks_from_csv_file(
+            symlink_save_fpath, ft_non_regular_orm
+        )
+
+        dir_save_fpath.unlink(missing_ok=True)
+        symlink_save_fpath.unlink(missing_ok=True)
+        logger.info(
+            f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
+        )
+
+    def _prepare_persist_meta(
+        self, _download_dir: Path, condition: threading.Condition
+    ) -> Generator[DownloadInfo]:
+        persist_meta = self.metadata_jwt.persistent
+
+        persist_meta_download_url = urljoin_ensure_base(
+            self._base_url, persist_meta.file
+        )
+        persist_meta_save_fpath = _download_dir / self.PERSIST_META_FNAME
+        yield DownloadInfo(
+            url=persist_meta_download_url,
+            dst=persist_meta_save_fpath,
+            digest_alg=self.DIGEST_ALG,
+            digest=persist_meta.hash,
+        )
+        condition.wait()
+
+        # save the persists.txt to session_dir for later use
+        shutil.move(str(persist_meta_save_fpath), self._session_dir)
+
+    # APIs
+
     def download_metafiles(
         self,
         condition: threading.Condition,
-        failed_flag: threading.Event,
-    ) -> Generator[DownloadInfo, None, None]:
+    ) -> Generator[DownloadInfo]:
         """Guide the caller to download metadata files by yielding the DownloadInfo instances.
 
-        While the caller downloading the metadata files one by one, this method
-            will parse and verify the metadata.
+        While the caller downloading the metadata files one by one, this method will:
+        1. download, parse and verify metadata.jwt.
+        2. download and parse OTA image metadata files into database.
+        3. download persists.txt.
         """
+        _download_dir = df = self._work_dir / f".download_{os.urandom(4).hex()}"
+        df.mkdir(exist_ok=True, parents=True)
+
         try:
-            # ------ step 1: download metadata.jwt ------ #
-            _metadata_jwt_fpath = self._download_folder / self.ENTRY_POINT
-            with condition:
-                yield DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
-                    dst=_metadata_jwt_fpath,
-                )
-                condition.wait()  # wait for download finished
-            if failed_flag.is_set():
-                return  # let the upper caller handles the failure
-
-            _parser = MetadataJWTParser(
-                _metadata_jwt_fpath.read_text(),
-                ca_chains_store=self._ca_store,
-            )
-
-            # get not yet verified parsed ota_metadata
-            _metadata_jwt = _parser.get_metadata_jwt()
-
-            # ------ step 2: download the certificate itself ------ #
-            cert_info = _metadata_jwt.certificate
-            cert_fname, cert_hash = cert_info.file, cert_info.hash
-
-            _cert_fpath = self._download_folder / cert_fname
-            with condition:
-                yield DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, cert_fname),
-                    dst=_cert_fpath,
-                    digest_alg=self.DIGEST_ALG,
-                    digest=cert_hash,
-                )
-                condition.wait()  # wait for download finished
-            if failed_flag.is_set():
-                return  # let the upper caller handles the failure
-
-            cert_bytes = _cert_fpath.read_bytes()
-            _parser.verify_metadata_cert(cert_bytes)
-            _parser.verify_metadata_signature(cert_bytes)
-
-            # only after the verification, assign the jwt to self
-            self._metadata_jwt = _metadata_jwt
-
-            # ------ step 3: download OTA image metafiles ------ #
-            for _metafile in _metadata_jwt.get_img_metafiles():
-                _fname, _digest = _metafile.file, _metafile.hash
-                _meta_fpath = self._download_folder / _fname
-
-                with condition:
-                    yield DownloadInfo(
-                        url=urljoin_ensure_base(self._base_url, _fname),
-                        dst=_meta_fpath,
-                        digest_alg=self.DIGEST_ALG,
-                        digest=_digest,
-                    )
-                    condition.wait()  # wait for download finished
-                if failed_flag.is_set():
-                    return  # let the upper caller handles the failure
-
-            # ------ step 5: persist files list ------ #
-            _persist_meta = self._download_folder / _metadata_jwt.persistent.file
-            shutil.move(str(_persist_meta), self._work_dir)
+            yield from self._prepare_metadata(_download_dir, condition)
+            yield from self._prepare_ota_image_metadata(_download_dir, condition)
+            yield from self._prepare_persist_meta(_download_dir, condition)
         except Exception as e:
             logger.exception(
                 f"failure during downloading and verifying OTA image metafiles: {e!r}"
             )
-            shutil.rmtree(self._download_folder, ignore_errors=True)
-
-    def parse_metafiles(self):
-        """Parse the metafiles after metafiles are downloaded."""
-        _fst_conn = self.connect_fstable()
-        _rst_conn = self.connect_rstable()
-        try:
-            _metadata_jwt = self.metadata_jwt
-
-            _ft_regular_orm = FileTableRegularORM(_fst_conn)
-            _ft_regular_orm.orm_create_table()
-            _ft_dir_orm = FileTableDirORM(_fst_conn)
-            _ft_dir_orm.orm_create_table()
-            _ft_non_regular_orm = FileTableNonRegularORM(_fst_conn)
-            _ft_non_regular_orm.orm_create_table()
-
-            _rs_orm = ResourceTableORM(_rst_conn)
-            _rs_orm.orm_create_table()
-            try:
-                _dirs_num = parse_dirs_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.directory.file),
-                    _ft_dir_orm,
-                )
-                _symlinks_num = parse_symlinks_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.symboliclink.file),
-                    _ft_non_regular_orm,
-                )
-                self._total_regulars_num = _regulars_num = parse_regulars_from_csv_file(
-                    str(self._download_folder / _metadata_jwt.regular.file),
-                    _orm=_ft_regular_orm,
-                    _orm_rs=_rs_orm,
-                )
-                logger.info(
-                    f"csv parse finished: {_dirs_num=}, {_symlinks_num=}, {_regulars_num=}"
-                )
-            except Exception as e:
-                _err_msg = f"failed to parse CSV metafiles: {e!r}"
-                logger.error(_err_msg)
-
-                # immediately close the in-memory db on failure to release memory
-                _fst_conn.close()
-                _rst_conn.close()
-                raise
         finally:
-            shutil.rmtree(self._download_folder, ignore_errors=True)
+            shutil.rmtree(_download_dir, ignore_errors=True)
 
     def save_fstable(self, dst: StrOrPath, db_fname: str = FSTABLE_DB) -> None:
         """Dump the file_table to <dst>/<db_fname>"""
@@ -277,8 +329,7 @@ class OTAMetadata:
     # helper methods
 
     def iter_persist_entries(self) -> Generator[str]:
-        _persist_fpath = self._work_dir / self.metadata_jwt.persistent.file
-        with open(_persist_fpath, "r") as f:
+        with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
             for line in f:
                 yield line.strip()[1:-1]
 
@@ -300,9 +351,10 @@ class OTAMetadata:
         finally:
             _conn.close()
 
-    def iter_regular_entries(
+    def iter_regular_entries_at_thread(
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
+        # NOTE: do the dispatch at a thread
         _ft_dir_orm = FileTableRegularORMPool(
             con_factory=self.connect_fstable, number_of_cons=1
         )
