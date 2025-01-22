@@ -1,0 +1,66 @@
+name: "Build SquashFS Image"
+description: "Builds a SquashFS image using Docker"
+inputs:
+  platform:
+    description: "The platform to build for"
+    required: true
+  platform_suffix:
+    description: "The platform suffix"
+    required: true
+  base_image:
+    description: "The base image to use"
+    required: true
+  whl:
+    description: "The OTA client wheel file"
+    required: true
+  version:
+    description: "The OTA client version"
+    required: true
+  squashfs:
+    description: "The output SquashFS file"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: artifacts-python-packages
+        path: dist
+
+    - name: set temporary variables
+      id: set-vars
+      shell: bash
+      run: |
+        echo "DOCKER_IMAGE=otaclient-${{ inputs.platform_suffix }}:${{ inputs.version }}" >> $GITHUB_ENV
+        echo "DOCKER_CONTAINER=otaclient-${{ inputs.platform_suffix }}_v${{ inputs.version }}" >> $GITHUB_ENV
+
+    - name: build docker image
+      shell: bash
+      run: |
+        cp dist/${{ inputs.whl }} docker/app_img/
+        pushd docker/app_img
+        docker buildx create --use
+        docker buildx build --platform ${{ inputs.platform }} \
+          --build-arg=UBUNTU_BASE=${{ inputs.base_image }} \
+          --build-arg=OTACLIENT_VERSION=${{ inputs.version }} \
+          --build-arg=OTACLIENT_WHL=${{ inputs.whl }} \
+          -t ${{ env.DOCKER_IMAGE }} \
+          --output type=docker \
+          .
+        popd
+        rm docker/app_img/${{ inputs.whl }}
+
+    - name: export squashfs image
+      shell: bash
+      run: |
+        docker create --name ${{ env.DOCKER_CONTAINER }} ${{ env.DOCKER_IMAGE }}
+        docker export ${{ env.DOCKER_CONTAINER }} | mksquashfs - ${{ inputs.squashfs }} \
+            -tar -b 1M \
+            -mkfs-time 1729810800 \
+            -all-time 1729810800 \
+            -no-xattrs \
+            -all-root \
+            -progress \
+            -comp zstd \
+            -Xcompression-level 22

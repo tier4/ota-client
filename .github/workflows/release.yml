@@ -1,15 +1,27 @@
 name: Release CI
 
 on:
-  release:
-    types: [published]
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      # NOTE(20241016): this is a workaround for PR with head
+      #   updated by gen_requirements_txt workflow
+      - review_requested
+      - assigned
   # allow manually triggering the build
   workflow_dispatch:
 
 jobs:
-  build:
+  build_python_packages:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      OTACLIENT_WHL: ${{ steps.set_env.outputs.OTACLIENT_WHL }}
+      OTACLIENT_VERSION: ${{ steps.set_env.outputs.OTACLIENT_VERSION }}
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -29,25 +41,117 @@ jobs:
         run: |
           hatch build -t wheel
 
+      - name: set environment variables
+        id: set_env
+        run: |
+          OTACLIENT_WHL=$(basename $(ls dist/otaclient-*.whl))
+          OTACLIENT_VERSION=$(echo $OTACLIENT_WHL | sed -E 's/otaclient-([0-9]+\.[0-9]+(\.[0-9]+)?).*\.whl/\1/')
+          echo OTACLIENT_WHL=${OTACLIENT_WHL} >> $GITHUB_OUTPUT
+          echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
+
       - name: build otaclient service API python package
         run: |
           pushd proto
           hatch build -t wheel
           popd
-          cp proto/dist/*.whl dist
+          cp proto/dist/*.whl dist/
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-python-packages
+          path: dist/*.whl
+
+  build_squashfs_image_amd64:
+    runs-on: ubuntu-latest
+    needs: build_python_packages
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: build squashfs image for amd64
+        uses: ./.github/actions/build_squashfs_image
+        with:
+          platform: linux/amd64
+          platform_suffix: amd64
+          base_image: ubuntu:22.04
+          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
+          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+          squashfs: dist/ota-client-amd64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+
+      - name: build patches
+        uses: ./.github/actions/build_patches
+        with:
+          platform_suffix: amd64
+          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+          squashfs: dist/ota-client-amd64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-squashfs_amd64
+          path: dist/*.squashfs
+
+  build_squashfs_image_arm64:
+    runs-on: ubuntu-latest
+    needs: build_python_packages
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: build squashfs image for arm64
+        uses: ./.github/actions/build_squashfs_image
+        with:
+          platform: linux/arm64
+          platform_suffix: arm64
+          base_image: arm64v8/ubuntu:22.04
+          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
+          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+          squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+
+      - name: build paches
+        uses: ./.github/actions/build_patches
+        with:
+          platform_suffix: arm64
+          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+          squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-squashfs_arm64
+          path: |
+            dist/*.squashfs
+            dist/*.patch
+
+  post_build:
+    runs-on: ubuntu-latest
+    needs: [build_python_packages, build_squashfs_image_amd64, build_squashfs_image_arm64]
+    steps:
+      - name: download python packages artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-python-packages
+          path: dist
+
+      - name: download squashfs amd64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-squashfs_amd64
+          path: dist
+
+      - name: download squashfs arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-squashfs_arm64
+          path: dist
 
       - name: calculate checksum
         run: |
-          for WHL in dist/*.whl; \
-            do \
-              sha256sum ${WHL} | sed -E "s@(\w+)\s+.*@sha256:\1@" > \
-                ${WHL}.checksum; \
-            done
+          for FILE in dist/*.{whl,squashfs,patch}; do
+            sha256sum ${FILE} | sed -E "s@(\w+)\s+.*@sha256:\1@" > ${FILE}.checksum
+          done
 
-      - name: publish release artifacts
-        if: ${{ github.event_name == 'release' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/*.whl
-            dist/*.checksum
+      - name: debug
+        run: |
+          ls -l dist
