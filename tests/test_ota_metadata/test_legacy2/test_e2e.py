@@ -16,15 +16,22 @@
 
 from __future__ import annotations
 
-from ota_metadata.legacy2.metadata import MetadataJWTParser
+import threading
+from hashlib import sha256
+from pathlib import Path
+
+import pytest
+
+from ota_metadata.legacy2.metadata import MetadataJWTParser, OTAMetadata
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR
+from otaclient_common.downloader import Downloader
+from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_URL
 
 METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
 SIGN_CERT = OTA_IMAGE_DIR / "certificate.pem"
 
 
-def test_e2e() -> None:
+def test_metadata_jwt_parser_e2e() -> None:
     metadata_jwt = METADATA_JWT.read_text()
     sign_cert = SIGN_CERT.read_bytes()
     ca_store = load_ca_cert_chains(CERTS_DIR)
@@ -38,3 +45,33 @@ def test_e2e() -> None:
     parser.verify_metadata_cert(sign_cert)
     # step2: verify metadata.jwt against sign cert
     parser.verify_metadata_signature(sign_cert)
+
+
+class TestFullE2E:
+
+    @pytest.fixture(autouse=True)
+    def setup_test(self):
+        self.downloader = Downloader(
+            hash_func=sha256,
+            chunk_size=1024**2,
+        )
+
+    def test_full_e2e(self, tmp_path: Path):
+        ota_metadata_parser = OTAMetadata(
+            base_url=OTA_IMAGE_URL,
+            session_dir=tmp_path,
+            ca_chains_store=load_ca_cert_chains(CERTS_DIR),
+        )
+
+        _condition = threading.Condition()
+        _metadata_processor = ota_metadata_parser.download_metafiles(_condition)
+
+        try:
+            for _download_info in _metadata_processor:
+                self.downloader.download(
+                    url=_download_info.url,
+                    dst=_download_info.dst,
+                    digest=_download_info.digest,
+                )
+        except Exception as e:
+            _metadata_processor.throw(e)
