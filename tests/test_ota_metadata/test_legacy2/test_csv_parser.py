@@ -34,7 +34,7 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
     FileTableRegularORM,
 )
-from ota_metadata.legacy.csv_parser import (
+from ota_metadata.legacy2.csv_parser import (
     parse_dirs_csv_line,
     parse_dirs_from_csv_file,
     parse_persists_csv_line,
@@ -43,7 +43,7 @@ from ota_metadata.legacy.csv_parser import (
     parse_symlinks_csv_line,
     parse_symlinks_from_csv_file,
 )
-from ota_metadata.legacy.rs_table import ResourceTable, ResourceTableORM
+from ota_metadata.legacy2.rs_table import ResourceTable, ResourceTableORM
 from tests.conftest import TestConfiguration as test_cfg
 
 logger = logging.getLogger(__name__)
