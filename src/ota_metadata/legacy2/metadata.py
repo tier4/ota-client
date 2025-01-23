@@ -79,13 +79,13 @@ DB_TIMEOUT = 16  # seconds
 
 class OTAMetadata:
     """
-    workdir layout:
-    /
-    - / .download # the download area for OTA image files
-    - / file_table.sqlite3 # the file table generated from metafiles,
-                           # this will be saved to standby slot.
-    - / resource_table.sqlite3 # the resource table generated from metafiles.
-    - / persists.txt # the persist files list.
+    OTA session_dir layout:
+    session_<session_id> /
+        - / .download_<random> # the download area for OTA image files
+        - / file_table.sqlite3 # the file table generated from metafiles,
+                            # this will be saved to standby slot.
+        - / resource_table.sqlite3 # the resource table generated from metafiles.
+        - / persists.txt # the persist files list.
 
     """
 
@@ -100,7 +100,6 @@ class OTAMetadata:
         *,
         base_url: str,
         session_dir: StrOrPath,
-        work_dir: StrOrPath,
         ca_chains_store: CAChainStore,
     ) -> None:
         if not ca_chains_store:
@@ -110,8 +109,6 @@ class OTAMetadata:
 
         self._ca_store = ca_chains_store
         self._base_url = base_url
-        self._work_dir = wd = Path(work_dir)
-        wd.mkdir(exist_ok=True, parents=True)
 
         self._session_dir = Path(session_dir)
         self._fst_db = self._session_dir / self.FSTABLE_DB
@@ -289,7 +286,7 @@ class OTAMetadata:
         2. download and parse OTA image metadata files into database.
         3. download persists.txt.
         """
-        _download_dir = df = self._work_dir / f".download_{os.urandom(4).hex()}"
+        _download_dir = df = self._session_dir / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
 
         try:
