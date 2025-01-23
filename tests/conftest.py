@@ -44,6 +44,7 @@ TEST_DIR = Path(__file__).parent
 
 # see test base Dockerfile for more details.
 OTA_IMAGE_DIR = Path("/ota-image")
+CERTS_DIR = Path("/certs")
 KERNEL_PREFIX = "vmlinuz"
 INITRD_PREFIX = "initrd.img"
 
