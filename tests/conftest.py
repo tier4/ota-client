@@ -52,6 +52,7 @@ INITRD_PREFIX = "initrd.img"
 OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
 OTA_IMAGE_SERVER_PORT = 8080
 OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
+OTA_IMAGE_SIGN_CERT = OTA_IMAGE_DIR / "sign.pem"
 
 
 def _get_kernel_version() -> str:

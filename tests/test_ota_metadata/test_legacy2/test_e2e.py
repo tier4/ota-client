@@ -25,15 +25,14 @@ import pytest
 from ota_metadata.legacy2.metadata import MetadataJWTParser, OTAMetadata
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient_common.downloader import Downloader
-from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_URL
+from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_SIGN_CERT, OTA_IMAGE_URL
 
 METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
-SIGN_CERT = OTA_IMAGE_DIR / "certificate.pem"
 
 
 def test_metadata_jwt_parser_e2e() -> None:
     metadata_jwt = METADATA_JWT.read_text()
-    sign_cert = SIGN_CERT.read_bytes()
+    sign_cert = OTA_IMAGE_SIGN_CERT.read_bytes()
     ca_store = load_ca_cert_chains(CERTS_DIR)
 
     parser = MetadataJWTParser(
@@ -73,5 +72,6 @@ class TestFullE2E:
                     dst=_download_info.dst,
                     digest=_download_info.digest,
                 )
+                _condition.notify()
         except Exception as e:
             _metadata_processor.throw(e)
