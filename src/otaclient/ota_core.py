@@ -542,7 +542,8 @@ class _OTAUpdater:
         logger.info("prepare and optimize file_table ...")
         self._ota_metadata.prepare_fstable()
 
-        # ------ in-update ------ #
+        # ------ in-update: calculate delta ------ #
+        logger.info("start to calculate delta ...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -553,8 +554,6 @@ class _OTAUpdater:
             )
         )
 
-        # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate delta ...")
         try:
             delta_calculator = DeltaGenerator(
                 ota_metadata=self._ota_metadata,
