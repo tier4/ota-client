@@ -35,7 +35,11 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm.utils import enable_wal_mode, sort_and_replace
+from simple_sqlite3_orm.utils import (
+    enable_tmp_store_at_memory,
+    enable_wal_mode,
+    sort_and_replace,
+)
 
 from ota_metadata.file_table import (
     FileTableDirectories,
@@ -379,6 +383,7 @@ class OTAMetadata:
             self._fst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
         enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
@@ -386,6 +391,7 @@ class OTAMetadata:
             self._rst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
         enable_wal_mode(_conn)
+        enable_tmp_store_at_memory(_conn)
         return _conn
 
 
