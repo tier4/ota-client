@@ -202,27 +202,11 @@ class OTAMetadata:
         rs_orm = ResourceTableORM(rst_conn)
         rs_orm.orm_create_table()
 
-        # ------ download and parse regular ------ #
+        # ------ download metafiles ------ #
         regular_meta = metadata_jwt.regular
         regular_download_url = urljoin_ensure_base(self._base_url, regular_meta.file)
         regular_save_fpath = _download_dir / regular_meta.file
-        with condition:
-            yield DownloadInfo(
-                url=regular_download_url,
-                dst=regular_save_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=regular_meta.hash,
-            )
-            condition.wait()  # wait for download finished
 
-        self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
-            _fpath=regular_save_fpath,
-            _orm=ft_regular_orm,
-            _orm_rs=rs_orm,
-        )
-        regular_save_fpath.unlink(missing_ok=True)
-
-        # ------ download and parse non-regular ------ #
         dir_meta = metadata_jwt.directory
         dir_download_url = urljoin_ensure_base(self._base_url, dir_meta.file)
         dir_save_fpath = _download_dir / dir_meta.file
@@ -232,6 +216,7 @@ class OTAMetadata:
         symlink_save_fpath = _download_dir / symlink_meta.file
 
         _to_be_downloaded: list[tuple[str, Path, str]] = [
+            (regular_download_url, regular_save_fpath, regular_meta.hash),
             (dir_download_url, dir_save_fpath, dir_meta.hash),
             (symlink_download_url, symlink_save_fpath, symlink_meta.hash),
         ]
@@ -242,13 +227,22 @@ class OTAMetadata:
                 )
                 condition.wait()  # wait for download finished
 
+        # ------ parse metafiles ------ #
+        self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
+            _fpath=regular_save_fpath,
+            _orm=ft_regular_orm,
+            _orm_rs=rs_orm,
+        )
+        regular_save_fpath.unlink(missing_ok=True)
+
         dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+        dir_save_fpath.unlink(missing_ok=True)
+
         symlinks_num = parse_symlinks_from_csv_file(
             symlink_save_fpath, ft_non_regular_orm
         )
-
-        dir_save_fpath.unlink(missing_ok=True)
         symlink_save_fpath.unlink(missing_ok=True)
+
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
         )
