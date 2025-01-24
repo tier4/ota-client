@@ -25,9 +25,9 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table._orm import FTDirORMPool, FTRegularORMPool
-from ota_metadata.legacy.metadata import OTAMetadata
-from ota_metadata.legacy.rs_table import RSTORM, RSTableORMThreadPool
+from ota_metadata.file_table._orm import FileTableDirORMPool, FileTableRegularORMPool
+from ota_metadata.legacy2.metadata import OTAMetadata
+from ota_metadata.legacy2.rs_table import ResourceTableORM, ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -103,18 +103,18 @@ class DeltaGenerator:
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
 
-        self._ft_dir_orm = FTDirORMPool(
+        self._ft_dir_orm = FileTableDirORMPool(
             con_factory=ota_metadata.connect_fstable,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_dir_orm_pool",
         )
 
-        self._ft_regular_orm = FTRegularORMPool(
+        self._ft_regular_orm = FileTableRegularORMPool(
             con_factory=ota_metadata.connect_fstable,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ft_reg_orm_pool",
         )
-        self._rst_orm_pool = RSTableORMThreadPool(
+        self._rst_orm_pool = ResourceTableORMPool(
             con_factory=ota_metadata.connect_rstable,
             number_of_cons=DB_CONN_NUMS,
             thread_name_prefix="ota_delta_gen",
@@ -185,8 +185,8 @@ class DeltaGenerator:
         After all the local resources have been collected, we check the copy_dir
             and remove presented entries from resource table.
         """
-        _rs_orm = RSTORM(self._ota_metadata.connect_rstable())
-        _delete_stmt = RSTORM.orm_table_spec.table_delete_stmt(
+        _rs_orm = ResourceTableORM(self._ota_metadata.connect_rstable())
+        _delete_stmt = ResourceTableORM.orm_table_spec.table_delete_stmt(
             delete_from=_rs_orm.orm_table_name,
             where_cols=("digest",),
         )
