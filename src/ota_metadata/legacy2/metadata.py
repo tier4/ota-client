@@ -49,7 +49,9 @@ from ota_metadata.file_table import (
 )
 from ota_metadata.file_table._orm import (
     FileTableDirORM,
+    FileTableDirORMPool,
     FileTableNonRegularORM,
+    FileTableNonRegularORMPool,
     FileTableRegularORM,
     FileTableRegularORMPool,
 )
@@ -343,23 +345,27 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
-        _conn = self.connect_fstable()
-        _ft_dir_orm = FileTableDirORM(_conn)
+    def iter_dir_entries_at_thread(
+        self, *, batch_size: int
+    ) -> Generator[FileTableDirectories]:
+        _ft_dir_orm = FileTableDirORMPool(
+            con_factory=self.connect_fstable, number_of_cons=1
+        )
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
-            _conn.close()
+            _ft_dir_orm.orm_pool_shutdown()
 
-    def iter_non_regular_entries(
+    def iter_non_regular_entries_at_thread(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
-        _conn = self.connect_fstable()
-        _ft_dir_orm = FileTableNonRegularORM(_conn)
+        _ft_dir_orm = FileTableNonRegularORMPool(
+            con_factory=self.connect_fstable, number_of_cons=1
+        )
         try:
             yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
         finally:
-            _conn.close()
+            _ft_dir_orm.orm_pool_shutdown()
 
     def iter_regular_entries_at_thread(
         self, *, batch_size: int
