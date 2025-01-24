@@ -120,9 +120,6 @@ class RebuildMode:
         # NOTE: remember to yield the last group
         yield cur_digest, cur_digest_group
 
-    def _process_one_non_regular_file(self, entry: FileTableNonRegularFiles) -> None:
-        return entry.prepare_target(target_mnt=self._standby_slot_mp)
-
     def _process_one_regular_files_group(  # NOSONAR
         self, _input: tuple[bytes, list[FileTableRegularFiles]]
     ) -> tuple[int, int]:
@@ -144,56 +141,53 @@ class RebuildMode:
 
         _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
         _normal: list[FileTableRegularFiles] = []
-        try:
-            for entry in entries:
-                if (_inode_group := entry.entry_attrs.inode) is not None:
-                    _entries_list = _hardlinked.setdefault(_inode_group, [])
-                    _entries_list.append(entry)
-                else:
-                    _normal.append(entry)
 
-            _first_one_prepared = False
-            for entry in _normal:
-                if not _first_one_prepared:
-                    entry.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
-                    )
-                    _first_one_prepared = True
-                else:
-                    entry.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
-                    )
+        for entry in entries:
+            if (_inode_group := entry.entry_attrs.inode) is not None:
+                _entries_list = _hardlinked.setdefault(_inode_group, [])
+                _entries_list.append(entry)
+            else:
+                _normal.append(entry)
 
-            for _, entries in _hardlinked.items():
-                _hardlink_first_one = entries.pop()
-                if not _first_one_prepared:
-                    _hardlink_first_one.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
-                    )
-                    _first_one_prepared = True
-                else:
-                    _hardlink_first_one.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
-                    )
-
-                _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
-                    target_mnt=self._standby_slot_mp
+        _first_one_prepared = False
+        for entry in _normal:
+            if not _first_one_prepared:
+                entry.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
                 )
-                for entry in entries:
-                    entry.prepare_target(
-                        _hardlink_first_one_fpath,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="hardlink",
-                    )
+                _first_one_prepared = True
+            else:
+                entry.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                )
 
-            # finally, remove the resource. Note that if anything wrong happens,
-            #   the _rs will not be removed on purpose.
-            _rs.unlink(missing_ok=True)
+        for _, entries in _hardlinked.items():
+            _hardlink_first_one = entries.pop()
+            if not _first_one_prepared:
+                _hardlink_first_one.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                )
+                _first_one_prepared = True
+            else:
+                _hardlink_first_one.prepare_target(
+                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                )
 
-            return processed_files_num, processed_files_size
-        except Exception as e:
-            burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
-            raise
+            _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
+                target_mnt=self._standby_slot_mp
+            )
+            for entry in entries:
+                entry.prepare_target(
+                    _hardlink_first_one_fpath,
+                    target_mnt=self._standby_slot_mp,
+                    prepare_method="hardlink",
+                )
+
+        # finally, remove the resource. Note that if anything wrong happens,
+        #   the _rs will not be removed on purpose.
+        _rs.unlink(missing_ok=True)
+
+        return processed_files_num, processed_files_size
 
     # main entries for processing each type of files.
 
@@ -211,7 +205,9 @@ class RebuildMode:
         ) as _mapper:
             for _done_count, _done in enumerate(
                 _mapper.ensure_tasks(
-                    func=self._process_one_regular_files_group,
+                    func=_failed_task_logging_wrapper(
+                        self._process_one_regular_files_group
+                    ),
                     iterable=self._preprocess_regular_file_entries(
                         batch_size=batch_size
                     ),
@@ -219,6 +215,7 @@ class RebuildMode:
             ):
                 _now = int(time.time())
                 if _done.exception():
+                    # NOTE: failure logging is handled by logging_wrapper
                     continue
 
                 _processed_files_num, _processed_files_size = _done.result()
@@ -256,7 +253,8 @@ class RebuildMode:
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_size,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            max_workers=1,  # we should only use one thread for the processing
+            # NOTE: we MUST only use one thread for processing the dir
+            max_workers=1,
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
                 func=_failed_task_logging_wrapper(
@@ -265,9 +263,11 @@ class RebuildMode:
                         target_mnt=self._standby_slot_mp,
                     )
                 ),
-                iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
+                iterable=self._ota_metadata.iter_dir_entries_at_thread(
+                    batch_size=batch_size
+                ),
             ):
-                """no need to process the result here."""
+                """failure logging is handled by logging_wrapper."""
 
     def _process_non_regular_files(
         self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
@@ -276,19 +276,20 @@ class RebuildMode:
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_size,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            max_workers=3,
         ) as _mapper:
-            for _ in _mapper.ensure_tasks(
+            for _done in _mapper.ensure_tasks(
                 func=_failed_task_logging_wrapper(
                     partial(
                         FileTableNonRegularFiles.prepare_target,
                         target_mnt=self._standby_slot_mp,
                     )
                 ),
-                iterable=self._ota_metadata.iter_non_regular_entries(
+                iterable=self._ota_metadata.iter_non_regular_entries_at_thread(
                     batch_size=batch_size
                 ),
             ):
-                """no need to process the result here."""
+                """failure logging is handled by logging_wrapper."""
 
     # API
 
