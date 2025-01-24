@@ -235,12 +235,12 @@ class OTAMetadata:
             (dir_download_url, dir_save_fpath, dir_meta.hash),
             (symlink_download_url, symlink_save_fpath, symlink_meta.hash),
         ]
-        with condition:
-            for _url, _dst, _hash in _to_be_downloaded:
+        for _url, _dst, _hash in _to_be_downloaded:
+            with condition:
                 yield DownloadInfo(
                     url=_url, dst=_dst, digest_alg=self.DIGEST_ALG, digest=_hash
                 )
-            condition.wait()  # wait for download finished
+                condition.wait()  # wait for download finished
 
         dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
         symlinks_num = parse_symlinks_from_csv_file(
