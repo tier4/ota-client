@@ -216,7 +216,7 @@ def test_parse_and_import_regulars_txt():
         rs_table_orm = ResourceTableORM(rs_table_conn)
         rs_table_orm.orm_create_table()
         _imported = parse_regulars_from_csv_file(
-            regulars_txt, ft_table_orm, rs_table_orm, cleanup=False
+            regulars_txt, ft_table_orm, rs_table_orm
         )
         logger.info(f"imported {_imported} entries")
         assert _imported > 0
@@ -226,7 +226,7 @@ def test_parse_and_import_dirs_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableDirORM(conn)
         orm.orm_create_table()
-        _imported = parse_dirs_from_csv_file(dirs_txt, orm, cleanup=False)
+        _imported = parse_dirs_from_csv_file(dirs_txt, orm)
         logger.info(f"imported {_imported} entries")
         assert _imported > 0
 
@@ -235,6 +235,6 @@ def test_parse_and_import_symlinks_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableNonRegularORM(conn)
         orm.orm_create_table()
-        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm, cleanup=False)
+        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm)
         logger.info(f"imported {_imported} entries")
         assert _imported > 0

@@ -63,16 +63,16 @@ class TestFullE2E:
         )
 
     def _download_to_thread(
-        self, _download_info: DownloadInfo, *, condition: threading.Condition
+        self, _download_info_list: list[DownloadInfo], *, condition: threading.Condition
     ):
         _downloader_in_thread = self.downloader.get_instance()
         with condition:
-            logger.info(f"process {_download_info}")
-            _downloader_in_thread.download(
-                url=_download_info.url,
-                dst=_download_info.dst,
-                digest=_download_info.digest,
-            )
+            for _download_info in _download_info_list:
+                _downloader_in_thread.download(
+                    url=_download_info.url,
+                    dst=_download_info.dst,
+                    digest=_download_info.digest,
+                )
             condition.notify()
 
     def test_full_e2e(self, tmp_path: Path):
@@ -85,7 +85,7 @@ class TestFullE2E:
         _condition = threading.Condition()
         _metadata_processor = ota_metadata_parser.download_metafiles(_condition)
 
-        with ThreadPoolExecutorWithRetry(max_concurrent=1, max_workers=1) as mapper:
+        with ThreadPoolExecutorWithRetry(max_concurrent=6, max_workers=3) as mapper:
             for _fut in mapper.ensure_tasks(
                 partial(self._download_to_thread, condition=_condition),
                 _metadata_processor,
