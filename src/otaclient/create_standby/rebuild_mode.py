@@ -28,7 +28,7 @@ from ota_metadata.file_table._table import (
     FileTableNonRegularFiles,
     FileTableRegularFiles,
 )
-from ota_metadata.legacy.metadata import OTAMetadata
+from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.logging import BurstSuppressFilter
@@ -93,7 +93,9 @@ class RebuildMode:
         """
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        for _entry in self._ota_metadata.iter_regular_entries(batch_size=batch_size):
+        for _entry in self._ota_metadata.iter_regular_entries_at_thread(
+            batch_size=batch_size
+        ):
             _this_digest = _entry.digest
             if not cur_digest:
                 cur_digest = _this_digest
