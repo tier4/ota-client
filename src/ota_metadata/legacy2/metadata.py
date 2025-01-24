@@ -130,7 +130,7 @@ class OTAMetadata:
         self,
         _download_dir: Path,
         condition: threading.Condition,
-    ) -> Generator[DownloadInfo]:
+    ) -> Generator[list[DownloadInfo]]:
         """Download raw metadata.jwt, parse and verify it.
 
         After processing is finished, assigned the parsed metadata to inst.
@@ -139,10 +139,12 @@ class OTAMetadata:
         # ------ step 1: download metadata.jwt ------ #
         _metadata_jwt_fpath = _download_dir / self.ENTRY_POINT
         with condition:
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
-                dst=_metadata_jwt_fpath,
-            )
+            yield [
+                DownloadInfo(
+                    url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
+                    dst=_metadata_jwt_fpath,
+                )
+            ]
             condition.wait()  # wait for download finished
 
         _parser = MetadataJWTParser(
@@ -160,12 +162,14 @@ class OTAMetadata:
 
         _cert_fpath = _download_dir / cert_fname
         with condition:
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, cert_fname),
-                dst=_cert_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=cert_hash,
-            )
+            yield [
+                DownloadInfo(
+                    url=urljoin_ensure_base(self._base_url, cert_fname),
+                    dst=_cert_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=cert_hash,
+                )
+            ]
             condition.wait()
 
         cert_bytes = _cert_fpath.read_bytes()
@@ -178,7 +182,7 @@ class OTAMetadata:
 
     def _prepare_ota_image_metadata(
         self, _download_dir: Path, condition: threading.Condition
-    ) -> Generator[DownloadInfo]:
+    ) -> Generator[list[DownloadInfo]]:
         """Download filetable related OTA image metadata files.
 
         Including:
@@ -215,17 +219,29 @@ class OTAMetadata:
         symlink_download_url = urljoin_ensure_base(self._base_url, symlink_meta.file)
         symlink_save_fpath = _download_dir / symlink_meta.file
 
-        _to_be_downloaded: list[tuple[str, Path, str]] = [
-            (regular_download_url, regular_save_fpath, regular_meta.hash),
-            (dir_download_url, dir_save_fpath, dir_meta.hash),
-            (symlink_download_url, symlink_save_fpath, symlink_meta.hash),
+        _download_list = [
+            DownloadInfo(
+                url=regular_download_url,
+                dst=regular_save_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=regular_meta.hash,
+            ),
+            DownloadInfo(
+                url=dir_download_url,
+                dst=dir_save_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=dir_meta.hash,
+            ),
+            DownloadInfo(
+                url=symlink_download_url,
+                dst=symlink_save_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=symlink_meta.hash,
+            ),
         ]
-        for _url, _dst, _hash in _to_be_downloaded:
-            with condition:
-                yield DownloadInfo(
-                    url=_url, dst=_dst, digest_alg=self.DIGEST_ALG, digest=_hash
-                )
-                condition.wait()  # wait for download finished
+        with condition:
+            yield _download_list
+            condition.wait()  # wait for download finished
 
         # ------ parse metafiles ------ #
         self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
@@ -249,7 +265,7 @@ class OTAMetadata:
 
     def _prepare_persist_meta(
         self, _download_dir: Path, condition: threading.Condition
-    ) -> Generator[DownloadInfo]:
+    ) -> Generator[list[DownloadInfo]]:
         persist_meta = self.metadata_jwt.persistent
 
         persist_meta_download_url = urljoin_ensure_base(
@@ -257,12 +273,14 @@ class OTAMetadata:
         )
         persist_meta_save_fpath = _download_dir / self.PERSIST_META_FNAME
         with condition:
-            yield DownloadInfo(
-                url=persist_meta_download_url,
-                dst=persist_meta_save_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=persist_meta.hash,
-            )
+            yield [
+                DownloadInfo(
+                    url=persist_meta_download_url,
+                    dst=persist_meta_save_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=persist_meta.hash,
+                )
+            ]
             condition.wait()
 
         # save the persists.txt to session_dir for later use
@@ -273,7 +291,7 @@ class OTAMetadata:
     def download_metafiles(
         self,
         condition: threading.Condition,
-    ) -> Generator[DownloadInfo]:
+    ) -> Generator[list[DownloadInfo]]:
         """Guide the caller to download metadata files by yielding the DownloadInfo instances.
 
         While the caller downloading the metadata files one by one, this method will:
