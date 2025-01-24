@@ -16,18 +16,24 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+from functools import partial
 from hashlib import sha256
 from pathlib import Path
 
 import pytest
 
 from ota_metadata.legacy2.metadata import MetadataJWTParser, OTAMetadata
+from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient_common.downloader import Downloader
+from otaclient_common.downloader import DownloaderPool
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_SIGN_CERT, OTA_IMAGE_URL
 
 METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
+
+logger = logging.getLogger(__name__)
 
 
 def test_metadata_jwt_parser_e2e() -> None:
@@ -50,10 +56,24 @@ class TestFullE2E:
 
     @pytest.fixture(autouse=True)
     def setup_test(self):
-        self.downloader = Downloader(
+        self.downloader = DownloaderPool(
+            instance_num=1,
             hash_func=sha256,
             chunk_size=1024**2,
         )
+
+    def _download_to_thread(
+        self, _download_info: DownloadInfo, *, condition: threading.Condition
+    ):
+        _downloader_in_thread = self.downloader.get_instance()
+        with condition:
+            logger.info(f"process {_download_info}")
+            _downloader_in_thread.download(
+                url=_download_info.url,
+                dst=_download_info.dst,
+                digest=_download_info.digest,
+            )
+            condition.notify()
 
     def test_full_e2e(self, tmp_path: Path):
         ota_metadata_parser = OTAMetadata(
@@ -65,13 +85,12 @@ class TestFullE2E:
         _condition = threading.Condition()
         _metadata_processor = ota_metadata_parser.download_metafiles(_condition)
 
-        try:
-            for _download_info in _metadata_processor:
-                self.downloader.download(
-                    url=_download_info.url,
-                    dst=_download_info.dst,
-                    digest=_download_info.digest,
-                )
-                _condition.notify()
-        except Exception as e:
-            _metadata_processor.throw(e)
+        with ThreadPoolExecutorWithRetry(max_concurrent=1, max_workers=1) as mapper:
+            for _fut in mapper.ensure_tasks(
+                partial(self._download_to_thread, condition=_condition),
+                _metadata_processor,
+            ):
+                if _exc := _fut.exception():
+                    logger.exception(f"download failed: {_exc}")
+                    _metadata_processor.throw(_exc)
+                    raise _exc from None
