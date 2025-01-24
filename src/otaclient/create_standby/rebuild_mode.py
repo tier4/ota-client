@@ -69,7 +69,13 @@ def _failed_task_logging_wrapper(_func: Callable[P, RT]) -> Callable[P, RT]:
 
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
-PROCESS_DIRS_CONCURRENCY = 64
+PROCESS_DIRS_BATCH_SIZE = 64
+PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 64
+PROCESS_FILES_BATCH_SIZE = 64
+
+PROCESS_FILES_CONCURRENCY = 64
+PROCESS_DIRS_CONCURRENCY = 8
+PROCESS_NON_REGULAR_FILES_CONCURRENCY = 18
 
 
 class RebuildMode:
@@ -192,7 +198,10 @@ class RebuildMode:
     # main entries for processing each type of files.
 
     def _process_regular_files(
-        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+        self,
+        *,
+        batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
+        batch_concurrency: int = PROCESS_FILES_CONCURRENCY,
     ) -> None:
         _next_commit_before, _batch_cnt = 0, 0
         _merged_payload = UpdateProgressReport(
@@ -200,7 +209,7 @@ class RebuildMode:
         )
 
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
+            max_concurrent=batch_concurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
         ) as _mapper:
             for _done_count, _done in enumerate(
@@ -247,11 +256,14 @@ class RebuildMode:
             )
 
     def _process_dir_entries(
-        self, *, batch_size: int = PROCESS_DIRS_CONCURRENCY
+        self,
+        *,
+        batch_size: int = PROCESS_DIRS_BATCH_SIZE,
+        batch_concurrency: int = PROCESS_DIRS_CONCURRENCY,
     ) -> None:
         logger.info("process directories ...")
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
+            max_concurrent=batch_concurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
             # NOTE: we MUST only use one thread for processing the dir
             max_workers=1,
@@ -270,15 +282,18 @@ class RebuildMode:
                 """failure logging is handled by logging_wrapper."""
 
     def _process_non_regular_files(
-        self, *, batch_size: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+        self,
+        *,
+        batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
+        batch_cuncurrency: int = PROCESS_NON_REGULAR_FILES_CONCURRENCY,
     ) -> None:
         logger.info("process non regular file entries ...")
         with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_size,
+            max_concurrent=batch_cuncurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
             max_workers=3,
         ) as _mapper:
-            for _done in _mapper.ensure_tasks(
+            for _ in _mapper.ensure_tasks(
                 func=_failed_task_logging_wrapper(
                     partial(
                         FileTableNonRegularFiles.prepare_target,
