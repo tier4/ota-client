@@ -211,6 +211,6 @@ class MetadataJWTClaimsLayout(BaseModel):
                     break
 
                 _res_dict[k] = v
-                if k == cls.VERSION_KEY and (str(v) != str(cls.SCHEME_VERSION)):
+                if k == cls.VERSION_KEY and str(v) != str(cls.SCHEME_VERSION):
                     raise MetadataJWTPayloadInvalid(f"expecting version 1, get {v}")
-        return cls.model_validate(**_res_dict)
+        return cls.model_validate(_res_dict)
