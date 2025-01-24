@@ -20,10 +20,11 @@ import time
 from functools import partial
 from pathlib import Path
 from queue import Queue
-from typing import Generator
+from typing import Callable, Generator, TypeVar
+
+from typing_extensions import ParamSpec
 
 from ota_metadata.file_table._table import (
-    FileTableBase,
     FileTableDirectories,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
@@ -49,13 +50,19 @@ burst_suppressed_logger.addFilter(
     )
 )
 
+P = ParamSpec("P")
+RT = TypeVar("RT")
 
-def _failed_task_logging_wrapper(_func):
-    def _wrapped(entry: FileTableBase):
+
+def _failed_task_logging_wrapper(_func: Callable[P, RT]) -> Callable[P, RT]:
+    def _wrapped(*args: P.args, **kwargs: P.kwargs) -> RT:
         try:
-            return _func(entry)
+            return _func(*args, **kwargs)
         except Exception as e:
-            burst_suppressed_logger.exception(f"failed to process {entry}: {e!r}")
+            burst_suppressed_logger.exception(
+                f"failed to process ({args}, {kwargs}): {e!r}"
+            )
+            raise
 
     return _wrapped
 
