@@ -262,13 +262,14 @@ class OTAMetadata:
             self._base_url, persist_meta.file
         )
         persist_meta_save_fpath = _download_dir / self.PERSIST_META_FNAME
-        yield DownloadInfo(
-            url=persist_meta_download_url,
-            dst=persist_meta_save_fpath,
-            digest_alg=self.DIGEST_ALG,
-            digest=persist_meta.hash,
-        )
-        condition.wait()
+        with condition:
+            yield DownloadInfo(
+                url=persist_meta_download_url,
+                dst=persist_meta_save_fpath,
+                digest_alg=self.DIGEST_ALG,
+                digest=persist_meta.hash,
+            )
+            condition.wait()
 
         # save the persists.txt to session_dir for later use
         shutil.move(str(persist_meta_save_fpath), self._session_dir)
