@@ -62,7 +62,7 @@ class _OTAClientSettings(BaseModel):
     # ------ create standby settings ------ #
     #
     CREATE_STANDBY_METHOD: CREATE_STANDBY_METHOD_LTIERAL = "REBUILD"
-    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 256
+    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 128
     MAX_PROCESS_FILE_THREAD: int = 6
     CREATE_STANDBY_RETRY_MAX: int = 1024
 
