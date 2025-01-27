@@ -347,36 +347,27 @@ class OTAMetadata:
     def iter_dir_entries_at_thread(
         self, *, batch_size: int
     ) -> Generator[FileTableDirectories]:
-        _ft_dir_orm = FileTableDirORMPool(
+        with FileTableDirORMPool(
             con_factory=self.connect_fstable, number_of_cons=1
-        )
-        try:
-            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
-        finally:
-            _ft_dir_orm.orm_pool_shutdown()
+        ) as pool:
+            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_non_regular_entries_at_thread(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
-        _ft_dir_orm = FileTableNonRegularORMPool(
+        with FileTableNonRegularORMPool(
             con_factory=self.connect_fstable, number_of_cons=1
-        )
-        try:
-            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
-        finally:
-            _ft_dir_orm.orm_pool_shutdown()
+        ) as pool:
+            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_regular_entries_at_thread(
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         # NOTE: do the dispatch at a thread
-        _ft_dir_orm = FileTableRegularORMPool(
+        with FileTableRegularORMPool(
             con_factory=self.connect_fstable, number_of_cons=1
-        )
-        try:
-            yield from _ft_dir_orm.orm_select_all_with_pagination(batch_size=batch_size)
-        finally:
-            _ft_dir_orm.orm_pool_shutdown()
+        ) as pool:
+            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
@@ -512,11 +503,8 @@ class ResourceMeta:
 
     def iter_resources_at_thread(self, *, batch_size: int) -> Generator[DownloadInfo]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        _orm = ResourceTableORMPool(
+        with ResourceTableORMPool(
             con_factory=self._ota_metadata.connect_rstable, number_of_cons=1
-        )
-        try:
-            for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
+        ) as pool:
+            for entry in pool.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
-        finally:
-            _orm.orm_pool_shutdown()
