@@ -70,7 +70,7 @@ from .metadata_jwt import (
     MetadataJWTParser,
     MetadataJWTVerificationFailed,
 )
-from .rs_table import ResourceTable, ResourceTableORM
+from .rs_table import ResourceTable, ResourceTableORM, ResourceTableORMPool
 
 logger = logging.getLogger(__name__)
 
@@ -510,12 +510,13 @@ class ResourceMeta:
             digest_alg=DIGEST_ALG,
         )
 
-    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
+    def iter_resources_at_thread(self, *, batch_size: int) -> Generator[DownloadInfo]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn)
+        _orm = ResourceTableORMPool(
+            con_factory=self._ota_metadata.connect_rstable, number_of_cons=1
+        )
         try:
             for entry in _orm.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
         finally:
-            _conn.close()
+            _orm.orm_pool_shutdown()

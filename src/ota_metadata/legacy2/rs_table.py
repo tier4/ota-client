@@ -74,6 +74,11 @@ class ResourceTableORM(ORMBase[ResourceTable]):
 
     _orm_table_name = RSTABLE_NAME
 
+
+class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
+
+    _orm_table_name = RSTABLE_NAME
+
     def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[ResourceTable]:
         """Iter all entries with seek method by rowid, shuffle each batch before yield.
 
@@ -88,8 +93,3 @@ class ResourceTableORM(ORMBase[ResourceTable]):
                 _this_batch = []
         random.shuffle(_this_batch)
         yield from _this_batch
-
-
-class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
-
-    _orm_table_name = RSTABLE_NAME

@@ -324,7 +324,7 @@ class _OTAUpdater:
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(
                     self._download_file,
-                    resource_meta.iter_resources(
+                    resource_meta.iter_resources_at_thread(
                         batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
                     ),
                 ),
