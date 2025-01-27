@@ -80,7 +80,7 @@ PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 32
 PROCESS_NON_REGULAR_FILES_CONCURRENCY = 32
 PROCESS_NON_REGULAR_FILES_WORKER = 3
 
-PROCESS_FILES_BATCH_SIZE = 128
+PROCESS_FILES_BATCH_SIZE = 64
 PROCESS_FILES_CONCURRENCY = 32
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
@@ -113,9 +113,7 @@ class RebuildMode:
         """
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        for _entry in self._ota_metadata.iter_regular_entries_at_thread(
-            batch_size=batch_size
-        ):
+        for _entry in self._ota_metadata.iter_regular_entries(batch_size=batch_size):
             _this_digest = _entry.digest
             if not cur_digest:
                 cur_digest = _this_digest
@@ -284,9 +282,7 @@ class RebuildMode:
                         target_mnt=self._standby_slot_mp,
                     )
                 ),
-                iterable=self._ota_metadata.iter_dir_entries_at_thread(
-                    batch_size=batch_size
-                ),
+                iterable=self._ota_metadata.iter_dir_entries(batch_size=batch_size),
             ):
                 """failure logging is handled by logging_wrapper."""
 
@@ -310,7 +306,7 @@ class RebuildMode:
                         target_mnt=self._standby_slot_mp,
                     )
                 ),
-                iterable=self._ota_metadata.iter_non_regular_entries_at_thread(
+                iterable=self._ota_metadata.iter_non_regular_entries(
                     batch_size=batch_size
                 ),
             ):

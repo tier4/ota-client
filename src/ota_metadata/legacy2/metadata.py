@@ -48,11 +48,8 @@ from ota_metadata.file_table import (
 )
 from ota_metadata.file_table._orm import (
     FileTableDirORM,
-    FileTableDirORMPool,
     FileTableNonRegularORM,
-    FileTableNonRegularORMPool,
     FileTableRegularORM,
-    FileTableRegularORMPool,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -70,7 +67,7 @@ from .metadata_jwt import (
     MetadataJWTParser,
     MetadataJWTVerificationFailed,
 )
-from .rs_table import ResourceTable, ResourceTableORM, ResourceTableORMPool
+from .rs_table import ResourceTable, ResourceTableORM
 
 logger = logging.getLogger(__name__)
 
@@ -344,29 +341,21 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries_at_thread(
-        self, *, batch_size: int
-    ) -> Generator[FileTableDirectories]:
-        with FileTableDirORMPool(
-            con_factory=self.connect_fstable, number_of_cons=1
-        ) as pool:
+    def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
+        with FileTableDirORM(self.connect_fstable()) as pool:
             yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
-    def iter_non_regular_entries_at_thread(
+    def iter_non_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
-        with FileTableNonRegularORMPool(
-            con_factory=self.connect_fstable, number_of_cons=1
-        ) as pool:
+        with FileTableNonRegularORM(self.connect_fstable()) as pool:
             yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
-    def iter_regular_entries_at_thread(
+    def iter_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         # NOTE: do the dispatch at a thread
-        with FileTableRegularORMPool(
-            con_factory=self.connect_fstable, number_of_cons=1
-        ) as pool:
+        with FileTableRegularORM(self.connect_fstable()) as pool:
             yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
     def connect_fstable(self) -> sqlite3.Connection:
@@ -501,10 +490,8 @@ class ResourceMeta:
             digest_alg=DIGEST_ALG,
         )
 
-    def iter_resources_at_thread(self, *, batch_size: int) -> Generator[DownloadInfo]:
+    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        with ResourceTableORMPool(
-            con_factory=self._ota_metadata.connect_rstable, number_of_cons=1
-        ) as pool:
+        with ResourceTableORM(self._ota_metadata.connect_rstable()) as pool:
             for entry in pool.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
