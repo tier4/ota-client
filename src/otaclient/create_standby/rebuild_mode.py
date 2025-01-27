@@ -67,15 +67,22 @@ def _failed_task_logging_wrapper(_func: Callable[P, RT]) -> Callable[P, RT]:
     return _wrapped
 
 
-PROCESS_FILES_REPORT_BATCH = 128
+PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
-PROCESS_DIRS_BATCH_SIZE = 32
-PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 32
-PROCESS_FILES_BATCH_SIZE = 32
 
+PROCESS_DIRS_BATCH_SIZE = 32
+PROCESS_DIRS_CONCURRENCY = 32
+# NOTE: MUST be 1 to avoid conflicts as `mkdir -p` in different threads
+#       might conflict wit each other.
+PROCESS_DIRS_WORKER = 1
+
+PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 32
+PROCESS_NON_REGULAR_FILES_CONCURRENCY = 32
+PROCESS_NON_REGULAR_FILES_WORKER = 3
+
+PROCESS_FILES_BATCH_SIZE = 128
 PROCESS_FILES_CONCURRENCY = 32
-PROCESS_DIRS_CONCURRENCY = 8
-PROCESS_NON_REGULAR_FILES_CONCURRENCY = 18
+PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
 
 class RebuildMode:
@@ -202,6 +209,7 @@ class RebuildMode:
         *,
         batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
         batch_concurrency: int = PROCESS_FILES_CONCURRENCY,
+        num_of_workers: int = PROCESS_FILES_WORKER,
     ) -> None:
         _next_commit_before, _batch_cnt = 0, 0
         _merged_payload = UpdateProgressReport(
@@ -211,6 +219,7 @@ class RebuildMode:
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_concurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
+            max_workers=num_of_workers,
         ) as _mapper:
             for _done_count, _done in enumerate(
                 _mapper.ensure_tasks(
@@ -260,13 +269,13 @@ class RebuildMode:
         *,
         batch_size: int = PROCESS_DIRS_BATCH_SIZE,
         batch_concurrency: int = PROCESS_DIRS_CONCURRENCY,
+        num_of_workers: int = PROCESS_DIRS_WORKER,
     ) -> None:
         logger.info("process directories ...")
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_concurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            # NOTE: we MUST only use one thread for processing the dir
-            max_workers=1,
+            max_workers=num_of_workers,
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
                 func=_failed_task_logging_wrapper(
@@ -286,12 +295,13 @@ class RebuildMode:
         *,
         batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
         batch_cuncurrency: int = PROCESS_NON_REGULAR_FILES_CONCURRENCY,
+        num_of_workers: int = PROCESS_NON_REGULAR_FILES_WORKER,
     ) -> None:
         logger.info("process non regular file entries ...")
         with ThreadPoolExecutorWithRetry(
             max_concurrent=batch_cuncurrency,
             max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            max_workers=3,
+            max_workers=num_of_workers,
         ) as _mapper:
             for _ in _mapper.ensure_tasks(
                 func=_failed_task_logging_wrapper(
