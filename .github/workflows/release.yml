@@ -1,17 +1,8 @@
 name: Release CI
 
 on:
-  pull_request:
-    branches:
-      - main
-    types:
-      - opened
-      - synchronize
-      - reopened
-      # NOTE(20241016): this is a workaround for PR with head
-      #   updated by gen_requirements_txt workflow
-      - review_requested
-      - assigned
+  release:
+    types: [published]
   # allow manually triggering the build
   workflow_dispatch:
 
@@ -54,7 +45,7 @@ jobs:
           pushd proto
           hatch build -t wheel
           popd
-          cp proto/dist/*.whl dist/
+          cp proto/dist/*.whl dist
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
@@ -152,6 +143,12 @@ jobs:
             sha256sum ${FILE} | sed -E "s@(\w+)\s+.*@sha256:\1@" > ${FILE}.checksum
           done
 
-      - name: debug
-        run: |
-          ls -l dist
+      - name: publish release artifacts
+        if: ${{ github.event_name == 'release' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.squashfs
+            dist/*.patch
+            dist/*.checksum
