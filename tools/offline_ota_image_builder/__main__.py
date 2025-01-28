@@ -36,7 +36,6 @@ Check README.md for the offline OTA image layout specification.
 Please refer to OTA cache design doc for more details.
 """
 
-
 import argparse
 import errno
 import logging

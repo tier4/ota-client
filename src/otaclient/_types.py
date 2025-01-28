@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTAClient internal used types."""
 
-
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync

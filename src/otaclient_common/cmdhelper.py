@@ -18,7 +18,6 @@ When underlying subprocess call failed and <raise_exception> is True,
     to the upper caller.
 """
 
-
 from __future__ import annotations
 
 import logging

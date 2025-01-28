@@ -13,7 +13,6 @@
 # limitations under the License.
 """Helper for mounting/umount slots during OTA."""
 
-
 from __future__ import annotations
 
 import atexit

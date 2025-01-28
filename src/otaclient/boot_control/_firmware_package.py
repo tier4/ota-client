@@ -39,7 +39,6 @@ If firmware update is needed, a file name `firmware_update.yaml` needed to be pr
 ```
 """
 
-
 from __future__ import annotations
 
 import logging
