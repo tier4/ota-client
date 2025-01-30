@@ -16,7 +16,7 @@ inputs:
   version:
     description: "The OTA client version"
     required: true
-  squashfs:
+  output_squashfs:
     description: "The output SquashFS file"
     required: true
 runs:
@@ -30,32 +30,46 @@ runs:
 
     - name: set temporary variables
       id: set-vars
+      env:
+        PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
+        VERSION: ${{ inputs.version }}
       shell: bash
       run: |
-        echo "DOCKER_IMAGE=otaclient-${{ inputs.platform_suffix }}:${{ inputs.version }}" >> $GITHUB_ENV
-        echo "DOCKER_CONTAINER=otaclient-${{ inputs.platform_suffix }}_v${{ inputs.version }}" >> $GITHUB_ENV
+        echo "DOCKER_IMAGE=otaclient-${PLATFORM_SUFFIX}:${VERSION}" >> $GITHUB_ENV
+        echo "DOCKER_CONTAINER=otaclient-${PLATFORM_SUFFIX}_v${VERSION}" >> $GITHUB_ENV
 
     - name: build docker image
+      env:
+        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+        PLATFORM: ${{ inputs.platform }}
+        PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
+        BASE_IMAGE: ${{ inputs.base_image }}
+        WHL: ${{ inputs.whl }}
+        VERSION: ${{ inputs.version }}
       shell: bash
       run: |
-        cp dist/${{ inputs.whl }} docker/app_img/
+        cp dist/${WHL} docker/app_img/
         pushd docker/app_img
         docker buildx create --use
-        docker buildx build --platform ${{ inputs.platform }} \
-          --build-arg=UBUNTU_BASE=${{ inputs.base_image }} \
-          --build-arg=OTACLIENT_VERSION=${{ inputs.version }} \
-          --build-arg=OTACLIENT_WHL=${{ inputs.whl }} \
-          -t ${{ env.DOCKER_IMAGE }} \
+        docker buildx build --platform ${PLATFORM} \
+          --build-arg=UBUNTU_BASE=${BASE_IMAGE} \
+          --build-arg=OTACLIENT_VERSION=${VERSION} \
+          --build-arg=OTACLIENT_WHL=${WHL} \
+          -t ${DOCKER_IMAGE} \
           --output type=docker \
           .
         popd
-        rm docker/app_img/${{ inputs.whl }}
+        rm docker/app_img/${WHL}
 
     - name: export squashfs image
+      env:
+        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+        DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
+        SQUASHFS: ${{ inputs.output_squashfs }}
       shell: bash
       run: |
-        docker create --name ${{ env.DOCKER_CONTAINER }} ${{ env.DOCKER_IMAGE }}
-        docker export ${{ env.DOCKER_CONTAINER }} | mksquashfs - ${{ inputs.squashfs }} \
+        docker create --name ${DOCKER_CONTAINER} ${DOCKER_IMAGE}
+        docker export ${DOCKER_CONTAINER} | mksquashfs - ${SQUASHFS} \
             -tar -b 1M \
             -mkfs-time 1729810800 \
             -all-time 1729810800 \

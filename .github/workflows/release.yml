@@ -53,39 +53,48 @@ jobs:
           name: artifacts-python-packages
           path: dist/*.whl
 
-  build_squashfs_image_amd64:
+  build_squashfs_image_x86_64:
     runs-on: ubuntu-latest
     needs: build_python_packages
+    env:
+      WHL: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
+      VERSION: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+      SQUASHFS: dist/ota-client-x86_64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: build squashfs image for amd64
+      - name: build squashfs image for x86_64
         uses: ./.github/actions/build_squashfs_image
         with:
           platform: linux/amd64
-          platform_suffix: amd64
+          platform_suffix: x86_64
           base_image: ubuntu:22.04
-          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-amd64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          whl: ${WHL}
+          version: ${VERSION}
+          output_squashfs: ${SQUASHFS}
 
       - name: build patches
         uses: ./.github/actions/build_patches
         with:
-          platform_suffix: amd64
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-amd64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          platform_suffix: x86_64
+          version: ${VERSION}
+          squashfs: ${SQUASHFS}
+          output_dir: dist
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-squashfs_amd64
+          name: artifacts-squashfs_x86_64
           path: dist/*.squashfs
 
   build_squashfs_image_arm64:
     runs-on: ubuntu-latest
     needs: build_python_packages
+    env:
+      WHL: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
+      VERSION: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
+      SQUASHFS: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -96,16 +105,17 @@ jobs:
           platform: linux/arm64
           platform_suffix: arm64
           base_image: arm64v8/ubuntu:22.04
-          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          whl: ${WHL}
+          version: ${VERSION}
+          output_squashfs: ${SQUASHFS}
 
       - name: build paches
         uses: ./.github/actions/build_patches
         with:
           platform_suffix: arm64
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          version: ${VERSION}
+          squashfs: ${SQUASHFS}
+          output_dir: dist
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
@@ -117,7 +127,7 @@ jobs:
 
   post_build:
     runs-on: ubuntu-latest
-    needs: [build_python_packages, build_squashfs_image_amd64, build_squashfs_image_arm64]
+    needs: [build_python_packages, build_squashfs_image_x86_64, build_squashfs_image_arm64]
     steps:
       - name: download python packages artifact
         uses: actions/download-artifact@v4
@@ -125,10 +135,10 @@ jobs:
           name: artifacts-python-packages
           path: dist
 
-      - name: download squashfs amd64 artifact
+      - name: download squashfs x86_64 artifact
         uses: actions/download-artifact@v4
         with:
-          name: artifacts-squashfs_amd64
+          name: artifacts-squashfs_x86_64
           path: dist
 
       - name: download squashfs arm64 artifact
@@ -137,9 +147,15 @@ jobs:
           name: artifacts-squashfs_arm64
           path: dist
 
+      - name: generate json manifest
+        uses: ./.github/actions/generate_manifest
+        with:
+          dir: dist
+          output_manifest: dist/manifest.json
+
       - name: calculate checksum
         run: |
-          for FILE in dist/*.{whl,squashfs,patch}; do
+          for FILE in dist/*.{whl,squashfs,patch,json}; do
             sha256sum ${FILE} | sed -E "s@(\w+)\s+.*@sha256:\1@" > ${FILE}.checksum
           done
 
@@ -151,4 +167,5 @@ jobs:
             dist/*.whl
             dist/*.squashfs
             dist/*.patch
+            dist/manifest.json
             dist/*.checksum

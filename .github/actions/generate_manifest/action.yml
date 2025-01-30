@@ -1,0 +1,24 @@
+name: "Generate Manifest"
+description: "Generate manifest for OTA client"
+inputs:
+  dir:
+    description: "The directory containing the OTA client files"
+    required: true
+  output_manifest:
+    description: "The output manifest file"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.8
+
+    - name: run generate_manifest.py
+      env:
+        DIR: ${{ inputs.dir }}
+        OUTPUT_MANIFEST: ${{ inputs.output_manifest }}
+      shell: bash
+      run: |
+        python generate_manifest.py --dir ${DIR} --output ${OUTPUT_MANIFEST}
