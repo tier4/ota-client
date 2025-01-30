@@ -21,7 +21,7 @@ Python 3.8.10
 Build the `ota-test_base` image for running tests under a container as follow:
 
 ```bash
-docker-compose -f docker/docker-compose_tests.yml build
+docker compose -f docker/test_base/docker-compose_tests.yml build
 ```
 
 This `ota-test_base` image contains a copy of pre-build minimum `ota-image` under `/ota-image` folder, and pre-installed dependencies needed for running and testing OTA client.
@@ -29,7 +29,7 @@ This `ota-test_base` image contains a copy of pre-build minimum `ota-image` unde
 ### Run all tests at once
 
 ```bash
-docker-compose -f docker/docker-compose_tests.yml run --rm tester
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester
 ```
 
 ### Run specific tests manually by override the command
@@ -37,7 +37,7 @@ docker-compose -f docker/docker-compose_tests.yml run --rm tester
 Directly execute pytest is also possible by override the command:
 
 ```bash
-docker-compose -f docker/docker-compose_tests.yml run --rm tester \
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester \
    python3 -m pytest /ota-client/tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
@@ -46,7 +46,7 @@ docker-compose -f docker/docker-compose_tests.yml run --rm tester \
 Directly drop to bash shell in the test base container as follow:
 
 ```bash
-docker-compose -f docker/docker-compose_tests.yml run --rm tester bash
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester bash
 ```
 
 And then run specific tests as you want:

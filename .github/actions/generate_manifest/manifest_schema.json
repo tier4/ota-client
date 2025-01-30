@@ -1,0 +1,55 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "schema_version": {
+            "type": "string"
+        },
+        "date": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "packages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string"
+                    },
+                    "architecture": {
+                        "type": "string"
+                    },
+                    "size": {
+                        "type": "string"
+                    },
+                    "checksum": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "base_version": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "filename",
+                    "type",
+                    "architecture",
+                    "size",
+                    "checksum",
+                    "version"
+                ]
+            }
+        }
+    },
+    "required": [
+        "schema_version",
+        "date",
+        "packages"
+    ]
+}
