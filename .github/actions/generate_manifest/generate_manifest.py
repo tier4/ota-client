@@ -47,11 +47,11 @@ def generate_manifest(input_dir):
             }
             if file_info["type"] == "squashfs":
                 # squashfs file name format: ota-client-${architecture}-v${version}.squashfs
-                match = re.search(r"v(\d+\.\d+\.\d+)", file)
+                match = re.search(r"v(\d+\.\d+)(?:\.\d+)?", file)
                 file_info["version"] = match.group(1) if match else "unknown"
             else:
                 # patch file name format: ota-client-${architecture}_v${BASE_VERSION}-v${VERSION}.patch
-                match = re.search(r"v(\d+\.\d+\.\d+)-v(\d+\.\d+\.\d+)", file)
+                match = re.search(r"v(\d+\.\d+(?:\.\d+)?)-v(\d+\.\d+(?:\.\d+)?)", file)
                 file_info["base_version"] = match.group(1) if match else "unknown"
                 file_info["version"] = match.group(2) if match else "unknown"
 

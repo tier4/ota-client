@@ -158,6 +158,13 @@ jobs:
             fi
           done
 
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-manifest
+          path: |
+            dist/manifest.json
+
       - name: publish release artifacts
         if: ${{ github.event_name == 'release' }}
         uses: softprops/action-gh-release@v2
