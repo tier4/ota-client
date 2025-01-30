@@ -5,6 +5,8 @@ import os
 import re
 from datetime import datetime, timezone
 
+from jsonschema import ValidationError, validate
+
 SCHEMA_VERSION = "1"
 
 
@@ -28,24 +30,7 @@ def get_file_size(file_path):
     return str(os.path.getsize(file_path))
 
 
-def main():
-    """
-    Generate a manifest.json file of the artifact(squashfs and patch).
-    """
-
-    parser = argparse.ArgumentParser(description="Generate a manifest.json file")
-    parser.add_argument(
-        "--dir",
-        type=str,
-        required=True,
-        help="Directory containing the artifact(squashfs, patch)",
-    )
-    parser.add_argument("--output", type=str, required=True, help="Output file name")
-
-    args = parser.parse_args()
-    input_dir = args.dir
-    output_file = args.output
-
+def generate_manifest(input_dir):
     packages = []
     for root, _, files in os.walk(input_dir):
         for file in files:
@@ -77,9 +62,49 @@ def main():
         "date": datetime.now(timezone.utc).isoformat(),
         "packages": packages,
     }
+    return data
 
+
+def validate_manifest(data, schema_file):
+    """
+    Validate the manifest.json file against the schema.
+    """
+
+    with open(schema_file) as file_obj:
+        json_schema = json.load(file_obj)
+
+    try:
+        validate(data, json_schema)
+    except ValidationError as e:
+        print(e.message)
+
+
+def main():
+    """
+    Generate a manifest.json file of the artifact(squashfs and patch).
+    """
+
+    parser = argparse.ArgumentParser(description="Generate a manifest.json file")
+    parser.add_argument(
+        "--dir",
+        type=str,
+        required=True,
+        help="Directory containing the artifact(squashfs, patch)",
+    )
+    parser.add_argument("--schema", type=str, required=False, help="Schema file")
+    parser.add_argument("--output", type=str, required=True, help="Output file name")
+
+    args = parser.parse_args()
+    input_dir = args.dir
+    schema_file = args.schema
+    output_file = args.output
+
+    data = generate_manifest(input_dir)
     with open(output_file, "w") as f:
         json.dump(data, f, indent=4)
+
+    if schema_file:
+        validate_manifest(data, schema_file)
 
 
 if __name__ == "__main__":
