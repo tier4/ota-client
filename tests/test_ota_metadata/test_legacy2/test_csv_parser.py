@@ -34,7 +34,7 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
     FileTableRegularORM,
 )
-from ota_metadata.legacy.csv_parser import (
+from ota_metadata.legacy2.csv_parser import (
     parse_dirs_csv_line,
     parse_dirs_from_csv_file,
     parse_persists_csv_line,
@@ -43,7 +43,7 @@ from ota_metadata.legacy.csv_parser import (
     parse_symlinks_csv_line,
     parse_symlinks_from_csv_file,
 )
-from ota_metadata.legacy.rs_table import ResourceTable, ResourceTableORM
+from ota_metadata.legacy2.rs_table import ResourceTable, ResourceTableORM
 from tests.conftest import TestConfiguration as test_cfg
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def test_parse_and_import_regulars_txt():
         rs_table_orm = ResourceTableORM(rs_table_conn)
         rs_table_orm.orm_create_table()
         _imported = parse_regulars_from_csv_file(
-            regulars_txt, ft_table_orm, rs_table_orm, cleanup=False
+            regulars_txt, ft_table_orm, rs_table_orm
         )
         logger.info(f"imported {_imported} entries")
         assert _imported > 0
@@ -226,7 +226,7 @@ def test_parse_and_import_dirs_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableDirORM(conn)
         orm.orm_create_table()
-        _imported = parse_dirs_from_csv_file(dirs_txt, orm, cleanup=False)
+        _imported = parse_dirs_from_csv_file(dirs_txt, orm)
         logger.info(f"imported {_imported} entries")
         assert _imported > 0
 
@@ -235,6 +235,6 @@ def test_parse_and_import_symlinks_txt():
     with sqlite3.connect(":memory:") as conn:
         orm = FileTableNonRegularORM(conn)
         orm.orm_create_table()
-        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm, cleanup=False)
+        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm)
         logger.info(f"imported {_imported} entries")
         assert _imported > 0

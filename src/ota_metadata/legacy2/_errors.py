@@ -13,17 +13,16 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
+class OTAImageInvalid(Exception):
+    """OTA image itself is incompleted or metadata is missing."""
 
 
-@dataclass
-class DownloadInfo:
-    url: str
-    dst: Path
-    original_size: int = 0
-    """NOTE: we are using transparent decompression, so we always use the original_size."""
-    digest_alg: Optional[str] = None
-    digest: Optional[str] = None
-    compression_alg: Optional[str] = None
+class OTARequestsAuthTokenInvalid(Exception):
+    """Hit 401 or 403 when downloading metadata."""
+
+
+class MetadataJWTPayloadInvalid(Exception):
+    """Raised when verification passed, but input metadata.jwt is invalid."""
+
+
+class MetadataJWTVerificationFailed(Exception): ...

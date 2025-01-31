@@ -43,6 +43,11 @@ class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
     _orm_table_name = FT_NON_REGULAR_TABLE_NAME
 
 
+class FileTableNonRegularORMPool(ORMThreadPoolBase[FileTableNonRegularFiles]):
+
+    _orm_table_name = FT_NON_REGULAR_TABLE_NAME
+
+
 class FileTableDirORM(ORMBase[FileTableDirectories]):
 
     _orm_table_name = FT_DIR_TABLE_NAME
