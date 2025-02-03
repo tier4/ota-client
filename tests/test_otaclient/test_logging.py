@@ -56,6 +56,14 @@ class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
         self._test_queue = test_queue
         self._data_ready = data_ready
 
+    async def Check(self, request: log_pb2.HealthCheckRequest, context):
+        """
+        Dummy gRPC method for health check.
+        """
+        return log_pb2.HealthCheckResponse(
+            status=log_pb2.HealthCheckResponse.ServingStatus.SERVING
+        )
+
     async def PutLog(self, request: log_pb2.PutLogRequest, context):
         """
         Dummy gRPC method to put a log message to the queue.
@@ -72,7 +80,7 @@ class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
 
 
 class TestLogClient:
-    OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8083"
+    OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8084"
     ECU_ID = "testclient"
 
     @pytest.fixture(autouse=True)

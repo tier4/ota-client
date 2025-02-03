@@ -13,7 +13,6 @@
 # limitations under the License.
 """Configure the logging for otaclient."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -60,6 +59,10 @@ class Transmitter(ABC):
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
         pass
 
+    @abstractmethod
+    def check(self, timeout: int) -> None:
+        pass
+
 
 class TransmitterGrpc(Transmitter):
     def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
@@ -88,17 +91,20 @@ class TransmitterGrpc(Transmitter):
 
 
 class TransmitterHttp(Transmitter):
-    def __init__(self, logging_upload_endpoint, ecu_id: str):
+    def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
         super().__init__(logging_upload_endpoint, ecu_id)
 
-        logging_upload_endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
-        self.log_upload_endpoint = urljoin(logging_upload_endpoint, ecu_id)
+        _endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
+        self.log_upload_endpoint = urljoin(_endpoint, ecu_id)
         self._session = requests.Session()
 
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
         # support only LogType.LOG
         with contextlib.suppress(Exception):
             self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
+
+    def check(self, timeout: int) -> None:
+        pass
 
 
 class TransmitterFactory:
@@ -145,7 +151,11 @@ class _LogTeeHandler(logging.Handler):
                 if not entry:
                     continue  # skip uploading empty log line
 
-                _transmitter.send(entry.log_type, entry.message, timeout=3)
+                try:
+                    _transmitter.send(entry.log_type, entry.message, timeout=3)
+                except Exception:
+                    # ignore the exception and continue
+                    pass
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
         log_upload_thread.start()
