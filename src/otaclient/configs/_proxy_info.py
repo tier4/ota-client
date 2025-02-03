@@ -13,7 +13,6 @@
 # limitations under the License.
 """proxy_info.yaml definition and parsing logic."""
 
-
 from __future__ import annotations
 
 import logging
@@ -45,7 +44,7 @@ class ProxyInfo(BaseFixedConfig):
         local_ota_proxy_listen_port: port ota_proxy used.
         upper_ota_proxy: the URL of upper OTA proxy used by local ota_proxy server
             or otaclient(proxy chain).
-        logging_server: the channel of AWS IoT otaclient logs upload server.
+        logging_server: the URL of AWS IoT otaclient logs upload server.
     """
 
     format_version: int = 1
@@ -75,7 +74,9 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: Optional[str] = f"127.0.0.1:{LOGGING_SERVER_PORT}"
+    logging_server: Optional[AnyHttpUrl] = AnyHttpUrl(
+        f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
+    )
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
