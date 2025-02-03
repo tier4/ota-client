@@ -21,6 +21,11 @@ class OtaClientIoTLoggingServiceStub(object):
             request_serializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogRequest.SerializeToString,
             response_deserializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogResponse.FromString,
         )
+        self.Check = channel.unary_unary(
+            "/OtaClientIoTLoggingService/Check",
+            request_serializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckRequest.SerializeToString,
+            response_deserializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckResponse.FromString,
+        )
 
 
 class OtaClientIoTLoggingServiceServicer(object):
@@ -34,6 +39,15 @@ class OtaClientIoTLoggingServiceServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def Check(self, request, context):
+        """
+        `Check` requests OTA Client logging service to check the health of the
+        service.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_OtaClientIoTLoggingServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -41,6 +55,11 @@ def add_OtaClientIoTLoggingServiceServicer_to_server(servicer, server):
             servicer.PutLog,
             request_deserializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogRequest.FromString,
             response_serializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogResponse.SerializeToString,
+        ),
+        "Check": grpc.unary_unary_rpc_method_handler(
+            servicer.Check,
+            request_deserializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckRequest.FromString,
+            response_serializer=otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -72,6 +91,35 @@ class OtaClientIoTLoggingService(object):
             "/OtaClientIoTLoggingService/PutLog",
             otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogRequest.SerializeToString,
             otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.PutLogResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def Check(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/OtaClientIoTLoggingService/Check",
+            otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckRequest.SerializeToString,
+            otaclient__iot__logging__server__pb2_dot_v1_dot_otaclient__iot__logging__server__v1__pb2.HealthCheckResponse.FromString,
             options,
             channel_credentials,
             insecure,

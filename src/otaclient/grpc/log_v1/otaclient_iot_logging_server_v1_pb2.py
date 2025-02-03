@@ -13,7 +13,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\nIotaclient_iot_logging_server_pb2/v1/otaclient_iot_logging_server_v1.proto"L\n\rPutLogRequest\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x1a\n\x08log_type\x18\x02 \x01(\x0e\x32\x08.LogType\x12\x0f\n\x07message\x18\x03 \x01(\t";\n\x0ePutLogResponse\x12\x18\n\x04\x63ode\x18\x01 \x01(\x0e\x32\n.ErrorCode\x12\x0f\n\x07message\x18\x02 \x01(\t*\x1f\n\x07LogType\x12\x07\n\x03LOG\x10\x00\x12\x0b\n\x07METRICS\x10\x01*Z\n\tErrorCode\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x15\n\x11SERVER_QUEUE_FULL\x10\x01\x12\x16\n\x12NOT_ALLOWED_ECU_ID\x10\x02\x12\x0e\n\nNO_MESSAGE\x10\x03\x32I\n\x1aOtaClientIoTLoggingService\x12+\n\x06PutLog\x12\x0e.PutLogRequest\x1a\x0f.PutLogResponse"\x00\x62\x06proto3'
+    b'\nIotaclient_iot_logging_server_pb2/v1/otaclient_iot_logging_server_v1.proto"L\n\rPutLogRequest\x12\x0e\n\x06\x65\x63u_id\x18\x01 \x01(\t\x12\x1a\n\x08log_type\x18\x02 \x01(\x0e\x32\x08.LogType\x12\x0f\n\x07message\x18\x03 \x01(\t";\n\x0ePutLogResponse\x12\x18\n\x04\x63ode\x18\x01 \x01(\x0e\x32\n.ErrorCode\x12\x0f\n\x07message\x18\x02 \x01(\t"%\n\x12HealthCheckRequest\x12\x0f\n\x07service\x18\x01 \x01(\t"\x9a\x01\n\x13HealthCheckResponse\x12\x32\n\x06status\x18\x01 \x01(\x0e\x32".HealthCheckResponse.ServingStatus"O\n\rServingStatus\x12\x0b\n\x07UNKNOWN\x10\x00\x12\x0b\n\x07SERVING\x10\x01\x12\x0f\n\x0bNOT_SERVING\x10\x02\x12\x13\n\x0fSERVICE_UNKNOWN\x10\x03*\x1f\n\x07LogType\x12\x07\n\x03LOG\x10\x00\x12\x0b\n\x07METRICS\x10\x01*Z\n\tErrorCode\x12\x0e\n\nNO_FAILURE\x10\x00\x12\x15\n\x11SERVER_QUEUE_FULL\x10\x01\x12\x16\n\x12NOT_ALLOWED_ECU_ID\x10\x02\x12\x0e\n\nNO_MESSAGE\x10\x03\x32}\n\x1aOtaClientIoTLoggingService\x12+\n\x06PutLog\x12\x0e.PutLogRequest\x1a\x0f.PutLogResponse"\x00\x12\x32\n\x05\x43heck\x12\x13.HealthCheckRequest\x1a\x14.HealthCheckResponseb\x06proto3'
 )
 
 _globals = globals()
@@ -26,14 +26,20 @@ _builder.BuildTopDescriptorsAndMessages(
 if _descriptor._USE_C_DESCRIPTORS == False:
 
     DESCRIPTOR._options = None
-    _globals["_LOGTYPE"]._serialized_start = 216
-    _globals["_LOGTYPE"]._serialized_end = 247
-    _globals["_ERRORCODE"]._serialized_start = 249
-    _globals["_ERRORCODE"]._serialized_end = 339
+    _globals["_LOGTYPE"]._serialized_start = 412
+    _globals["_LOGTYPE"]._serialized_end = 443
+    _globals["_ERRORCODE"]._serialized_start = 445
+    _globals["_ERRORCODE"]._serialized_end = 535
     _globals["_PUTLOGREQUEST"]._serialized_start = 77
     _globals["_PUTLOGREQUEST"]._serialized_end = 153
     _globals["_PUTLOGRESPONSE"]._serialized_start = 155
     _globals["_PUTLOGRESPONSE"]._serialized_end = 214
-    _globals["_OTACLIENTIOTLOGGINGSERVICE"]._serialized_start = 341
-    _globals["_OTACLIENTIOTLOGGINGSERVICE"]._serialized_end = 414
+    _globals["_HEALTHCHECKREQUEST"]._serialized_start = 216
+    _globals["_HEALTHCHECKREQUEST"]._serialized_end = 253
+    _globals["_HEALTHCHECKRESPONSE"]._serialized_start = 256
+    _globals["_HEALTHCHECKRESPONSE"]._serialized_end = 410
+    _globals["_HEALTHCHECKRESPONSE_SERVINGSTATUS"]._serialized_start = 331
+    _globals["_HEALTHCHECKRESPONSE_SERVINGSTATUS"]._serialized_end = 410
+    _globals["_OTACLIENTIOTLOGGINGSERVICE"]._serialized_start = 537
+    _globals["_OTACLIENTIOTLOGGINGSERVICE"]._serialized_end = 662
 # @@protoc_insertion_point(module_scope)
