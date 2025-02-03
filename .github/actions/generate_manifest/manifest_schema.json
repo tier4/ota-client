@@ -24,7 +24,7 @@
                         "type": "string"
                     },
                     "size": {
-                        "type": "string"
+                        "type": "integer"
                     },
                     "checksum": {
                         "type": "string"
@@ -34,6 +34,9 @@
                     },
                     "base_version": {
                         "type": "string"
+                    },
+                    "metadata": {
+                        "type": "object"
                     }
                 },
                 "required": [

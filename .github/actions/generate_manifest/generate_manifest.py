@@ -42,7 +42,7 @@ def get_file_size(file_path):
     Get the size of the file.
     """
 
-    return str(os.path.getsize(file_path))
+    return os.path.getsize(file_path)
 
 
 def generate_manifest(input_dir):
@@ -62,7 +62,7 @@ def generate_manifest(input_dir):
             }
             if file_info["type"] == "squashfs":
                 # squashfs file name format: ota-client-${architecture}-v${version}.squashfs
-                match = re.search(r"v(\d+\.\d+)(?:\.\d+)?", file)
+                match = re.search(r"v(\d+\.\d+(?:\.\d+)?)", file)
                 file_info["version"] = match.group(1) if match else "unknown"
             else:
                 # patch file name format: ota-client-${architecture}_v${BASE_VERSION}-v${VERSION}.patch
