@@ -19,10 +19,12 @@ import logging
 import re
 from dataclasses import dataclass
 from queue import Queue
+from urllib.parse import urlparse
 
 import grpc
 import pytest
 import pytest_asyncio
+from pydantic import AnyHttpUrl
 from pytest_mock import MockerFixture
 
 import otaclient._logging as _logging
@@ -70,7 +72,7 @@ class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
 
 
 class TestLogClient:
-    OTA_CLIENT_LOGGING_SERVER = "127.0.0.1:8083"
+    OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8083"
     ECU_ID = "testclient"
 
     @pytest.fixture(autouse=True)
@@ -94,7 +96,7 @@ class TestLogClient:
     @pytest.fixture(autouse=True)
     def mock_proxy_info(self, mocker: MockerFixture):
         self._proxy_info = ProxyInfo(
-            logging_server=TestLogClient.OTA_CLIENT_LOGGING_SERVER
+            logging_server=AnyHttpUrl(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
         )
         mocker.patch(f"{MODULE}.proxy_info", self._proxy_info)
 
@@ -105,7 +107,8 @@ class TestLogClient:
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
             server=server,
         )
-        server.add_insecure_port(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
+        parsed_url = urlparse(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
+        server.add_insecure_port(parsed_url.netloc)
         try:
             await server.start()
             yield
@@ -149,7 +152,7 @@ class TestLogClient:
             ),
         ],
     )
-    async def test_logging(
+    async def test_grpc_logging(
         self,
         launch_grpc_server,
         restore_logging,
