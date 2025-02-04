@@ -20,7 +20,8 @@ import os
 import re
 from datetime import datetime, timezone
 
-from jsonschema import ValidationError, validate
+import schema
+from pydantic import ValidationError
 
 SCHEMA_VERSION = "1"
 
@@ -80,18 +81,15 @@ def generate_manifest(input_dir):
     return data
 
 
-def validate_manifest(data, schema_file):
+def validate_manifest(data):
     """
     Validate the manifest.json file against the schema.
     """
-
-    with open(schema_file) as file_obj:
-        json_schema = json.load(file_obj)
-
     try:
-        validate(data, json_schema)
+        schema.Manifest(**data)
     except ValidationError as e:
-        print(e.message)
+        print("Validation Error:")
+        print(e)
 
 
 def main():
@@ -106,20 +104,17 @@ def main():
         required=True,
         help="Directory containing the artifact(squashfs, patch)",
     )
-    parser.add_argument("--schema", type=str, required=False, help="Schema file")
     parser.add_argument("--output", type=str, required=True, help="Output file name")
 
     args = parser.parse_args()
     input_dir = args.dir
-    schema_file = args.schema
     output_file = args.output
 
     data = generate_manifest(input_dir)
     with open(output_file, "w") as f:
         json.dump(data, f, indent=4)
 
-    if schema_file:
-        validate_manifest(data, schema_file)
+    validate_manifest(data)
 
 
 if __name__ == "__main__":

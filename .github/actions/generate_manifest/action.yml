@@ -19,7 +19,7 @@ runs:
       shell: bash
       run: |
         python -m pip install -U pip
-        python -m pip install -U jsonschema
+        python -m pip install -U pydantic
 
     - name: generate json manifest
       env:
@@ -29,5 +29,4 @@ runs:
       run: |
         python ./.github/actions/generate_manifest/generate_manifest.py \
           --dir ${DIR} \
-          --schema ./.github/actions/generate_manifest/manifest_schema.json \
           --output ${OUTPUT_MANIFEST}

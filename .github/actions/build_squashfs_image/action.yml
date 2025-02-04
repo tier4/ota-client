@@ -50,8 +50,7 @@ runs:
       run: |
         cp dist/${WHL} docker/app_img/
         pushd docker/app_img
-        docker buildx create --use
-        docker buildx build --platform ${PLATFORM} \
+        docker build --platform ${PLATFORM} \
           --build-arg=UBUNTU_BASE=${BASE_IMAGE} \
           --build-arg=OTACLIENT_VERSION=${VERSION} \
           --build-arg=OTACLIENT_WHL=${WHL} \

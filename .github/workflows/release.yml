@@ -36,7 +36,7 @@ jobs:
         id: set_env
         run: |
           OTACLIENT_WHL=$(basename $(ls dist/otaclient-*.whl))
-          OTACLIENT_VERSION=$(echo $OTACLIENT_WHL | sed -E 's/otaclient-([0-9]+\.[0-9]+(\.[0-9]+)?).*\.whl/\1/')
+          OTACLIENT_VERSION=$(hatch version | sed -E 's/([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')
           echo OTACLIENT_WHL=${OTACLIENT_WHL} >> $GITHUB_OUTPUT
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
@@ -53,75 +53,51 @@ jobs:
           name: artifacts-python-packages
           path: dist/*.whl
 
-  build_squashfs_image_x86_64:
+  build_squashfs_images:
     runs-on: ubuntu-latest
     needs: build_python_packages
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [x86_64, arm64]
+        include:
+          - platform: x86_64
+            base_image: ubuntu:22.04
+          - platform: arm64
+            base_image: arm64v8/ubuntu:22.04
     steps:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: build squashfs image for x86_64
+      - name: build squashfs image for ${{ matrix.platform }}
         uses: ./.github/actions/build_squashfs_image
         with:
-          platform: linux/amd64
-          platform_suffix: x86_64
-          base_image: ubuntu:22.04
+          platform: linux/${{ matrix.platform }}
+          platform_suffix: ${{ matrix.platform }}
+          base_image: ${{ matrix.base_image }}
           whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
           version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          output_squashfs: dist/ota-client-x86_64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          output_squashfs: dist/ota-client-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
 
       - name: build patches
         uses: ./.github/actions/build_patches
         with:
-          platform_suffix: x86_64
+          platform_suffix: ${{ matrix.platform }}
           version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-x86_64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          squashfs: dist/ota-client-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
           output_dir: dist
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: artifacts-squashfs_x86_64
-          path: |
-            dist/*.squashfs
-            dist/*.patch
-
-  build_squashfs_image_arm64:
-    runs-on: ubuntu-latest
-    needs: build_python_packages
-    steps:
-      - name: checkout
-        uses: actions/checkout@v4
-
-      - name: build squashfs image for arm64
-        uses: ./.github/actions/build_squashfs_image
-        with:
-          platform: linux/arm64
-          platform_suffix: arm64
-          base_image: arm64v8/ubuntu:22.04
-          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          output_squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
-
-      - name: build paches
-        uses: ./.github/actions/build_patches
-        with:
-          platform_suffix: arm64
-          version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-arm64-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
-          output_dir: dist
-
-      - name: upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: artifacts-squashfs_arm64
+          name: artifacts-squashfs_${{ matrix.platform }}
           path: |
             dist/*.squashfs
             dist/*.patch
 
   post_build:
     runs-on: ubuntu-latest
-    needs: [build_python_packages, build_squashfs_image_x86_64, build_squashfs_image_arm64]
+    needs: [build_python_packages, build_squashfs_images]
     steps:
       - name: checkout
         uses: actions/checkout@v4

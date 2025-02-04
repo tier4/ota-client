@@ -34,8 +34,7 @@ runs:
       run: |
         RELEASES=$(curl -s https://api.github.com/repos/tier4/ota-client/releases)
         RELEASED_VERSIONS=$(echo "${RELEASES}" | \
-          jq -r '.[].name' | \
-          grep -oE '^v[0-9]+\.[0-9]+\.[0-9]+$' | \
+          jq -r '.[] | select(.prerelease == false) | .tag_name' | \
           sed 's/^v//' | \
           tr '\n' ' ')
         echo "RELEASED_VERSIONS=${RELEASED_VERSIONS}" >> $GITHUB_ENV
