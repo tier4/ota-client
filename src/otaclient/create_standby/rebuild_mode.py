@@ -203,6 +203,7 @@ class RebuildMode:
         batch_concurrency: int = PROCESS_FILES_CONCURRENCY,
         num_of_workers: int = PROCESS_FILES_WORKER,
     ) -> None:
+        logger.info("star to process regular entries ...")
         _next_commit_before, _batch_cnt = 0, 0
         _merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.APPLY_DELTA
@@ -261,7 +262,7 @@ class RebuildMode:
         *,
         batch_size: int = PROCESS_DIRS_BATCH_SIZE,
     ) -> None:
-        logger.info("process directories ...")
+        logger.info("start to process directory entries ...")
         _func = partial(
             FileTableDirectories.prepare_target,
             target_mnt=self._standby_slot_mp,
@@ -279,7 +280,7 @@ class RebuildMode:
         *,
         batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
     ) -> None:
-        logger.info("process non regular file entries ...")
+        logger.info("start to process non-regular entries ...")
         _func = _failed_task_logging_wrapper(
             partial(
                 FileTableNonRegularFiles.prepare_target,
