@@ -1,7 +1,7 @@
 services:
   tester-ubuntu-18.04:
     build:
-      context: ../
+      context: ../../
       dockerfile: ./docker/test_base/Dockerfile_ubuntu-18.04
       args:
         - UBUNTU_BASE=ubuntu:18.04
@@ -12,12 +12,12 @@ services:
       OUTPUT_DIR: /test_result
       CERTS_DIR: /certs
     volumes:
-      - ..:/otaclient_src:ro
-      - ../test_result:/test_result:rw
+      - ../..:/otaclient_src:ro
+      - ../../test_result:/test_result:rw
 
   tester-ubuntu-20.04:
     build:
-      context: ../
+      context: ../../
       dockerfile: ./docker/test_base/Dockerfile
       args:
         - UBUNTU_BASE=ubuntu:20.04
@@ -28,12 +28,12 @@ services:
       OUTPUT_DIR: /test_result
       CERTS_DIR: /certs
     volumes:
-      - ..:/otaclient_src:ro
-      - ../test_result:/test_result:rw
+      - ../../:/otaclient_src:ro
+      - ../../test_result:/test_result:rw
 
   tester-ubuntu-22.04:
     build:
-      context: ../
+      context: ../../
       dockerfile: ./docker/test_base/Dockerfile
       args:
         - UBUNTU_BASE=ubuntu:22.04
@@ -44,5 +44,5 @@ services:
       OUTPUT_DIR: /test_result
       CERTS_DIR: /certs
     volumes:
-      - ..:/otaclient_src:ro
-      - ../test_result:/test_result:rw
+      - ../..:/otaclient_src:ro
+      - ../../test_result:/test_result:rw

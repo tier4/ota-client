@@ -1,0 +1,32 @@
+name: "Generate Manifest"
+description: "Generate a manifest file for the OTA client"
+inputs:
+  dir:
+    description: "The directory containing the SquashFS and patches files"
+    required: true
+  output_manifest:
+    description: "The output manifest file"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: setup python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.8
+
+    - name: install build deps
+      shell: bash
+      run: |
+        python -m pip install -U pip
+        python -m pip install -U pydantic
+
+    - name: generate json manifest
+      env:
+        DIR: ${{ inputs.dir }}
+        OUTPUT_MANIFEST: ${{ inputs.output_manifest }}
+      shell: bash
+      run: |
+        python ./.github/actions/generate_manifest/generate_manifest.py \
+          --dir ${DIR} \
+          --output ${OUTPUT_MANIFEST}
