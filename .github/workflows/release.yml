@@ -77,14 +77,14 @@ jobs:
           base_image: ${{ matrix.base_image }}
           whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
           version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          output_squashfs: dist/ota-client-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          output_squashfs: dist/otaclient-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
 
       - name: build patches
         uses: ./.github/actions/build_patches
         with:
           platform_suffix: ${{ matrix.platform }}
           version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
-          squashfs: dist/ota-client-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
+          squashfs: dist/otaclient-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
           output_dir: dist
 
       - name: upload artifacts

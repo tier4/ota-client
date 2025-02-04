@@ -14,9 +14,13 @@
 """Schema definition for manifest.json."""
 
 from datetime import datetime
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel
+
+
+class PackageExtraMetadata(BaseModel):
+    patch_base_version: str
 
 
 class ReleasePackage(BaseModel):
@@ -26,6 +30,7 @@ class ReleasePackage(BaseModel):
     architecture: Literal["x86_64", "arm64"]
     size: int
     checksum: str
+    metadata: Optional[PackageExtraMetadata] = None
 
 
 class Manifest(BaseModel):

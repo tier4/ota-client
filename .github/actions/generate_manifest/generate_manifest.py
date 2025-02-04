@@ -13,15 +13,15 @@
 # limitations under the License.
 """Generate a manifest.json file for the OTA client."""
 
+from __future__ import annotations
+
 import argparse
 import hashlib
-import json
 import os
 import re
 from datetime import datetime, timezone
 
-import schema
-from pydantic import ValidationError
+from schema import Manifest, PackageExtraMetadata, ReleasePackage
 
 SCHEMA_VERSION = "1"
 
@@ -46,7 +46,7 @@ def get_file_size(file_path):
     return os.path.getsize(file_path)
 
 
-def generate_manifest(input_dir):
+def generate_manifest(input_dir: str):
     packages = []
     for root, _, files in os.walk(input_dir):
         for file in files:
@@ -54,42 +54,38 @@ def generate_manifest(input_dir):
                 continue
 
             file_path = os.path.join(root, file)
-            file_info = {
-                "filename": file,
-                "type": "squashfs" if file.endswith(".squashfs") else "patch",
-                "architecture": "x86_64" if "x86_64" in file else "arm64",
-                "size": get_file_size(file_path),
-                "checksum": calculate_checksum(file_path),
-            }
-            if file_info["type"] == "squashfs":
-                # squashfs file name format: ota-client-${architecture}-v${version}.squashfs
+            file_type = "squashfs" if file.endswith(".squashfs") else "patch"
+            if file_type == "squashfs":
+                # squashfs file name format: otaclient-${architecture}-v${version}.squashfs
                 match = re.search(r"v(\d+\.\d+(?:\.\d+)?)", file)
-                file_info["version"] = match.group(1) if match else "unknown"
+                _base_version = None
+                version = match.group(1) if match else "unknown"
             else:
-                # patch file name format: ota-client-${architecture}_v${BASE_VERSION}-v${VERSION}.patch
+                # patch file name format: otaclient-${architecture}_v${BASE_VERSION}-v${VERSION}.patch
                 match = re.search(r"v(\d+\.\d+(?:\.\d+)?)-v(\d+\.\d+(?:\.\d+)?)", file)
-                file_info["base_version"] = match.group(1) if match else "unknown"
-                file_info["version"] = match.group(2) if match else "unknown"
+                _base_version = match.group(1) if match else "unknown"
+                version = match.group(2) if match else "unknown"
 
-            packages.append(file_info)
+            package = ReleasePackage(
+                filename=file,
+                type=file_type,
+                version=version,
+                architecture="x86_64" if "x86_64" in file else "arm64",
+                size=get_file_size(file_path),
+                checksum=calculate_checksum(file_path),
+            )
 
-    data = {
-        "schema_version": SCHEMA_VERSION,
-        "date": datetime.now(timezone.utc).isoformat(),
-        "packages": packages,
-    }
-    return data
+            if _base_version:
+                metadata = PackageExtraMetadata(patch_base_version=_base_version)
+                package.metadata = metadata
 
+            packages.append(package)
 
-def validate_manifest(data):
-    """
-    Validate the manifest.json file against the schema.
-    """
-    try:
-        schema.Manifest(**data)
-    except ValidationError as e:
-        print("Validation Error:")
-        print(e)
+    return Manifest(
+        schema_version=SCHEMA_VERSION,
+        date=datetime.now(timezone.utc),
+        packages=packages,
+    )
 
 
 def main():
@@ -107,14 +103,15 @@ def main():
     parser.add_argument("--output", type=str, required=True, help="Output file name")
 
     args = parser.parse_args()
-    input_dir = args.dir
-    output_file = args.output
+    input_dir: str = args.dir
+    output_file: str = args.output
 
     data = generate_manifest(input_dir)
+    # NOTE: when JSON serialing, datetime by default will be serialized into
+    #       ISO8601 format string, like the following:
+    #           2025-02-04T03:22:35.871745
     with open(output_file, "w") as f:
-        json.dump(data, f, indent=4)
-
-    validate_manifest(data)
+        f.write(data.model_dump_json(indent=4, exclude_unset=True))
 
 
 if __name__ == "__main__":

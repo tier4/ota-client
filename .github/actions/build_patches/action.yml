@@ -65,17 +65,17 @@ runs:
         SQUASHFS: ${{ inputs.squashfs }}
         OUTPUT_DIR: ${{ inputs.output_dir }}
       shell: bash
-      # if the release version contains "ota-client-${platform_suffix}_v${version}.squashfs" asset,
+      # if the release version contains "otaclient-${platform_suffix}_v${version}.squashfs" asset,
       # download the squashfs file, create a patch file then save it to the output directory
       run: |
         for BASE_VERSION in ${BASE_VERSIONS}; do
-          BASE_SQUASHFS="ota-client-${PLATFORM_SUFFIX}_v${BASE_VERSION}.squashfs"
+          BASE_SQUASHFS="otaclient-${PLATFORM_SUFFIX}_v${BASE_VERSION}.squashfs"
           ASSET_URL="https://github.com/tier4/ota-client/releases/download/v${BASE_VERSION}/${BASE_SQUASHFS}"
           if curl --output /dev/null --silent --head --fail "${ASSET_URL}"; then
 
             curl -L -o ${BASE_SQUASHFS} ${ASSET_URL} || continue
 
-            PATCH_FILE="ota-client-${PLATFORM_SUFFIX}_v${BASE_VERSION}-v${VERSION}.patch"
+            PATCH_FILE="otaclient-${PLATFORM_SUFFIX}_v${BASE_VERSION}-v${VERSION}.patch"
             zstd --patch-from=${BASE_SQUASHFS} ${SQUASHFS} -o ${OUTPUT_DIR}/${PATCH_FILE} || continue
           fi
         done
