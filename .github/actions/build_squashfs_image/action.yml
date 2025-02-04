@@ -38,6 +38,11 @@ runs:
         echo "DOCKER_IMAGE=otaclient-${PLATFORM_SUFFIX}:${VERSION}" >> $GITHUB_ENV
         echo "DOCKER_CONTAINER=otaclient-${PLATFORM_SUFFIX}_v${VERSION}" >> $GITHUB_ENV
 
+    - name: set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        install: true
+
     - name: build docker image
       env:
         DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
