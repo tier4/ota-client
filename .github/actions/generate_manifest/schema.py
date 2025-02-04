@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 
 class PackageExtraMetadata(BaseModel):
-    patch_base_version: str
+    patch_base_version: Optional[str] = None
 
 
 class ReleasePackage(BaseModel):
