@@ -1,0 +1,81 @@
+name: "Build SquashFS Image"
+description: "Builds a SquashFS image using Docker"
+inputs:
+  platform_suffix:
+    description: "The platform suffix"
+    required: true
+  version:
+    description: "The OTA client version"
+    required: true
+  squashfs:
+    description: "The target SquashFS file"
+    required: true
+  output_dir:
+    description: "The output directory"
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: set self version as environment variable
+      env:
+        VERSION: ${{ inputs.version }}
+      shell: bash
+      run: |
+        MAJOR=$(echo ${VERSION} | cut -d. -f1)
+        MINOR=$(echo ${VERSION} | cut -d. -f2)
+        PATCH=$(echo ${VERSION} | cut -d. -f3)
+
+        echo "MAJOR=${MAJOR:-0}" >> $GITHUB_ENV
+        echo "MINOR=${MINOR:-0}" >> $GITHUB_ENV
+        echo "PATCH=${PATCH:-0}" >> $GITHUB_ENV
+
+    - name: get released versions
+      shell: bash
+      run: |
+        RELEASES=$(curl -s https://api.github.com/repos/tier4/ota-client/releases)
+        RELEASED_VERSIONS=$(echo "${RELEASES}" | \
+          jq -r '.[] | select(.prerelease == false) | .tag_name' | \
+          sed 's/^v//' | \
+          tr '\n' ' ')
+        echo "RELEASED_VERSIONS=${RELEASED_VERSIONS}" >> $GITHUB_ENV
+
+    - name: extract target versions
+      env:
+        RELEASED_VERSIONS: ${{ env.RELEASED_VERSIONS }}
+        MAJOR: ${{ env.MAJOR }}
+        MINOR: ${{ env.MINOR }}
+        PATCH: ${{ env.PATCH }}
+      shell: bash
+      # extract versions that meet the the following conditions:
+      # 1. include the same major version and the same or the previous minor version
+      # 2. exclude the same major, minor, and patch version
+      run: |
+        BASE_VERSIONS=$(echo "${RELEASED_VERSIONS}" | \
+          tr ' ' '\n' | \
+          grep -E "^${MAJOR}\.(${MINOR}|$(( ${MINOR} - 1)))\.[0-9]+$" | \
+          grep -vE "^${MAJOR}\.${MINOR}\.${PATCH}$" | \
+          tr '\n' ' ' || true)
+        echo "BASE_VERSIONS=${BASE_VERSIONS}" >> $GITHUB_ENV
+
+    - name: download and create patches for target versions
+      env:
+        BASE_VERSIONS: ${{ env.BASE_VERSIONS }}
+        PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
+        VERSION: ${{ inputs.version }}
+        SQUASHFS: ${{ inputs.squashfs }}
+        OUTPUT_DIR: ${{ inputs.output_dir }}
+      shell: bash
+      # if the release version contains "otaclient-${platform_suffix}_v${version}.squashfs" asset,
+      # download the squashfs file, create a patch file then save it to the output directory
+      run: |
+        for BASE_VERSION in ${BASE_VERSIONS}; do
+          BASE_SQUASHFS="otaclient-${PLATFORM_SUFFIX}_v${BASE_VERSION}.squashfs"
+          ASSET_URL="https://github.com/tier4/ota-client/releases/download/v${BASE_VERSION}/${BASE_SQUASHFS}"
+          if curl --output /dev/null --silent --head --fail "${ASSET_URL}"; then
+
+            curl -L -o ${BASE_SQUASHFS} ${ASSET_URL} || continue
+
+            PATCH_FILE="otaclient-${PLATFORM_SUFFIX}_v${BASE_VERSION}-v${VERSION}.patch"
+            zstd --patch-from=${BASE_SQUASHFS} ${SQUASHFS} -o ${OUTPUT_DIR}/${PATCH_FILE} || continue
+          fi
+        done

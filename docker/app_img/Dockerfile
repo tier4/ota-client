@@ -1,4 +1,4 @@
-ARG UBUNTU_BASE="ubuntu:22.04"
+ARG UBUNTU_BASE=ubuntu:22.04
 
 FROM ${UBUNTU_BASE} AS image_build
 
@@ -50,7 +50,6 @@ ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
 RUN set -eux; \
-    ln -s ${OTACLIENT_VENV}/bin/python3 /otaclient_py3; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         python3; \
