@@ -73,8 +73,6 @@ PROCESS_FILES_REPORT_INTERVAL = 1  # second
 PROCESS_DIRS_BATCH_SIZE = 32
 
 PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 128
-PROCESS_NON_REGULAR_FILES_CONCURRENCY = 18
-PROCESS_NON_REGULAR_FILES_WORKER = 3
 
 PROCESS_FILES_BATCH_SIZE = 256
 PROCESS_FILES_CONCURRENCY = 64
@@ -280,27 +278,20 @@ class RebuildMode:
         self,
         *,
         batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
-        batch_cuncurrency: int = PROCESS_NON_REGULAR_FILES_CONCURRENCY,
-        num_of_workers: int = PROCESS_NON_REGULAR_FILES_WORKER,
     ) -> None:
         logger.info("process non regular file entries ...")
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_cuncurrency,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            max_workers=num_of_workers,
-        ) as _mapper:
-            for _ in _mapper.ensure_tasks(
-                func=_failed_task_logging_wrapper(
-                    partial(
-                        FileTableNonRegularFiles.prepare_target,
-                        target_mnt=self._standby_slot_mp,
-                    )
-                ),
-                iterable=self._ota_metadata.iter_non_regular_entries(
-                    batch_size=batch_size
-                ),
-            ):
-                """failure logging is handled by logging_wrapper."""
+        _func = _failed_task_logging_wrapper(
+            partial(
+                FileTableNonRegularFiles.prepare_target,
+                target_mnt=self._standby_slot_mp,
+            )
+        )
+        for entry in self._ota_metadata.iter_non_regular_entries(batch_size=batch_size):
+            try:
+                _func(entry)
+            except Exception as e:
+                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
+                raise
 
     # API
 
