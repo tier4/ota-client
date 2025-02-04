@@ -27,7 +27,7 @@ from queue import Queue
 
 from ota_metadata.file_table._orm import FileTableDirORMPool, FileTableRegularORMPool
 from ota_metadata.legacy2.metadata import OTAMetadata
-from ota_metadata.legacy2.rs_table import ResourceTableORM, ResourceTableORMPool
+from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
@@ -153,8 +153,7 @@ class DeltaGenerator:
 
                 # If the resource we scan here is listed in the resouce table, copy it
                 #   to the copy_dir at standby slot for later use.
-                if self._rst_orm_pool.orm_check_entry_exist(digest=hash_f.digest()):
-                    dst_f.touch(exist_ok=False)  # take the seat ASAP
+                if self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest()) == 1:
                     tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
                     self._status_report_queue.put_nowait(
                         StatusReport(
@@ -168,10 +167,8 @@ class DeltaGenerator:
                     )
             finally:
                 tmp_f.unlink(missing_ok=True)
-        except FileExistsError:
-            pass  # normal rountine when multiple threads entering the critical zone
         except Exception as e:
-            burst_suppressed_logger.exception(f"failed to proces {fpath}: {e!r}")
+            burst_suppressed_logger.warning(f"failed to proces {fpath}: {e!r}")
         finally:
             self._max_pending_tasks.release()  # always release se first
 
@@ -179,49 +176,6 @@ class DeltaGenerator:
     def _thread_worker_initializer(thread_local) -> None:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
-
-    def _post_calculate_delta(self) -> None:
-        """
-        After all the local resources have been collected, we check the copy_dir
-            and remove presented entries from resource table.
-        """
-        _rs_orm = ResourceTableORM(self._ota_metadata.connect_rstable())
-        _delete_stmt = ResourceTableORM.orm_table_spec.table_delete_stmt(
-            delete_from=_rs_orm.orm_table_name,
-            where_cols=("digest",),
-        )
-
-        _delete_batches = []
-        try:
-            with os.scandir(self._copy_dst) as it, _rs_orm.orm_con as conn:
-                for entry in it:
-                    entry_name = entry.name
-                    if len(entry_name) != SHA256HEXSTRINGLEN:
-                        continue
-
-                    try:
-                        _digest = bytes.fromhex(entry_name)
-                    except Exception:
-                        continue
-
-                    _delete_batches.append(_digest)
-                    if len(_delete_batches) > DELETE_BATCH_SIZE:
-                        conn.executemany(
-                            _delete_stmt,
-                            ({"digest": _value} for _value in _delete_batches),
-                        )
-                        _delete_batches = []
-
-                # remember the last batch!
-                conn.executemany(
-                    _delete_stmt,
-                    ({"digest": _value} for _value in _delete_batches),
-                )
-
-            with _rs_orm.orm_con as conn:
-                conn.execute("VACUUM;")
-        finally:
-            _rs_orm.orm_con.close()
 
     # API
 
@@ -298,7 +252,6 @@ class DeltaGenerator:
                         "exceeded files will be ignored silently"
                     )
 
-                # process the files under this dir
                 for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                     delta_src_fpath = delta_src_curdir_path / fname
 
@@ -318,11 +271,11 @@ class DeltaGenerator:
                         fully_scan=dir_should_fully_scan,
                         thread_local=thread_local,
                     )
+
+            # heals the hole of the rs table
+            self._rst_orm_pool.orm_execute("VACUUM;")
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
-
-        logger.info("post delta calculation ...")
-        self._post_calculate_delta()
