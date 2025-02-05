@@ -70,7 +70,10 @@ from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_an
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
-from otaclient.create_standby._delta_gen import DeltaGenerator
+from otaclient.create_standby._delta_gen import (
+    DeltaGenFullDiskScan,
+    DeltaGenWithFileTable,
+)
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient_common import human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
@@ -247,10 +250,18 @@ class _OTAUpdater:
         self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
+        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
+        active_slot_file_table = replace_root(
+            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+            old_root="/",
+            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        )
+
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
             ca_chains_store=ca_chains_store,
+            base_file_table=active_slot_file_table,
         )
 
     def _download_file(self, entry: DownloadInfo) -> tuple[int, int, int]:
@@ -555,7 +566,12 @@ class _OTAUpdater:
         )
 
         try:
-            delta_calculator = DeltaGenerator(
+            if self._ota_metadata.base_file_table_ready:
+                _delta_gen_impl = DeltaGenWithFileTable
+            else:
+                _delta_gen_impl = DeltaGenFullDiskScan
+
+            delta_calculator = _delta_gen_impl(
                 ota_metadata=self._ota_metadata,
                 delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                 copy_dst=self._resource_dir_on_standby,

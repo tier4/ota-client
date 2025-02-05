@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -94,6 +95,10 @@ class DeltaGenerator:
     def _thread_worker_initializer(thread_local) -> None:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
+
+    @abstractmethod
+    def calculate_delta(self) -> None:
+        raise NotImplementedError
 
 
 class DeltaGenWithFileTable(DeltaGenerator):
