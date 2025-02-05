@@ -31,6 +31,7 @@ import os.path
 import shutil
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
@@ -191,71 +192,81 @@ class OTAMetadata:
         metadata_jwt = self.metadata_jwt
 
         # ------ setup database ------ #
-        fst_conn = self.connect_fstable()
-        rst_conn = self.connect_rstable()
+        with closing(self.connect_fstable()) as fst_conn, closing(
+            self.connect_rstable()
+        ) as rst_conn:
+            ft_regular_orm = FileTableRegularORM(fst_conn)
+            ft_regular_orm.orm_create_table()
+            ft_dir_orm = FileTableDirORM(fst_conn)
+            ft_dir_orm.orm_create_table()
+            ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
+            ft_non_regular_orm.orm_create_table()
 
-        ft_regular_orm = FileTableRegularORM(fst_conn)
-        ft_regular_orm.orm_create_table()
-        ft_dir_orm = FileTableDirORM(fst_conn)
-        ft_dir_orm.orm_create_table()
-        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
-        ft_non_regular_orm.orm_create_table()
+            rs_orm = ResourceTableORM(rst_conn)
+            rs_orm.orm_create_table()
 
-        rs_orm = ResourceTableORM(rst_conn)
-        rs_orm.orm_create_table()
+            # ------ download metafiles ------ #
+            regular_meta = metadata_jwt.regular
+            regular_download_url = urljoin_ensure_base(
+                self._base_url, regular_meta.file
+            )
+            regular_save_fpath = _download_dir / regular_meta.file
 
-        # ------ download metafiles ------ #
-        regular_meta = metadata_jwt.regular
-        regular_download_url = urljoin_ensure_base(self._base_url, regular_meta.file)
-        regular_save_fpath = _download_dir / regular_meta.file
+            dir_meta = metadata_jwt.directory
+            dir_download_url = urljoin_ensure_base(self._base_url, dir_meta.file)
+            dir_save_fpath = _download_dir / dir_meta.file
 
-        dir_meta = metadata_jwt.directory
-        dir_download_url = urljoin_ensure_base(self._base_url, dir_meta.file)
-        dir_save_fpath = _download_dir / dir_meta.file
+            symlink_meta = metadata_jwt.symboliclink
+            symlink_download_url = urljoin_ensure_base(
+                self._base_url, symlink_meta.file
+            )
+            symlink_save_fpath = _download_dir / symlink_meta.file
 
-        symlink_meta = metadata_jwt.symboliclink
-        symlink_download_url = urljoin_ensure_base(self._base_url, symlink_meta.file)
-        symlink_save_fpath = _download_dir / symlink_meta.file
+            _download_list = [
+                DownloadInfo(
+                    url=regular_download_url,
+                    dst=regular_save_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=regular_meta.hash,
+                ),
+                DownloadInfo(
+                    url=dir_download_url,
+                    dst=dir_save_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=dir_meta.hash,
+                ),
+                DownloadInfo(
+                    url=symlink_download_url,
+                    dst=symlink_save_fpath,
+                    digest_alg=self.DIGEST_ALG,
+                    digest=symlink_meta.hash,
+                ),
+            ]
+            with condition:
+                yield _download_list
+                condition.wait()  # wait for download finished
 
-        _download_list = [
-            DownloadInfo(
-                url=regular_download_url,
-                dst=regular_save_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=regular_meta.hash,
-            ),
-            DownloadInfo(
-                url=dir_download_url,
-                dst=dir_save_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=dir_meta.hash,
-            ),
-            DownloadInfo(
-                url=symlink_download_url,
-                dst=symlink_save_fpath,
-                digest_alg=self.DIGEST_ALG,
-                digest=symlink_meta.hash,
-            ),
-        ]
-        with condition:
-            yield _download_list
-            condition.wait()  # wait for download finished
+            # ------ parse metafiles ------ #
+            self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
+                _fpath=regular_save_fpath,
+                _orm=ft_regular_orm,
+                _orm_rs=rs_orm,
+            )
+            regular_save_fpath.unlink(missing_ok=True)
 
-        # ------ parse metafiles ------ #
-        self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
-            _fpath=regular_save_fpath,
-            _orm=ft_regular_orm,
-            _orm_rs=rs_orm,
-        )
-        regular_save_fpath.unlink(missing_ok=True)
+            dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+            dir_save_fpath.unlink(missing_ok=True)
 
-        dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
-        dir_save_fpath.unlink(missing_ok=True)
+            symlinks_num = parse_symlinks_from_csv_file(
+                symlink_save_fpath, ft_non_regular_orm
+            )
+            symlink_save_fpath.unlink(missing_ok=True)
 
-        symlinks_num = parse_symlinks_from_csv_file(
-            symlink_save_fpath, ft_non_regular_orm
-        )
-        symlink_save_fpath.unlink(missing_ok=True)
+            # ------ post parsing ------ #
+            ft_regular_orm.orm_create_index(
+                index_name="digest_index",
+                index_keys=("digest",),
+            )
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
