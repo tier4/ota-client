@@ -26,11 +26,13 @@ from pathlib import Path
 from queue import Queue
 
 from ota_metadata.file_table._orm import FileTableDirORMPool, FileTableRegularORMPool
+from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.common import create_tmp_fname
+from otaclient_common.downloader import EMPTY_FILE_SHA256_BYTE
 from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,116 @@ class DeltaGenerator:
     NOTE: the instance of this class cannot be re-used after delta is generated.
     """
 
+    def __init__(
+        self,
+        *,
+        ota_metadata: OTAMetadata,
+        delta_src: Path,
+        copy_dst: Path,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        self._ota_metadata = ota_metadata
+        self._status_report_queue = status_report_queue
+        self.session_id = session_id
+
+        self._delta_src_mount_point = delta_src
+        self._copy_dst = copy_dst
+
+        self._ft_regular_orm = FileTableRegularORMPool(
+            con_factory=ota_metadata.connect_fstable,
+            number_of_cons=DB_CONN_NUMS,
+            thread_name_prefix="ft_reg_orm_pool",
+        )
+        self._rst_orm_pool = ResourceTableORMPool(
+            con_factory=ota_metadata.connect_rstable,
+            number_of_cons=DB_CONN_NUMS,
+            thread_name_prefix="ota_delta_gen",
+        )
+
+        self._max_pending_tasks = threading.Semaphore(
+            cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+        )
+
+    @staticmethod
+    def _thread_worker_initializer(thread_local) -> None:
+        thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+        thread_local.view = memoryview(buffer)
+
+
+class DeltaGenWithFileTable(DeltaGenerator):
+
+    def _process_file(
+        self, _input: tuple[bytes, list[FileTableRegularFiles]], thread_local
+    ) -> None:
+        expected_digest, entries = _input
+        dst_f = self._copy_dst / expected_digest.hex()
+        if expected_digest == EMPTY_FILE_SHA256_BYTE:
+            dst_f.touch()
+            return
+
+        src_dir = self._delta_src_mount_point
+        for entry in entries:
+            src_fpath = src_dir / entry.path
+            if not src_fpath.is_file():
+                continue
+
+            tmp_f = self._copy_dst / create_tmp_fname()
+            try:
+                hash_buffer, hash_bufferview = (thread_local.buffer, thread_local.view)
+                hash_f = sha256()
+                with open(src_fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                    while read_size := src.readinto(hash_buffer):
+                        hash_f.update(hash_bufferview[:read_size])
+                        tmp_dst.write(hash_bufferview[:read_size])
+                if hash_f.digest() != entry.digest:
+                    continue
+
+                if self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest()) == 1:
+                    tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                processed_file_size=entry.entry_attrs.size or 0,
+                                processed_file_num=1,
+                            ),
+                            session_id=self.session_id,
+                        )
+                    )
+                else:  # it should not happen normally
+                    return
+            finally:
+                tmp_f.unlink(missing_ok=True)
+
+    # API
+
+    def calculate_delta(self) -> None:
+        logger.debug("process delta src, generate delta and prepare local copy...")
+        thread_local = threading.local()
+        se = self._max_pending_tasks
+
+        def _release_se(_):
+            se.release()
+
+        pool = ThreadPoolExecutor(
+            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            thread_name_prefix="scan_slot",
+            initializer=partial(self._thread_worker_initializer, thread_local),
+        )
+        try:
+            for item in self._ota_metadata.iter_common_regular_entries_by_digest():
+                self._max_pending_tasks.acquire()
+                pool.submit(
+                    self._process_file, item, thread_local=thread_local
+                ).add_done_callback(_release_se)
+        finally:
+            pool.shutdown(wait=True)
+            self._ft_regular_orm.orm_pool_shutdown()
+            self._rst_orm_pool.orm_pool_shutdown()
+
+
+class DeltaGenFullDiskScan(DeltaGenerator):
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
     FULL_SCAN_PATHS = {
@@ -86,43 +198,6 @@ class DeltaGenerator:
     # NOTE: the following settings are enough for most cases
     MAX_FOLDER_DEEPTH = 20
     MAX_FILENUM_PER_FOLDER = 8192
-
-    def __init__(
-        self,
-        *,
-        ota_metadata: OTAMetadata,
-        delta_src: Path,
-        copy_dst: Path,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
-    ) -> None:
-        self._ota_metadata = ota_metadata
-        self._status_report_queue = status_report_queue
-        self.session_id = session_id
-
-        self._delta_src_mount_point = delta_src
-        self._copy_dst = copy_dst
-
-        self._ft_dir_orm = FileTableDirORMPool(
-            con_factory=ota_metadata.connect_fstable,
-            number_of_cons=DB_CONN_NUMS,
-            thread_name_prefix="ft_dir_orm_pool",
-        )
-
-        self._ft_regular_orm = FileTableRegularORMPool(
-            con_factory=ota_metadata.connect_fstable,
-            number_of_cons=DB_CONN_NUMS,
-            thread_name_prefix="ft_reg_orm_pool",
-        )
-        self._rst_orm_pool = ResourceTableORMPool(
-            con_factory=ota_metadata.connect_rstable,
-            number_of_cons=DB_CONN_NUMS,
-            thread_name_prefix="ota_delta_gen",
-        )
-
-        self._max_pending_tasks = threading.Semaphore(
-            cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
-        )
 
     def _process_file(
         self,
@@ -172,18 +247,17 @@ class DeltaGenerator:
         finally:
             self._max_pending_tasks.release()  # always release se first
 
-    @staticmethod
-    def _thread_worker_initializer(thread_local) -> None:
-        thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
-        thread_local.view = memoryview(buffer)
-
-    # API
-
     def calculate_delta(self) -> None:  # NOSONAR
         logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path(CANONICAL_ROOT)
 
         thread_local = threading.local()
+
+        ft_dir_orm = FileTableDirORMPool(
+            con_factory=self._ota_metadata.connect_fstable,
+            number_of_cons=DB_CONN_NUMS,
+            thread_name_prefix="ft_dir_orm_pool",
+        )
 
         pool = ThreadPoolExecutor(
             max_workers=cfg.MAX_PROCESS_FILE_THREAD,
@@ -237,9 +311,7 @@ class DeltaGenerator:
                 if (
                     _str_canon_fpath != CANONICAL_ROOT
                     and not dir_should_fully_scan
-                    and not self._ft_dir_orm.orm_check_entry_exist(
-                        path=_str_canon_fpath
-                    )
+                    and not ft_dir_orm.orm_check_entry_exist(path=_str_canon_fpath)
                 ):
                     dirnames.clear()
                     continue
@@ -277,5 +349,5 @@ class DeltaGenerator:
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
-            self._ft_dir_orm.orm_pool_shutdown()
+            ft_dir_orm.orm_pool_shutdown()
             self._rst_orm_pool.orm_pool_shutdown()
