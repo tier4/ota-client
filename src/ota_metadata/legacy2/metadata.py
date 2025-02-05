@@ -330,6 +330,9 @@ class OTAMetadata:
             with _dst_conn as conn:
                 _fs_conn.backup(conn)
 
+            with _dst_conn as conn:
+                conn.execute("VACUUM;")
+
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
         _orm = FileTableRegularORM(self.connect_fstable)
