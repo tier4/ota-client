@@ -167,6 +167,8 @@ class DeltaGenWithFileTable(DeltaGenerator):
                 pool.submit(
                     self._process_file, item, thread_local=thread_local
                 ).add_done_callback(_release_se)
+            # heal the holes of rs_table
+            self._rst_orm_pool.orm_execute("VACUUM;")
         finally:
             pool.shutdown(wait=True)
             self._ft_regular_orm.orm_pool_shutdown()
