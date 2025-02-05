@@ -77,7 +77,6 @@ from otaclient.create_standby import (
     StandbySlotCreatorProtocol,
     get_standby_slot_creator,
 )
-from otaclient.create_standby.common import DeltaBundle
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
@@ -245,26 +244,6 @@ class _OTAUpdater:
         )
         self._downloader_mapper: dict[int, Downloader] = {}
 
-    def _calculate_delta(
-        self,
-        standby_slot_creator: StandbySlotCreatorProtocol,
-    ) -> DeltaBundle:
-        logger.info("start to calculate and prepare delta...")
-        delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
-
-        # update dynamic information
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    total_download_files_num=len(delta_bundle.download_list),
-                    total_download_files_size=delta_bundle.total_download_files_size,
-                    total_remove_files_num=len(delta_bundle.rm_delta),
-                ),
-                session_id=self.session_id,
-            )
-        )
-        return delta_bundle
-
     def _download_files(
         self,
         ota_metadata: ota_metadata_parser.OTAMetadata,
@@ -414,6 +393,18 @@ class _OTAUpdater:
         """Implementation of OTA updating."""
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
 
+        self._handle_upper_proxy()
+        otameta = self._process_metadata()
+        self._pre_update()
+        standby_slot_creator = self._create_standby_slot_creator(otameta)
+        delta_bundle = self._calculate_delta(standby_slot_creator)
+        self._download(otameta, delta_bundle)
+        self._apply_update(standby_slot_creator)
+        self._post_update(otameta)
+        self._finalize_update()
+
+    def _handle_upper_proxy(self):
+        """Ensure the upper proxy is online before starting the local OTA update."""
         if _upper_proxy := self._upper_proxy:
             logger.info(
                 f"use {_upper_proxy} for local OTA update, "
@@ -426,8 +417,9 @@ class _OTAUpdater:
                 probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
             )
 
-        # ------ init, processing metadata ------ #
-        logger.debug("process metadata.jwt...")
+    def _process_metadata(self):
+        """Process the metadata.jwt file and report."""
+        logger.info("process metadata.jwt...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -482,8 +474,10 @@ class _OTAUpdater:
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
         finally:
             self._downloader_pool.release_instance()
+        return otameta
 
-        # ------ pre-update ------ #
+    def _pre_update(self):
+        """Prepare the standby slot for the update."""
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
             self.update_version,
@@ -494,13 +488,16 @@ class _OTAUpdater:
         self._ota_tmp_on_standby.mkdir(exist_ok=True)
         self._ota_tmp_image_meta_dir_on_standby.mkdir(exist_ok=True)
 
+    def _create_standby_slot_creator(self, otameta):
+        """Create the standby slot creator."""
+        logger.info("create standby slot creator...")
         # ------ in-update ------ #
         # NOTE(20230907): standby slot creator doesn't need to
         #                 treat the files under /boot specially, it is
         #                 boot controller's responsibility to get the
         #                 kernel/initrd.img from standby slot and prepare
         #                 them to actual boot dir.
-        standby_slot_creator = self._create_standby_cls(
+        return self._create_standby_cls(
             ota_metadata=otameta,
             boot_dir=str(Path(cfg.STANDBY_SLOT_MNT) / "boot"),
             active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
@@ -508,6 +505,10 @@ class _OTAUpdater:
             status_report_queue=self._status_report_queue,
             session_id=self.session_id,
         )
+
+    def _calculate_delta(self, standby_slot_creator):
+        """Calculate the delta bundle."""
+        logger.info("enter delta calculation phase...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -519,14 +520,31 @@ class _OTAUpdater:
         )
 
         try:
-            delta_bundle = self._calculate_delta(standby_slot_creator)
+            logger.info("start to calculate and prepare delta...")
+            delta_bundle = standby_slot_creator.calculate_and_prepare_delta()
+
+            # update dynamic information
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=SetUpdateMetaReport(
+                        total_download_files_num=len(delta_bundle.download_list),
+                        total_download_files_size=delta_bundle.total_download_files_size,
+                        total_remove_files_num=len(delta_bundle.rm_delta),
+                    ),
+                    session_id=self.session_id,
+                )
+            )
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+        return delta_bundle
 
+    def _download(self, otameta, delta_bundle):
+        """Download the OTA image files."""
+        logger.info("start to download OTA image files...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -550,7 +568,8 @@ class _OTAUpdater:
             del delta_bundle
             self._downloader_pool.shutdown()
 
-        # ------ apply update ------ #
+    def _apply_update(self, standby_slot_creator):
+        """Apply the update to the standby slot."""
         logger.info("start to apply changes to standby slot...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -563,7 +582,8 @@ class _OTAUpdater:
         )
         standby_slot_creator.create_standby_slot()
 
-        # ------ post-update ------ #
+    def _post_update(self, otameta):
+        """Post-update phase."""
         logger.info("enter post update phase...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -578,7 +598,8 @@ class _OTAUpdater:
         self._process_persistents(otameta)
         self._boot_controller.post_update()
 
-        # ------ finalizing update ------ #
+    def _finalize_update(self):
+        """Finalize the update."""
         logger.info("local update finished, wait on all subecs...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -637,7 +658,6 @@ class _OTARollbacker:
 
 
 class OTAClient:
-
     def __init__(
         self,
         *,
@@ -814,6 +834,10 @@ class OTAClient:
             )
 
     def rollback(self, request: RollbackRequestV2) -> None:
+        """
+        OTA rollback entry.
+        The failure information is available via status API.
+        """
         self._live_ota_status = OTAStatus.ROLLBACKING
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
@@ -883,7 +907,6 @@ class OTAClient:
                 )
 
             elif isinstance(request, UpdateRequestV2):
-
                 _update_thread = threading.Thread(
                     target=self.update,
                     args=[request],
@@ -920,7 +943,6 @@ class OTAClient:
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
             else:
-
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
                 resp_queue.put_nowait(
