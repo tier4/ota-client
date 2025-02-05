@@ -48,7 +48,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
             SELECT digest
             FROM main.{FT_REGULAR_TABLE_NAME}
             GROUP BY digest
-        ) AS d1 ON d2.digest = d1.digest;
+        ) AS d1 USING(digest) ORDER BY digest;
         """
         orm_conn = self.orm_con
 
