@@ -196,7 +196,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
     # scanning in unknown large, deep folders in full
     # scan mode.
     # NOTE: the following settings are enough for most cases
-    MAX_FOLDER_DEEPTH = 20
+    MAX_FOLDER_DEEPTH = 23
     MAX_FILENUM_PER_FOLDER = 8192
 
     def _process_file(
