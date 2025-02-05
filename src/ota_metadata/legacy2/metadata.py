@@ -384,9 +384,21 @@ class OTAMetadata:
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
             yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
-    def iter_common_regular_entries_by_digest(self) -> Generator[FileTableRegularFiles]:
+    def iter_common_regular_entries_by_digest(
+        self,
+    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
+        _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            yield from orm.iter_common_by_digest(str(self._base_file_table))
+            for entry in orm.iter_common_by_digest(str(self._base_file_table)):
+                if entry.digest == _hash:
+                    _cur.append(entry)
+                else:
+                    if _cur:
+                        yield _hash, _cur
+                    _hash, _cur = entry.digest, [entry]
+
+            if _cur:
+                yield _hash, _cur
 
     def iter_regular_entries(
         self, *, batch_size: int
