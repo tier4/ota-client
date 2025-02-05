@@ -52,7 +52,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         """
         orm_conn = self.orm_con
 
-        orm_conn.execute(f"ATTACH {other_db} AS {attached_db_schema};")
+        orm_conn.execute(f"ATTACH '{other_db}' AS {attached_db_schema};")
         try:
             with orm_conn:
                 cur = orm_conn.execute(stmt)
