@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from functools import partial
 from typing import Generator
 
 from simple_sqlite3_orm import ORMBase, ORMThreadPoolBase
@@ -57,9 +56,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         try:
             with orm_conn:
                 cur = orm_conn.execute(stmt)
-                cur.row_factory = partial(
-                    self.orm_table_spec.table_row_factory2, validation=False
-                )
+                cur.row_factory = self.orm_table_spec.table_row_factory2
                 yield from cur
         finally:
             orm_conn.execute(f"DETACH DATABASE {attached_db_schema};")
