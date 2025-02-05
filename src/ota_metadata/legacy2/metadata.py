@@ -324,17 +324,11 @@ class OTAMetadata:
 
     def save_fstable(self, dst: StrOrPath, db_fname: str = FSTABLE_DB) -> None:
         """Dump the file_table to <dst>/<db_fname>"""
-        _dst_conn = sqlite3.connect(Path(dst) / db_fname)
-        _fs_conn = self.connect_fstable()
-        try:
+        with closing(self.connect_fstable()) as _fs_conn, closing(
+            sqlite3.connect(Path(dst) / db_fname)
+        ) as _dst_conn:
             with _dst_conn as conn:
-                try:
-                    _fs_conn.backup(conn)
-                finally:
-                    _fs_conn.close()
-        finally:
-            _fs_conn.close()
-            _dst_conn.close()
+                _fs_conn.backup(conn)
 
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
