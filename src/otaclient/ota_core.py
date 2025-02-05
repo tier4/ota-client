@@ -567,6 +567,9 @@ class _OTAUpdater:
 
         try:
             if self._ota_metadata.base_file_table_ready:
+                logger.info(
+                    "file_table for active_slot found, use file_table to assist delta calculation!"
+                )
                 _delta_gen_impl = DeltaGenWithFileTable
             else:
                 _delta_gen_impl = DeltaGenFullDiskScan
