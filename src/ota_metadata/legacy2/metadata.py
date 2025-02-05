@@ -26,6 +26,7 @@ Version1 OTA metafiles list:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os.path
 import shutil
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
+from simple_sqlite3_orm import utils
 from simple_sqlite3_orm.utils import (
     enable_tmp_store_at_memory,
     enable_wal_mode,
@@ -48,6 +50,7 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
 )
 from ota_metadata.file_table._orm import (
+    FT_REGULAR_TABLE_NAME,
     FileTableDirORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
@@ -100,11 +103,14 @@ class OTAMetadata:
         base_url: str,
         session_dir: StrOrPath,
         ca_chains_store: CAChainStore,
+        base_file_table: StrOrPath,
     ) -> None:
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg)
+
+        self._base_file_table = Path(base_file_table)
 
         self._ca_store = ca_chains_store
         self._base_url = base_url
@@ -124,6 +130,21 @@ class OTAMetadata:
     @property
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
+
+    @property
+    def base_file_table_ready(self) -> bool:
+        db_f = self._base_file_table
+        if not Path(db_f).is_file():
+            return False
+
+        with contextlib.closing(
+            sqlite3.connect(f"file:{db_f}?mode=ro", uri=True)
+        ) as con:
+            if not utils.check_db_integrity(con):
+                return False
+            if not utils.lookup_table(con, FT_REGULAR_TABLE_NAME):
+                return False
+        return True
 
     def _prepare_metadata(
         self,
@@ -356,8 +377,16 @@ class OTAMetadata:
     def iter_non_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
+        """Yield entries from base file_table which digest presented in OTA image's file_table.
+
+        This is for assisting faster delta_calculation without full disk scan.
+        """
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
             yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+
+    def iter_common_regular_entries_by_digest(self) -> Generator[FileTableRegularFiles]:
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            yield from orm.iter_common_by_digest(str(self._base_file_table))
 
     def iter_regular_entries(
         self, *, batch_size: int

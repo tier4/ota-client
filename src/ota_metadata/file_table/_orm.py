@@ -36,18 +36,18 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     _orm_table_name = FT_REGULAR_TABLE_NAME
 
     def iter_common_by_digest(self, other_db: str) -> Generator[FileTableRegularFiles]:
-        """Yield entries in this ft which digest presented on <other_db>.ft_table.
+        """Yield entries from <other_db>.ft_table which digest presented in this ft.
 
         This is for assisting faster delta_calculation without full disk scan.
         """
 
         attached_db_schema = "base"
-        stmt = """\
+        stmt = f"""\
         SELECT d2.*
-        FROM base.ft_regular AS d2
+        FROM base.{FT_REGULAR_TABLE_NAME} AS d2
         INNER JOIN (
             SELECT digest
-            FROM main.ft_regular
+            FROM main.{FT_REGULAR_TABLE_NAME}
             GROUP BY digest
         ) AS d1 ON d2.digest = d1.digest;
         """
