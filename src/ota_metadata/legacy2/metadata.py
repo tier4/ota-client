@@ -50,7 +50,6 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
 )
 from ota_metadata.file_table._orm import (
-    FT_REGULAR_TABLE_NAME,
     FileTableDirORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
@@ -140,7 +139,7 @@ class OTAMetadata:
         with contextlib.closing(
             sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
         ) as con:
-            if not utils.check_db_integrity(con, FT_REGULAR_TABLE_NAME):
+            if not utils.check_db_integrity(con):
                 return False
         return True
 
