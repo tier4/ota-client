@@ -351,6 +351,9 @@ class OTAMetadata:
 
             with _dst_conn as conn:
                 conn.execute("VACUUM;")
+                # change the journal_mode back to DELETE to make db file on read-only mount work.
+                # see https://www.sqlite.org/wal.html#read_only_databases for more details.
+                conn.execute("PRAGMA journal_mode=DELETE;")
 
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
