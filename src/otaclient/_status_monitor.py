@@ -13,7 +13,6 @@
 # limitations under the License.
 """The implementation of tracking otaclient operation status."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -64,7 +63,6 @@ class SetOTAClientMetaReport:
 
 @dataclass
 class UpdateProgressReport:
-
     class Type(Enum):
         # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
         #       counted as <processed_files_*>

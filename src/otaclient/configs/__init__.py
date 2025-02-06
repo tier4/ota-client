@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 else:
 
     class DefaultOTAClientConfigs:
-
         def __init__(self) -> None:
             self._cfg_consts = Consts()
             self._cfg_configurable = ConfigurableSettings()

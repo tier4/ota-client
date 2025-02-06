@@ -60,7 +60,6 @@ def test_gen_file_digest(tmp_path: Path):
 
 
 class TestWriteStrToFileAtomic:
-
     @pytest.fixture(scope="class")
     def data(self):
         data_lens = [100, 500, 1000, 9000]  # bytes

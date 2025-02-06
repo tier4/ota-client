@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTAClient API caller implementation."""
 
-
 from __future__ import annotations
 
 import grpc.aio

@@ -13,7 +13,6 @@
 # limitations under the License.
 """The implementation of tracking otaclient operation stats."""
 
-
 from __future__ import annotations
 
 import logging
@@ -37,7 +36,6 @@ from otaclient._types import FailureType, OTAStatus, UpdatePhase
 
 
 class TestStatusMonitor:
-
     # update meta
     TOTAL_FILES_NUM = TOTAL_FILES_SIZE = 1000
     METADATA_SIZE = 20
