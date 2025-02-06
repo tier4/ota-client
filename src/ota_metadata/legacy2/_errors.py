@@ -13,14 +13,6 @@
 # limitations under the License.
 
 
-class OTAImageInvalid(Exception):
-    """OTA image itself is incompleted or metadata is missing."""
-
-
-class OTARequestsAuthTokenInvalid(Exception):
-    """Hit 401 or 403 when downloading metadata."""
-
-
 class MetadataJWTPayloadInvalid(Exception):
     """Raised when verification passed, but input metadata.jwt is invalid."""
 
