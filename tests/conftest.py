@@ -44,8 +44,15 @@ TEST_DIR = Path(__file__).parent
 
 # see test base Dockerfile for more details.
 OTA_IMAGE_DIR = Path("/ota-image")
+CERTS_DIR = Path("/certs")
 KERNEL_PREFIX = "vmlinuz"
 INITRD_PREFIX = "initrd.img"
+
+# local OTA image HTTP server
+OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
+OTA_IMAGE_SERVER_PORT = 8080
+OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
+OTA_IMAGE_SIGN_CERT = OTA_IMAGE_DIR / "sign.pem"
 
 
 def _get_kernel_version() -> str:

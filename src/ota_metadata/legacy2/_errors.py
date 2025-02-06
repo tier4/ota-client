@@ -13,17 +13,8 @@
 # limitations under the License.
 
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
+class MetadataJWTPayloadInvalid(Exception):
+    """Raised when verification passed, but input metadata.jwt is invalid."""
 
 
-@dataclass
-class DownloadInfo:
-    url: str
-    dst: Path
-    original_size: int = 0
-    """NOTE: we are using transparent decompression, so we always use the original_size."""
-    digest_alg: Optional[str] = None
-    digest: Optional[str] = None
-    compression_alg: Optional[str] = None
+class MetadataJWTVerificationFailed(Exception): ...
