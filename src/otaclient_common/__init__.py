@@ -44,6 +44,15 @@ def get_file_size(
         return ceil(swapfile_fpath.stat().st_size / _multiplier[units])
 
 
+def human_readable_size(_in: int) -> str:
+    for _mu_name, _mu in _multiplier.items():
+        if _mu == 1:
+            break
+        if (_res := (_in / _mu)) > 1:
+            return f"{_res:.2f} {_mu_name}"
+    return f"{_in} Bytes"
+
+
 def replace_root(
     path: str | Path, old_root: str | Path | Literal["/"], new_root: str | Path
 ) -> str:

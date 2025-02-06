@@ -350,8 +350,8 @@ class OTAMetadata:
                 yield line.strip()[1:-1]
 
     def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
-        with FileTableDirORM(self.connect_fstable()) as pool:
-            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
+        with FileTableDirORM(self.connect_fstable()) as orm:
+            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_non_regular_entries(
         self, *, batch_size: int
@@ -363,8 +363,8 @@ class OTAMetadata:
         self, *, batch_size: int
     ) -> Generator[FileTableRegularFiles]:
         # NOTE: do the dispatch at a thread
-        with FileTableRegularORM(self.connect_fstable()) as pool:
-            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
@@ -500,6 +500,6 @@ class ResourceMeta:
 
     def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
         """Iter through the resource table and yield DownloadInfo for every resource."""
-        with ResourceTableORM(self._ota_metadata.connect_rstable()) as pool:
-            for entry in pool.iter_all_with_shuffle(batch_size=batch_size):
+        with ResourceTableORM(self._ota_metadata.connect_rstable()) as orm:
+            for entry in orm.iter_all_with_shuffle(batch_size=batch_size):
                 yield self.get_download_info(entry)
