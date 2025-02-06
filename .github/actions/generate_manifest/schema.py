@@ -11,10 +11,29 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Schema definition for manifest.json."""
+
+from datetime import datetime
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel
 
 
-class MetadataJWTPayloadInvalid(Exception):
-    """Raised when verification passed, but input metadata.jwt is invalid."""
+class PackageExtraMetadata(BaseModel):
+    patch_base_version: Optional[str] = None
 
 
-class MetadataJWTVerificationFailed(Exception): ...
+class ReleasePackage(BaseModel):
+    filename: str
+    version: str
+    type: Literal["squashfs", "patch"]
+    architecture: Literal["x86_64", "arm64"]
+    size: int
+    checksum: str
+    metadata: Optional[PackageExtraMetadata] = None
+
+
+class Manifest(BaseModel):
+    schema_version: str = "1"
+    date: datetime
+    packages: List[ReleasePackage]

@@ -356,8 +356,8 @@ class OTAMetadata:
     def iter_non_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
-        with FileTableNonRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+        with FileTableNonRegularORM(self.connect_fstable()) as pool:
+            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_regular_entries(
         self, *, batch_size: int
