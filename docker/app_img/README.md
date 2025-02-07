@@ -13,8 +13,11 @@ Also the container environment needed to be carefully setup to let otaclient run
 
 ```bash
 sudo docker build \
-    --no-cache --build-arg=OTACLIENT_VERSION=3.8.4 \
-    --build-arg=OTACLIENT_WHL=otaclient-3.8.4-py3-none-any.whl -t otaclient:3.8.4 .
+    --no-cache \
+    --build-arg=UBUNTU_BASE=ubuntu:22.04 \
+    --build-arg=OTACLIENT_VERSION=3.8.4 \
+    --build-arg=OTACLIENT_WHL=otaclient-3.8.4-py3-none-any.whl \
+    -t otaclient:3.8.4 .
 ```
 
 3. export docker image and create zstd compressed squashfs
@@ -23,7 +26,7 @@ sudo docker build \
 # enter root shell
 sudo -s
 
-docker create otaclient_v3.8.4_export otaclient:3.8.4
+docker create --name otaclient_v3.8.4 otaclient:3.8.4
 docker export otaclient_v3.8.4 | mksquashfs - otaclient_v3.8.4.squashfs \
     -tar -b 1M \
     -mkfs-time 1729810800 \
