@@ -28,8 +28,8 @@ from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 import anyio
 from anyio import open_file
 
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
-from otaclient_common.typing import StrOrPath
 
 from .config import config as cfg
 from .db import CacheMeta

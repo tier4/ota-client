@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 import aiohttp
 from multidict import CIMultiDict, CIMultiDictProxy
 
-from otaclient_common.logging import get_burst_suppressed_logger
+from otaclient_common._logging import get_burst_suppressed_logger
 
 from ._consts import (
     BHEADER_AUTHORIZATION,

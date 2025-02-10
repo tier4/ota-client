@@ -22,8 +22,8 @@ import time
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.legacy.parser import MetafilesV1, OTAMetadata
-from ota_metadata.legacy.types import RegularInf
+from ota_metadata.legacy._parser import MetafilesV1, OTAMetadata
+from ota_metadata.legacy._types import RegularInf
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common.retry_task_map import (

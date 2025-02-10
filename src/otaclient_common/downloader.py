@@ -37,7 +37,7 @@ from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
 from ota_proxy import OTAFileCacheControl
-from otaclient_common.typing import P, StrOrPath, T
+from otaclient_common._typing import P, StrOrPath, T
 
 logger = logging.getLogger(__name__)
 

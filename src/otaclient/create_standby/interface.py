@@ -36,7 +36,7 @@ from abc import abstractmethod
 from queue import Queue
 from typing import Protocol
 
-from ota_metadata.legacy.parser import OTAMetadata
+from ota_metadata.legacy._parser import OTAMetadata
 from otaclient._status_monitor import StatusReport
 
 from .common import DeltaBundle

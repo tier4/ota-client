@@ -25,9 +25,9 @@ from otaclient._utils import SharedOTAClientStatusReader
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
-from otaclient_api.v2 import types as api_types
+from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common.logging import get_burst_suppressed_logger
+from otaclient_common._logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
 # NOTE: suppress error loggings from checking local ECU's status shm

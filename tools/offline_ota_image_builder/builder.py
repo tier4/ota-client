@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-from ota_metadata.legacy import parser as ota_metadata_parser
+from ota_metadata.legacy import _parser as ota_metadata_parser
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common.common import subprocess_call
 

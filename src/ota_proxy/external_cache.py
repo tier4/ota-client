@@ -20,7 +20,7 @@ import logging
 
 from ota_proxy.config import config
 from otaclient_common import cmdhelper
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 

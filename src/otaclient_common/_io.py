@@ -25,7 +25,7 @@ import sys
 from functools import partial
 from pathlib import Path
 
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 

@@ -31,8 +31,8 @@ from typing_extensions import Annotated, Literal, Self
 
 from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import copytree_identical
-from otaclient_common.typing import StrOrPath
 
 from .configs import jetson_common_cfg
 
