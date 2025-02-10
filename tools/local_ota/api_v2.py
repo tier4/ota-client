@@ -26,9 +26,9 @@ import yaml
 from pydantic import BaseModel, RootModel
 from typing_extensions import Self
 
-from otaclient_api.v2 import types
+from otaclient_api.v2 import _types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,10 @@ class UpdateRequestList(RootModel):
         return cls.model_validate(_loaded)
 
 
-def generate_request(req_entries: UpdateRequestList) -> types.UpdateRequest:
-    return types.UpdateRequest(
+def generate_request(req_entries: UpdateRequestList) -> _types.UpdateRequest:
+    return _types.UpdateRequest(
         ecu=(
-            types.UpdateRequestEcu(
+            _types.UpdateRequestEcu(
                 ecu_id=entry.ecu_id,
                 version=entry.version,
                 url=entry.url,
@@ -75,7 +75,7 @@ async def main(
     host: str,
     port: int,
     *,
-    req: types.UpdateRequest,
+    req: _types.UpdateRequest,
     timeout: int = 3,
 ) -> None:
     try:

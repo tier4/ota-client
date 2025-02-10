@@ -47,8 +47,8 @@ from itertools import chain
 
 from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
-from otaclient.grpc.api_v2.types import convert_to_apiv2_status
-from otaclient_api.v2 import types as api_types
+from otaclient.grpc.api_v2._types import convert_to_apiv2_status
+from otaclient_api.v2 import _types as api_types
 
 logger = logging.getLogger(__name__)
 

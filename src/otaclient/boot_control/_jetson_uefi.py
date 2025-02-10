@@ -44,8 +44,8 @@ from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest, file_sha256, write_str_to_file_atomic
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call
-from otaclient_common.typing import StrOrPath
 
 from ._jetson_common import (
     SLOT_PAR_MAP,

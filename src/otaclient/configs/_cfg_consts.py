@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from otaclient_common import replace_root
-from otaclient_common.typing import StrEnum
+from otaclient_common._typing import StrEnum
 
 CANONICAL_ROOT = "/"
 

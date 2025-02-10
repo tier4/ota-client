@@ -28,8 +28,8 @@ from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
 
 from typing_extensions import ParamSpec
 
+from otaclient_common._typing import RT, T
 from otaclient_common.common import wait_with_backoff
-from otaclient_common.typing import RT, T
 
 P = ParamSpec("P")
 

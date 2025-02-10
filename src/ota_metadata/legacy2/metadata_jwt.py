@@ -51,7 +51,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from ota_metadata.utils.cert_store import CAChainStore
-from otaclient_common.typing import StrEnum
+from otaclient_common._typing import StrEnum
 
 from ._errors import MetadataJWTPayloadInvalid, MetadataJWTVerificationFailed
 

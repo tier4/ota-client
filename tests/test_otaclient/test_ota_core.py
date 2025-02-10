@@ -23,8 +23,8 @@ from queue import Queue
 import pytest
 import pytest_mock
 
-from ota_metadata.legacy.parser import parse_dirs_from_txt, parse_regulars_from_txt
-from ota_metadata.legacy.types import DirectoryInf, RegularInf
+from ota_metadata.legacy._parser import parse_dirs_from_txt, parse_regulars_from_txt
+from ota_metadata.legacy._types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import ota_core
 from otaclient._status_monitor import (

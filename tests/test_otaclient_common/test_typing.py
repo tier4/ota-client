@@ -18,7 +18,7 @@ from __future__ import annotations
 from pathlib import Path
 from subprocess import check_output
 
-from otaclient_common.typing import StrEnum
+from otaclient_common._typing import StrEnum
 
 
 class EnumForTest(StrEnum):

@@ -27,8 +27,8 @@ from typing import Callable, Literal
 
 from otaclient._types import OTAClientStatus
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common._typing import StrOrPath
 from otaclient_common.shm_status import MPSharedStatusReader, MPSharedStatusWriter
-from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 

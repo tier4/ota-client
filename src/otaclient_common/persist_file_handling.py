@@ -21,13 +21,13 @@ import shutil
 from functools import lru_cache, partial
 from pathlib import Path
 
+from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import (
     ParsedGroup,
     ParsedPasswd,
     map_gid_by_grpnam,
     map_uid_by_pwnam,
 )
-from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 

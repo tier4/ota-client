@@ -17,7 +17,7 @@ import time
 
 from pytest import LogCaptureFixture
 
-from otaclient_common import logging as _logging
+from otaclient_common import _logging as _logging
 
 TEST_ROUND = 10
 TEST_LOGGINGS_NUM = 3000

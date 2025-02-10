@@ -51,7 +51,7 @@ import yaml
 from pydantic import BaseModel, BeforeValidator
 from typing_extensions import Annotated
 
-from otaclient_common.typing import StrEnum, StrOrPath, gen_strenum_validator
+from otaclient_common._typing import StrEnum, StrOrPath, gen_strenum_validator
 
 logger = logging.getLogger(__name__)
 

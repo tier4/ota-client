@@ -37,8 +37,8 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 import otaclient.configs.cfg as otaclient_cfg
-from ota_metadata.legacy import parser as ota_metadata_parser
-from ota_metadata.legacy import types as ota_metadata_types
+from ota_metadata.legacy import _parser as ota_metadata_parser
+from ota_metadata.legacy import _types as ota_metadata_types
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
     CAChainStore,

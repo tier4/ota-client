@@ -26,7 +26,7 @@ from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
 from typing_extensions import Annotated
 
 from otaclient.configs._common import BaseFixedConfig
-from otaclient_common.typing import (
+from otaclient_common._typing import (
     NetworkPort,
     StrEnum,
     StrOrPath,
