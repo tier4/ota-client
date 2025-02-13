@@ -20,9 +20,7 @@ import time
 from functools import partial
 from pathlib import Path
 from queue import Queue
-from typing import Callable, Generator, TypeVar
-
-from typing_extensions import ParamSpec
+from typing import Generator
 
 from ota_metadata.file_table._table import (
     FileTableDirectories,
@@ -50,30 +48,12 @@ burst_suppressed_logger.addFilter(
     )
 )
 
-P = ParamSpec("P")
-RT = TypeVar("RT")
-
-
-def _failed_task_logging_wrapper(_func: Callable[P, RT]) -> Callable[P, RT]:
-    def _wrapped(*args: P.args, **kwargs: P.kwargs) -> RT:
-        try:
-            return _func(*args, **kwargs)
-        except Exception as e:
-            burst_suppressed_logger.exception(
-                f"failed to process ({args}, {kwargs}): {e!r}"
-            )
-            raise
-
-    return _wrapped
-
 
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 PROCESS_DIRS_BATCH_SIZE = 32
-
 PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 128
-
 PROCESS_FILES_BATCH_SIZE = 256
 PROCESS_FILES_CONCURRENCY = 64
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
@@ -135,64 +115,68 @@ class RebuildMode:
                 processed files' size.
         """
         digest, entries = _input
-
-        # NOTE: the very first entry in the group must be prepared by local copy or
-        #   download from remote, which both cases are recorded previously, so we minus one
-        #   entry when calculating the processed_files_num and processed_files_size.
-        processed_files_num = len(entries) - 1
-        processed_files_size = processed_files_num * (entries[0].entry_attrs.size or 0)
-
-        _rs = self._resource_dir / digest.hex()
-
-        _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
-        _normal: list[FileTableRegularFiles] = []
-
-        for entry in entries:
-            if (_inode_group := entry.entry_attrs.inode) is not None:
-                _entries_list = _hardlinked.setdefault(_inode_group, [])
-                _entries_list.append(entry)
-            else:
-                _normal.append(entry)
-
-        _first_one_prepared = False
-        for entry in _normal:
-            if not _first_one_prepared:
-                entry.prepare_target(
-                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
-                )
-                _first_one_prepared = True
-            else:
-                entry.prepare_target(
-                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
-                )
-
-        for _, entries in _hardlinked.items():
-            _hardlink_first_one = entries.pop()
-            if not _first_one_prepared:
-                _hardlink_first_one.prepare_target(
-                    _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
-                )
-                _first_one_prepared = True
-            else:
-                _hardlink_first_one.prepare_target(
-                    _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
-                )
-
-            _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
-                target_mnt=self._standby_slot_mp
+        try:
+            # NOTE: the very first entry in the group must be prepared by local copy or
+            #   download from remote, which both cases are recorded previously, so we minus one
+            #   entry when calculating the processed_files_num and processed_files_size.
+            processed_files_num = len(entries) - 1
+            processed_files_size = processed_files_num * (
+                entries[0].entry_attrs.size or 0
             )
+
+            _rs = self._resource_dir / digest.hex()
+
+            _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
+            _normal: list[FileTableRegularFiles] = []
+
             for entry in entries:
-                entry.prepare_target(
-                    _hardlink_first_one_fpath,
-                    target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink",
+                if (_inode_group := entry.entry_attrs.inode) is not None:
+                    _entries_list = _hardlinked.setdefault(_inode_group, [])
+                    _entries_list.append(entry)
+                else:
+                    _normal.append(entry)
+
+            _first_one_prepared = False
+            for entry in _normal:
+                if not _first_one_prepared:
+                    entry.prepare_target(
+                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                    )
+                    _first_one_prepared = True
+                else:
+                    entry.prepare_target(
+                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                    )
+
+            for _, entries in _hardlinked.items():
+                _hardlink_first_one = entries.pop()
+                if not _first_one_prepared:
+                    _hardlink_first_one.prepare_target(
+                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                    )
+                    _first_one_prepared = True
+                else:
+                    _hardlink_first_one.prepare_target(
+                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                    )
+
+                _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
+                    target_mnt=self._standby_slot_mp
                 )
+                for entry in entries:
+                    entry.prepare_target(
+                        _hardlink_first_one_fpath,
+                        target_mnt=self._standby_slot_mp,
+                        prepare_method="hardlink",
+                    )
 
-        # finally, remove the resource. Note that if anything wrong happens,
-        #   the _rs will not be removed on purpose.
-        _rs.unlink(missing_ok=True)
-
-        return processed_files_num, processed_files_size
+            # finally, remove the resource. Note that if anything wrong happens,
+            #   the _rs will not be removed on purpose.
+            _rs.unlink(missing_ok=True)
+            return processed_files_num, processed_files_size
+        except Exception as e:
+            burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
+            raise
 
     # main entries for processing each type of files.
 
@@ -216,9 +200,7 @@ class RebuildMode:
         ) as _mapper:
             for _done_count, _done in enumerate(
                 _mapper.ensure_tasks(
-                    func=_failed_task_logging_wrapper(
-                        self._process_one_regular_files_group
-                    ),
+                    func=self._process_one_regular_files_group,
                     iterable=self._preprocess_regular_file_entries(
                         batch_size=batch_size
                     ),
@@ -267,7 +249,6 @@ class RebuildMode:
             FileTableDirectories.prepare_target,
             target_mnt=self._standby_slot_mp,
         )
-
         for entry in self._ota_metadata.iter_dir_entries(batch_size=batch_size):
             try:
                 _func(entry)
@@ -281,11 +262,9 @@ class RebuildMode:
         batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
     ) -> None:
         logger.info("start to process non-regular entries ...")
-        _func = _failed_task_logging_wrapper(
-            partial(
-                FileTableNonRegularFiles.prepare_target,
-                target_mnt=self._standby_slot_mp,
-            )
+        _func = partial(
+            FileTableNonRegularFiles.prepare_target,
+            target_mnt=self._standby_slot_mp,
         )
         for entry in self._ota_metadata.iter_non_regular_entries(batch_size=batch_size):
             try:
