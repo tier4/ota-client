@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
 from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient.create_standby import common, rebuild_mode
+from otaclient.create_standby import rebuild_mode
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.ota_core import _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
@@ -44,7 +44,6 @@ from tests.utils import SlotMeta, compare_dir
 logger = logging.getLogger(__name__)
 
 REBUILD_MODE_MODULE = rebuild_mode.__name__
-COMMON_MODULE = common.__name__
 OTA_CORE_MODULE = ota_core.__name__
 
 
