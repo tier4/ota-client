@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import shutil
 import time
-import typing
 from pathlib import Path
 from queue import Queue
 
@@ -35,7 +34,7 @@ from otaclient._status_monitor import (
 from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient.create_standby import common, rebuild_mode
+from otaclient.create_standby import rebuild_mode
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.ota_core import _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
@@ -44,7 +43,6 @@ from tests.utils import SlotMeta, compare_dir
 logger = logging.getLogger(__name__)
 
 REBUILD_MODE_MODULE = rebuild_mode.__name__
-COMMON_MODULE = common.__name__
 OTA_CORE_MODULE = ota_core.__name__
 
 
@@ -85,9 +83,10 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
     def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
 
         # ------ mock boot_controller ------ #
-        self._boot_control = typing.cast(
-            BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
+        self._boot_control = _boot_control_mock = mocker.MagicMock(
+            spec=BootControllerProtocol
         )
+        _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
 
         # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_CORE_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))

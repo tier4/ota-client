@@ -16,15 +16,12 @@
 from __future__ import annotations
 
 import shutil
-from collections import OrderedDict
 from pathlib import Path
 from queue import Queue
 
 import pytest
 import pytest_mock
 
-from ota_metadata.legacy._parser import parse_dirs_from_txt, parse_regulars_from_txt
-from ota_metadata.legacy._types import DirectoryInf, RegularInf
 from ota_metadata.utils.cert_store import load_ca_cert_chains
 from otaclient import ota_core
 from otaclient._status_monitor import (
@@ -35,8 +32,7 @@ from otaclient._status_monitor import (
 from otaclient._types import OTAStatus, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient.create_standby import StandbySlotCreatorProtocol
-from otaclient.create_standby.common import DeltaBundle, RegularDelta
+from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import OTAClient, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
@@ -59,8 +55,7 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
 
 class TestOTAUpdater:
     """
-    NOTE: the boot_control and create_standby are mocked, only testing
-          the logics directly implemented by OTAUpdater
+    NOTE: the boot_control is mocked.
     """
 
     SESSION_ID = "session_id_for_test"
@@ -91,63 +86,13 @@ class TestOTAUpdater:
         # cleanup slot_b after test
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
-    @pytest.fixture
-    def _delta_generate(self, prepare_ab_slots):
-        _ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
-        _standby_ota_tmp = self.slot_b / ".ota-tmp"
-
-        # ------ manually create delta bundle ------ #
-        # --- parse regulars.txt --- #
-        # NOTE: since we don't prepare any local copy in the test,
-        #       we need to download all the unique files
-        _donwload_list_dict: dict[bytes, RegularInf] = {}
-        _new_delta = RegularDelta()
-        _total_regulars_num, _total_donwload_files_size = 0, 0
-        with open(_ota_image_dir / "regulars.txt", "r") as _f:
-            for _l in _f:
-                _entry = parse_regulars_from_txt(_l)
-                _total_regulars_num += 1
-                _new_delta.add_entry(_entry)
-                if _entry.sha256hash not in _donwload_list_dict:
-                    _donwload_list_dict[_entry.sha256hash] = _entry
-        _download_list = list(_donwload_list_dict.values())
-        for _unique_entry in _download_list:
-            _total_donwload_files_size += (
-                _unique_entry.size if _unique_entry.size else 0
-            )
-
-        # --- parse dirs.txt --- #
-        _new_dirs: dict[DirectoryInf, None] = OrderedDict()
-        with open(_ota_image_dir / "dirs.txt", "r") as _f:
-            for _dir in map(parse_dirs_from_txt, _f):
-                _new_dirs[_dir] = None
-
-        # --- create bundle --- #
-        self._delta_bundle = DeltaBundle(
-            rm_delta=[],
-            download_list=_download_list,
-            new_delta=_new_delta,
-            new_dirs=_new_dirs,
-            delta_src=self.slot_a,
-            delta_files_dir=_standby_ota_tmp,
-            total_regular_num=_total_regulars_num,
-            total_download_files_size=_total_donwload_files_size,
-        )
-
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, _delta_generate):
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, prepare_ab_slots):
         # ------ mock boot_controller ------ #
-        self._boot_control = mocker.MagicMock(spec=BootControllerProtocol)
-
-        # ------ mock create_standby ------ #
-        self._create_standby = mocker.MagicMock(spec=StandbySlotCreatorProtocol)
-        self._create_standby_cls = mocker.MagicMock(return_value=self._create_standby)
-        # NOTE: here we use a pre_calculated mocked delta bundle
-        self._create_standby.calculate_and_prepare_delta = mocker.MagicMock(
-            spec=StandbySlotCreatorProtocol.calculate_and_prepare_delta,
-            return_value=self._delta_bundle,
+        self._boot_control = _boot_control_mock = mocker.MagicMock(
+            spec=BootControllerProtocol
         )
-        self._create_standby.should_erase_standby_slot.return_value = False  # type: ignore
+        _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
 
         # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_CORE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
@@ -185,7 +130,7 @@ class TestOTAUpdater:
             ca_chains_store=ca_store,
             boot_controller=self._boot_control,
             upper_otaproxy=None,
-            create_standby_cls=self._create_standby_cls,
+            create_standby_cls=RebuildMode,
             ecu_status_flags=ecu_status_flags,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
@@ -195,24 +140,13 @@ class TestOTAUpdater:
         _updater.execute()
 
         # ------ assertions ------ #
-        # assert OTA files are downloaded
-        _downloaded_files_size = 0
-        for _f in self.ota_tmp_dir.glob("*"):
-            _downloaded_files_size += _f.stat().st_size
-        assert _downloaded_files_size == self._delta_bundle.total_download_files_size
-
         # assert the control_flags has been waited
         ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
 
         assert _updater.update_version == str(cfg.UPDATE_VERSION)
 
-        # assert boot controller is used
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
-
-        # assert create standby module is used
-        self._create_standby.calculate_and_prepare_delta.assert_called_once()
-        self._create_standby.create_standby_slot.assert_called_once()
         process_persists_handler.assert_called_once()
 
 
