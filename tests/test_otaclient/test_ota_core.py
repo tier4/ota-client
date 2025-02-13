@@ -87,9 +87,12 @@ class TestOTAUpdater:
         shutil.rmtree(self.slot_b, ignore_errors=True)
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture):
+    def mock_setup(self, mocker: pytest_mock.MockerFixture, prepare_ab_slots):
         # ------ mock boot_controller ------ #
-        self._boot_control = mocker.MagicMock(spec=BootControllerProtocol)
+        self._boot_control = _boot_control_mock = mocker.MagicMock(
+            spec=BootControllerProtocol
+        )
+        _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
 
         # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_CORE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))

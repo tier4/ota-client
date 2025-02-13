@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import shutil
 import time
-import typing
 from pathlib import Path
 from queue import Queue
 
@@ -84,9 +83,10 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
     def mock_setup(self, mocker: MockerFixture, prepare_ab_slots):
 
         # ------ mock boot_controller ------ #
-        self._boot_control = typing.cast(
-            BootControllerProtocol, mocker.MagicMock(spec=BootControllerProtocol)
+        self._boot_control = _boot_control_mock = mocker.MagicMock(
+            spec=BootControllerProtocol
         )
+        _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
 
         # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_CORE_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
