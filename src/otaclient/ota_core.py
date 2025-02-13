@@ -429,15 +429,32 @@ class _OTAUpdater:
                 partial(self._download_metadata_file, condition=_condition),
                 _metadata_processor,
             ):
-                if _exc := _fut.exception():
-                    logger.warning(
-                        f"failed to download one metafile, keep retrying: {_exc!r}"
-                    )
-                # TODO: handle 404, 403 errors here
+                if not (_exc := _fut.exception()):
+                    continue
+
+                logger.warning(
+                    f"failed to download one metafile, keep retrying: {_exc!r}"
+                )
+                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
+                    (_response := _exc.response), Response
+                ):
+                    if _response.status_code == HTTPStatus.NOT_FOUND:
+                        raise ota_errors.OTAImageInvalid(
+                            "failed to download metadata", module=__name__
+                        ) from _exc
+
+                    if _response.status_code in [
+                        HTTPStatus.FORBIDDEN,
+                        HTTPStatus.UNAUTHORIZED,
+                    ]:
+                        raise ota_errors.UpdateRequestCookieInvalid(
+                            module=__name__
+                        ) from _exc
         except Exception as e:
             _metadata_processor.throw(e)
             raise
         finally:
+            _exc = None  # resolve cycle ref
             _mapper.shutdown(wait=True)
             self._downloader_pool.release_all_instances()
 
@@ -490,6 +507,8 @@ class _OTAUpdater:
                     session_id=self.session_id,
                 )
             )
+        except ota_errors.OTAError:
+            raise  # raise top-level OTAError as it
         except ota_metadata_error.MetadataJWTVerificationFailed as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
