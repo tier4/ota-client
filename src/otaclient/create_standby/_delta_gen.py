@@ -30,8 +30,8 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
+from otaclient_common._logging import BurstSuppressFilter
 from otaclient_common.common import create_tmp_fname
-from otaclient_common.logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = logging.getLogger(f"{__name__}.process_file_error")
