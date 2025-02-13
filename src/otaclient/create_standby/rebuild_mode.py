@@ -32,11 +32,11 @@ from ota_metadata.file_table._table import (
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
-from otaclient_common.logging import BurstSuppressFilter
+from otaclient_common._logging import BurstSuppressFilter
+from otaclient_common._typing import StrOrPath
 from otaclient_common.retry_task_map import (
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = logging.getLogger(f"{__name__}.process_error")

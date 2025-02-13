@@ -32,7 +32,7 @@ from simple_sqlite3_orm import (
 from simple_sqlite3_orm._orm import AsyncORMBase
 from typing_extensions import Annotated
 
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import OTAFileCacheControl

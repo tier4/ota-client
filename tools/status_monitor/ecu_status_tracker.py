@@ -20,7 +20,7 @@ import threading
 from queue import Queue
 from typing import Dict, List, Optional
 
-from otaclient_api.v2 import types as api_types
+from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 
 from .configs import config as cfg

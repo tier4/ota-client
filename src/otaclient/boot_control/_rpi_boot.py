@@ -32,8 +32,8 @@ from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
+from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import subprocess_run_wrapper
-from otaclient_common.typing import StrOrPath
 
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import rpi_boot_cfg as boot_cfg

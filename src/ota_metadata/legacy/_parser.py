@@ -77,6 +77,7 @@ from typing_extensions import Self
 
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_proxy import OTAFileCacheControl
+from otaclient_common._typing import StrEnum
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
 from otaclient_common.proto_streamer import (
@@ -88,10 +89,9 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.typing import StrEnum
 
 from . import SUPORTED_COMPRESSION_TYPES
-from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
+from ._types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
 
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 #
 # ------ swapfile handling ------ #

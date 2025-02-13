@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 import aiohttp
 from multidict import CIMultiDict, CIMultiDictProxy
 
-from otaclient_common.logging import get_burst_suppressed_logger
+from otaclient_common._logging import get_burst_suppressed_logger
 
 from ._consts import (
     BHEADER_AUTHORIZATION,
@@ -84,7 +84,7 @@ def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
 
 
 def encode_headers(
-    headers: Union[CIMultiDict[str], CIMultiDictProxy[str]]
+    headers: Union[CIMultiDict[str], CIMultiDictProxy[str]],
 ) -> List[Tuple[bytes, bytes]]:
     """Encode headers dict to list of bytes tuples for sending back to client.
 

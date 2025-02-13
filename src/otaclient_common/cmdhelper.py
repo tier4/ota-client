@@ -28,8 +28,8 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Literal, NoReturn, Protocol
 
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call, subprocess_check_output
-from otaclient_common.typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 

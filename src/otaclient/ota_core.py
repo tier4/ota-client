@@ -433,6 +433,7 @@ class _OTAUpdater:
                     logger.warning(
                         f"failed to download one metafile, keep retrying: {_exc!r}"
                     )
+                # TODO: handle 404, 403 errors here
         except Exception as e:
             _metadata_processor.throw(e)
             raise
@@ -499,16 +500,6 @@ class _OTAUpdater:
             _err_msg = f"metadata.jwt is invalid: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
-        except ota_metadata_error.OTAImageInvalid as e:
-            _err_msg = f"OTA image is invalid: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.OTAImageInvalid(_err_msg, module=__name__) from e
-        except ota_metadata_error.OTARequestsAuthTokenInvalid as e:
-            _err_msg = f"OTA requests auth token is invalid: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.UpdateRequestCookieInvalid(
-                _err_msg, module=__name__
-            ) from e
         except Exception as e:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)

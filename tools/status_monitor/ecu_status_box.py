@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Sequence, Tuple
 
-from otaclient_api.v2 import types as api_types
+from otaclient_api.v2 import _types as api_types
 
 from .configs import config
 from .utils import FormatValue, ScreenHandler

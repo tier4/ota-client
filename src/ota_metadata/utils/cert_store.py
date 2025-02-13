@@ -24,7 +24,7 @@ from typing import Dict, Iterable
 
 from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
 
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
