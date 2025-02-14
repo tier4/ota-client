@@ -254,15 +254,6 @@ class _OTAUpdater:
         self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
-        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
-        self.active_slot_file_table = check_base_filetable(
-            replace_root(
-                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                old_root="/",
-                new_root=Path(cfg.ACTIVE_SLOT_MNT),
-            )
-        )
-
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
@@ -570,6 +561,14 @@ class _OTAUpdater:
 
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
+        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
+        # NOTE: get the db via active_slot mount_point
+        _base_ft_db = replace_root(
+            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+            old_root="/",
+            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        )
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -581,9 +580,9 @@ class _OTAUpdater:
         )
 
         try:
-            if base_file_table := self.active_slot_file_table:
+            if check_base_filetable(_base_ft_db):
                 logger.info(
-                    "file_table for active_slot found, use file_table to assist delta calculation!"
+                    f"file_table for active_slot({_base_ft_db}) found and valid, use file_table to assist delta calculation!"
                 )
                 delta_calculator = DeltaGenWithFileTable(
                     ota_metadata=self._ota_metadata,
@@ -592,10 +591,10 @@ class _OTAUpdater:
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 )
-                delta_calculator.calculate_delta(base_file_table=base_file_table)
+                delta_calculator.calculate_delta(base_file_table=_base_ft_db)
             else:
                 logger.info(
-                    "file_table for active_slot not found/invalid, use full disk scan for delta calculation!"
+                    f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
                 )
                 delta_calculator = DeltaGenFullDiskScan(
                     ota_metadata=self._ota_metadata,
