@@ -31,6 +31,7 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
+from otaclient_common._io import replace_root2
 from otaclient_common._logging import BurstSuppressFilter
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import create_tmp_fname
@@ -110,15 +111,15 @@ class DeltaGenWithFileTable(DeltaGenerator):
 
         src_dir = self._delta_src_mount_point
         for entry in entries:
-            src_fpath = src_dir / entry.path
-            if not src_fpath.is_file():
+            src_at_mntp = replace_root2(Path(entry.path), new_root=src_dir)
+            if not src_at_mntp.is_file():
                 continue
 
             tmp_f = self._copy_dst / create_tmp_fname()
             try:
                 hash_buffer, hash_bufferview = (thread_local.buffer, thread_local.view)
                 hash_f = sha256()
-                with open(src_fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                with open(src_at_mntp, "rb") as src, open(tmp_f, "wb") as tmp_dst:
                     while read_size := src.readinto(hash_buffer):
                         hash_f.update(hash_bufferview[:read_size])
                         tmp_dst.write(hash_bufferview[:read_size])
