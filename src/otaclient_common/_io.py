@@ -20,10 +20,12 @@ import hashlib
 import io
 import logging
 import os
+import os.path as os_path
 import shutil
 import sys
 from functools import partial
 from pathlib import Path
+from typing import Literal
 
 from otaclient_common._typing import StrOrPath
 
@@ -186,3 +188,21 @@ def copyfile_atomic(
         os.replace(_tmp_file, dst)
     finally:
         _tmp_file.unlink(missing_ok=True)
+
+
+def replace_root2(
+    path: StrOrPath,
+    *,
+    old_root: StrOrPath | Literal["/"] = "/",
+    new_root: StrOrPath,
+) -> StrOrPath:
+    """Same as replace_root, but return the same type of input <path>.
+
+    Also no checks will be performed on whether the old_root or new_root is valid.
+    """
+    _regulated_path = os_path.normpath(path)
+
+    res = os_path.join(new_root, os_path.relpath(_regulated_path, old_root))
+    if isinstance(path, str):
+        return res
+    return Path(res)
