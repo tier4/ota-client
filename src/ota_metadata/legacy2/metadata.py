@@ -78,6 +78,18 @@ logger = logging.getLogger(__name__)
 DB_TIMEOUT = 16  # seconds
 
 
+def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
+    if not db_f or not Path(db_f).is_file():
+        return
+
+    with contextlib.closing(
+        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
+    ) as con:
+        if not utils.check_db_integrity(con):
+            return
+    return db_f
+
+
 class OTAMetadata:
     """
     OTA session_dir layout:
@@ -102,14 +114,11 @@ class OTAMetadata:
         base_url: str,
         session_dir: StrOrPath,
         ca_chains_store: CAChainStore,
-        base_file_table: StrOrPath,
     ) -> None:
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg)
-
-        self._base_file_table = Path(base_file_table)
 
         self._ca_store = ca_chains_store
         self._base_url = base_url
@@ -129,19 +138,6 @@ class OTAMetadata:
     @property
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
-
-    @property
-    def base_file_table_ready(self) -> bool:
-        db_f = self._base_file_table
-        if not Path(db_f).is_file():
-            return False
-
-        with contextlib.closing(
-            sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
-        ) as con:
-            if not utils.check_db_integrity(con):
-                return False
-        return True
 
     def _prepare_metadata(
         self,
@@ -385,11 +381,11 @@ class OTAMetadata:
             yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_common_regular_entries_by_digest(
-        self,
+        self, base_file_table: StrOrPath
     ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
         _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            for entry in orm.iter_common_by_digest(str(self._base_file_table)):
+            for entry in orm.iter_common_by_digest(str(base_file_table)):
                 if entry.digest == _hash:
                     _cur.append(entry)
                 else:
