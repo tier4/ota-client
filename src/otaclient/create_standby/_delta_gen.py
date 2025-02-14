@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import os.path as os_path
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -31,7 +32,6 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
-from otaclient_common._io import replace_root2
 from otaclient_common._logging import BurstSuppressFilter
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import create_tmp_fname
@@ -111,7 +111,7 @@ class DeltaGenWithFileTable(DeltaGenerator):
 
         src_dir = self._delta_src_mount_point
         for entry in entries:
-            src_at_mntp = replace_root2(Path(entry.path), new_root=src_dir)
+            src_at_mntp = src_dir / os_path.relpath(entry.path, "/")
             if not src_at_mntp.is_file():
                 continue
 
