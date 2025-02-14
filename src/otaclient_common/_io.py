@@ -25,7 +25,7 @@ import shutil
 import sys
 from functools import partial
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from otaclient_common._typing import StrOrPath
 
@@ -190,12 +190,15 @@ def copyfile_atomic(
         _tmp_file.unlink(missing_ok=True)
 
 
+_StrOrPath = TypeVar("_StrOrPath", str, Path)
+
+
 def replace_root2(
-    path: StrOrPath,
+    path: _StrOrPath,
     *,
-    old_root: StrOrPath | Literal["/"] = "/",
-    new_root: StrOrPath,
-) -> StrOrPath:
+    old_root: _StrOrPath | Literal["/"] = "/",
+    new_root: _StrOrPath,
+) -> _StrOrPath:
     """Same as replace_root, but return the same type of input <path>.
 
     Also no checks will be performed on whether the old_root or new_root is valid.
