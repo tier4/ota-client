@@ -189,7 +189,7 @@ def ota_image_ft_db() -> Path:
     return _ft_fpath
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     """Prepare AB slots for the whole test session.
 
