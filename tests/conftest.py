@@ -213,7 +213,6 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     )
     # simulate the diff between versions
     shutil.move(str(slot_a / "var"), slot_a / "var_old")
-    shutil.move(str(slot_a / "usr"), slot_a / "usr_old")
 
     # manually create symlink to kernel and initrd.img
     vmlinuz_symlink = slot_a / "boot" / TestConfiguration.KERNEL_PREFIX
