@@ -97,15 +97,29 @@ class TestOTAupdateWithCreateStandbyRebuildMode:
         mocker.patch(f"{REBUILD_MODE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
         mocker.patch(f"{REBUILD_MODE_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
 
+    @pytest.mark.parametrize("_enable_base_filetable", (True, False))
     def test_update_with_rebuild_mode(
         self,
+        _enable_base_filetable: bool,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        ota_image_ft_db: Path,
         mocker: MockerFixture,
     ):
         status_collector, status_report_queue = ota_status_collector
         ecu_status_flags = mocker.MagicMock()
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
+        )
+        # ------ mock to use base_file_table ------ #
+        _ft_table_db = None
+        if _enable_base_filetable:
+            logger.info(
+                "enable to use base_file_table on slot_a to assist delta calculation"
+            )
+            _ft_table_db = ota_image_ft_db
+        mocker.patch(
+            f"{OTA_CORE_MODULE}.check_base_filetable",
+            mocker.MagicMock(return_value=_ft_table_db),
         )
 
         # ------ execution ------ #

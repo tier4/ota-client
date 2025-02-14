@@ -24,6 +24,7 @@ import shutil
 import sys
 from functools import partial
 from pathlib import Path
+from typing import TypeVar
 
 from otaclient_common._typing import StrOrPath
 
@@ -186,3 +187,6 @@ def copyfile_atomic(
         os.replace(_tmp_file, dst)
     finally:
         _tmp_file.unlink(missing_ok=True)
+
+
+_StrOrPath = TypeVar("_StrOrPath", str, Path)
