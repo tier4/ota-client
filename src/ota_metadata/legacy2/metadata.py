@@ -82,12 +82,11 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     if not db_f or not Path(db_f).is_file():
         return
 
-    with contextlib.closing(
+    with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
-        if not utils.check_db_integrity(con):
-            return
-    return db_f
+        if utils.check_db_integrity(con):
+            return db_f
 
 
 class OTAMetadata:
