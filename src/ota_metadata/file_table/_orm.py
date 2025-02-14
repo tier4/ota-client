@@ -23,6 +23,7 @@ from simple_sqlite3_orm import (
     ORMBase,
     ORMThreadPoolBase,
 )
+from simple_sqlite3_orm.utils import wrap_value
 
 from ._table import (
     FileTableDirectories,
@@ -33,6 +34,11 @@ from ._table import (
 FT_REGULAR_TABLE_NAME = "ft_regular"
 FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
 FT_DIR_TABLE_NAME = "ft_dir"
+
+EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+EMPTY_FILE_SHA256_BYTE = bytes.fromhex(
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
 
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
@@ -56,6 +62,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         INNER JOIN (
             SELECT digest
             FROM main.{FT_REGULAR_TABLE_NAME}
+            WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
             GROUP BY digest
         ) AS d1 USING(digest) ORDER BY digest;
         """
