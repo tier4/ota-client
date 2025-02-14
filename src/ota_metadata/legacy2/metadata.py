@@ -326,6 +326,7 @@ class OTAMetadata:
             logger.exception(
                 f"failure during downloading and verifying OTA image metafiles: {e!r}"
             )
+            raise
         finally:
             shutil.rmtree(_download_dir, ignore_errors=True)
 
