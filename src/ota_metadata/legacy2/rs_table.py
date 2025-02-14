@@ -22,6 +22,7 @@ from typing import Any, ClassVar, Generator, Literal, Optional
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
+    CreateTableParams,
     ORMBase,
     ORMThreadPoolBase,
     TableSpec,
@@ -73,6 +74,7 @@ class ResourceTable(TableSpec):
 class ResourceTableORM(ORMBase[ResourceTable]):
 
     orm_bootstrap_table_name = RSTABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams()
 
     def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[ResourceTable]:
         """Iter all entries with seek method by rowid, shuffle each batch before yield.
@@ -93,3 +95,4 @@ class ResourceTableORM(ORMBase[ResourceTable]):
 class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
 
     orm_bootstrap_table_name = RSTABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams()
