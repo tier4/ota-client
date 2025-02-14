@@ -34,6 +34,7 @@ from ._table import (
 FT_REGULAR_TABLE_NAME = "ft_regular"
 FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
 FT_DIR_TABLE_NAME = "ft_dir"
+MAX_ENTRIES_PER_DIGEST = 10
 
 EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 EMPTY_FILE_SHA256_BYTE = bytes.fromhex(
@@ -49,7 +50,9 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]
 
-    def iter_common_by_digest(self, other_db: str) -> Generator[FileTableRegularFiles]:
+    def iter_common_by_digest(
+        self, other_db: str, *, max_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST
+    ) -> Generator[FileTableRegularFiles]:
         """Yield entries from <other_db>.ft_table which digest presented in this ft.
 
         This is for assisting faster delta_calculation without full disk scan.
@@ -57,14 +60,17 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
         attached_db_schema = "base"
         stmt = f"""\
-        SELECT d2.*
-        FROM base.{FT_REGULAR_TABLE_NAME} AS d2
-        INNER JOIN (
-            SELECT digest
-            FROM main.{FT_REGULAR_TABLE_NAME}
-            WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
-            GROUP BY digest
-        ) AS d1 USING(digest) ORDER BY digest;
+        WITH ranked AS (
+            SELECT d2.*, ROW_NUMBER() OVER (PARTITION BY d2.digest) AS rown
+            FROM base.{FT_REGULAR_TABLE_NAME} AS d2
+            INNER JOIN (
+                SELECT digest
+                FROM main.{FT_REGULAR_TABLE_NAME}
+                WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
+                GROUP BY digest
+            ) AS d1 USING(digest) ORDER BY digest
+        )
+        SELECT * FROM ranked WHERE rown <= {max_entries_per_digest};
         """
         orm_conn = self.orm_con
 
