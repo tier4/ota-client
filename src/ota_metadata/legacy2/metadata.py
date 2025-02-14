@@ -375,13 +375,16 @@ class OTAMetadata:
             yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_common_regular_entries_by_digest(
-        self, base_file_table: StrOrPath
+        self, base_file_table: StrOrPath, *, max_num_of_entries_per_digest: int = 10
     ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
         _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
             for entry in orm.iter_common_by_digest(str(base_file_table)):
                 if entry.digest == _hash:
-                    _cur.append(entry)
+                    # When there are too many entries for this digest, just pick the first
+                    #   <max_num_of_entries_per_digest> of them.
+                    if len(_cur) <= max_num_of_entries_per_digest:
+                        _cur.append(entry)
                 else:
                     if _cur:
                         yield _hash, _cur
