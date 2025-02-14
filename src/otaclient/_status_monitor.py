@@ -35,7 +35,7 @@ from otaclient._types import (
     UpdateTiming,
 )
 from otaclient._utils import SharedOTAClientStatusWriter
-from otaclient_common.logging import get_burst_suppressed_logger
+from otaclient_common._logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
 # NOTE: suppress error logging for pushing OTA status to shm

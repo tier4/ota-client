@@ -27,7 +27,7 @@ import pytest
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
-from ota_metadata.legacy.parser import (
+from ota_metadata.legacy._parser import (
     MetadataJWTPayloadInvalid,
     MetadataJWTVerificationFailed,
     _MetadataJWTParser,

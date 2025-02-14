@@ -29,7 +29,7 @@ from ota_metadata.file_table import (
     FileTableRegularFiles,
     FileTableRegularORM,
 )
-from otaclient_common.typing import StrOrPath
+from otaclient_common._typing import StrOrPath
 
 from .rs_table import ResourceTable, ResourceTableORM
 

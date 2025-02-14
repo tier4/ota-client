@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from otaclient_api.v2 import _types
 from otaclient_api.v2 import otaclient_v2_pb2 as pb2
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as pb2_grpc
-from otaclient_api.v2 import types
 
 
 class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
@@ -27,15 +27,15 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         self._stub = ota_client_stub
 
     async def Update(self, request: pb2.UpdateRequest, context) -> pb2.UpdateResponse:
-        response = await self._stub.update(types.UpdateRequest.convert(request))
+        response = await self._stub.update(_types.UpdateRequest.convert(request))
         return response.export_pb()
 
     async def Rollback(
         self, request: pb2.RollbackRequest, context
     ) -> pb2.RollbackResponse:
-        response = await self._stub.rollback(types.RollbackRequest.convert(request))
+        response = await self._stub.rollback(_types.RollbackRequest.convert(request))
         return response.export_pb()
 
     async def Status(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
-        response = await self._stub.status(types.StatusRequest.convert(request))
+        response = await self._stub.status(_types.StatusRequest.convert(request))
         return response.export_pb()

@@ -17,9 +17,9 @@ import grpc
 import pytest
 import pytest_asyncio
 
+from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2 import otaclient_v2_pb2 as v2
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
-from otaclient_api.v2 import types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
 from tests.utils import compare_message
 

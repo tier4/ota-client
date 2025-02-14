@@ -29,8 +29,8 @@ import anyio
 import anyio.to_thread
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
-from otaclient_common.typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import OTAFileCacheControl

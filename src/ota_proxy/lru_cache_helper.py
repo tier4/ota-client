@@ -23,7 +23,7 @@ from pathlib import Path
 
 from simple_sqlite3_orm import utils
 
-from otaclient_common.logging import get_burst_suppressed_logger
+from otaclient_common._logging import get_burst_suppressed_logger
 
 from .db import AsyncCacheMetaORM, CacheMeta
 

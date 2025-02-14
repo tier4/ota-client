@@ -56,8 +56,8 @@ from ota_metadata.file_table._orm import (
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.typing import StrOrPath
 
 from . import DIGEST_ALG, SUPORTED_COMPRESSION_TYPES
 from .csv_parser import (

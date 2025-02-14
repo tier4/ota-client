@@ -30,7 +30,7 @@ import pickle
 import time
 from typing import Generic
 
-from otaclient_common.typing import T
+from otaclient_common._typing import T
 
 logger = logging.getLogger(__name__)
 

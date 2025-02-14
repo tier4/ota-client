@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import grpc.aio
 
+from otaclient_api.v2 import _types
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as pb2_grpc
-from otaclient_api.v2 import types
 
 
 class ECUNoResponse(Exception):
@@ -33,15 +33,15 @@ class OTAClientCall:
         ecu_ipaddr: str,
         ecu_port: int,
         *,
-        request: types.StatusRequest,
+        request: _types.StatusRequest,
         timeout=None,
-    ) -> types.StatusResponse:
+    ) -> _types.StatusResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = pb2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Status(request.export_pb(), timeout=timeout)
-                return types.StatusResponse.convert(resp)
+                return _types.StatusResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to status request on-time: {e!r}"
             raise ECUNoResponse(_msg) from e
@@ -52,15 +52,15 @@ class OTAClientCall:
         ecu_ipaddr: str,
         ecu_port: int,
         *,
-        request: types.UpdateRequest,
+        request: _types.UpdateRequest,
         timeout=None,
-    ) -> types.UpdateResponse:
+    ) -> _types.UpdateResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = pb2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Update(request.export_pb(), timeout=timeout)
-                return types.UpdateResponse.convert(resp)
+                return _types.UpdateResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to update request on-time: {e!r}"
             raise ECUNoResponse(_msg) from e
@@ -71,15 +71,15 @@ class OTAClientCall:
         ecu_ipaddr: str,
         ecu_port: int,
         *,
-        request: types.RollbackRequest,
+        request: _types.RollbackRequest,
         timeout=None,
-    ) -> types.RollbackResponse:
+    ) -> _types.RollbackResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = pb2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Rollback(request.export_pb(), timeout=timeout)
-                return types.RollbackResponse.convert(resp)
+                return _types.RollbackResponse.convert(resp)
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to rollback request on-time: {e!r}"
             raise ECUNoResponse(_msg) from e

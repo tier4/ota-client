@@ -27,8 +27,8 @@ from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
 from typing_extensions import Annotated
 
 from ota_metadata.file_table._types import EntryAttrsType
-from otaclient_common.logging import get_burst_suppressed_logger
-from otaclient_common.typing import StrOrPath
+from otaclient_common._logging import get_burst_suppressed_logger
+from otaclient_common._typing import StrOrPath
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
