@@ -209,14 +209,14 @@ class OTAMetadata:
             self.connect_rstable()
         ) as rst_conn:
             ft_regular_orm = FileTableRegularORM(fst_conn)
-            ft_regular_orm.orm_create_table()
+            ft_regular_orm.orm_bootstrap_db()
             ft_dir_orm = FileTableDirORM(fst_conn)
-            ft_dir_orm.orm_create_table()
+            ft_dir_orm.orm_bootstrap_db()
             ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
-            ft_non_regular_orm.orm_create_table()
+            ft_non_regular_orm.orm_bootstrap_db()
 
             rs_orm = ResourceTableORM(rst_conn)
-            rs_orm.orm_create_table()
+            rs_orm.orm_bootstrap_db()
 
             # ------ download metafiles ------ #
             regular_meta = metadata_jwt.regular
@@ -274,12 +274,6 @@ class OTAMetadata:
                 symlink_save_fpath, ft_non_regular_orm
             )
             symlink_save_fpath.unlink(missing_ok=True)
-
-            # ------ post parsing ------ #
-            ft_regular_orm.orm_create_index(
-                index_name="digest_index",
-                index_keys=("digest",),
-            )
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
