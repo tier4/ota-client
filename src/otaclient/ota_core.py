@@ -594,6 +594,9 @@ class _OTAUpdater:
                 )
                 delta_calculator.calculate_delta(base_file_table=base_file_table)
             else:
+                logger.info(
+                    "file_table for active_slot not found/invalid, use full disk scan for delta calculation!"
+                )
                 delta_calculator = DeltaGenFullDiskScan(
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
