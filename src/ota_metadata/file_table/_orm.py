@@ -39,6 +39,9 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams()
+    orm_bootstrap_indexes_params = CreateIndexParams(
+        index_name="digest_index", index_cols=("digest",)
+    )
 
     def iter_common_by_digest(self, other_db: str) -> Generator[FileTableRegularFiles]:
         """Yield entries from <other_db>.ft_table which digest presented in this ft.
@@ -71,10 +74,6 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
-    orm_bootstrap_indexes_params = CreateIndexParams(
-        index_name="digest_index", index_cols=("digest",)
-    )
 
 
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
@@ -92,4 +91,3 @@ class FileTableDirORM(ORMBase[FileTableDirectories]):
 class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
 
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
