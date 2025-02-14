@@ -138,7 +138,7 @@ class DeltaGenWithFileTable(DeltaGenerator):
                             session_id=self.session_id,
                         )
                     )
-                else:  # it should not happen normally
+                    # return on successfully prepare the resource
                     return
             finally:
                 tmp_f.unlink(missing_ok=True)
