@@ -38,7 +38,11 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from ota_metadata.legacy2 import _errors as ota_metadata_error
-from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
+from ota_metadata.legacy2.metadata import (
+    OTAMetadata,
+    ResourceMeta,
+    check_base_filetable,
+)
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
@@ -251,17 +255,18 @@ class _OTAUpdater:
 
         # ------ setup OTA metadata parser ------ #
         # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
-        active_slot_file_table = replace_root(
-            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-            old_root="/",
-            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        self.active_slot_file_table = check_base_filetable(
+            replace_root(
+                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+                old_root="/",
+                new_root=Path(cfg.ACTIVE_SLOT_MNT),
+            )
         )
 
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
             ca_chains_store=ca_chains_store,
-            base_file_table=active_slot_file_table,
         )
 
     def _download_file(self, entry: DownloadInfo) -> tuple[int, int, int]:
@@ -576,22 +581,27 @@ class _OTAUpdater:
         )
 
         try:
-            if self._ota_metadata.base_file_table_ready:
+            if base_file_table := self.active_slot_file_table:
                 logger.info(
                     "file_table for active_slot found, use file_table to assist delta calculation!"
                 )
-                _delta_gen_impl = DeltaGenWithFileTable
+                delta_calculator = DeltaGenWithFileTable(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+                delta_calculator.calculate_delta(base_file_table=base_file_table)
             else:
-                _delta_gen_impl = DeltaGenFullDiskScan
-
-            delta_calculator = _delta_gen_impl(
-                ota_metadata=self._ota_metadata,
-                delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                copy_dst=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            )
-            delta_calculator.calculate_delta()
+                delta_calculator = DeltaGenFullDiskScan(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+                delta_calculator.calculate_delta()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.error(_err_msg)

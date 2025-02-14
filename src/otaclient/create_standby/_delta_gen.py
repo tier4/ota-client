@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -33,6 +32,7 @@ from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common._logging import BurstSuppressFilter
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import create_tmp_fname
 from otaclient_common.downloader import EMPTY_FILE_SHA256_BYTE
 
@@ -96,10 +96,6 @@ class DeltaGenerator:
         thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         thread_local.view = memoryview(buffer)
 
-    @abstractmethod
-    def calculate_delta(self) -> None:
-        raise NotImplementedError
-
 
 class DeltaGenWithFileTable(DeltaGenerator):
 
@@ -148,7 +144,7 @@ class DeltaGenWithFileTable(DeltaGenerator):
 
     # API
 
-    def calculate_delta(self) -> None:
+    def calculate_delta(self, *, base_file_table: StrOrPath) -> None:
         logger.debug("process delta src, generate delta and prepare local copy...")
         thread_local = threading.local()
         se = self._max_pending_tasks
@@ -162,7 +158,9 @@ class DeltaGenWithFileTable(DeltaGenerator):
             initializer=partial(self._thread_worker_initializer, thread_local),
         )
         try:
-            for item in self._ota_metadata.iter_common_regular_entries_by_digest():
+            for item in self._ota_metadata.iter_common_regular_entries_by_digest(
+                base_file_table=base_file_table
+            ):
                 self._max_pending_tasks.acquire()
                 pool.submit(
                     self._process_file, item, thread_local=thread_local
