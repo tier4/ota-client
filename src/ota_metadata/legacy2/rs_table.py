@@ -74,7 +74,6 @@ class ResourceTable(TableSpec):
 class ResourceTableORM(ORMBase[ResourceTable]):
 
     orm_bootstrap_table_name = RSTABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
 
     def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[ResourceTable]:
         """Iter all entries with seek method by rowid, shuffle each batch before yield.

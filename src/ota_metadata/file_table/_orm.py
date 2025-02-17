@@ -17,12 +17,7 @@ from __future__ import annotations
 
 from typing import Generator
 
-from simple_sqlite3_orm import (
-    CreateIndexParams,
-    CreateTableParams,
-    ORMBase,
-    ORMThreadPoolBase,
-)
+from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
 from simple_sqlite3_orm.utils import wrap_value
 
 from ._table import (
@@ -45,7 +40,6 @@ EMPTY_FILE_SHA256_BYTE = bytes.fromhex(
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]
@@ -92,13 +86,11 @@ class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
 
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
 
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams()
 
 
 class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
