@@ -26,7 +26,11 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table._orm import FileTableDirORMPool, FileTableRegularORMPool
+from ota_metadata.file_table._orm import (
+    EMPTY_FILE_SHA256,
+    FileTableDirORMPool,
+    FileTableRegularORMPool,
+)
 from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
@@ -91,6 +95,9 @@ class DeltaGenerator:
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
         )
+
+        # put the empty file into copy_dst
+        (copy_dst / EMPTY_FILE_SHA256).touch()
 
     @staticmethod
     def _thread_worker_initializer(thread_local) -> None:
