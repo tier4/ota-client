@@ -43,6 +43,8 @@ burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.shm_push")
 
 _status_report_queue: queue.Queue | None = None
 
+LOG_OTA_PROGRESS_INTERVAL = 60  # seconds
+
 
 def _global_shutdown():
     if _status_report_queue:
@@ -329,17 +331,29 @@ class OTAClientStatusCollector:
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
+    def _ota_status_logging_thread(self) -> None:
+        while True:
+            # when in active OTA, log OTA progress very <LOG_OTA_PROGRESS_INTERVAL>
+            if (
+                _cur_status := self._status
+            ) and _cur_status.ota_status == OTAStatus.UPDATING:
+                logger.info(f"ongoing OTA: {_cur_status}")
+            time.sleep(LOG_OTA_PROGRESS_INTERVAL)
+
     # API
 
-    def start(self) -> Thread:
+    def start(self) -> None:
         """Start the status_monitor thread."""
-        t = Thread(
+        Thread(
             target=self._status_collector_thread,
             daemon=True,
             name="otaclient_status_monitor",
-        )
-        t.start()
-        return t
+        ).start()
+        Thread(
+            target=self._ota_status_logging_thread,
+            daemon=True,
+            name="otaclient_status_logging",
+        ).start()
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
