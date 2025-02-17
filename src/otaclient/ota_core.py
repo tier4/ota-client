@@ -581,9 +581,9 @@ class _OTAUpdater:
         )
 
         try:
-            if check_base_filetable(_base_ft_db):
+            if _verified_db := check_base_filetable(_base_ft_db):
                 logger.info(
-                    f"file_table for active_slot({_base_ft_db}) found and valid, use file_table to assist delta calculation!"
+                    f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
                 )
                 delta_calculator = DeltaGenWithFileTable(
                     ota_metadata=self._ota_metadata,
@@ -592,7 +592,7 @@ class _OTAUpdater:
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 )
-                delta_calculator.calculate_delta(base_file_table=_base_ft_db)
+                delta_calculator.calculate_delta(base_file_table=_verified_db)
             else:
                 logger.info(
                     f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
@@ -607,7 +607,7 @@ class _OTAUpdater:
                 delta_calculator.calculate_delta()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
-            logger.error(_err_msg)
+            logger.exception(_err_msg)
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
