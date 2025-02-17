@@ -22,7 +22,6 @@ from typing import Any, ClassVar, Generator, Literal, Optional
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
-    CreateTableParams,
     ORMBase,
     ORMThreadPoolBase,
     TableSpec,
