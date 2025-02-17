@@ -85,7 +85,10 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
-        if utils.check_db_integrity(con):
+        if utils.check_db_integrity(
+            con,
+            table_name=FileTableRegularORM.orm_bootstrap_table_name,
+        ):
             return db_f
 
 
