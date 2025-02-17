@@ -86,6 +86,7 @@ from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
+    DownloadResult,
 )
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
@@ -260,7 +261,7 @@ class _OTAUpdater:
             ca_chains_store=ca_chains_store,
         )
 
-    def _download_file(self, entry: DownloadInfo) -> tuple[int, int, int]:
+    def _download_file(self, entry: DownloadInfo) -> DownloadResult:
         """Download a single file.
 
         This is the single task being executed in the downloader pool.
@@ -269,7 +270,7 @@ class _OTAUpdater:
             Retry counts, downloaded files size and traffic on wire.
         """
         if (_digest := entry.digest) == EMPTY_FILE_SHA256:
-            return 0, 0, 0
+            return DownloadResult(0, 0, 0)
 
         downloader = self._downloader_mapper[threading.get_native_id()]
         # NOTE: currently download only use sha256
@@ -283,7 +284,7 @@ class _OTAUpdater:
 
     def _download_metadata_file(
         self, entries: list[DownloadInfo], *, condition: threading.Condition
-    ) -> tuple[int, int, int]:
+    ) -> DownloadResult:
         """Download a single OTA image metadata file.
 
         Just a wrapper around _download_file method.
@@ -295,12 +296,12 @@ class _OTAUpdater:
         with condition:
             for entry in entries:
                 _res = self._download_file(entry)
-                _retry_count += _res[0]
-                _download_size += _res[1]
-                _traffic_on_wire += _res[2]
+                _retry_count += _res.retry_count
+                _download_size += _res.download_size
+                _traffic_on_wire += _res.traffic_on_wire
 
             condition.notify()  # notify the metadata generator that this batch of download is finished
-        return _retry_count, _download_size, _traffic_on_wire
+        return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
 
     def _downloader_workder_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
