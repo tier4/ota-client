@@ -323,5 +323,8 @@ if TYPE_CHECKING:
         def __exit__(self, exc_type, exc_val, exc_tb):
             raise NotImplementedError
 
+        def shutdown(self, wait: bool = False):
+            raise NotImplementedError
+
 else:
     ThreadPoolExecutorWithRetry = _ThreadPoolExecutorWithRetry
