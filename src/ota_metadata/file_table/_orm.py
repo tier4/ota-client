@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from typing import Generator
 
 from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
@@ -25,6 +27,8 @@ from ._table import (
     FileTableNonRegularFiles,
     FileTableRegularFiles,
 )
+
+logger = logging.getLogger(__name__)
 
 FT_REGULAR_TABLE_NAME = "ft_regular"
 FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
@@ -53,19 +57,35 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         """
 
         attached_db_schema = "base"
-        stmt = f"""\
-        WITH ranked AS (
-            SELECT d2.*, ROW_NUMBER() OVER (PARTITION BY d2.digest) AS rown
+        if sqlite3.sqlite_version_info < (3, 22, 0):
+            logger.warning(
+                f"detect {sqlite3.sqlite_version_info} < 3.22, use fallback query"
+            )
+
+            stmt = f"""\
+            SELECT d2.*
             FROM base.{FT_REGULAR_TABLE_NAME} AS d2
             INNER JOIN (
                 SELECT digest
                 FROM main.{FT_REGULAR_TABLE_NAME}
                 WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
                 GROUP BY digest
-            ) AS d1 USING(digest) ORDER BY digest
-        )
-        SELECT * FROM ranked WHERE rown <= {max_entries_per_digest};
-        """
+            ) AS d1 USING(digest) ORDER BY digest;
+            """
+        else:
+            stmt = f"""\
+            WITH ranked AS (
+                SELECT d2.*, ROW_NUMBER() OVER (PARTITION BY d2.digest) AS rown
+                FROM base.{FT_REGULAR_TABLE_NAME} AS d2
+                INNER JOIN (
+                    SELECT digest
+                    FROM main.{FT_REGULAR_TABLE_NAME}
+                    WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
+                    GROUP BY digest
+                ) AS d1 USING(digest) ORDER BY digest
+            )
+            SELECT * FROM ranked WHERE rown <= {max_entries_per_digest};
+            """
         orm_conn = self.orm_con
 
         orm_conn.execute(f"ATTACH '{other_db}' AS {attached_db_schema};")
