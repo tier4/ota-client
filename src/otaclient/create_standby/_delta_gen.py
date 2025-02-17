@@ -113,7 +113,6 @@ class DeltaGenWithFileTable(DeltaGenerator):
         expected_digest, entries = _input
         dst_f = self._copy_dst / expected_digest.hex()
         if expected_digest == EMPTY_FILE_SHA256_BYTE:
-            dst_f.touch()
             return
 
         src_dir = self._delta_src_mount_point
@@ -220,6 +219,9 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         fully_scan: bool,
         thread_local,
     ) -> None:
+        if fpath.stat().st_size == 0:
+            return  # skip empty file
+
         try:
             # in default match_only mode, if the fpath doesn't exist in new, ignore
             if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
