@@ -59,7 +59,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         attached_db_schema = "base"
         if sqlite3.sqlite_version_info < (3, 25, 0):
             logger.warning(
-                f"detect {sqlite3.sqlite_version_info} < 3.22, use fallback query"
+                f"detect {sqlite3.sqlite_version_info=} < 3.25, use fallback query"
             )
 
             stmt = f"""\
