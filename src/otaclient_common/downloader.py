@@ -25,7 +25,17 @@ import threading
 import time
 from abc import abstractmethod
 from functools import wraps
-from typing import IO, Any, ByteString, Callable, Iterator, Mapping, Protocol, TypedDict
+from typing import (
+    IO,
+    Any,
+    ByteString,
+    Callable,
+    Iterator,
+    Mapping,
+    NamedTuple,
+    Protocol,
+    TypedDict,
+)
 from urllib.parse import urlsplit
 
 import requests
@@ -46,6 +56,13 @@ CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
 DEFAULT_CONNECTION_TIMEOUT = 16  # seconds
 DEFAULT_READ_TIMEOUT = 32  # seconds
+
+
+class DownloadResult(NamedTuple):
+    retry_count: int
+    download_size: int
+    traffic_on_wire: int
+
 
 # ------ errors definition ------ #
 
@@ -341,7 +358,7 @@ class Downloader:
             DEFAULT_CONNECTION_TIMEOUT,
             DEFAULT_READ_TIMEOUT,
         ),
-    ) -> tuple[int, int, int]:
+    ) -> DownloadResult:
         """Download one file with the Downloader instance.
 
         Args:
@@ -360,7 +377,7 @@ class Downloader:
             HashVerificationError: When <digest> is specified and the downloaded file's digest doesn't match the expected digest.
 
         Returns:
-            A tuple of ints of download_error(total_retry_counts), downloaded_file_size and traffic_on_wire.
+            An instance of DownloadResult.
         """
         proxies = self._proxies
 
@@ -431,7 +448,7 @@ class Downloader:
             _err_msg = f"hash verification failed: {digest=} != {calc_digest=} for {prepared_url}"
             raise HashVerificationError(_err_msg)
 
-        return err_count, downloaded_file_size, traffic_on_wire
+        return DownloadResult(err_count, downloaded_file_size, traffic_on_wire)
 
 
 class DownloadPoolWatchdogFuncContext(TypedDict):
