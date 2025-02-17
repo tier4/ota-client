@@ -351,7 +351,7 @@ class OTAMetadata:
         """Optimize the file_table to be ready for delta generation use."""
         _orm = FileTableRegularORM(self.connect_fstable)
         sort_and_replace(
-            _orm,  # type: ignore
+            _orm,
             table_name=_orm.orm_table_name,
             order_by_col="digest",
         )
