@@ -342,18 +342,24 @@ class OTAClientStatusCollector:
 
     # API
 
-    def start(self) -> None:
+    def start(self) -> Thread:
         """Start the status_monitor thread."""
-        Thread(
+        t = Thread(
             target=self._status_collector_thread,
             daemon=True,
             name="otaclient_status_monitor",
-        ).start()
-        Thread(
+        )
+        t.start()
+        return t
+
+    def start_log_thread(self) -> Thread:
+        t = Thread(
             target=self._ota_status_logging_thread,
             daemon=True,
             name="otaclient_status_logging",
-        ).start()
+        )
+        t.start()
+        return t
 
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
