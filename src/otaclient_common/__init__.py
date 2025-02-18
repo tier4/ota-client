@@ -16,11 +16,9 @@
 
 from __future__ import annotations
 
-import importlib.util
 import os
 from math import ceil
 from pathlib import Path
-from types import ModuleType
 from typing import Optional
 
 from typing_extensions import Literal
@@ -73,14 +71,7 @@ def replace_root(
     return os.path.join(new_root, os.path.relpath(path, old_root))
 
 
-def import_from_file(path: Path) -> tuple[str, ModuleType]:
-    if not path.is_file():
-        raise ValueError(f"{path} is not a valid module file")
-    try:
-        _module_name = path.stem
-        _spec = importlib.util.spec_from_file_location(_module_name, path)
-        _module = importlib.util.module_from_spec(_spec)  # type: ignore
-        _spec.loader.exec_module(_module)  # type: ignore
-        return _module_name, _module
-    except Exception:
-        raise ImportError(f"failed to import module from {path=}.") from None
+EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+EMPTY_FILE_SHA256_BYTE = bytes.fromhex(
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+)
