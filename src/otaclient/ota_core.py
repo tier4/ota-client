@@ -79,10 +79,9 @@ from otaclient.create_standby._delta_gen import (
     DeltaGenWithFileTable,
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
-from otaclient_common import human_readable_size, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
-    EMPTY_FILE_SHA256,
     Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,

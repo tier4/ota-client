@@ -22,6 +22,8 @@ from typing import Generator
 from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
 from simple_sqlite3_orm.utils import wrap_value
 
+from otaclient_common import EMPTY_FILE_SHA256_BYTE
+
 from ._table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
@@ -34,11 +36,6 @@ FT_REGULAR_TABLE_NAME = "ft_regular"
 FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
 FT_DIR_TABLE_NAME = "ft_dir"
 MAX_ENTRIES_PER_DIGEST = 10
-
-EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-EMPTY_FILE_SHA256_BYTE = bytes.fromhex(
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-)
 
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
