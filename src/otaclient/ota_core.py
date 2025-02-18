@@ -1013,6 +1013,7 @@ def ota_core_process(
         max_traceback_size=max_traceback_size,
     )
     _status_monitor.start()
+    _status_monitor.start_log_thread()
 
     _ota_core = OTAClient(
         ecu_status_flags=ecu_status_flags,
