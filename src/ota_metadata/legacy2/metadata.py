@@ -77,6 +77,9 @@ logger = logging.getLogger(__name__)
 # NOTE: enlarge the connection timeout on waiting db lock.
 DB_TIMEOUT = 16  # seconds
 
+MAX_ENTRIES_PER_DIGEST = 10
+"""How many entries to scan through for each unique digest."""
+
 
 def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     if not db_f or not Path(db_f).is_file():
@@ -378,7 +381,10 @@ class OTAMetadata:
             yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def iter_common_regular_entries_by_digest(
-        self, base_file_table: StrOrPath, *, max_num_of_entries_per_digest: int = 10
+        self,
+        base_file_table: StrOrPath,
+        *,
+        max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
     ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
         _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
