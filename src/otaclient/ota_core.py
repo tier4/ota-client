@@ -209,7 +209,7 @@ class _OTAUpdater:
 
         self._session_workdir = SessionWorkdir(
             suffix=session_id,
-            prefix="update_session-",
+            prefix="update_session",
             base_dir=cfg.RUN_DIR,
         )
 

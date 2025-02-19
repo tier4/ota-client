@@ -597,7 +597,7 @@ def ensure_mointpoint(
 # ------ session tmpfs mount ------ #
 #
 
-DEFAULT_SESSION_TMPFS_SIZE = 300 * 1024**2  # 300MiB
+DEFAULT_SESSION_TMPFS_SIZE = 700 * 1024**2  # 700MiB
 
 
 # NOTE: we cannot call mount within test environment, also its functionality is
