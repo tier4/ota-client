@@ -80,6 +80,7 @@ from otaclient.create_standby._delta_gen import (
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
+from otaclient_common.cmdhelper import SessionWorkdir
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     Downloader,
@@ -87,7 +88,6 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
-from otaclient_common.linux import SessionWorkdir
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,

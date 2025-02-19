@@ -22,10 +22,14 @@ When underlying subprocess call failed and <raise_exception> is True,
 from __future__ import annotations
 
 import logging
+import shutil
 import sys
 import time
+import warnings
+import weakref
 from pathlib import Path
 from subprocess import CalledProcessError
+from tempfile import TemporaryDirectory, mkdtemp
 from typing import Literal, NoReturn, Protocol
 
 from otaclient_common._typing import StrOrPath
@@ -587,3 +591,66 @@ def ensure_mointpoint(
                 f"But still use {mnt_point} and override the previous mount"
             )
         )
+
+
+#
+# ------ session tmpfs mount ------ #
+#
+
+DEFAULT_SESSION_TMPFS_SIZE = 300 * 1024**2  # 300MiB
+
+
+# NOTE: we cannot call mount within test environment, also its functionality is
+#       the same as TemporaryDirectory except we directly mounting tmpfs on tmp,
+#       so skip testing the SessionWorkdir class
+class SessionWorkdir(TemporaryDirectory):  # pragma: no cover
+    def __init__(
+        self,
+        suffix: str | None = None,
+        prefix: str | None = "session-tmp-",
+        base_dir: StrOrPath | None = None,
+        *,
+        tmpfs_size: int = DEFAULT_SESSION_TMPFS_SIZE,
+    ) -> None:
+        self.name = mkdtemp(suffix, prefix, base_dir)
+        mount(
+            target="tmpfs",
+            mount_point=self.name,
+            options=["rw", "nosuid", "nodev", "noexec", f"size={tmpfs_size}"],
+            params=["-t", "tmpfs"],
+        )
+
+        self._finalizer = weakref.finalize(
+            self,
+            self._cleanup,
+            self.name,
+            warn_message="Implicitly cleaning up {!r}".format(self),
+        )
+
+    # NOTE: since _cleanup and _rmtree are not exposed API, we implement these internal APIs
+    #       again to avoid depending on them.
+
+    @classmethod
+    def _cleanup(cls, name, warn_message):
+        cls._rmtree(name)
+        warnings.warn(warn_message, ResourceWarning, stacklevel=1)
+
+    def cleanup(self) -> None:
+        if self._finalizer.detach():
+            self._rmtree(self.name)
+
+    @classmethod
+    def _rmtree(cls, name):
+        try:
+            ensure_umount(name, ignore_error=False)
+            logger.info(f"successfully umount session tmpfs at {name}")
+        except Exception as e:
+            logger.warning(f"failed to umount the tmpfs at {name}: {e!r}")
+
+        try:
+            # NOTE: not an exposed API
+            _upper_rmtree = TemporaryDirectory._rmtree  # type: ignore
+        except AttributeError:
+            _upper_rmtree = shutil.rmtree
+
+        _upper_rmtree(name)
