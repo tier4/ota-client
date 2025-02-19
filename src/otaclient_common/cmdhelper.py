@@ -597,7 +597,10 @@ def ensure_mointpoint(
 # ------ session tmpfs mount ------ #
 #
 
-DEFAULT_SESSION_TMPFS_SIZE = 700 * 1024**2  # 700MiB
+# NOTE: tmpfs is thin provisioned, so the size here is just the upper-bound limit.
+# NOTE: ota_metadata.legacy2.OTAMetadata.prepare_fstable will take instantaneous peak memory consumption
+#       of 2 times of file_table size, set the upper-bound high enough for it.
+DEFAULT_SESSION_TMPFS_SIZE = 800 * 1024**2  # 800MiB
 
 
 # NOTE: we cannot call mount within test environment, also its functionality is
