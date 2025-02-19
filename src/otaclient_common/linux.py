@@ -223,7 +223,10 @@ def subprocess_run_wrapper(
 DEFAULT_SESSION_TMPFS_SIZE = 300 * 1024**2  # 300MiB
 
 
-class SessionWorkdir(TemporaryDirectory):
+# NOTE: we cannot call mount within test environment, also its functionality is
+#       the same as TemporaryDirectory except we directly mounting tmpfs on tmp,
+#       so skip testing the SessionWorkdir class
+class SessionWorkdir(TemporaryDirectory):  # pragma: no cover
     def __init__(
         self,
         suffix: str | None = None,
