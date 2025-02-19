@@ -38,7 +38,11 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from ota_metadata.legacy2 import _errors as ota_metadata_error
-from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
+from ota_metadata.legacy2.metadata import (
+    OTAMetadata,
+    ResourceMeta,
+    check_base_filetable,
+)
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
@@ -70,12 +74,14 @@ from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_an
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
-from otaclient.create_standby._delta_gen import DeltaGenerator
+from otaclient.create_standby._delta_gen import (
+    DeltaGenFullDiskScan,
+    DeltaGenWithFileTable,
+)
 from otaclient.create_standby.rebuild_mode import RebuildMode
-from otaclient_common import human_readable_size, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
-    EMPTY_FILE_SHA256,
     Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
@@ -555,6 +561,14 @@ class _OTAUpdater:
 
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
+        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
+        # NOTE: get the db via active_slot mount_point
+        _base_ft_db = replace_root(
+            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+            old_root="/",
+            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        )
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -566,17 +580,33 @@ class _OTAUpdater:
         )
 
         try:
-            delta_calculator = DeltaGenerator(
-                ota_metadata=self._ota_metadata,
-                delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                copy_dst=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            )
-            delta_calculator.calculate_delta()
+            if _verified_db := check_base_filetable(_base_ft_db):
+                logger.info(
+                    f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
+                )
+                delta_calculator = DeltaGenWithFileTable(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+                delta_calculator.calculate_delta(base_file_table=_verified_db)
+            else:
+                logger.info(
+                    f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
+                )
+                delta_calculator = DeltaGenFullDiskScan(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+                delta_calculator.calculate_delta()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
-            logger.error(_err_msg)
+            logger.exception(_err_msg)
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e

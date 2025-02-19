@@ -51,7 +51,6 @@ from otaclient_common._typing import P, StrOrPath, T
 
 logger = logging.getLogger(__name__)
 
-EMPTY_FILE_SHA256 = r"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
 DEFAULT_CONNECTION_TIMEOUT = 16  # seconds

@@ -26,6 +26,7 @@ Version1 OTA metafiles list:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os.path
 import shutil
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
+from simple_sqlite3_orm import utils
 from simple_sqlite3_orm.utils import (
     enable_tmp_store_at_memory,
     enable_wal_mode,
@@ -74,6 +76,23 @@ logger = logging.getLogger(__name__)
 
 # NOTE: enlarge the connection timeout on waiting db lock.
 DB_TIMEOUT = 16  # seconds
+
+MAX_ENTRIES_PER_DIGEST = 10
+"""How many entries to scan through for each unique digest."""
+
+
+def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
+    if not db_f or not Path(db_f).is_file():
+        return
+
+    with contextlib.suppress(Exception), contextlib.closing(
+        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
+    ) as con:
+        if utils.check_db_integrity(
+            con,
+            table_name=FileTableRegularORM.orm_bootstrap_table_name,
+        ):
+            return db_f
 
 
 class OTAMetadata:
@@ -196,14 +215,14 @@ class OTAMetadata:
             self.connect_rstable()
         ) as rst_conn:
             ft_regular_orm = FileTableRegularORM(fst_conn)
-            ft_regular_orm.orm_create_table()
+            ft_regular_orm.orm_bootstrap_db()
             ft_dir_orm = FileTableDirORM(fst_conn)
-            ft_dir_orm.orm_create_table()
+            ft_dir_orm.orm_bootstrap_db()
             ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
-            ft_non_regular_orm.orm_create_table()
+            ft_non_regular_orm.orm_bootstrap_db()
 
             rs_orm = ResourceTableORM(rst_conn)
-            rs_orm.orm_create_table()
+            rs_orm.orm_bootstrap_db()
 
             # ------ download metafiles ------ #
             regular_meta = metadata_jwt.regular
@@ -262,12 +281,6 @@ class OTAMetadata:
             )
             symlink_save_fpath.unlink(missing_ok=True)
 
-            # ------ post parsing ------ #
-            ft_regular_orm.orm_create_index(
-                index_name="digest_index",
-                index_keys=("digest",),
-            )
-
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
         )
@@ -319,6 +332,7 @@ class OTAMetadata:
             logger.exception(
                 f"failure during downloading and verifying OTA image metafiles: {e!r}"
             )
+            raise
         finally:
             shutil.rmtree(_download_dir, ignore_errors=True)
 
@@ -332,12 +346,15 @@ class OTAMetadata:
 
             with _dst_conn as conn:
                 conn.execute("VACUUM;")
+                # change the journal_mode back to DELETE to make db file on read-only mount work.
+                # see https://www.sqlite.org/wal.html#read_only_databases for more details.
+                conn.execute("PRAGMA journal_mode=DELETE;")
 
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
         _orm = FileTableRegularORM(self.connect_fstable)
         sort_and_replace(
-            _orm,  # type: ignore
+            _orm,
             table_name=_orm.orm_table_name,
             order_by_col="digest",
         )
@@ -356,8 +373,34 @@ class OTAMetadata:
     def iter_non_regular_entries(
         self, *, batch_size: int
     ) -> Generator[FileTableNonRegularFiles]:
-        with FileTableNonRegularORM(self.connect_fstable()) as pool:
-            yield from pool.orm_select_all_with_pagination(batch_size=batch_size)
+        """Yield entries from base file_table which digest presented in OTA image's file_table.
+
+        This is for assisting faster delta_calculation without full disk scan.
+        """
+        with FileTableNonRegularORM(self.connect_fstable()) as orm:
+            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+
+    def iter_common_regular_entries_by_digest(
+        self,
+        base_file_table: StrOrPath,
+        *,
+        max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
+    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
+        _hash, _cur = b"", []
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            for entry in orm.iter_common_by_digest(str(base_file_table)):
+                if entry.digest == _hash:
+                    # When there are too many entries for this digest, just pick the first
+                    #   <max_num_of_entries_per_digest> of them.
+                    if len(_cur) <= max_num_of_entries_per_digest:
+                        _cur.append(entry)
+                else:
+                    if _cur:
+                        yield _hash, _cur
+                    _hash, _cur = entry.digest, [entry]
+
+            if _cur:
+                yield _hash, _cur
 
     def iter_regular_entries(
         self, *, batch_size: int

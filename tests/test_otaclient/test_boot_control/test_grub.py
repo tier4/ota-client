@@ -144,7 +144,7 @@ class TestGrubControl:
     def _grub_mkconfig_fsm(self) -> GrubMkConfigFSM:
         return GrubMkConfigFSM()
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def grub_ab_slot(
         self,
         tmp_path_factory: pytest.TempPathFactory,
