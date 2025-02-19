@@ -17,21 +17,37 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from otaclient import _logging
 
 MODULE = _logging.__name__
 logger = logging.getLogger(__name__)
 
 
-def test_server_logger():
-    test_log_msg = "emit one logging entry"
-
+@pytest.mark.parametrize(
+    "test_log_msg, test_extra, expected_log_type",
+    [
+        ("emit one logging entry", None, _logging.LogType.LOG),
+        (
+            "emit one logging entry",
+            {"log_type": _logging.LogType.LOG},
+            _logging.LogType.LOG,
+        ),
+        (
+            "emit one metrics entry",
+            {"log_type": _logging.LogType.METRICS},
+            _logging.LogType.METRICS,
+        ),
+    ],
+)
+def test_server_logger(test_log_msg, test_extra, expected_log_type):
     # ------ setup test ------ #
     _handler = _logging._LogTeeHandler()
     logger.addHandler(_handler)
 
     # ------ execution ------ #
-    logger.info(test_log_msg)
+    logger.info(test_log_msg, extra=test_extra)
 
     # ------ clenaup ------ #
     logger.removeHandler(_handler)
@@ -39,4 +55,6 @@ def test_server_logger():
     # ------ check result ------ #
     _queue = _handler._queue
     _log = _queue.get_nowait()
-    assert _log == test_log_msg
+    assert _log is not None
+    assert _log.log_type == expected_log_type
+    assert _log.message == test_log_msg
