@@ -43,6 +43,7 @@ MAX_ENTRIES_PER_DIGEST = 10
 
 
 class FileEntryToScan(NamedTuple):
+    """A helper type for typing output result of iter_common_by_digest."""
 
     path: str
     digest: bytes

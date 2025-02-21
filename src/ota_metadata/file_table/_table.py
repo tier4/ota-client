@@ -140,7 +140,7 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
 
 
 class RegularFileEntry(FileTableRegularFiles):
-    """A helper class for joined ft_regular and ft_resource."""
+    """Subtype of FileTableRegularFiles, used forjoined ft_regular and ft_resource."""
 
     digest: bytes
 
