@@ -103,7 +103,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                     {FT_REGULAR_TABLE_NAME}.path, 
                     {FT_RESOURCE_TABLE_NAME}.digest, 
                     {FT_RESOURCE_TABLE_NAME}.size,
-                    ROW_NUMBER() OVER (PARTITION BY {FT_RESOURCE_TABLE_NAME}.digest ORDER BY {FT_RESOURCE_TABLE_NAME}.path) AS row_num
+                    ROW_NUMBER() OVER (PARTITION BY {FT_RESOURCE_TABLE_NAME}.digest) AS row_num
                 FROM {FT_REGULAR_TABLE_NAME}
                 JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
                 JOIN common_digests USING(digest)
