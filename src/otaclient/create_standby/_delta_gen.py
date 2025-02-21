@@ -26,7 +26,7 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table._orm import (
+from ota_metadata.file_table import (
     FileEntryToScan,
     FileTableDirORMPool,
     FileTableRegularORMPool,
