@@ -598,8 +598,8 @@ def ensure_mointpoint(
 #
 
 # NOTE: tmpfs is thin provisioned, so the size here is just the upper-bound limit.
-# NOTE: ota_metadata.legacy2.OTAMetadata.prepare_fstable might take some extra space during OTA,
-#       make sure we set a higher enough upper-bound.
+# NOTE: during OTA, besides the size of file_table and resource_table, when operating the database,
+#       we might take some extra space, so set a much higher upper-bound here.
 DEFAULT_SESSION_TMPFS_SIZE = 700 * 1024**2  # 700MiB
 
 
@@ -644,6 +644,8 @@ class SessionWorkdir(TemporaryDirectory):  # pragma: no cover
 
     @classmethod
     def _rmtree(cls, name):
+        # NOTE: in some cases, we might fail to unmount the mount point,
+        #       but at least the rmtree will cleanup the contents within the folder.
         try:
             ensure_umount(name, ignore_error=False)
             logger.info(f"successfully umount session tmpfs at {name}")
