@@ -50,9 +50,9 @@ from ota_metadata.file_table import (
     FileTableNonRegularFiles,
     FileTableNonRegularORM,
     FileTableRegularORM,
+    FileTableResourceORM,
     RegularFileEntry,
 )
-from ota_metadata.file_table._orm import FileTableResourceORM
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath

@@ -14,10 +14,13 @@
 
 
 from ._orm import (
+    FT_DIR_TABLE_NAME,
+    FT_NON_REGULAR_TABLE_NAME,
     FT_REGULAR_TABLE_NAME,
     FT_RESOURCE_TABLE_NAME,
     FileEntryToScan,
     FileTableDirORM,
+    FileTableDirORMPool,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableRegularORMPool,
@@ -47,4 +50,7 @@ __all__ = [
     "FileEntryToScan",
     "FileTableResourceORM",
     "FileTableResource",
+    "FT_DIR_TABLE_NAME",
+    "FT_NON_REGULAR_TABLE_NAME",
+    "FileTableDirORMPool",
 ]
