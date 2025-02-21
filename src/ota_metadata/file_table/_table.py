@@ -100,11 +100,7 @@ class FileTableBase(BaseModel):
 class FileTableRegularFiles(TableSpec, FileTableBase):
     """DB table for regular file entries."""
 
-    digest: Annotated[
-        bytes,
-        TypeAffinityRepr(bytes),
-        SkipValidation,
-    ]
+    resource_id: Annotated[int, SkipValidation]
 
     def prepare_target(
         self,
@@ -220,3 +216,10 @@ class FileTableDirectories(TableSpec, FileTableBase):
         except Exception as e:
             burst_suppressed_logger.exception(f"failed on preparing {self!r}: {e!r}")
             raise
+
+
+class FileTableResource(TableSpec):
+
+    resource_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    digest: Annotated[bytes, SkipValidation]
+    size: Annotated[int, SkipValidation]
