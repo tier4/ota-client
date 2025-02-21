@@ -58,7 +58,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="digest_index", index_cols=("digest",))
+        CreateIndexParams(index_name="resource_id_index", index_cols=("resource_id",))
     ]
 
     def iter_common_by_digest(
