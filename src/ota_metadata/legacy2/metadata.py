@@ -390,7 +390,6 @@ class OTAMetadata:
                 yield _hash, _cur
 
     def iter_regular_entries(self) -> Generator[FileTableRegularFiles]:
-        # NOTE: do the dispatch at a thread
         with FileTableRegularORM(self.connect_fstable()) as orm:
             yield from orm.orm_select_entries(_order_by=("digest",))
 
