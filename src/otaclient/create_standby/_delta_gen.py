@@ -27,10 +27,10 @@ from pathlib import Path
 from queue import Queue
 
 from ota_metadata.file_table._orm import (
+    FileEntryToScan,
     FileTableDirORMPool,
     FileTableRegularORMPool,
 )
-from ota_metadata.file_table._table import FileTableRegularFiles
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -107,7 +107,7 @@ class DeltaGenerator:
 class DeltaGenWithFileTable(DeltaGenerator):
 
     def _process_file(
-        self, _input: tuple[bytes, list[FileTableRegularFiles]], thread_local
+        self, _input: tuple[bytes, list[FileEntryToScan]], thread_local
     ) -> None:
         expected_digest, entries = _input
         dst_f = self._copy_dst / expected_digest.hex()
@@ -137,7 +137,7 @@ class DeltaGenWithFileTable(DeltaGenerator):
                         StatusReport(
                             payload=UpdateProgressReport(
                                 operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                                processed_file_size=entry.entry_attrs.size or 0,
+                                processed_file_size=entry.size or 0,
                                 processed_file_num=1,
                             ),
                             session_id=self.session_id,
