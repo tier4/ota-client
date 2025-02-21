@@ -52,6 +52,7 @@ from ota_metadata.file_table import (
     FileTableRegularORM,
     RegularFileEntry,
 )
+from ota_metadata.file_table._orm import FileTableResourceORM
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath
@@ -218,6 +219,8 @@ class OTAMetadata:
             ft_dir_orm.orm_bootstrap_db()
             ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
             ft_non_regular_orm.orm_bootstrap_db()
+            ft_resource_orm = FileTableResourceORM(fst_conn)
+            ft_resource_orm.orm_bootstrap_db()
 
             rs_orm = ResourceTableORM(rst_conn)
             rs_orm.orm_bootstrap_db()
@@ -267,6 +270,7 @@ class OTAMetadata:
             self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
                 _fpath=regular_save_fpath,
                 _orm=ft_regular_orm,
+                _orm_ft_resource=ft_resource_orm,
                 _orm_rs=rs_orm,
             )
             regular_save_fpath.unlink(missing_ok=True)
