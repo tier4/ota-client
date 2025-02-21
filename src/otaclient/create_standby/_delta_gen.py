@@ -218,10 +218,10 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         fully_scan: bool,
         thread_local,
     ) -> None:
-        if fpath.stat().st_size == 0:
-            return  # skip empty file
-
         try:
+            if not fpath.is_file() or fpath.stat().st_size == 0:
+                return  # skip empty file
+
             # in default match_only mode, if the fpath doesn't exist in new, ignore
             if not fully_scan and not self._ft_regular_orm.orm_check_entry_exist(
                 path=str(canonical_fpath)
