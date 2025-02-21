@@ -87,11 +87,23 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
-        if utils.check_db_integrity(
-            con,
-            table_name=FileTableRegularORM.orm_bootstrap_table_name,
+        if not (
+            utils.check_db_integrity(
+                con,
+                table_name=FileTableRegularORM.orm_bootstrap_table_name,
+            )
+            and utils.check_db_integrity(
+                con,
+                table_name=FileTableResourceORM.orm_bootstrap_table_name,
+            )
         ):
+            return
+    try:
+        with contextlib.closing(sqlite3.connect(":memory:")) as con:
+            con.execute(f"ATTACH '{db_f}' AS attach_test;")
             return db_f
+    except Exception as e:
+        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
 
 
 class OTAMetadata:
