@@ -29,9 +29,9 @@ from ota_metadata.file_table import (
     FileTableNonRegularORM,
     FileTableRegularFiles,
     FileTableRegularORM,
+    FileTableResource,
+    FileTableResourceORM,
 )
-from ota_metadata.file_table._orm import FileTableResourceORM
-from ota_metadata.file_table._table import FileTableResource
 from otaclient_common._typing import StrOrPath
 
 from .rs_table import ResourceTable, ResourceTableORM

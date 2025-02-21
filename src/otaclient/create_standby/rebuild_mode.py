@@ -22,7 +22,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Generator
 
-from ota_metadata.file_table._table import (
+from ota_metadata.file_table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
     RegularFileEntry,
