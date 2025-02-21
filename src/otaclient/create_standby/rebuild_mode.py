@@ -54,7 +54,6 @@ PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 PROCESS_DIRS_BATCH_SIZE = 32
 PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 128
-PROCESS_FILES_BATCH_SIZE = 256
 PROCESS_FILES_CONCURRENCY = 64
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
@@ -79,7 +78,7 @@ class RebuildMode:
         self._resource_dir = Path(resource_dir)
 
     def _preprocess_regular_file_entries(
-        self, *, batch_size: int
+        self,
     ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
         """Yield a group of regular file entries which have the same digest each time.
 
@@ -87,7 +86,7 @@ class RebuildMode:
         """
         cur_digest_group: list[FileTableRegularFiles] = []
         cur_digest: bytes = b""
-        for _entry in self._ota_metadata.iter_regular_entries(batch_size=batch_size):
+        for _entry in self._ota_metadata.iter_regular_entries():
             _this_digest = _entry.digest
             if not cur_digest:
                 cur_digest = _this_digest
@@ -183,7 +182,6 @@ class RebuildMode:
     def _process_regular_files(
         self,
         *,
-        batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
         batch_concurrency: int = PROCESS_FILES_CONCURRENCY,
         num_of_workers: int = PROCESS_FILES_WORKER,
     ) -> None:
@@ -201,9 +199,7 @@ class RebuildMode:
             for _done_count, _done in enumerate(
                 _mapper.ensure_tasks(
                     func=self._process_one_regular_files_group,
-                    iterable=self._preprocess_regular_file_entries(
-                        batch_size=batch_size
-                    ),
+                    iterable=self._preprocess_regular_file_entries(),
                 )
             ):
                 _now = int(time.time())
