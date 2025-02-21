@@ -556,9 +556,6 @@ class _OTAUpdater:
         except Exception as e:
             logger.error(f"failed to save OTA image file_table to {_save_dst}: {e!r}")
 
-        logger.info("prepare and optimize file_table ...")
-        self._ota_metadata.prepare_fstable()
-
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
         # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
