@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import os
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -109,7 +108,7 @@ TEST_FILE_SIZE = 64  # bytes
             file_contents := os.urandom(TEST_FILE_SIZE),
             FileTableRegularFiles(
                 path="/a/b/c/d/e.bin",
-                digest=sha256(file_contents).digest(),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=0o100644,
                     uid=1000,
@@ -124,7 +123,7 @@ TEST_FILE_SIZE = 64  # bytes
             file_contents := os.urandom(TEST_FILE_SIZE),
             FileTableRegularFiles(
                 path="/a/b/c/d/e.bin",
-                digest=sha256(file_contents).digest(),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=0o100644,
                     uid=1000,
@@ -144,7 +143,7 @@ TEST_FILE_SIZE = 64  # bytes
             file_contents := os.urandom(TEST_FILE_SIZE),
             FileTableRegularFiles(
                 path="/a/b/c/d/e.bin",
-                digest=sha256(file_contents).digest(),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=0o100644,
                     uid=1000,
@@ -163,7 +162,7 @@ TEST_FILE_SIZE = 64  # bytes
             file_contents := os.urandom(TEST_FILE_SIZE),
             FileTableRegularFiles(
                 path="/α/β/γ/ζ.bin",
-                digest=sha256(file_contents).digest(),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=0o100644,
                     uid=1000,
