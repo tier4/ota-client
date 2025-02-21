@@ -402,6 +402,7 @@ class OTAMetadata:
                     SELECT {FT_REGULAR_TABLE_NAME}.*, {FT_RESOURCE_TABLE_NAME}.digest
                     FROM {FT_REGULAR_TABLE_NAME}
                     INNER JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
+                    ORDER BY digest
             """
             )
 
