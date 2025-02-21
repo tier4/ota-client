@@ -33,15 +33,19 @@ from ota_metadata.file_table import (
     FileTableNonRegularORM,
     FileTableRegularFiles,
     FileTableRegularORM,
+    FileTableResourceORM,
 )
 from ota_metadata.legacy2.csv_parser import (
+    DigestSize,
+    parse_create_file_table_row,
     parse_dirs_csv_line,
     parse_dirs_from_csv_file,
     parse_persists_csv_line,
-    parse_regulars_csv_line,
+    parse_regular_csv_line,
     parse_regulars_from_csv_file,
     parse_symlinks_csv_line,
     parse_symlinks_from_csv_file,
+    parser_create_file_table_rs_entry,
 )
 from ota_metadata.legacy2.rs_table import ResourceTable, ResourceTableORM
 from tests.conftest import TestConfiguration as test_cfg
@@ -57,16 +61,13 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(
-    "_input, _ft_expected, _rs_expected",
+    "_input, _ft_expected, _rs_expected, _digest_size_expected",
     (
         # rev4: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compression_alg]]]
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',Ελληνικό/to/file',1234,12345678,zst",
             FileTableRegularFiles(
                 path=r"/aaa\,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
                 entry_attrs=FileEntryAttrs(
                     mode=int("0644", 8) | stat.S_IFREG,
                     uid=1000,
@@ -74,6 +75,7 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
                     size=1234,
                     inode=12345678,
                 ),
+                resource_id=1,
             ),
             ResourceTable(
                 digest=bytes.fromhex(
@@ -82,15 +84,19 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
                 original_size=1234,
                 compression_alg="zst",
             ),
+            DigestSize(
+                digest=bytes.fromhex(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                size=1234,
+            ),
         ),
         # rev3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',Ελληνικό/to/file',1234,12345678,",
             FileTableRegularFiles(
                 path=r"/aaa\,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=int("0644", 8) | stat.S_IFREG,
                     uid=1000,
@@ -106,15 +112,19 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
                 ),
                 original_size=1234,
             ),
+            DigestSize(
+                digest=bytes.fromhex(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                size=1234,
+            ),
         ),
         # rev2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
         (
             r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',Ελληνικό/to/file',1234",
             FileTableRegularFiles(
                 path=r"/aaa,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
+                resource_id=1,
                 entry_attrs=FileEntryAttrs(
                     mode=int("0644", 8) | stat.S_IFREG,
                     uid=1000,
@@ -129,17 +139,31 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
                 ),
                 original_size=1234,
             ),
+            DigestSize(
+                digest=bytes.fromhex(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                ),
+                size=1234,
+            ),
         ),
         # rev1: mode,uid,gid,link number,sha256sum,'path/to/file'
         # NOTE: rev1 is not supported anymore, the size field is MUST now.
     ),
 )
 def test_regulars_txt(
-    _input: str, _ft_expected: FileTableRegularFiles, _rs_expected: ResourceTable
+    _input: str,
+    _ft_expected: FileTableRegularFiles,
+    _rs_expected: ResourceTable,
+    _digest_size_expected: DigestSize,
 ):
-    _ft, _rs = parse_regulars_csv_line(_input)
-    assert _ft == _ft_expected
-    assert _rs == _rs_expected
+    _ma = parse_regular_csv_line(_input)
+    _digest_size = parser_create_file_table_rs_entry(_ma)
+    _ft, _rs = parse_create_file_table_row(_ma, resource_id=1)
+    assert (
+        _ft == _ft_expected
+        and _rs == _rs_expected
+        and _digest_size == _digest_size_expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -211,12 +235,18 @@ def test_parse_and_import_regulars_txt():
         "file:rs_table?mode=memory", uri=True
     ) as rs_table_conn:
         ft_table_orm = FileTableRegularORM(ft_table_conn)
-        ft_table_orm.orm_create_table()
+        ft_table_orm.orm_bootstrap_db()
+        ft_resource_orm = FileTableResourceORM(ft_table_conn)
+        ft_resource_orm.orm_bootstrap_db()
 
         rs_table_orm = ResourceTableORM(rs_table_conn)
-        rs_table_orm.orm_create_table()
+        rs_table_orm.orm_bootstrap_db()
+
         _imported = parse_regulars_from_csv_file(
-            regulars_txt, ft_table_orm, rs_table_orm
+            _fpath=regulars_txt,
+            _orm=ft_table_orm,
+            _orm_ft_resource=ft_resource_orm,
+            _orm_rs=rs_table_orm,
         )
         logger.info(f"imported {_imported} entries")
         assert _imported > 0
