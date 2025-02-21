@@ -20,7 +20,12 @@ import sqlite3
 import textwrap
 from typing import Any, Generator, NamedTuple
 
-from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
+from simple_sqlite3_orm import (
+    CreateIndexParams,
+    CreateTableParams,
+    ORMBase,
+    ORMThreadPoolBase,
+)
 from simple_sqlite3_orm.utils import wrap_value
 from typing_extensions import Self
 
@@ -57,6 +62,7 @@ class FileEntryToScan(NamedTuple):
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="resource_id_index", index_cols=("resource_id",))
     ]
@@ -135,11 +141,13 @@ class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
 
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
 
 class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
@@ -150,6 +158,7 @@ class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
 class FileTableResourceORM(ORMBase[FileTableResource]):
 
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]

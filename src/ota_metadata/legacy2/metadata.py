@@ -359,19 +359,17 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
+    def iter_dir_entries(self) -> Generator[FileTableDirectories]:
         with FileTableDirORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+            yield from orm.orm_select_entries()
 
-    def iter_non_regular_entries(
-        self, *, batch_size: int
-    ) -> Generator[FileTableNonRegularFiles]:
+    def iter_non_regular_entries(self) -> Generator[FileTableNonRegularFiles]:
         """Yield entries from base file_table which digest presented in OTA image's file_table.
 
         This is for assisting faster delta_calculation without full disk scan.
         """
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+            yield from orm.orm_select_entries()
 
     def iter_common_regular_entries_by_digest(
         self,
