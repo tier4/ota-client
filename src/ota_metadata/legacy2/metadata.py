@@ -38,11 +38,7 @@ from typing import Generator
 from urllib.parse import quote
 
 from simple_sqlite3_orm import utils
-from simple_sqlite3_orm.utils import (
-    enable_tmp_store_at_memory,
-    enable_wal_mode,
-    sort_and_replace,
-)
+from simple_sqlite3_orm.utils import enable_tmp_store_at_memory, enable_wal_mode
 
 from ota_metadata.file_table import (
     FileTableDirectories,
@@ -350,15 +346,6 @@ class OTAMetadata:
                 # see https://www.sqlite.org/wal.html#read_only_databases for more details.
                 conn.execute("PRAGMA journal_mode=DELETE;")
 
-    def prepare_fstable(self) -> None:
-        """Optimize the file_table to be ready for delta generation use."""
-        _orm = FileTableRegularORM(self.connect_fstable)
-        sort_and_replace(
-            _orm,
-            table_name=_orm.orm_table_name,
-            order_by_col="digest",
-        )
-
     # helper methods
 
     def iter_persist_entries(self) -> Generator[str]:
@@ -402,12 +389,10 @@ class OTAMetadata:
             if _cur:
                 yield _hash, _cur
 
-    def iter_regular_entries(
-        self, *, batch_size: int
-    ) -> Generator[FileTableRegularFiles]:
+    def iter_regular_entries(self) -> Generator[FileTableRegularFiles]:
         # NOTE: do the dispatch at a thread
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+            yield from orm.orm_select_entries(_order_by=("digest",))
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
