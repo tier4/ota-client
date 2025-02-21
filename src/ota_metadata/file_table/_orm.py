@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import textwrap
 from typing import Any, Generator, NamedTuple
 
 from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
@@ -73,7 +74,8 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                 f"detect {sqlite3.sqlite_version_info=} < 3.25, use fallback query"
             )
 
-            stmt = f"""\
+            stmt = textwrap.dedent(
+                f"""\
             WITH common_digests AS (
                 SELECT db1.digest
                 FROM {FT_RESOURCE_TABLE_NAME} AS db1
@@ -86,8 +88,10 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
             JOIN common_digests ON {FT_RESOURCE_TABLE_NAME}.digest = common_digests.digest
             ORDER BY {FT_RESOURCE_TABLE_NAME}.digest;
             """
+            )
         else:
-            stmt = f"""\
+            stmt = textwrap.dedent(
+                f"""\
             WITH common_digests AS (
                 SELECT db1.digest
                 FROM {FT_RESOURCE_TABLE_NAME} AS db1
@@ -109,6 +113,7 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
             WHERE row_num <= {max_entries_per_digest}
             ORDER BY digest;
             """
+            )
         orm_conn = self.orm_con
 
         orm_conn.execute(f"ATTACH '{other_db}' AS {attached_db_schema};")
