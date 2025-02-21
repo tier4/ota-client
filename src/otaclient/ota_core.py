@@ -80,6 +80,7 @@ from otaclient.create_standby._delta_gen import (
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
+from otaclient_common.cmdhelper import SessionWorkdir
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     Downloader,
@@ -205,11 +206,12 @@ class _OTAUpdater:
         self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
             cfg.OTA_TMP_STORE
         ).relative_to("/")
-        # TODO: use a tmpfs mount with 320MB in size for session workdir
-        self._session_workdir = session_wd = (
-            Path(cfg.RUN_DIR) / f"update_session-{session_id}"
+
+        self._session_workdir = SessionWorkdir(
+            suffix=session_id,
+            prefix="update_session-",
+            base_dir=cfg.RUN_DIR,
         )
-        session_wd.mkdir(exist_ok=True, parents=True)
 
         # ------ parse cookies ------ #
         logger.debug("process cookies_json...")
@@ -256,7 +258,7 @@ class _OTAUpdater:
         # ------ setup OTA metadata parser ------ #
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
-            session_dir=self._session_workdir,
+            session_dir=self._session_workdir.name,
             ca_chains_store=ca_chains_store,
         )
 
@@ -734,7 +736,7 @@ class _OTAUpdater:
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            shutil.rmtree(self._session_workdir, ignore_errors=True)
+            self._session_workdir.cleanup()
 
 
 class _OTARollbacker:

@@ -353,6 +353,9 @@ class OTAMetadata:
     def prepare_fstable(self) -> None:
         """Optimize the file_table to be ready for delta generation use."""
         _orm = FileTableRegularORM(self.connect_fstable)
+
+        # NOTE: the below function will take 2 times of file_table db size
+        #       during execution!
         sort_and_replace(
             _orm,
             table_name=_orm.orm_table_name,
