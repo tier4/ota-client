@@ -14,6 +14,9 @@
 
 
 from ._orm import (
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    FileEntryToScan,
     FileTableDirORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
@@ -23,6 +26,7 @@ from ._table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
+    RegularFileEntry,
 )
 from ._types import FileEntryAttrs
 
@@ -35,4 +39,8 @@ __all__ = [
     "FileTableRegularFiles",
     "FileTableDirectories",
     "FileEntryAttrs",
+    "RegularFileEntry",
+    "FT_REGULAR_TABLE_NAME",
+    "FT_RESOURCE_TABLE_NAME",
+    "FileEntryToScan",
 ]

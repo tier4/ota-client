@@ -31,6 +31,7 @@ import logging
 import os.path
 import shutil
 import sqlite3
+import textwrap
 import threading
 from contextlib import closing
 from pathlib import Path
@@ -41,14 +42,15 @@ from simple_sqlite3_orm import utils
 from simple_sqlite3_orm.utils import enable_tmp_store_at_memory, enable_wal_mode
 
 from ota_metadata.file_table import (
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    FileEntryToScan,
     FileTableDirectories,
-    FileTableNonRegularFiles,
-    FileTableRegularFiles,
-)
-from ota_metadata.file_table._orm import (
     FileTableDirORM,
+    FileTableNonRegularFiles,
     FileTableNonRegularORM,
     FileTableRegularORM,
+    RegularFileEntry,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -372,7 +374,7 @@ class OTAMetadata:
         base_file_table: StrOrPath,
         *,
         max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
-    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
+    ) -> Generator[tuple[bytes, list[FileEntryToScan]]]:
         _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
             for entry in orm.iter_common_by_digest(str(base_file_table)):
@@ -389,9 +391,20 @@ class OTAMetadata:
             if _cur:
                 yield _hash, _cur
 
-    def iter_regular_entries(self) -> Generator[FileTableRegularFiles]:
+    def iter_regular_entries(self) -> Generator[RegularFileEntry]:
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_entries(_order_by=("digest",))
+            _stmt = textwrap.dedent(
+                f"""\
+                    SELECT {FT_REGULAR_TABLE_NAME}.*, {FT_RESOURCE_TABLE_NAME}.digest
+                    FROM {FT_REGULAR_TABLE_NAME}
+                    INNER JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
+            """
+            )
+
+            yield from orm.orm_select_entries(
+                _stmt=_stmt,
+                _row_factory=RegularFileEntry.table_row_factory2,
+            )  # type: ignore
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(

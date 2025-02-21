@@ -139,6 +139,12 @@ class FileTableRegularFiles(TableSpec, FileTableBase):
             raise
 
 
+class RegularFileEntry(FileTableRegularFiles):
+    """A helper class for joined ft_regular and ft_resource."""
+
+    digest: bytes
+
+
 class FileTableNonRegularFiles(TableSpec, FileTableBase):
     """DB table for non-regular file entries.
 
