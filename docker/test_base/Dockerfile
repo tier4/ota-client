@@ -17,7 +17,7 @@ ENV EMPTY_FILE_FOLDER="/usr/empty_files"
 RUN set -eux; \
     echo -n "${SPECIAL_FILE}" > "/${SPECIAL_FILE}"; \
     # create special folder containing a lot of empty files
-    for i in $(seq 0 4999); do touch "${EMPTY_FILE_FOLDER}/$i"; done; \
+    mkdir -p ${EMPTY_FILE_FOLDER}; for i in $(seq 0 4999); do touch "${EMPTY_FILE_FOLDER}/$i"; done; \
     # install required packages
     apt-get update -qq; \
     apt-get install -y linux-image-generic; \
