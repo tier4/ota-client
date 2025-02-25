@@ -19,7 +19,12 @@ import logging
 import sqlite3
 from typing import Generator
 
-from simple_sqlite3_orm import CreateIndexParams, ORMBase, ORMThreadPoolBase
+from simple_sqlite3_orm import (
+    CreateIndexParams,
+    CreateTableParams,
+    ORMBase,
+    ORMThreadPoolBase,
+)
 from simple_sqlite3_orm.utils import wrap_value
 
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
@@ -41,6 +46,7 @@ MAX_ENTRIES_PER_DIGEST = 10
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]
@@ -103,11 +109,13 @@ class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
 
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
 
 class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
