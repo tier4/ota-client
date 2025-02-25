@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import errno
+import gc
 import json
 import logging
 import multiprocessing.queues as mp_queue
@@ -729,11 +730,13 @@ class _OTAUpdater:
             shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
+            gc.collect()  # force gc to collect remaining resources for this session
             self._boot_controller.on_operation_failure()
             raise  # do not cover the OTA error again
         except Exception as e:
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
+            gc.collect()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
             self._session_workdir.cleanup()
