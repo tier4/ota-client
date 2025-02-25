@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import subprocess
@@ -23,6 +24,8 @@ from subprocess import check_call
 from typing import Any, Callable, Optional
 
 from otaclient_common._typing import StrOrPath
+
+logger = logging.getLogger(__name__)
 
 #
 # ------ swapfile handling ------ #
