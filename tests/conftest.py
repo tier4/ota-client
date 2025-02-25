@@ -334,3 +334,16 @@ def ota_status_collector(
     finally:
         _report_queue.put_nowait(TERMINATE_SENTINEL)
         _collector_thread.join()
+
+
+class MockedSessionWorkDir:
+    def __init__(
+        self,
+        *args,
+        _actual_base_dir: Path,
+        **kwargs,
+    ) -> None:
+        self.name = _actual_base_dir / "session_wd"
+
+    def cleanup(self) -> None:
+        return

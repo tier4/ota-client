@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import shutil
+from functools import partial
 from pathlib import Path
 from queue import Queue
 
@@ -35,6 +36,7 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import OTAClient, _OTAUpdater
+from tests.conftest import MockedSessionWorkDir
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -53,6 +55,12 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
     )
 
 
+@pytest.fixture
+def apply_mocked_session_wd(tmp_path: Path, mocker: pytest_mock.MockerFixture):
+    _mocked = partial(MockedSessionWorkDir, _actual_base_dir=tmp_path)
+    mocker.patch(f"{OTA_CORE_MODULE}.SessionWorkdir", _mocked)
+
+
 class TestOTAUpdater:
     """
     NOTE: the boot_control is mocked.
@@ -61,7 +69,9 @@ class TestOTAUpdater:
     SESSION_ID = "session_id_for_test"
 
     @pytest.fixture
-    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
+    def prepare_ab_slots(
+        self, tmp_path: Path, ab_slots: SlotMeta, apply_mocked_session_wd
+    ):
         self.slot_a = Path(ab_slots.slot_a)
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
