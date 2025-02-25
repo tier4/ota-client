@@ -105,9 +105,9 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                     INNER JOIN base.{FT_RESOURCE_TABLE_NAME} USING(digest)
                     WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
                 ), ranked_results AS (
-                    SELECT 
-                        base_ft_regular.path, 
-                        base_ft_rs.digest, 
+                    SELECT
+                        base_ft_regular.path,
+                        base_ft_rs.digest,
                         base_ft_rs.size,
                         ROW_NUMBER() OVER (PARTITION BY base_ft_rs.digest) AS row_num
                     FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
