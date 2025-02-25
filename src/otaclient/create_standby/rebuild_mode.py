@@ -52,8 +52,6 @@ burst_suppressed_logger.addFilter(
 PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
-PROCESS_DIRS_BATCH_SIZE = 32
-PROCESS_NON_REGULAR_FILES_BATCH_SIZE = 128
 PROCESS_FILES_CONCURRENCY = 64
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
@@ -235,34 +233,26 @@ class RebuildMode:
                 )
             )
 
-    def _process_dir_entries(
-        self,
-        *,
-        batch_size: int = PROCESS_DIRS_BATCH_SIZE,
-    ) -> None:
+    def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
         _func = partial(
             FileTableDirectories.prepare_target,
             target_mnt=self._standby_slot_mp,
         )
-        for entry in self._ota_metadata.iter_dir_entries(batch_size=batch_size):
+        for entry in self._ota_metadata.iter_dir_entries():
             try:
                 _func(entry)
             except Exception as e:
                 burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
                 raise
 
-    def _process_non_regular_files(
-        self,
-        *,
-        batch_size: int = PROCESS_NON_REGULAR_FILES_BATCH_SIZE,
-    ) -> None:
+    def _process_non_regular_files(self) -> None:
         logger.info("start to process non-regular entries ...")
         _func = partial(
             FileTableNonRegularFiles.prepare_target,
             target_mnt=self._standby_slot_mp,
         )
-        for entry in self._ota_metadata.iter_non_regular_entries(batch_size=batch_size):
+        for entry in self._ota_metadata.iter_non_regular_entries():
             try:
                 _func(entry)
             except Exception as e:
