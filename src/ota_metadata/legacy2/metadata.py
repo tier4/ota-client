@@ -31,6 +31,7 @@ import logging
 import os.path
 import shutil
 import sqlite3
+import textwrap
 import threading
 from contextlib import closing
 from pathlib import Path
@@ -41,14 +42,16 @@ from simple_sqlite3_orm import utils
 from simple_sqlite3_orm.utils import enable_tmp_store_at_memory, enable_wal_mode
 
 from ota_metadata.file_table import (
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    FileEntryToScan,
     FileTableDirectories,
-    FileTableNonRegularFiles,
-    FileTableRegularFiles,
-)
-from ota_metadata.file_table._orm import (
     FileTableDirORM,
+    FileTableNonRegularFiles,
     FileTableNonRegularORM,
     FileTableRegularORM,
+    FileTableResourceORM,
+    RegularFileEntry,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -84,11 +87,23 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
-        if utils.check_db_integrity(
-            con,
-            table_name=FileTableRegularORM.orm_bootstrap_table_name,
+        if not (
+            utils.check_db_integrity(
+                con,
+                table_name=FileTableRegularORM.orm_bootstrap_table_name,
+            )
+            and utils.check_db_integrity(
+                con,
+                table_name=FileTableResourceORM.orm_bootstrap_table_name,
+            )
         ):
+            return
+    try:
+        with contextlib.closing(sqlite3.connect(":memory:")) as con:
+            con.execute(f"ATTACH '{db_f}' AS attach_test;")
             return db_f
+    except Exception as e:
+        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
 
 
 class OTAMetadata:
@@ -216,6 +231,8 @@ class OTAMetadata:
             ft_dir_orm.orm_bootstrap_db()
             ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
             ft_non_regular_orm.orm_bootstrap_db()
+            ft_resource_orm = FileTableResourceORM(fst_conn)
+            ft_resource_orm.orm_bootstrap_db()
 
             rs_orm = ResourceTableORM(rst_conn)
             rs_orm.orm_bootstrap_db()
@@ -265,6 +282,7 @@ class OTAMetadata:
             self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
                 _fpath=regular_save_fpath,
                 _orm=ft_regular_orm,
+                _orm_ft_resource=ft_resource_orm,
                 _orm_rs=rs_orm,
             )
             regular_save_fpath.unlink(missing_ok=True)
@@ -341,7 +359,6 @@ class OTAMetadata:
                 _fs_conn.backup(conn)
 
             with _dst_conn as conn:
-                conn.execute("VACUUM;")
                 # change the journal_mode back to DELETE to make db file on read-only mount work.
                 # see https://www.sqlite.org/wal.html#read_only_databases for more details.
                 conn.execute("PRAGMA journal_mode=DELETE;")
@@ -370,7 +387,7 @@ class OTAMetadata:
         base_file_table: StrOrPath,
         *,
         max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
-    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
+    ) -> Generator[tuple[bytes, list[FileEntryToScan]]]:
         _hash, _cur = b"", []
         with FileTableRegularORM(self.connect_fstable()) as orm:
             for entry in orm.iter_common_by_digest(str(base_file_table)):
@@ -387,9 +404,21 @@ class OTAMetadata:
             if _cur:
                 yield _hash, _cur
 
-    def iter_regular_entries(self) -> Generator[FileTableRegularFiles]:
+    def iter_regular_entries(self) -> Generator[RegularFileEntry]:
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_entries(_order_by=("digest",))
+            _stmt = textwrap.dedent(
+                f"""\
+                    SELECT {FT_REGULAR_TABLE_NAME}.*, {FT_RESOURCE_TABLE_NAME}.digest
+                    FROM {FT_REGULAR_TABLE_NAME}
+                    INNER JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
+                    ORDER BY digest
+            """
+            )
+
+            yield from orm.orm_select_entries(
+                _stmt=_stmt,
+                _row_factory=RegularFileEntry.table_row_factory2,
+            )  # type: ignore
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(

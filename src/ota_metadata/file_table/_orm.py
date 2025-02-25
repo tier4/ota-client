@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Generator
+import textwrap
+from typing import Any, Generator, NamedTuple
 
 from simple_sqlite3_orm import (
     CreateIndexParams,
@@ -26,6 +27,7 @@ from simple_sqlite3_orm import (
     ORMThreadPoolBase,
 )
 from simple_sqlite3_orm.utils import wrap_value
+from typing_extensions import Self
 
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
 
@@ -33,6 +35,7 @@ from ._table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
     FileTableRegularFiles,
+    FileTableResource,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,7 +43,20 @@ logger = logging.getLogger(__name__)
 FT_REGULAR_TABLE_NAME = "ft_regular"
 FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
 FT_DIR_TABLE_NAME = "ft_dir"
+FT_RESOURCE_TABLE_NAME = "ft_resource"
 MAX_ENTRIES_PER_DIGEST = 10
+
+
+class FileEntryToScan(NamedTuple):
+    """A helper type for typing output result of iter_common_by_digest."""
+
+    path: str
+    digest: bytes
+    size: int
+
+    @classmethod
+    def row_factory(cls, _cursor, _row: tuple[Any, ...] | Any) -> Self:
+        return cls(*_row)
 
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
@@ -48,12 +64,12 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="digest_index", index_cols=("digest",))
+        CreateIndexParams(index_name="resource_id_index", index_cols=("resource_id",))
     ]
 
     def iter_common_by_digest(
         self, other_db: str, *, max_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST
-    ) -> Generator[FileTableRegularFiles]:
+    ) -> Generator[FileEntryToScan]:
         """Yield entries from <other_db>.ft_table which digest presented in this ft.
 
         This is for assisting faster delta_calculation without full disk scan.
@@ -65,37 +81,53 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                 f"detect {sqlite3.sqlite_version_info=} < 3.25, use fallback query"
             )
 
-            stmt = f"""\
-            SELECT d2.*
-            FROM base.{FT_REGULAR_TABLE_NAME} AS d2
-            INNER JOIN (
-                SELECT digest
-                FROM main.{FT_REGULAR_TABLE_NAME}
-                WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
-                GROUP BY digest
-            ) AS d1 USING(digest) ORDER BY digest;
-            """
-        else:
-            stmt = f"""\
-            WITH ranked AS (
-                SELECT d2.*, ROW_NUMBER() OVER (PARTITION BY d2.digest) AS rown
-                FROM base.{FT_REGULAR_TABLE_NAME} AS d2
-                INNER JOIN (
-                    SELECT digest
-                    FROM main.{FT_REGULAR_TABLE_NAME}
+            stmt = textwrap.dedent(
+                f"""\
+                WITH common_digests AS (
+                    SELECT ota_image_ft_rs.digest
+                    FROM {FT_RESOURCE_TABLE_NAME} AS ota_image_ft_rs
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} USING(digest)
                     WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
-                    GROUP BY digest
-                ) AS d1 USING(digest) ORDER BY digest
+                )
+                SELECT base_ft_regular.path, base_ft_rs.digest, base_ft_rs.size
+                FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
+                INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                INNER JOIN common_digests USING(digest)
+                ORDER BY base_ft_rs.digest;
+                """
             )
-            SELECT * FROM ranked WHERE rown <= {max_entries_per_digest};
-            """
+        else:
+            stmt = textwrap.dedent(
+                f"""\
+                WITH common_digests AS (
+                    SELECT ota_image_ft_rs.digest
+                    FROM {FT_RESOURCE_TABLE_NAME} AS ota_image_ft_rs
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} USING(digest)
+                    WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
+                ), ranked_results AS (
+                    SELECT
+                        base_ft_regular.path,
+                        base_ft_rs.digest,
+                        base_ft_rs.size,
+                        ROW_NUMBER() OVER (PARTITION BY base_ft_rs.digest) AS row_num
+                    FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                    INNER JOIN common_digests USING(digest)
+                )
+
+                SELECT path, digest, size
+                FROM ranked_results
+                WHERE row_num <= {max_entries_per_digest}
+                ORDER BY digest;
+                """
+            )
         orm_conn = self.orm_con
 
         orm_conn.execute(f"ATTACH '{other_db}' AS {attached_db_schema};")
         try:
             with orm_conn:
                 cur = orm_conn.execute(stmt)
-                cur.row_factory = self.orm_table_spec.table_row_factory2
+                cur.row_factory = FileEntryToScan.row_factory
                 yield from cur
         finally:
             orm_conn.execute(f"DETACH DATABASE {attached_db_schema};")
@@ -121,3 +153,12 @@ class FileTableDirORM(ORMBase[FileTableDirectories]):
 class FileTableDirORMPool(ORMThreadPoolBase[FileTableDirectories]):
 
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
+
+
+class FileTableResourceORM(ORMBase[FileTableResource]):
+
+    orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_indexes_params = [
+        CreateIndexParams(index_name="digest_index", index_cols=("digest",))
+    ]

@@ -34,6 +34,7 @@ from ota_metadata.file_table._orm import (
     FileTableDirORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
+    FileTableResourceORM,
 )
 from ota_metadata.legacy2 import csv_parser
 from ota_metadata.legacy2.metadata import OTAMetadata
@@ -172,6 +173,8 @@ def ota_image_ft_db() -> Path:
         ft_dir_orm.orm_bootstrap_db()
         ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
         ft_non_regular_orm.orm_bootstrap_db()
+        ft_resource_orm = FileTableResourceORM(fst_conn)
+        ft_resource_orm.orm_bootstrap_db()
 
         rs_orm = ResourceTableORM(rst_conn)
         rs_orm.orm_bootstrap_db()
@@ -179,6 +182,7 @@ def ota_image_ft_db() -> Path:
         csv_parser.parse_regulars_from_csv_file(
             _fpath=ota_image_dir / "regulars.txt",
             _orm=ft_regular_orm,
+            _orm_ft_resource=ft_resource_orm,
             _orm_rs=rs_orm,
         )
         csv_parser.parse_dirs_from_csv_file(ota_image_dir / "dirs.txt", ft_dir_orm)

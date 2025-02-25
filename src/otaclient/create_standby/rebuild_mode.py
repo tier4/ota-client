@@ -22,10 +22,10 @@ from pathlib import Path
 from queue import Queue
 from typing import Generator
 
-from ota_metadata.file_table._table import (
+from ota_metadata.file_table import (
     FileTableDirectories,
     FileTableNonRegularFiles,
-    FileTableRegularFiles,
+    RegularFileEntry,
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -77,12 +77,12 @@ class RebuildMode:
 
     def _preprocess_regular_file_entries(
         self,
-    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
+    ) -> Generator[tuple[bytes, list[RegularFileEntry]]]:
         """Yield a group of regular file entries which have the same digest each time.
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
-        cur_digest_group: list[FileTableRegularFiles] = []
+        cur_digest_group: list[RegularFileEntry] = []
         cur_digest: bytes = b""
         for _entry in self._ota_metadata.iter_regular_entries():
             _this_digest = _entry.digest
@@ -103,7 +103,7 @@ class RebuildMode:
         yield cur_digest, cur_digest_group
 
     def _process_one_regular_files_group(  # NOSONAR
-        self, _input: tuple[bytes, list[FileTableRegularFiles]]
+        self, _input: tuple[bytes, list[RegularFileEntry]]
     ) -> tuple[int, int]:
         """Process a group of regular_files with the same digest.
 
@@ -123,8 +123,8 @@ class RebuildMode:
 
             _rs = self._resource_dir / digest.hex()
 
-            _hardlinked: dict[int, list[FileTableRegularFiles]] = {}
-            _normal: list[FileTableRegularFiles] = []
+            _hardlinked: dict[int, list[RegularFileEntry]] = {}
+            _normal: list[RegularFileEntry] = []
 
             for entry in entries:
                 if (_inode_group := entry.entry_attrs.inode) is not None:
