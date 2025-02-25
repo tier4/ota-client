@@ -83,43 +83,43 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
             stmt = textwrap.dedent(
                 f"""\
-            WITH common_digests AS (
-                SELECT db1.digest
-                FROM {FT_RESOURCE_TABLE_NAME} AS db1
-                INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS db2 USING(digest)
-                WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
-            )
-            SELECT {FT_REGULAR_TABLE_NAME}.path, {FT_RESOURCE_TABLE_NAME}.digest, {FT_RESOURCE_TABLE_NAME}.size
-            FROM {FT_REGULAR_TABLE_NAME}
-            JOIN {FT_RESOURCE_TABLE_NAME} ON {FT_REGULAR_TABLE_NAME}.resource_id = {FT_RESOURCE_TABLE_NAME}.resource_id
-            JOIN common_digests ON {FT_RESOURCE_TABLE_NAME}.digest = common_digests.digest
-            ORDER BY {FT_RESOURCE_TABLE_NAME}.digest;
-            """
+                WITH common_digests AS (
+                    SELECT ota_image_ft_rs.digest
+                    FROM {FT_RESOURCE_TABLE_NAME} AS ota_image_ft_rs
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} USING(digest)
+                    WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
+                )
+                SELECT base_ft_regular.path, base_ft_rs.digest, base_ft_rs.size
+                FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
+                JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                JOIN common_digests USING(digest)
+                ORDER BY base_ft_rs.digest;
+                """
             )
         else:
             stmt = textwrap.dedent(
                 f"""\
-            WITH common_digests AS (
-                SELECT db1.digest
-                FROM {FT_RESOURCE_TABLE_NAME} AS db1
-                INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS db2 USING(digest)
-                WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
-            ), ranked_results AS (
-                SELECT 
-                    {FT_REGULAR_TABLE_NAME}.path, 
-                    {FT_RESOURCE_TABLE_NAME}.digest, 
-                    {FT_RESOURCE_TABLE_NAME}.size,
-                    ROW_NUMBER() OVER (PARTITION BY {FT_RESOURCE_TABLE_NAME}.digest) AS row_num
-                FROM {FT_REGULAR_TABLE_NAME}
-                JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
-                JOIN common_digests USING(digest)
-            )
+                WITH common_digests AS (
+                    SELECT ota_image_ft_rs.digest
+                    FROM {FT_RESOURCE_TABLE_NAME} AS ota_image_ft_rs
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} USING(digest)
+                    WHERE digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}
+                ), ranked_results AS (
+                    SELECT 
+                        base_ft_regular.path, 
+                        base_ft_rs.digest, 
+                        base_ft_rs.size,
+                        ROW_NUMBER() OVER (PARTITION BY base_ft_rs.digest) AS row_num
+                    FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
+                    JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                    JOIN common_digests USING(digest)
+                )
 
-            SELECT path, digest, size
-            FROM ranked_results
-            WHERE row_num <= {max_entries_per_digest}
-            ORDER BY digest;
-            """
+                SELECT path, digest, size
+                FROM ranked_results
+                WHERE row_num <= {max_entries_per_digest}
+                ORDER BY digest;
+                """
             )
         orm_conn = self.orm_con
 
