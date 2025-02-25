@@ -91,8 +91,8 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                 )
                 SELECT base_ft_regular.path, base_ft_rs.digest, base_ft_rs.size
                 FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
-                JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
-                JOIN common_digests USING(digest)
+                INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                INNER JOIN common_digests USING(digest)
                 ORDER BY base_ft_rs.digest;
                 """
             )
@@ -111,8 +111,8 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
                         base_ft_rs.size,
                         ROW_NUMBER() OVER (PARTITION BY base_ft_rs.digest) AS row_num
                     FROM base.{FT_REGULAR_TABLE_NAME} AS base_ft_regular
-                    JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
-                    JOIN common_digests USING(digest)
+                    INNER JOIN base.{FT_RESOURCE_TABLE_NAME} AS base_ft_rs USING(resource_id)
+                    INNER JOIN common_digests USING(digest)
                 )
 
                 SELECT path, digest, size
