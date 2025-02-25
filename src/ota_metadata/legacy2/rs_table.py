@@ -80,7 +80,7 @@ class ResourceTableORM(ORMBase[ResourceTable]):
         NOTE: the target table must has rowid defined!
         """
         _this_batch = []
-        for _entry in self.orm_select_all_with_pagination(batch_size=batch_size):
+        for _entry in self.orm_select_entries():
             _this_batch.append(_entry)
             if len(_this_batch) >= batch_size:
                 random.shuffle(_this_batch)
