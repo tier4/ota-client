@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import mmap
 import os
 import random
 import threading
@@ -290,11 +289,12 @@ class DeltaGenerator:
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
-            with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
-                with mmap.mmap(src.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-                    while read_size := mm.read(hash_buffer):
-                        hash_f.update(hash_bufferview[:read_size])
-                        tmp_dst.write(hash_bufferview[:read_size])
+            with open(fpath, "rb", buffering=cfg.CHUNK_SIZE) as src, open(
+                tmp_f, "wb"
+            ) as tmp_dst:
+                while read_size := src.readinto(hash_buffer):
+                    hash_f.update(hash_bufferview[:read_size])
+                    tmp_dst.write(hash_bufferview[:read_size])
             hash_value = hash_f.hexdigest()
             if expected_hash and expected_hash != hash_value:
                 return  # skip invalid file
@@ -328,7 +328,7 @@ class DeltaGenerator:
         max_pending_tasks = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
 
         def _initializer():
-            thread_local.buffer = buffer = bytearray(32 * 1024 * 1024)
+            thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
             thread_local.view = memoryview(buffer)
 
         def _task_done_callback(fut: Future[Any]):
