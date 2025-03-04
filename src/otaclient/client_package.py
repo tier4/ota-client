@@ -115,8 +115,6 @@ class OTAClientPackage:
                 DownloadInfo(
                     url=urljoin_ensure_base(self._base_url, _package_path),
                     dst=_client_package_fpath,
-                    type=_available_package.get("type", None),
-                    checksum=_available_package.get("checksum", None),
                 )
             ]
             condition.wait()
