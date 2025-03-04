@@ -43,7 +43,6 @@ from ota_metadata.legacy2.metadata import (
     ResourceMeta,
     check_base_filetable,
 )
-from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
     CAChainStore,
@@ -72,6 +71,7 @@ from otaclient._types import (
 )
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
+from otaclient.client_package import OTAClientPackage
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
 from otaclient.create_standby._delta_gen import (
@@ -84,6 +84,7 @@ from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
+    DownloadInfo,
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
@@ -160,8 +161,8 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
-class _OTAUpdater:
-    """The implementation of OTA update logic."""
+class _OTAUpdateOperator:
+    """The base common class of OTA update and client update logic."""
 
     def __init__(
         self,
@@ -171,8 +172,6 @@ class _OTAUpdater:
         cookies_json: str,
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
-        boot_controller: BootControllerProtocol,
-        create_standby_cls: type[RebuildMode],
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -202,9 +201,6 @@ class _OTAUpdater:
         )
 
         # ------ prepare runtime dirs ------ #
-        self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
         # TODO: use a tmpfs mount with 320MB in size for session workdir
         self._session_workdir = session_wd = (
             Path(cfg.RUN_DIR) / f"update_session-{session_id}"
@@ -229,8 +225,6 @@ class _OTAUpdater:
 
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
-        self._boot_controller = boot_controller
-        self._create_standby_cls = create_standby_cls
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -260,6 +254,20 @@ class _OTAUpdater:
             ca_chains_store=ca_chains_store,
         )
 
+    def _handle_upper_proxy(self) -> None:
+        """Ensure the upper proxy is online before starting the local OTA update."""
+        if _upper_proxy := self._upper_proxy:
+            logger.info(
+                f"use {_upper_proxy} for local OTA update, "
+                f"wait for otaproxy@{_upper_proxy} online..."
+            )
+
+            # NOTE: will raise a built-in ConnnectionError at timeout
+            ensure_otaproxy_start(
+                _upper_proxy,
+                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
+            )
+
     def _download_file(self, entry: DownloadInfo) -> DownloadResult:
         """Download a single file.
 
@@ -281,7 +289,7 @@ class _OTAUpdater:
             compression_alg=entry.compression_alg,
         )
 
-    def _download_metadata_file(
+    def _download_single_file(
         self, entries: list[DownloadInfo], *, condition: threading.Condition
     ) -> DownloadResult:
         """Download a single OTA image metadata file.
@@ -379,47 +387,17 @@ class _OTAUpdater:
             self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
 
-    def _process_persistents(self, ota_metadata: OTAMetadata):
-        logger.info("start persist files handling...")
-        standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
-
-        _handler = PersistFilesHandler(
-            src_passwd_file=Path(cfg.PASSWD_FPATH),
-            src_group_file=Path(cfg.GROUP_FPATH),
-            dst_passwd_file=Path(standby_slot_mp / "etc/passwd"),
-            dst_group_file=Path(standby_slot_mp / "etc/group"),
-            src_root=cfg.ACTIVE_SLOT_MNT,
-            dst_root=cfg.STANDBY_SLOT_MNT,
-        )
-
-        for persiste_entry in ota_metadata.iter_persist_entries():
-            # NOTE(20240520): with update_swapfile ansible role being used wildly,
-            #   now we just ignore the swapfile entries in the persistents.txt if any,
-            #   and issue a warning about it.
-            if persiste_entry in ["/swapfile", "/swap.img"]:
-                logger.warning(
-                    f"swapfile entry {persiste_entry} is listed in persistents.txt, ignored"
-                )
-                logger.warning(
-                    (
-                        "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
-                        "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
-                    )
-                )
-                continue
-
-            try:
-                _handler.preserve_persist_entry(persiste_entry)
-            except Exception as e:
-                _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
-                logger.warning(_err_msg)
-
-    def _download_and_parse_metadata(self) -> None:
+    def _download_and_process_file(
+        self,
+        thread_name_prefix: str,
+        get_downloads_generator: Callable,
+    ) -> None:
+        """Download and process files."""
         self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
-            thread_name_prefix="download_metadata_files",
+            thread_name_prefix=thread_name_prefix,
             initializer=self._downloader_workder_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
@@ -429,25 +407,23 @@ class _OTAUpdater:
         )
 
         _condition = threading.Condition()
-        _metadata_processor = self._ota_metadata.download_metafiles(_condition)
+        _generator = get_downloads_generator(_condition)
 
         try:
             for _fut in _mapper.ensure_tasks(
-                partial(self._download_metadata_file, condition=_condition),
-                _metadata_processor,
+                partial(self._download_single_file, condition=_condition),
+                _generator,
             ):
                 if not (_exc := _fut.exception()):
                     continue
 
-                logger.warning(
-                    f"failed to download one metafile, keep retrying: {_exc!r}"
-                )
+                logger.warning(f"failed to download one file, keep retrying: {_exc!r}")
                 if isinstance(_exc, requests_exc.HTTPError) and isinstance(
                     (_response := _exc.response), Response
                 ):
                     if _response.status_code == HTTPStatus.NOT_FOUND:
                         raise ota_errors.OTAImageInvalid(
-                            "failed to download metadata", module=__name__
+                            "failed to download", module=__name__
                         ) from _exc
 
                     if _response.status_code in [
@@ -458,30 +434,21 @@ class _OTAUpdater:
                             module=__name__
                         ) from _exc
         except Exception as e:
-            _metadata_processor.throw(e)
+            _generator.throw(e)
             raise
         finally:
             _exc = None  # resolve cycle ref
             _mapper.shutdown(wait=True)
             self._downloader_pool.release_all_instances()
 
-    def _execute_update(self):
-        """Implementation of OTA updating."""
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+    def _download_and_parse_metadata(self) -> None:
+        self._download_and_process_file(
+            thread_name_prefix="download_metadata_files",
+            get_downloads_generator=self._ota_metadata.download_metafiles,
+        )
 
-        if _upper_proxy := self._upper_proxy:
-            logger.info(
-                f"use {_upper_proxy} for local OTA update, "
-                f"wait for otaproxy@{_upper_proxy} online..."
-            )
-
-            # NOTE: will raise a built-in ConnnectionError at timeout
-            ensure_otaproxy_start(
-                _upper_proxy,
-                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
-            )
-
-        # ------ init, processing metadata ------ #
+    def _process_metadata(self) -> None:
+        """Process the metadata.jwt file and report."""
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -533,7 +500,64 @@ class _OTAUpdater:
         finally:
             self._downloader_pool.release_instance()
 
-        # ------ pre-update ------ #
+
+class _OTAUpdater(_OTAUpdateOperator):
+    """The implementation of OTA update logic."""
+
+    def __init__(
+        self,
+        *,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
+        ca_chains_store: CAChainStore,
+        upper_otaproxy: str | None = None,
+        boot_controller: BootControllerProtocol,
+        create_standby_cls: type[RebuildMode],
+        ecu_status_flags: MultipleECUStatusFlags,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        # ------ init base class ------ #
+        super().__init__(
+            version=version,
+            raw_url_base=raw_url_base,
+            cookies_json=cookies_json,
+            ca_chains_store=ca_chains_store,
+            upper_otaproxy=upper_otaproxy,
+            ecu_status_flags=ecu_status_flags,
+            status_report_queue=status_report_queue,
+            session_id=session_id,
+        )
+
+        # ------ prepare runtime dirs ------ #
+        self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
+            cfg.OTA_TMP_STORE
+        ).relative_to("/")
+
+        # ------ init updater implementation ------ #
+        self._boot_controller = boot_controller
+        self._create_standby_cls = create_standby_cls
+
+    def _execute_update(self):
+        """Implementation of OTA updating."""
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+
+        self._handle_upper_proxy()
+        self._process_metadata()
+        self._pre_update()
+        self._calculate_delta()
+        self._download_delta_resources()
+        self._apply_update()
+        self._post_update()
+        self._finalize_update()
+
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
+        self._boot_controller.finalizing_update()
+
+    def _pre_update(self):
+        """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
             self.update_version,
@@ -559,16 +583,9 @@ class _OTAUpdater:
         logger.info("prepare and optimize file_table ...")
         self._ota_metadata.prepare_fstable()
 
-        # ------ in-update: calculate delta ------ #
+    def _calculate_delta(self):
+        """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
-        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
-        # NOTE: get the db via active_slot mount_point
-        _base_ft_db = replace_root(
-            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-            old_root="/",
-            new_root=Path(cfg.ACTIVE_SLOT_MNT),
-        )
-
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -577,6 +594,14 @@ class _OTAUpdater:
                 ),
                 session_id=self.session_id,
             )
+        )
+
+        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
+        # NOTE: get the db via active_slot mount_point
+        _base_ft_db = replace_root(
+            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+            old_root="/",
+            new_root=Path(cfg.ACTIVE_SLOT_MNT),
         )
 
         try:
@@ -611,6 +636,8 @@ class _OTAUpdater:
                 _err_msg, module=__name__
             ) from e
 
+    def _download_delta_resources(self) -> None:
+        """Download all the resources needed for the OTA update."""
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -656,7 +683,8 @@ class _OTAUpdater:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
 
-        # ------ apply update ------ #
+    def _apply_update(self) -> None:
+        """Apply the OTA update to the standby slot."""
         logger.info("start to apply changes to standby slot...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -676,7 +704,43 @@ class _OTAUpdater:
         )
         standby_slot_creator.rebuild_standby()
 
-        # ------ post-update ------ #
+    def _process_persistents(self, ota_metadata: OTAMetadata):
+        logger.info("start persist files handling...")
+        standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
+
+        _handler = PersistFilesHandler(
+            src_passwd_file=Path(cfg.PASSWD_FPATH),
+            src_group_file=Path(cfg.GROUP_FPATH),
+            dst_passwd_file=Path(standby_slot_mp / "etc/passwd"),
+            dst_group_file=Path(standby_slot_mp / "etc/group"),
+            src_root=cfg.ACTIVE_SLOT_MNT,
+            dst_root=cfg.STANDBY_SLOT_MNT,
+        )
+
+        for persiste_entry in ota_metadata.iter_persist_entries():
+            # NOTE(20240520): with update_swapfile ansible role being used wildly,
+            #   now we just ignore the swapfile entries in the persistents.txt if any,
+            #   and issue a warning about it.
+            if persiste_entry in ["/swapfile", "/swap.img"]:
+                logger.warning(
+                    f"swapfile entry {persiste_entry} is listed in persistents.txt, ignored"
+                )
+                logger.warning(
+                    (
+                        "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
+                        "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
+                    )
+                )
+                continue
+
+            try:
+                _handler.preserve_persist_entry(persiste_entry)
+            except Exception as e:
+                _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
+                logger.warning(_err_msg)
+
+    def _post_update(self) -> None:
+        """Post-update phase."""
         logger.info("enter post update phase...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -691,7 +755,8 @@ class _OTAUpdater:
         self._process_persistents(self._ota_metadata)
         self._boot_controller.post_update()
 
-        # ------ finalizing update ------ #
+    def _finalize_update(self) -> None:
+        """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -711,10 +776,6 @@ class _OTAUpdater:
                 log_func=logger.info,
             )
 
-        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
-        time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update()
-
     # API
 
     def execute(self) -> None:
@@ -733,6 +794,118 @@ class _OTAUpdater:
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
+        finally:
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
+
+
+class _OTAClientUpdater(_OTAUpdateOperator):
+    """The implementation of OTA client update logic."""
+
+    def __init__(
+        self,
+        *,
+        version: str,
+        raw_url_base: str,
+        cookies_json: str,
+        ca_chains_store: CAChainStore,
+        upper_otaproxy: str | None = None,
+        ecu_status_flags: MultipleECUStatusFlags,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        # ------ init base class ------ #
+        super().__init__(
+            version=version,
+            raw_url_base=raw_url_base,
+            cookies_json=cookies_json,
+            ca_chains_store=ca_chains_store,
+            upper_otaproxy=upper_otaproxy,
+            ecu_status_flags=ecu_status_flags,
+            status_report_queue=status_report_queue,
+            session_id=session_id,
+        )
+
+        # ------ setup OTA client package parser ------ #
+        self._ota_client_package = OTAClientPackage(
+            base_url=self.url_base,
+            session_dir=self._session_workdir,
+        )
+
+    def _execute_client_update(self):
+        """Implementation of OTA updating."""
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+
+        self._handle_upper_proxy()
+        self._process_metadata()
+        self._download_client_package_resources()
+        self._apply_client_update()
+
+    def _download_client_package_files(self) -> None:
+        self._download_and_process_file(
+            thread_name_prefix="download_client_file",
+            get_downloads_generator=self._ota_client_package.download_client_package,
+        )
+
+    def _download_client_package_resources(self) -> None:
+        """Download OTA client."""
+        # ------ in-update: download resources ------ #
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_CLIENT,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
+        try:
+            logger.info("start to download client manifest and package...")
+            self._download_client_package_files()
+        except TasksEnsureFailed:
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
+        finally:
+            # NOTE: after this point, we don't need downloader anymore
+            self._downloader_pool.shutdown()
+
+    def _apply_client_update(self) -> None:
+        """Apply the OTA client update."""
+        logger.info("start to apply client update...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.APPLYING_CLIENT_UPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+        # if the package is patch, apply it to the current client
+
+        """
+        # stop the existing gRPC server
+        self.stop_grpc_server()
+
+        # register as service
+        self._ota_client_package.register_as_service()
+
+        self._enable_and
+        """
+
+    # API
+
+    def execute(self) -> None:
+        """Main entry for executing local OTA client update."""
+        try:
+            self._execute_client_update()
+        except Exception as e:
+            logger.error(f"update failed: {e!r}")
+            raise
         finally:
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
@@ -861,7 +1034,11 @@ class OTAClient:
 
     @property
     def is_busy(self) -> bool:
-        return self._live_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]
+        return self._live_ota_status in [
+            OTAStatus.UPDATING,
+            OTAStatus.ROLLBACKING,
+            OTAStatus.CLIENT_UPDATING,
+        ]
 
     def update(self, request: UpdateRequestV2) -> None:
         """
@@ -895,6 +1072,50 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 create_standby_cls=self.create_standby_cls,
+                ecu_status_flags=self.ecu_status_flags,
+                upper_otaproxy=self.proxy,
+                status_report_queue=self._status_report_queue,
+                session_id=new_session_id,
+            ).execute()
+        except ota_errors.OTAError as e:
+            self._live_ota_status = OTAStatus.FAILURE
+            self._on_failure(
+                e,
+                ota_status=OTAStatus.FAILURE,
+                failure_reason=e.get_failure_reason(),
+                failure_type=e.failure_type,
+            )
+
+    def client_update(self, request: UpdateRequestV2) -> None:
+        """
+        NOTE that client update API will not raise any exceptions. The failure information
+            is available via status API.
+        """
+        self._live_ota_status = OTAStatus.CLIENT_UPDATING
+        new_session_id = request.session_id
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.CLIENT_UPDATING,
+                ),
+                session_id=new_session_id,
+            )
+        )
+        logger.info(f"start new OTA client update session: {new_session_id=}")
+
+        try:
+            logger.info("[client update] entering local update...")
+            if not self.ca_chains_store:
+                raise ota_errors.MetadataJWTVerficationFailed(
+                    "no CA chains are installed, reject any OTA update",
+                    module=__name__,
+                )
+
+            _OTAClientUpdater(
+                version=request.version,
+                raw_url_base=request.url_base,
+                cookies_json=request.cookies_json,
+                ca_chains_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
