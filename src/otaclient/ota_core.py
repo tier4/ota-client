@@ -545,7 +545,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         self._handle_upper_proxy()
         self._process_metadata()
-        self._pre_update()
+        self._prepare_standby_slot()
         self._calculate_delta()
         self._download_delta_resources()
         self._apply_update()
@@ -556,7 +556,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         time.sleep(WAIT_BEFORE_REBOOT)
         self._boot_controller.finalizing_update()
 
-    def _pre_update(self):
+    def _prepare_standby_slot(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
