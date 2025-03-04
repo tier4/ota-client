@@ -83,9 +83,13 @@ class OTAStatusFilesControl:
             return
         logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
-        # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
+        # status except UPDATING, ROLLBACKING and CLIENT_UPDATING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
-        if _loaded_ota_status not in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
+        if _loaded_ota_status not in [
+            OTAStatus.UPDATING,
+            OTAStatus.ROLLBACKING,
+            OTAStatus.CLIENT_UPDATING,
+        ]:
             self._ota_status = _loaded_ota_status
             return
 
@@ -201,6 +205,7 @@ class OTAStatusFilesControl:
         _is_updating_or_rollbacking = self._load_current_status() in [
             OTAStatus.UPDATING,
             OTAStatus.ROLLBACKING,
+            OTAStatus.CLIENT_UPDATING,
         ]
 
         # evidence: slot_in_use

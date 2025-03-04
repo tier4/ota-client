@@ -138,6 +138,7 @@ class StatusOta(EnumWrapper):
     UPDATING = pb2.UPDATING
     ROLLBACKING = pb2.ROLLBACKING
     ROLLBACK_FAILURE = pb2.ROLLBACK_FAILURE
+    CLIENT_UPDATING = pb2.CLIENT_UPDATING
 
 
 class StatusProgressPhase(EnumWrapper):
