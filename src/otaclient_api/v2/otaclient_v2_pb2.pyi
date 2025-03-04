@@ -21,6 +21,7 @@ class StatusOta(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     UPDATING: _ClassVar[StatusOta]
     ROLLBACKING: _ClassVar[StatusOta]
     ROLLBACK_FAILURE: _ClassVar[StatusOta]
+    CLIENT_UPDATING: _ClassVar[StatusOta]
 
 class StatusProgressPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = []
@@ -41,6 +42,7 @@ class UpdatePhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     APPLYING_UPDATE: _ClassVar[UpdatePhase]
     PROCESSING_POSTUPDATE: _ClassVar[UpdatePhase]
     FINALIZING_UPDATE: _ClassVar[UpdatePhase]
+    DOWNLOADING_OTA_CLIENT: _ClassVar[UpdatePhase]
 NO_FAILURE: FailureType
 RECOVERABLE: FailureType
 UNRECOVERABLE: FailureType
@@ -50,6 +52,7 @@ FAILURE: StatusOta
 UPDATING: StatusOta
 ROLLBACKING: StatusOta
 ROLLBACK_FAILURE: StatusOta
+CLIENT_UPDATING: StatusOta
 INITIAL: StatusProgressPhase
 METADATA: StatusProgressPhase
 DIRECTORY: StatusProgressPhase
@@ -64,6 +67,7 @@ DOWNLOADING_OTA_FILES: UpdatePhase
 APPLYING_UPDATE: UpdatePhase
 PROCESSING_POSTUPDATE: UpdatePhase
 FINALIZING_UPDATE: UpdatePhase
+DOWNLOADING_OTA_CLIENT: UpdatePhase
 
 class UpdateRequestEcu(_message.Message):
     __slots__ = ["ecu_id", "version", "url", "cookies"]
