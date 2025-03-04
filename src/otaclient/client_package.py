@@ -73,6 +73,7 @@ class OTAClientPackage:
         self._session_dir = Path(session_dir)
 
         self._manifest = None
+        self.package = None
 
     def _prepare_manifest(
         self,
@@ -117,7 +118,8 @@ class OTAClientPackage:
                     dst=_client_package_fpath,
                 )
             ]
-            condition.wait()
+            condition.wait()  # wait for download finished
+        self.package = _available_package
 
     def _get_available_package(self) -> dict:
         """Get the available package for the current platform."""
@@ -191,3 +193,38 @@ class OTAClientPackage:
             raise
         finally:
             shutil.rmtree(_download_dir, ignore_errors=True)
+
+    def run_client_package(
+        self,
+    ):
+        self._put_squashfs()
+        self._mount_squashfs()
+        self._run_client()
+        self._register_as_service()
+
+    def _put_squashfs(self):
+        """Put the squashfs file to the target directory."""
+        _squashfs_file = Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+            / f".otaclient-{self._get_architecture()}_v{__version__}.squashfs"
+        )
+        _target_dir = Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
+        shutil.copy(_squashfs_file, _target_dir)
+
+    def _mount_squashfs(self):
+        """Mount the squashfs file."""
+        _squashfs_file = Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+            / f".otaclient-{self._get_architecture()}_v{__version__}.squashfs"
+        )
+        _mount_point = self._session_dir / "mnt"
+
+        if not _squashfs_file.is_file():
+            raise FileNotFoundError(f"{_squashfs_file} does not exist")
+
+        _mount_point.mkdir(exist_ok=True, parents=True)
+
+        mount_cmd = f"sudo mount -t squashfs {str(_squashfs_file)} {str(_mount_point)}"
+        result = os.system(mount_cmd)
+        if result != 0:
+            raise RuntimeError(f"Failed to mount squashfs file: {mount_cmd}")
