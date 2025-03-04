@@ -31,6 +31,11 @@ class OtaClientServiceStub(object):
                 request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
                 response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
                 )
+        self.ClientUpdate = channel.unary_unary(
+                '/OtaClientV2.OtaClientService/ClientUpdate',
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+                )
 
 
 class OtaClientServiceServicer(object):
@@ -71,6 +76,21 @@ class OtaClientServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ClientUpdate(self, request, context):
+        """
+        `ClientUpdate` service requests OTA client to start client updating.
+        The OTA client of each ECU retrieves the request that matches its own ECU
+        id and starts it. Requests to each ECU included in the `UpdateRequest` are
+        handled by that respective ECU and returns the response to the parent ECU.
+        Main ECU merges the responses as UpdateResponse.
+        After requesting `ClientUpdate` and if the OTA status is `CLIENT_UPDATING`,
+        the request is successful. Note that if the child ECU doesn't respond, the
+        grandchild response is not included by `UpdateResponse`.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_OtaClientServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -88,6 +108,11 @@ def add_OtaClientServiceServicer_to_server(servicer, server):
                     servicer.Status,
                     request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.FromString,
                     response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.SerializeToString,
+            ),
+            'ClientUpdate': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClientUpdate,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -149,5 +174,22 @@ class OtaClientService(object):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Status',
             otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
             otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ClientUpdate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/ClientUpdate',
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

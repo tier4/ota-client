@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 
@@ -48,6 +47,8 @@ class UpdatePhase(StrEnum):
     APPLYING_UPDATE = "APPLYING_UPDATE"
     PROCESSING_POSTUPDATE = "PROCESSING_POSTUPDATE"
     FINALIZING_UPDATE = "FINALIZING_UPDATE"
+    DOWNLOADING_OTA_CLIENT = "DOWNLOADING_OTA_CLIENT"
+    APPLYING_CLIENT_UPDATE = "APPLYING_CLIENT_UPDATE"
 
 
 class OTAStatus(StrEnum):
@@ -57,6 +58,7 @@ class OTAStatus(StrEnum):
     UPDATING = "UPDATING"
     ROLLBACKING = "ROLLBACKING"
     ROLLBACK_FAILURE = "ROLLBACK_FAILURE"
+    CLIENT_UPDATING = "CLIENT_UPDATING"
 
 
 class FailureType(StrEnum):
