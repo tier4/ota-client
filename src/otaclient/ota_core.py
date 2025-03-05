@@ -171,8 +171,6 @@ class _OTAUpdateOperator:
         cookies_json: str,
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
-        boot_controller: BootControllerProtocol | None = None,
-        create_standby_cls: type[RebuildMode] | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -505,7 +503,12 @@ class _OTAUpdateOperator:
 class _OTAUpdater(_OTAUpdateOperator):
     """The implementation of OTA update logic."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        boot_controller: BootControllerProtocol,
+        create_standby_cls: type[RebuildMode],
+        **kwargs,
+    ) -> None:
         # ------ init base class ------ #
         super().__init__(**kwargs)
 
@@ -515,13 +518,8 @@ class _OTAUpdater(_OTAUpdateOperator):
         ).relative_to("/")
 
         # ------ init updater implementation ------ #
-        self._boot_controller = kwargs.get("boot_controller")
-        if self._boot_controller is None:
-            raise ValueError("boot_controller is required")
-
-        self._create_standby_cls = kwargs.get("create_standby_cls")
-        if self._create_standby_cls is None:
-            raise ValueError("create_standby_cls is required")
+        self._boot_controller = boot_controller
+        self._create_standby_cls = create_standby_cls
 
     def _execute_update(self):
         """Implementation of OTA updating."""
