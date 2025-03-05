@@ -25,9 +25,8 @@ from pathlib import Path
 import pytest
 
 from ota_metadata.legacy2.metadata import MetadataJWTParser, OTAMetadata
-from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient_common.downloader import DownloaderPool
+from otaclient_common.downloader import DownloaderPool, DownloadInfo
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_SIGN_CERT, OTA_IMAGE_URL
 
