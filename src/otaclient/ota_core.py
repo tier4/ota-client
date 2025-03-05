@@ -268,26 +268,118 @@ class _OTAUpdateOperator:
                 probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
             )
 
-    def _download_file(self, entry: DownloadInfo) -> DownloadResult:
-        """Download a single file.
-
-        This is the single task being executed in the downloader pool.
-
-        Returns:
-            Retry counts, downloaded files size and traffic on wire.
-        """
-        if (_digest := entry.digest) == EMPTY_FILE_SHA256:
-            return DownloadResult(0, 0, 0)
-
-        downloader = self._downloader_mapper[threading.get_native_id()]
-        # NOTE: currently download only use sha256
-        return downloader.download(
-            url=entry.url,
-            dst=entry.dst,
-            digest=_digest,
-            size=entry.original_size,
-            compression_alg=entry.compression_alg,
+    def _process_metadata(self) -> None:
+        """Process the metadata.jwt file and report."""
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
         )
+
+        try:
+            logger.info("verify and download OTA image metadata ...")
+            self._download_and_parse_metadata()
+            _metadata_jwt = self._ota_metadata.metadata_jwt
+            assert _metadata_jwt, "invalid metadata jwt"
+
+            logger.info(
+                "ota_metadata parsed finished: \n"
+                f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
+                f"total_regulars_size: {_metadata_jwt.total_regular_size}"
+            )
+
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=SetUpdateMetaReport(
+                        image_file_entries=self._ota_metadata.total_regulars_num,
+                        image_size_uncompressed=_metadata_jwt.total_regular_size,
+                        metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+                    ),
+                    session_id=self.session_id,
+                )
+            )
+        except ota_errors.OTAError:
+            raise  # raise top-level OTAError as it
+        except ota_metadata_error.MetadataJWTVerificationFailed as e:
+            _err_msg = f"failed to verify metadata.jwt: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.MetadataJWTVerficationFailed(
+                _err_msg, module=__name__
+            ) from e
+        except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
+            _err_msg = f"metadata.jwt is invalid: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
+        except Exception as e:
+            _err_msg = f"failed to prepare ota metafiles: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
+        finally:
+            self._downloader_pool.release_instance()
+
+    def _download_and_parse_metadata(self) -> None:
+        self._download_and_process_file(
+            thread_name_prefix="download_metadata_files",
+            get_downloads_generator=self._ota_metadata.download_metafiles,
+        )
+
+    def _download_and_process_file(
+        self,
+        thread_name_prefix: str,
+        get_downloads_generator: Callable,
+    ) -> None:
+        """Download and process files."""
+        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
+        _mapper = ThreadPoolExecutorWithRetry(
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            max_workers=cfg.DOWNLOAD_THREADS,
+            thread_name_prefix=thread_name_prefix,
+            initializer=self._downloader_workder_initializer,
+            watchdog_func=partial(
+                self._downloader_pool.downloading_watchdog,
+                ctx=self._download_watchdog_ctx,
+                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+            ),
+        )
+
+        _condition = threading.Condition()
+        _generator = get_downloads_generator(_condition)
+
+        try:
+            for _fut in _mapper.ensure_tasks(
+                partial(self._download_single_file, condition=_condition),
+                _generator,
+            ):
+                if not (_exc := _fut.exception()):
+                    continue
+
+                logger.warning(f"failed to download one file, keep retrying: {_exc!r}")
+                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
+                    (_response := _exc.response), Response
+                ):
+                    if _response.status_code == HTTPStatus.NOT_FOUND:
+                        raise ota_errors.OTAImageInvalid(
+                            "failed to download", module=__name__
+                        ) from _exc
+
+                    if _response.status_code in [
+                        HTTPStatus.FORBIDDEN,
+                        HTTPStatus.UNAUTHORIZED,
+                    ]:
+                        raise ota_errors.UpdateRequestCookieInvalid(
+                            module=__name__
+                        ) from _exc
+        except Exception as e:
+            _generator.throw(e)
+            raise
+        finally:
+            _exc = None  # resolve cycle ref
+            _mapper.shutdown(wait=True)
+            self._downloader_pool.release_all_instances()
 
     def _download_single_file(
         self, entries: list[DownloadInfo], *, condition: threading.Condition
@@ -310,9 +402,25 @@ class _OTAUpdateOperator:
             condition.notify()  # notify the metadata generator that this batch of download is finished
         return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
 
-    def _downloader_workder_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
+    def _download_file(self, entry: DownloadInfo) -> DownloadResult:
+        """Download a single file.
+
+        This is the single task being executed in the downloader pool.
+
+        Returns:
+            Retry counts, downloaded files size and traffic on wire.
+        """
+        if (_digest := entry.digest) == EMPTY_FILE_SHA256:
+            return DownloadResult(0, 0, 0)
+
+        downloader = self._downloader_mapper[threading.get_native_id()]
+        # NOTE: currently download only use sha256
+        return downloader.download(
+            url=entry.url,
+            dst=entry.dst,
+            digest=_digest,
+            size=entry.original_size,
+            compression_alg=entry.compression_alg,
         )
 
     def _download_resources(self, resource_meta: ResourceMeta) -> None:
@@ -387,118 +495,10 @@ class _OTAUpdateOperator:
             self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
 
-    def _download_and_process_file(
-        self,
-        thread_name_prefix: str,
-        get_downloads_generator: Callable,
-    ) -> None:
-        """Download and process files."""
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
-        _mapper = ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            thread_name_prefix=thread_name_prefix,
-            initializer=self._downloader_workder_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=self._download_watchdog_ctx,
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
+    def _downloader_workder_initializer(self) -> None:
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
         )
-
-        _condition = threading.Condition()
-        _generator = get_downloads_generator(_condition)
-
-        try:
-            for _fut in _mapper.ensure_tasks(
-                partial(self._download_single_file, condition=_condition),
-                _generator,
-            ):
-                if not (_exc := _fut.exception()):
-                    continue
-
-                logger.warning(f"failed to download one file, keep retrying: {_exc!r}")
-                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
-                    (_response := _exc.response), Response
-                ):
-                    if _response.status_code == HTTPStatus.NOT_FOUND:
-                        raise ota_errors.OTAImageInvalid(
-                            "failed to download", module=__name__
-                        ) from _exc
-
-                    if _response.status_code in [
-                        HTTPStatus.FORBIDDEN,
-                        HTTPStatus.UNAUTHORIZED,
-                    ]:
-                        raise ota_errors.UpdateRequestCookieInvalid(
-                            module=__name__
-                        ) from _exc
-        except Exception as e:
-            _generator.throw(e)
-            raise
-        finally:
-            _exc = None  # resolve cycle ref
-            _mapper.shutdown(wait=True)
-            self._downloader_pool.release_all_instances()
-
-    def _download_and_parse_metadata(self) -> None:
-        self._download_and_process_file(
-            thread_name_prefix="download_metadata_files",
-            get_downloads_generator=self._ota_metadata.download_metafiles,
-        )
-
-    def _process_metadata(self) -> None:
-        """Process the metadata.jwt file and report."""
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
-        )
-
-        try:
-            logger.info("verify and download OTA image metadata ...")
-            self._download_and_parse_metadata()
-            _metadata_jwt = self._ota_metadata.metadata_jwt
-            assert _metadata_jwt, "invalid metadata jwt"
-
-            logger.info(
-                "ota_metadata parsed finished: \n"
-                f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
-                f"total_regulars_size: {_metadata_jwt.total_regular_size}"
-            )
-
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=SetUpdateMetaReport(
-                        image_file_entries=self._ota_metadata.total_regulars_num,
-                        image_size_uncompressed=_metadata_jwt.total_regular_size,
-                        metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
-                    ),
-                    session_id=self.session_id,
-                )
-            )
-        except ota_errors.OTAError:
-            raise  # raise top-level OTAError as it
-        except ota_metadata_error.MetadataJWTVerificationFailed as e:
-            _err_msg = f"failed to verify metadata.jwt: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTVerficationFailed(
-                _err_msg, module=__name__
-            ) from e
-        except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
-            _err_msg = f"metadata.jwt is invalid: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
-        except Exception as e:
-            _err_msg = f"failed to prepare ota metafiles: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
-        finally:
-            self._downloader_pool.release_instance()
 
 
 class _OTAUpdater(_OTAUpdateOperator):
@@ -506,29 +506,12 @@ class _OTAUpdater(_OTAUpdateOperator):
 
     def __init__(
         self,
-        *,
-        version: str,
-        raw_url_base: str,
-        cookies_json: str,
-        ca_chains_store: CAChainStore,
-        upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         create_standby_cls: type[RebuildMode],
-        ecu_status_flags: MultipleECUStatusFlags,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
+        **kwargs,
     ) -> None:
         # ------ init base class ------ #
-        super().__init__(
-            version=version,
-            raw_url_base=raw_url_base,
-            cookies_json=cookies_json,
-            ca_chains_store=ca_chains_store,
-            upper_otaproxy=upper_otaproxy,
-            ecu_status_flags=ecu_status_flags,
-            status_report_queue=status_report_queue,
-            session_id=session_id,
-        )
+        super().__init__(**kwargs)
 
         # ------ prepare runtime dirs ------ #
         self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
@@ -704,6 +687,22 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         standby_slot_creator.rebuild_standby()
 
+    def _post_update(self) -> None:
+        """Post-update phase."""
+        logger.info("enter post update phase...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+        # NOTE(20240219): move persist file handling here
+        self._process_persistents(self._ota_metadata)
+        self._boot_controller.post_update()
+
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
         standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
@@ -738,22 +737,6 @@ class _OTAUpdater(_OTAUpdateOperator):
             except Exception as e:
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
-
-    def _post_update(self) -> None:
-        """Post-update phase."""
-        logger.info("enter post update phase...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
-        )
-        # NOTE(20240219): move persist file handling here
-        self._process_persistents(self._ota_metadata)
-        self._boot_controller.post_update()
 
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
