@@ -80,10 +80,10 @@ from otaclient.create_standby._delta_gen import (
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
+from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
-    DownloadInfo,
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
@@ -321,17 +321,22 @@ class _OTAUpdateOperator:
             self._downloader_pool.release_instance()
 
     def _download_and_parse_metadata(self) -> None:
-        self._download_and_process_file(
+        self._download_and_process_file_with_condition(
             thread_name_prefix="download_metadata_files",
             get_downloads_generator=self._ota_metadata.download_metafiles,
         )
 
-    def _download_and_process_file(
+    def _download_and_process_file_with_condition(
         self,
         thread_name_prefix: str,
         get_downloads_generator: Callable,
     ) -> None:
-        """Download and process files."""
+        """
+        Download and process a list of files with a condition.
+        Each file downloading and processing are done in parallel by multiple threads.
+        This method is supposed to be used for downloading metadata and client files.
+        """
+
         self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
@@ -350,7 +355,7 @@ class _OTAUpdateOperator:
 
         try:
             for _fut in _mapper.ensure_tasks(
-                partial(self._download_single_file, condition=_condition),
+                partial(self._download_file_with_condition, condition=_condition),
                 _generator,
             ):
                 if not (_exc := _fut.exception()):
@@ -380,12 +385,12 @@ class _OTAUpdateOperator:
             _mapper.shutdown(wait=True)
             self._downloader_pool.release_all_instances()
 
-    def _download_single_file(
+    def _download_file_with_condition(
         self, entries: list[DownloadInfo], *, condition: threading.Condition
     ) -> DownloadResult:
-        """Download a single OTA image metadata file.
-
-        Just a wrapper around _download_file method.
+        """Download a single OTA image metadata and client file with a condition.
+        This method is supposed to be used for downloading metadata and client files.
+        Just a wrapper around _download_single_file method.
 
         Returns:
             Retry counts, downloaded files size and traffic on wire.
@@ -393,7 +398,7 @@ class _OTAUpdateOperator:
         _retry_count, _download_size, _traffic_on_wire = 0, 0, 0
         with condition:
             for entry in entries:
-                _res = self._download_file(entry)
+                _res = self._download_single_file(entry)
                 _retry_count += _res.retry_count
                 _download_size += _res.download_size
                 _traffic_on_wire += _res.traffic_on_wire
@@ -401,9 +406,9 @@ class _OTAUpdateOperator:
             condition.notify()  # notify the metadata generator that this batch of download is finished
         return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
 
-    def _download_file(self, entry: DownloadInfo) -> DownloadResult:
+    def _download_single_file(self, entry: DownloadInfo) -> DownloadResult:
         """Download a single file.
-
+        This method is supposed to be used for any file download.
         This is the single task being executed in the downloader pool.
 
         Returns:
@@ -445,7 +450,7 @@ class _OTAUpdateOperator:
             )
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(
-                    self._download_file,
+                    self._download_single_file,
                     resource_meta.iter_resources(
                         batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
                     ),
@@ -533,10 +538,6 @@ class _OTAUpdater(_OTAUpdateOperator):
         self._apply_update()
         self._post_update()
         self._finalize_update()
-
-        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
-        time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update()
 
     def _prepare_standby_slot(self):
         """Prepare the standby slot and optimize the file_table."""
@@ -757,6 +758,10 @@ class _OTAUpdater(_OTAUpdateOperator):
                 message="permit reboot flag",
                 log_func=logger.info,
             )
+
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
+        self._boot_controller.finalizing_update()
 
     # API
 
