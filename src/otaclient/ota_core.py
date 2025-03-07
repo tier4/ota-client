@@ -19,6 +19,7 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
+import multiprocessing.synchronize as mp_sync
 import shutil
 import signal
 import sys
@@ -789,27 +790,15 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def __init__(
         self,
-        *,
-        version: str,
-        raw_url_base: str,
-        cookies_json: str,
-        ca_chains_store: CAChainStore,
-        upper_otaproxy: str | None = None,
-        ecu_status_flags: MultipleECUStatusFlags,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
+        server_stop_event: mp_sync.Event,
+        shutdown_request_event: mp_sync.Event,
+        **kwargs,
     ) -> None:
         # ------ init base class ------ #
-        super().__init__(
-            version=version,
-            raw_url_base=raw_url_base,
-            cookies_json=cookies_json,
-            ca_chains_store=ca_chains_store,
-            upper_otaproxy=upper_otaproxy,
-            ecu_status_flags=ecu_status_flags,
-            status_report_queue=status_report_queue,
-            session_id=session_id,
-        )
+        super().__init__(**kwargs)
+
+        # --- Event flag to stop gRPC server ---- #
+        self.server_stop_event = server_stop_event
 
         # ------ setup OTA client package parser ------ #
         self._ota_client_package = OTAClientPackage(
@@ -824,13 +813,9 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         self._handle_upper_proxy()
         self._process_metadata()
         self._download_client_package_resources()
-        self._apply_client_update()
-
-    def _download_client_package_files(self) -> None:
-        self._download_and_process_file(
-            thread_name_prefix="download_client_file",
-            get_downloads_generator=self._ota_client_package.download_client_package,
-        )
+        self._stop_grpc_server()
+        self._run_service()
+        self._finalize_client_update()
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
@@ -859,29 +844,24 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
 
-    def _apply_client_update(self) -> None:
-        """Apply the OTA client update."""
-        logger.info("start to apply client update...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.APPLYING_CLIENT_UPDATE,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
+    def _download_client_package_files(self) -> None:
+        self._download_and_process_file(
+            thread_name_prefix="download_client_file",
+            get_downloads_generator=self._ota_client_package.download_client_package,
         )
-        # if the package is patch, apply it to the current client
 
-        """
-        # stop the existing gRPC server
-        self.stop_grpc_server()
+    def _stop_grpc_server(self) -> None:
+        logger.info("stop gRPC server...")
+        self.server_stop_event.set()
 
-        # register as service
-        self._ota_client_package.register_as_service()
+    def _run_service(self) -> None:
+        logger.info("start to run service...")
+        self._ota_client_package.run_service()
 
-        self._enable_and
-        """
+    def _finalize_client_update(self) -> None:
+        logger.info("local client update finished, finalize...")
+        self._ota_client_package.finalize()
+        self.shutdown_request_event.set()
 
     # API
 
@@ -890,7 +870,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         try:
             self._execute_client_update()
         except Exception as e:
-            logger.error(f"update failed: {e!r}")
+            logger.error(f"client update failed: {e!r}")
             raise
         finally:
             shutil.rmtree(self._session_workdir, ignore_errors=True)
@@ -919,12 +899,16 @@ class OTAClient:
         ecu_status_flags: MultipleECUStatusFlags,
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
+        server_stop_event: mp_sync.Event,
+        shutdown_request_event: mp_sync.Event,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
         self.ecu_status_flags = ecu_status_flags
 
         self._status_report_queue = status_report_queue
+        self._server_stop_event = server_stop_event
+        self._shutdown_request_event = shutdown_request_event
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
@@ -1106,6 +1090,8 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
+                server_stop_event=self._server_stop_event,
+                shutdown_request_event=self._shutdown_request_event,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
@@ -1233,6 +1219,8 @@ def ota_core_process(
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
+    server_stop_event: mp_sync.Event,
+    shutdown_request_event: mp_sync.Event,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -1256,5 +1244,7 @@ def ota_core_process(
         ecu_status_flags=ecu_status_flags,
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
+        server_stop_event=server_stop_event,
+        shutdown_request_event=shutdown_request_event,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
