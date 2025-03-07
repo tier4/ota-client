@@ -24,12 +24,13 @@ import json
 import logging
 import os.path
 import platform
-import shutil
+import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional
 
+from client_manifest.schema import Manifest, ReleasePackage
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
@@ -62,6 +63,8 @@ class OTAClientPackage:
     ENTRY_POINT = cfg.OTACLIENT_INSTALLATION_RELEASE + "/manifest.json"
     ARCHITECTURE_X86_64 = "x86_64"
     ARCHITECTURE_ARM64 = "arm64"
+    PACKAGE_TYPE_SQUASHFS = "squashfs"
+    PACKAGE_TYPE_PATCH = "patch"
 
     def __init__(
         self,
@@ -77,13 +80,12 @@ class OTAClientPackage:
 
     def _prepare_manifest(
         self,
-        _download_dir: Path,
         condition: threading.Condition,
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
 
         # ------ step 1: download manifest.json ------ #
-        _client_manifest_fpath = _download_dir / Path(self.ENTRY_POINT).name
+        _client_manifest_fpath = self.download_dir / Path(self.ENTRY_POINT).name
         with condition:
             yield [
                 DownloadInfo(
@@ -95,33 +97,34 @@ class OTAClientPackage:
 
         # ------ step 2: load manifest.json ------ #
         with open(_client_manifest_fpath, "r") as f:
-            self._manifest = json.load(f)
+            manifest_data = json.load(f)
+            self._manifest = Manifest(**manifest_data)
 
     def _prepare_client_package(
         self,
-        _download_dir: Path,
         condition: threading.Condition,
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
 
         # ------ step 1: decide the target package ------ #
-        _available_package = self._get_available_package()
+        _available_package_metadata = self._get_available_package_metadata()
 
         # ------ step 2: download the target package ------ #
-        _package_name = _available_package["filename"]
-        _package_path = cfg.OTACLIENT_INSTALLATION_RELEASE / _package_name
-        _client_package_fpath = _download_dir / _package_name
+        _package_filename = _available_package_metadata.filename
+        _package_path = cfg.OTACLIENT_INSTALLATION_RELEASE / _package_filename
+        _downloaded_package_file = self.download_dir / _package_filename
         with condition:
             yield [
                 DownloadInfo(
                     url=urljoin_ensure_base(self._base_url, _package_path),
-                    dst=_client_package_fpath,
+                    dst=_downloaded_package_file,
                 )
             ]
             condition.wait()  # wait for download finished
-        self.package = _available_package
+        self.package = _available_package_metadata
+        self.downloaded_package_file = _downloaded_package_file
 
-    def _get_available_package(self) -> dict:
+    def _get_available_package_metadata(self) -> ReleasePackage:
         """Get the available package for the current platform."""
         if self._manifest is None:
             raise ValueError("manifest.json is not loaded yet, abort")
@@ -139,36 +142,74 @@ class OTAClientPackage:
             )
 
         # ------ step 2: check if squahfs package exists ------ #
-        _squashfs_file = Path(
+        self.current_squashfs_path = Path(
             cfg.OTACLIENT_INSTALLATION_RELEASE
             / f".otaclient-{_architecture}_v{__version__}.squashfs"
         )
-        _is_squashfs_exists = _squashfs_file.is_file()
+        _is_squashfs_exists = self.current_squashfs_path.is_file()
 
         # ------ step 3: find the target package ------ #
         # the schema of manifest.json is defined in .github/actions/generate_manifest/schema.py
         # first, try to find the patch file
         if _is_squashfs_exists:
-            for package in self._manifest["packages"]:
+            for package in self._manifest.packages:
                 if (
-                    package["architecture"] == _architecture
-                    and package["type"] == "patch"
+                    package.architecture == _architecture
+                    and package.type == self.PACKAGE_TYPE_PATCH
                 ):
-                    metadata = package.get("metadata", {})
-                    if metadata.get("patch_base_version") == _version:
+                    if (
+                        package.metadata is not None
+                        and package.metadata.patch_base_version is not None
+                        and package.metadata.patch_base_version == _version
+                    ):
                         return package
 
         # if no patch file found, find the full package
-        for package in self._manifest["packages"]:
+        for package in self._manifest.packages:
             if (
-                package["architecture"] == _architecture
-                and package["type"] == "squashfs"
+                package.architecture == _architecture
+                and package.type == self.PACKAGE_TYPE_SQUASHFS
             ):
                 return package
 
         raise ValueError(
             f"No suitable package found for architecture {_architecture} and version {_version}"
         )
+
+    def get_target_squashfs_file(self) -> Path:
+        """Get the target squashfs file path."""
+        """Run the downloaded OTA client service."""
+        if self.package is None:
+            raise ValueError("OTA client package is not downloaded yet, abort")
+
+        if self.package.type == self.PACKAGE_TYPE_PATCH:
+            # apply patch to the existing squashfs
+            _architecture = self.package.architecture
+            _patch_file = self.downloaded_package_file
+            _current_squashfs_file = str(self.current_squashfs_path)
+            _target_version = self.package.version
+            target_squashfs_file = Path(
+                cfg.OTACLIENT_INSTALLATION_RELEASE
+                + f"/otaclient-{_architecture}_v{_target_version}.squashfs"
+            )
+
+            # apply patch
+            command = [
+                "zstd",
+                "-d",
+                f"--patch-from={_current_squashfs_file}",
+                str(_patch_file),
+                "-o",
+                str(target_squashfs_file),
+            ]
+            try:
+                subprocess.run(command, check=True)
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"failed to apply patch: {e!r}")
+            return target_squashfs_file
+
+        # directly use the downloaded squashfs
+        return self.downloaded_package_file
 
     # APIs
 
@@ -180,51 +221,23 @@ class OTAClientPackage:
         1. download and parse manifest.json
         2. download the target OTA client package.
         """
-        _download_dir = df = self._session_dir / f".download_{os.urandom(4).hex()}"
+        self.download_dir = df = self._session_dir / f".download_{os.urandom(4).hex()}"
         df.mkdir(exist_ok=True, parents=True)
 
         try:
-            yield from self._prepare_manifest(_download_dir, condition)
-            yield from self._prepare_client_package(_download_dir, condition)
+            yield from self._prepare_manifest(condition)
+            yield from self._prepare_client_package(condition)
         except Exception as e:
             logger.exception(
                 f"failure during downloading and verifying OTA client package: {e!r}"
             )
             raise
-        finally:
-            shutil.rmtree(_download_dir, ignore_errors=True)
 
-    def run_client_package(
+    def run_service(
         self,
     ):
-        self._put_squashfs()
-        self._mount_squashfs()
-        self._run_client()
-        self._register_as_service()
+        """Run the downloaded OTA client service."""
+        pass
 
-    def _put_squashfs(self):
-        """Put the squashfs file to the target directory."""
-        _squashfs_file = Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-            / f".otaclient-{self._get_architecture()}_v{__version__}.squashfs"
-        )
-        _target_dir = Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
-        shutil.copy(_squashfs_file, _target_dir)
-
-    def _mount_squashfs(self):
-        """Mount the squashfs file."""
-        _squashfs_file = Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-            / f".otaclient-{self._get_architecture()}_v{__version__}.squashfs"
-        )
-        _mount_point = self._session_dir / "mnt"
-
-        if not _squashfs_file.is_file():
-            raise FileNotFoundError(f"{_squashfs_file} does not exist")
-
-        _mount_point.mkdir(exist_ok=True, parents=True)
-
-        mount_cmd = f"sudo mount -t squashfs {str(_squashfs_file)} {str(_mount_point)}"
-        result = os.system(mount_cmd)
-        if result != 0:
-            raise RuntimeError(f"Failed to mount squashfs file: {mount_cmd}")
+    def finalize(self):
+        pass

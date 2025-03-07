@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import multiprocessing.synchronize as mp_sync
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
@@ -35,6 +36,7 @@ def grpc_server_process(
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
+    server_stop_event: mp_sync.Event,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -78,10 +80,15 @@ def grpc_server_process(
 
         logger.info(f"launch grpc API server at {_address_info}")
         await server.start()
-        try:
-            await server.wait_for_termination()
-        finally:
-            await server.stop(1)
-            thread_pool.shutdown(wait=True)
+
+        # Wait for the stop event
+        while True:
+            if server_stop_event.is_set():
+                await server.stop(1)
+                logger.info("grpc API server stopped")
+            # Process is still running even though the server is stopped
+            await asyncio.sleep(1)
+
+        thread_pool.shutdown(wait=True)
 
     asyncio.run(_grpc_server_launcher())
