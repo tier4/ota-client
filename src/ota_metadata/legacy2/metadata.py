@@ -54,10 +54,10 @@ from ota_metadata.file_table._orm import (
     FileTableNonRegularORM,
     FileTableRegularORM,
 )
-from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
+from otaclient_common.download_info import DownloadInfo
 
 from . import DIGEST_ALG, SUPORTED_COMPRESSION_TYPES
 from .csv_parser import (
