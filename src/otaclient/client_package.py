@@ -25,6 +25,7 @@ import logging
 import os.path
 import platform
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,8 @@ class OTAClientPackage:
             - / .otaclient-${PLATFORM_SUFFIX}_v${BASE_VERSION}-v${VERSION}.patch # the OTA client package patch file
 
     """
+
+    SERVICE_NAME = "otaclient-dynamic"
 
     ENTRY_POINT = cfg.OTACLIENT_INSTALLATION_RELEASE + "/manifest.json"
     ARCHITECTURE_X86_64 = "x86_64"
@@ -176,7 +179,7 @@ class OTAClientPackage:
             f"No suitable package found for architecture {_architecture} and version {_version}"
         )
 
-    def get_target_squashfs_file(self) -> Path:
+    def get_target_squashfs_path(self) -> Path:
         """Get the target squashfs file path."""
         """Run the downloaded OTA client service."""
         if self.package is None:
@@ -188,7 +191,7 @@ class OTAClientPackage:
             _patch_file = self.downloaded_package_file
             _current_squashfs_file = str(self.current_squashfs_path)
             _target_version = self.package.version
-            target_squashfs_file = Path(
+            target_squashfs_path = Path(
                 cfg.OTACLIENT_INSTALLATION_RELEASE
                 + f"/otaclient-{_architecture}_v{_target_version}.squashfs"
             )
@@ -200,16 +203,17 @@ class OTAClientPackage:
                 f"--patch-from={_current_squashfs_file}",
                 str(_patch_file),
                 "-o",
-                str(target_squashfs_file),
+                str(target_squashfs_path),
             ]
             try:
                 subprocess.run(command, check=True)
             except subprocess.CalledProcessError as e:
                 logger.warning(f"failed to apply patch: {e!r}")
-            return target_squashfs_file
+                raise
+            return target_squashfs_path
 
         # directly use the downloaded squashfs
-        return self.downloaded_package_file
+        return Path(self.downloaded_package_file)
 
     # APIs
 
@@ -236,8 +240,62 @@ class OTAClientPackage:
     def run_service(
         self,
     ):
-        """Run the downloaded OTA client service."""
-        pass
+        """Get and Run the downloaded OTA client service."""
+        squashfs_path = self.get_target_squashfs_path()
 
-    def finalize(self):
+        # Check if another instance of otaclient is already running
+        """
+        for proc in psutil.process_iter(["pid", "name"]):
+            if "otaclient" in proc.info["name"]:
+                logger.error("Another instance of otaclient is already running.")
+                raise RuntimeError("Another instance of otaclient is already running.")
+        """
+
+        # Create a temporary directory to mount the squashfs
+        with tempfile.TemporaryDirectory() as mount_dir:
+            try:
+                # Mount the squashfs file
+                subprocess.run(
+                    ["sudo", "mount", "-t", "squashfs", str(squashfs_path), mount_dir],
+                    check=True,
+                )
+
+                # Create and start the systemd service
+                self._create_systemd_service(self.SERVICE_NAME, mount_dir)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to run OTA client service: {e!r}")
+                raise
+
+    def _create_systemd_service(self, service_name: str, mount_dir: str):
+        service_content = """
+        [Unit]
+        Description=OTA Client Dynamic Service
+        After=network-online.target nss-lookup.target
+        Wants=network-online.target
+
+        [Service]
+        Type=simple
+        ExecStart=/usr/bin/python3 -m otaclient --mount-dir {mount_dir}
+        Restart=always
+        RestartSec=16
+
+        [Install]
+        WantedBy=multi-user.target
+        """
+
+        service_path = f"/etc/systemd/system/{service_name}.service"
+        with open(service_path, "w") as service_file:
+            service_file.write(service_content)
+
+        # Reload systemd manager configuration
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
+        # Enable the service
+        subprocess.run(["sudo", "systemctl", "enable", service_name], check=True)
+        # Start the service
+        subprocess.run(["sudo", "systemctl", "start", service_name], check=True)
+
+    def handover_status(
+        self,
+    ):
+        """Handover the status of the current OTA client status to the new service."""
         pass
