@@ -61,7 +61,8 @@ class OTAClientPackage:
 
     """
 
-    SERVICE_NAME = "otaclient-dynamic"
+    EXISTING_SERVICE_NAME = "otaclient"
+    NEW_SERVICE_NAME = "otaclient-dynamic"
 
     ENTRY_POINT = cfg.OTACLIENT_INSTALLATION_RELEASE + "/manifest.json"
     ARCHITECTURE_X86_64 = "x86_64"
@@ -77,6 +78,7 @@ class OTAClientPackage:
     ) -> None:
         self._base_url = base_url
         self._session_dir = Path(session_dir)
+        self._download_dir = self._session_dir / f".download_{os.urandom(4).hex()}"
 
         self._manifest = None
         self.package = None
@@ -88,7 +90,7 @@ class OTAClientPackage:
         """Download raw manifest.json and parse it."""
 
         # ------ step 1: download manifest.json ------ #
-        _client_manifest_fpath = self.download_dir / Path(self.ENTRY_POINT).name
+        _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
         with condition:
             yield [
                 DownloadInfo(
@@ -115,7 +117,7 @@ class OTAClientPackage:
         # ------ step 2: download the target package ------ #
         _package_filename = _available_package_metadata.filename
         _package_path = cfg.OTACLIENT_INSTALLATION_RELEASE / _package_filename
-        _downloaded_package_file = self.download_dir / _package_filename
+        _downloaded_package_file = self._download_dir / _package_filename
         with condition:
             yield [
                 DownloadInfo(
@@ -147,7 +149,7 @@ class OTAClientPackage:
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = Path(
             cfg.OTACLIENT_INSTALLATION_RELEASE
-            / f".otaclient-{_architecture}_v{__version__}.squashfs"
+            + f"/otaclient-{_architecture}_v{__version__}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
 
@@ -225,8 +227,7 @@ class OTAClientPackage:
         1. download and parse manifest.json
         2. download the target OTA client package.
         """
-        self.download_dir = df = self._session_dir / f".download_{os.urandom(4).hex()}"
-        df.mkdir(exist_ok=True, parents=True)
+        self._download_dir.mkdir(exist_ok=True, parents=True)
 
         try:
             yield from self._prepare_manifest(condition)
@@ -261,7 +262,7 @@ class OTAClientPackage:
                 )
 
                 # Create and start the systemd service
-                self._create_systemd_service(self.SERVICE_NAME, mount_dir)
+                self._create_systemd_service(self.NEW_SERVICE_NAME, mount_dir)
             except subprocess.CalledProcessError as e:
                 logger.error(f"Failed to run OTA client service: {e!r}")
                 raise
@@ -299,3 +300,16 @@ class OTAClientPackage:
     ):
         """Handover the status of the current OTA client status to the new service."""
         pass
+
+    def finalize(self):
+        """Finalize the OTA client package."""
+        # Disable the service
+        subprocess.run(
+            ["sudo", "systemctl", "disable", self.EXISTING_SERVICE_NAME], check=True
+        )
+        # Stop the service
+        """
+        subprocess.run(
+            ["sudo", "systemctl", "stop", self.EXISTING_SERVICE_NAME], check=True
+        )
+        """
