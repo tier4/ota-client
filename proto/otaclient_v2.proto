@@ -16,16 +16,15 @@ syntax = "proto3";
 
 import "google/protobuf/duration.proto";
 
-// option java_multiple_files = true;
-// option java_package = "io.common.ota.client";
-// option java_outer_classname = "OtaClientProto";
+//option java_multiple_files = true;
+//option java_package = "io.common.ota.client";
+//option java_outer_classname = "OtaClientProto";
 option objc_class_prefix = "OTA";
 
 package OtaClientV2;
 
 // The OTA Client service definition.
-// Style Guide:
-// https://developers.google.com/protocol-buffers/docs/style#message_and_field_names
+// Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_and_field_names
 service OtaClientService {
   /*
    * `Update` service requests OTA client to start updating.
@@ -33,23 +32,23 @@ service OtaClientService {
    * id and starts it. Requests to each ECU included in the `UpdateRequest` are
    * handled by that respective ECU and returns the response to the parent ECU.
    * Main ECU merges the responses as UpdateResponse.
-   * After requesting `Update` and if the OTA status is `UPDATING`, the request
-   * is successful. Note that if the child ECU doesn't respond, the grandchild
-   * response is not included by `UpdateResponse`.
+   * After requesting `Update` and if the OTA status is `UPDATING`, the request is successful.
+   * Note that if the child ECU doesn't respond, the grandchild response is not
+   * included by `UpdateResponse`.
    */
-  rpc Update(UpdateRequest) returns (UpdateResponse) {}
+  rpc Update (UpdateRequest) returns (UpdateResponse) {}
 
   /*
    * NOT YET
    */
-  rpc Rollback(RollbackRequest) returns (RollbackResponse) {}
+  rpc Rollback (RollbackRequest) returns (RollbackResponse) {}
 
   /*
    * `Status` service requests OTA client to retrieve OTA client status.
    * Note that if the child ECU doesn't respond, the grandchild response is not
    * contained by `StatusResponse`.
    */
-  rpc Status(StatusRequest) returns (StatusResponse) {}
+  rpc Status (StatusRequest) returns (StatusResponse) {}
 
   /*
    * `ClientUpdate` service requests OTA client to start client updating.
@@ -61,16 +60,16 @@ service OtaClientService {
    * the request is successful. Note that if the child ECU doesn't respond, the
    * grandchild response is not included by `UpdateResponse`.
    */
-  rpc ClientUpdate(UpdateRequest) returns (UpdateResponse) {}
+   rpc ClientUpdate (UpdateRequest) returns (UpdateResponse) {}
 }
 
 //
 // Common
 //
 enum FailureType {
-  NO_FAILURE = 0;
-  RECOVERABLE = 1;
-  UNRECOVERABLE = 2;
+    NO_FAILURE = 0;
+    RECOVERABLE = 1;
+    UNRECOVERABLE = 2;
 }
 
 //
@@ -79,33 +78,38 @@ enum FailureType {
 
 // Request
 message UpdateRequestEcu {
-  string ecu_id = 1;  // ECU id to update. OTA client pickups the entry that
-                      // matches their own ECU id and this ECU id.
-  string version = 2; // version to update. Any version string can be used. When
-                      // the update is done successfully, the OTA client saves
-                      // this version as the current version.
-  string url = 3;     // OTA server URL.
+  string ecu_id = 1; // ECU id to update. OTA client pickups the entry that matches their own ECU id and this ECU id.
+  string version = 2; // version to update. Any version string can be used. When the update is done successfully, the OTA client saves this version as the current version.
+  string url = 3; // OTA server URL.
   string cookies = 4; // cookie entries with JSON notation.
 }
 
-message UpdateRequest { repeated UpdateRequestEcu ecu = 1; }
+message UpdateRequest {
+  repeated UpdateRequestEcu ecu = 1;
+}
 
 // Response
 message UpdateResponseEcu {
-  string ecu_id = 1;      // EUC id responded
+  string ecu_id = 1; // EUC id responded
   FailureType result = 2; // result
 }
 
-message UpdateResponse { repeated UpdateResponseEcu ecu = 1; }
+message UpdateResponse {
+  repeated UpdateResponseEcu ecu = 1;
+}
 
 //
 // Rollback
 //
 
 // Request
-message RollbackRequestEcu { string ecu_id = 1; }
+message RollbackRequestEcu {
+  string ecu_id = 1;
+}
 
-message RollbackRequest { repeated RollbackRequestEcu ecu = 1; }
+message RollbackRequest {
+  repeated RollbackRequestEcu ecu = 1;
+}
 
 // Response
 message RollbackResponseEcu {
@@ -113,13 +117,16 @@ message RollbackResponseEcu {
   FailureType result = 2;
 }
 
-message RollbackResponse { repeated RollbackResponseEcu ecu = 1; }
+message RollbackResponse {
+  repeated RollbackResponseEcu ecu = 1;
+}
 
 //
 // Status
 //
 // Request
-message StatusRequest {}
+message StatusRequest {
+}
 
 // Response
 enum StatusOta {
@@ -144,37 +151,28 @@ enum StatusProgressPhase {
 
 message StatusProgress {
   StatusProgressPhase phase = 1;
-  uint64 total_regular_files = 2;     // number of total regular file
+  uint64 total_regular_files = 2; // number of total regular file
   uint64 regular_files_processed = 3; // number of the regular file processed
-  uint64 files_processed_copy =
-      4; // number of the regular file processed by copy
-  uint64 files_processed_link =
-      5; // number of the regular file processed by hard-link
-  uint64 files_processed_download =
-      6; // number of the regular file processed by download
-  uint64 file_size_processed_copy =
-      7; // total file size of the regular file processed by copy
-  uint64 file_size_processed_link =
-      8; // total file size of the regular file processed by hard-link
-  uint64 file_size_processed_download =
-      9; // total file size of the regular file processed by download
+  uint64 files_processed_copy = 4; // number of the regular file processed by copy
+  uint64 files_processed_link = 5; // number of the regular file processed by hard-link
+  uint64 files_processed_download = 6; // number of the regular file processed by download
+  uint64 file_size_processed_copy = 7; // total file size of the regular file processed by copy
+  uint64 file_size_processed_link = 8; // total file size of the regular file processed by hard-link
+  uint64 file_size_processed_download = 9; // total file size of the regular file processed by download
   google.protobuf.Duration elapsed_time_copy = 10; // total elapsed time by copy
-  google.protobuf.Duration elapsed_time_link =
-      11; // total elapsed time by hard-link
-  google.protobuf.Duration elapsed_time_download =
-      12;                              // total elapsed time by download
-  uint64 errors_download = 13;         // total number of download error
+  google.protobuf.Duration elapsed_time_link = 11; // total elapsed time by hard-link
+  google.protobuf.Duration elapsed_time_download = 12; // total elapsed time by download
+  uint64 errors_download = 13; // total number of download error
   uint64 total_regular_file_size = 14; // total regular file size
   google.protobuf.Duration total_elapsed_time = 15; // total elapsed time
-  uint64 download_bytes =
-      16; // data transfer volume during the whole OTA update process
+  uint64 download_bytes = 16; // data transfer volume during the whole OTA update process
 }
 
 message Status {
   StatusOta status = 1;
   FailureType failure = 2;
-  string failure_reason = 3;   // failure reason string
-  string version = 4;          // current version string
+  string failure_reason = 3; // failure reason string
+  string version = 4; // current version string
   StatusProgress progress = 5; // status is UPDATING, this field is valid.
 }
 
@@ -189,13 +187,9 @@ message StatusResponseEcu {
 //
 
 message StatusResponse {
-  repeated StatusResponseEcu ecu = 1 [
-    deprecated = true
-  ]; // list of status(v1) of all available ECUs, replaced by ecu_v2
-  repeated string available_ecu_ids =
-      2; // list of all available ECUs in this vehicle (see ecu_info.yml)
-  repeated StatusResponseEcuV2 ecu_v2 =
-      3; // list of status(v2) of all available ECUs
+  repeated StatusResponseEcu ecu = 1 [deprecated = true]; // list of status(v1) of all available ECUs, replaced by ecu_v2
+  repeated string available_ecu_ids = 2; // list of all available ECUs in this vehicle (see ecu_info.yml)
+  repeated StatusResponseEcuV2 ecu_v2 = 3; // list of status(v2) of all available ECUs
 }
 
 enum UpdatePhase {
@@ -233,32 +227,24 @@ message StatusResponseEcuV2 {
 message UpdateStatus {
   // --- update meta: 1~10 --- //
   string update_firmware_version = 1; // update target image version
-  uint64 total_files_size_uncompressed =
-      2; // uncompressed size of all files in update_firmware image
+  uint64 total_files_size_uncompressed = 2; // uncompressed size of all files in update_firmware image
   uint64 total_files_num = 3; // total files num in the update_firmware image
   uint64 update_start_timestamp = 4; // update start time in unix timestamp
 
   // --- update progress: 11~30 --- //
   UpdatePhase phase = 11;
   // - downloading phase - //
-  uint64 total_download_files_num =
-      12; // num of files needed to be downloaded from remote
-  uint64 total_download_files_size =
-      13; // size(uncompressed) of all files needed to be downloaded
+  uint64 total_download_files_num = 12; // num of files needed to be downloaded from remote
+  uint64 total_download_files_size = 13; // size(uncompressed) of all files needed to be downloaded
   uint64 downloaded_files_num = 14; // downloaded files num during downloading
-  uint64 downloaded_bytes = 15;     // network traffic during downloading
-  uint64 downloaded_files_size =
-      16; // size(uncompressed) of downloaded files during downloading
+  uint64 downloaded_bytes = 15; // network traffic during downloading
+  uint64 downloaded_files_size = 16; // size(uncompressed) of downloaded files during downloading
   uint64 downloading_errors = 17;
   // - applying update phase - //
-  uint64 total_remove_files_num =
-      18; // for in-place update mode, files to be removed
-  uint64 removed_files_num = 19; // for in-place update mode, removed files
-                                 // during standby slot updating
-  // NOTE: processed_files_num/size are corresponding to
-  // total_files_num/total_image_size
-  uint64 processed_files_num =
-      20; // num of files processed to the standby slot during applying update
+  uint64 total_remove_files_num = 18; // for in-place update mode, files to be removed
+  uint64 removed_files_num = 19; // for in-place update mode, removed files during standby slot updating
+  // NOTE: processed_files_num/size are corresponding to total_files_num/total_image_size
+  uint64 processed_files_num = 20; // num of files processed to the standby slot during applying update
   uint64 processed_files_size = 21; // size(uncompressed) of processed files
 
   // --- timing --- //

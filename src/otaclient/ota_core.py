@@ -86,7 +86,6 @@ from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
-    DownloadInfo,
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
@@ -762,6 +761,10 @@ class _OTAUpdater(_OTAUpdateOperator):
                 message="permit reboot flag",
                 log_func=logger.info,
             )
+
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
+        self._boot_controller.finalizing_update()
 
     # API
 
