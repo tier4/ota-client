@@ -122,7 +122,7 @@ def main() -> None:  # pragma: no cover
         all_success=mp_ctx.Event(),
     )
     server_stop_event = mp_ctx.Event()
-    shutdown_request_event = mp_ctx.Event()
+    shutdown_event = mp_ctx.Event()
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -135,7 +135,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             server_stop_event=server_stop_event,
-            shutdown_request_event=shutdown_request_event,
+            shutdown_event=shutdown_event,
         ),
         name="otaclient_ota_core",
     )
@@ -187,6 +187,6 @@ def main() -> None:  # pragma: no cover
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown()
 
-        if shutdown_request_event.is_set():
+        if shutdown_event.is_set():
             logger.info("otaclient shutdown requested")
             return _on_shutdown()
