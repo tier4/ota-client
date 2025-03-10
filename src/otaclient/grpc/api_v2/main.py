@@ -84,11 +84,12 @@ def grpc_server_process(
         # Wait for the stop event
         while True:
             if server_stop_event.is_set():
-                await server.stop(1)
                 logger.info("grpc API server stopped")
+                break
             # Process is still running even though the server is stopped
             await asyncio.sleep(1)
 
+        await server.stop(1)
         thread_pool.shutdown(wait=True)
 
     asyncio.run(_grpc_server_launcher())

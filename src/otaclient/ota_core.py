@@ -850,7 +850,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._downloader_pool.shutdown()
 
     def _download_client_package_files(self) -> None:
-        self._download_and_process_file(
+        self._download_and_process_file_with_condition(
             thread_name_prefix="download_client_file",
             get_downloads_generator=self._ota_client_package.download_client_package,
         )
@@ -869,7 +869,8 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _finalize_client_update(self) -> None:
         logger.info("local client update finished, finalize...")
-        self.shutdown_event.set()
+        self._ota_client_package.finalize()
+        # self.shutdown_event.set()
 
     # API
 

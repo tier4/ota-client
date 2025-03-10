@@ -172,6 +172,8 @@ class TestOTAClient:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
+        server_stop_event = mocker.MagicMock()
+        shutdown_event = mocker.MagicMock()
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
@@ -195,6 +197,8 @@ class TestOTAClient:
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
+            server_stop_event=server_stop_event,
+            shutdown_event=shutdown_event,
         )
 
     def test_update_normal_finished(self):
