@@ -790,7 +790,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
     def __init__(
         self,
         server_stop_event: mp_sync.Event,
-        shutdown_request_event: mp_sync.Event,
+        shutdown_event: mp_sync.Event,
         **kwargs,
     ) -> None:
         # ------ init base class ------ #
@@ -798,6 +798,8 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
         # --- Event flag to stop gRPC server ---- #
         self.server_stop_event = server_stop_event
+        # --- Event flag to shutdown the OTA client ---- #
+        self.shutdown_event = shutdown_event
 
         # ------ setup OTA client package parser ------ #
         self._ota_client_package = OTAClientPackage(
@@ -857,10 +859,13 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         logger.info("start to run service...")
         self._ota_client_package.run_service()
 
+    def _handover_status(self) -> None:
+        logger.info("handover status...")
+        self._ota_client_package.handover_status()
+
     def _finalize_client_update(self) -> None:
         logger.info("local client update finished, finalize...")
-        self._ota_client_package.finalize()
-        self.shutdown_request_event.set()
+        self.shutdown_event.set()
 
     # API
 
@@ -899,7 +904,7 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         server_stop_event: mp_sync.Event,
-        shutdown_request_event: mp_sync.Event,
+        shutdown_event: mp_sync.Event,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
@@ -907,7 +912,7 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._server_stop_event = server_stop_event
-        self._shutdown_request_event = shutdown_request_event
+        self._shutdown_event = shutdown_event
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
@@ -1090,7 +1095,7 @@ class OTAClient:
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 server_stop_event=self._server_stop_event,
-                shutdown_request_event=self._shutdown_request_event,
+                shutdown_event=self._shutdown_event,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
@@ -1219,7 +1224,7 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     server_stop_event: mp_sync.Event,
-    shutdown_request_event: mp_sync.Event,
+    shutdown_event: mp_sync.Event,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -1244,6 +1249,6 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         server_stop_event=server_stop_event,
-        shutdown_request_event=shutdown_request_event,
+        shutdown_event=shutdown_event,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
