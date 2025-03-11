@@ -32,6 +32,14 @@ This `ota-test_base` image contains a copy of pre-build minimum `ota-image` unde
 docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester
 ```
 
+### Run specific tests manually by override the command
+
+Directly execute pytest is also possible by override the command:
+
+```bash
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester \
+   tests/<specific_test_file>  [<test_file_2> [...]]
+
 ### Run specific tests manually by dropping to bash shell
 
 Directly drop to bash shell in the test base container as follow:
