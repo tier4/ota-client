@@ -40,6 +40,7 @@ Directly execute pytest is also possible by override the command:
 ```bash
 docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester \
    tests/<specific_test_file>  [<test_file_2> [...]]
+```
 
 ### Run specific tests manually by dropping to bash shell
 
