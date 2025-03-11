@@ -24,9 +24,7 @@ import logging
 import threading
 import time
 from abc import abstractmethod
-from dataclasses import dataclass
 from functools import wraps
-from pathlib import Path
 from typing import (
     IO,
     Any,
@@ -35,7 +33,6 @@ from typing import (
     Iterator,
     Mapping,
     NamedTuple,
-    Optional,
     Protocol,
     TypedDict,
 )
@@ -58,19 +55,6 @@ CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
 DEFAULT_CONNECTION_TIMEOUT = 16  # seconds
 DEFAULT_READ_TIMEOUT = 32  # seconds
-
-
-@dataclass
-class DownloadInfo:
-    """Download information for Downloader."""
-
-    url: str
-    dst: Path
-    original_size: int = 0
-    """NOTE: we are using transparent decompression, so we always use the original_size."""
-    digest_alg: Optional[str] = None
-    digest: Optional[str] = None
-    compression_alg: Optional[str] = None
 
 
 class DownloadResult(NamedTuple):
