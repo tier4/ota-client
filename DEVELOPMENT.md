@@ -25,6 +25,7 @@ docker compose -f docker/test_base/docker-compose_tests.yml build
 ```
 
 This `ota-test_base` image contains a copy of pre-build minimum `ota-image` under `/ota-image` folder, and pre-installed dependencies needed for running and testing OTA client.
+`tester` in the following commands is the service name of the test base container, which is defined in the `docker-compose_tests.yml`(e.g. `tester-ubuntu-22.04`).
 
 ### Run all tests at once
 
