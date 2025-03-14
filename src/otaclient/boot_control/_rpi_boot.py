@@ -300,7 +300,11 @@ class _RPIBootControl:
         mounts[str(sys_mp)] = "/sys"
 
         # NOTE(20250314): ensure that tmp folder exists on standby slot
-        (target_slot_mp / "tmp").mkdir(exist_ok=True)
+        _tmp_on_standby = target_slot_mp / "tmp"
+        # also handle the case when /tmp is a symlink
+        if _tmp_on_standby.is_symlink():
+            _tmp_on_standby = _tmp_on_standby.resolve()
+        _tmp_on_standby.mkdir(exist_ok=True, parents=True)
 
         try:
             for _mp, _src in mounts.items():
