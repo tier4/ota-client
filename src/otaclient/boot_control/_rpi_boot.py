@@ -20,6 +20,7 @@ import contextlib
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from string import Template
 from typing import Any, Generator, Literal
@@ -298,6 +299,13 @@ class _RPIBootControl:
         sys_mp = target_slot_mp / "sys"
         mounts[str(sys_mp)] = "/sys"
 
+        # NOTE(20250314): ensure that tmp folder exists on standby slot
+        _tmp_on_standby = target_slot_mp / "tmp"
+        # also handle the case when /tmp is a symlink
+        if _tmp_on_standby.is_symlink():
+            _tmp_on_standby = _tmp_on_standby.resolve()
+        _tmp_on_standby.mkdir(exist_ok=True, parents=True)
+
         try:
             for _mp, _src in mounts.items():
                 CMDHelperFuncs.mount(
@@ -332,6 +340,7 @@ class _RPIBootControl:
                     env={"FK_FORCE": "yes"},
                 )
                 os.sync()
+                logger.info("flash-kernel succeeded!")
         except subprocess.CalledProcessError as e:
             _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
             logger.error(_err_msg)
@@ -410,11 +419,15 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def reboot_tryboot(self):
+    def reboot_tryboot(self, *, reboot_wait: int = 6):
         """Reboot with tryboot flag."""
-        logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
+        logger.info(
+            f"tryboot reboot to standby slot({self.standby_slot}) in {reboot_wait=}s ..."
+        )
+        time.sleep(reboot_wait)
         try:
             # NOTE: "0 tryboot" is a single param.
+            logger.info("system will reboot now!")
             CMDHelperFuncs.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
