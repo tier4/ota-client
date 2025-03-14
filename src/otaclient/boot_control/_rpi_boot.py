@@ -417,7 +417,9 @@ class _RPIBootControl:
 
     def reboot_tryboot(self, *, reboot_wait: int = 6):
         """Reboot with tryboot flag."""
-        logger.info(f"tryboot reboot to standby slot({self.standby_slot}) in {reboot_wait=}s ...")
+        logger.info(
+            f"tryboot reboot to standby slot({self.standby_slot}) in {reboot_wait=}s ..."
+        )
         time.sleep(reboot_wait)
         try:
             # NOTE: "0 tryboot" is a single param.
