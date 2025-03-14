@@ -296,6 +296,13 @@ class _RPIBootControl:
         sys_mp = target_slot_mp / "sys"
         mounts[str(sys_mp)] = "/sys"
 
+        # NOTE(20250314): ensure that tmp folder exists on standby slot
+        _tmp_on_standby = target_slot_mp / "tmp"
+        # also handle the case when /tmp is a symlink
+        if _tmp_on_standby.is_symlink():
+            _tmp_on_standby = _tmp_on_standby.resolve()
+        _tmp_on_standby.mkdir(exist_ok=True, parents=True)
+
         try:
             for _mp, _src in mounts.items():
                 cmdhelper.mount(
@@ -329,6 +336,7 @@ class _RPIBootControl:
                     # must set this env variable to make flash-kernel work under chroot
                     env={"FK_FORCE": "yes"},
                 )
+                logger.info("flash-kernel succeeded!")
                 os.sync()
         except subprocess.CalledProcessError as e:
             _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
