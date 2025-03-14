@@ -298,6 +298,9 @@ class _RPIBootControl:
         sys_mp = target_slot_mp / "sys"
         mounts[str(sys_mp)] = "/sys"
 
+        # NOTE(20250314): ensure that tmp folder exists on standby slot
+        (target_slot_mp / "tmp").mkdir(exist_ok=True)
+
         try:
             for _mp, _src in mounts.items():
                 CMDHelperFuncs.mount(
