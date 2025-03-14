@@ -335,6 +335,7 @@ class _RPIBootControl:
                     env={"FK_FORCE": "yes"},
                 )
                 os.sync()
+                logger.info("flash-kernel succeeded!")
         except subprocess.CalledProcessError as e:
             _err_msg = f"flash-kernel failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
             logger.error(_err_msg)
