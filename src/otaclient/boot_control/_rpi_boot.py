@@ -20,6 +20,7 @@ import contextlib
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from string import Template
 from typing import Any, Generator, Literal
@@ -414,11 +415,13 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def reboot_tryboot(self):
+    def reboot_tryboot(self, *, reboot_wait: int = 6):
         """Reboot with tryboot flag."""
-        logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
+        logger.info(f"tryboot reboot to standby slot({self.standby_slot}) in {reboot_wait=}s ...")
+        time.sleep(reboot_wait)
         try:
             # NOTE: "0 tryboot" is a single param.
+            logger.info("system will reboot now!")
             CMDHelperFuncs.reboot(args=["0 tryboot"])
         except Exception as e:
             _err_msg = "failed to reboot"
