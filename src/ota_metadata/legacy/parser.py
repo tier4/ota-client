@@ -90,6 +90,7 @@ from otaclient_common.retry_task_map import (
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
+from otaclient.app.configs import config as cfg
 
 logger = logging.getLogger(__name__)
 
@@ -658,8 +659,9 @@ class OTAMetadata:
         # download and parse metadata.jwt
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
-
-            while not _shutdown:
+            
+            _retry_counter = 0
+            while _retry_counter < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT:
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -688,6 +690,7 @@ class OTAMetadata:
                     logger.warning(
                         f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
                     )
+                    _retry_counter += 1
                     time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
@@ -702,7 +705,8 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
 
-            while not _shutdown:
+            _retry_counter = 0
+            while _retry_counter < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT:
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, cert_fname),
@@ -717,6 +721,7 @@ class OTAMetadata:
                     break
                 except Exception as e:
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
+                    _retry_counter += 1
                     time.sleep(self.retry_interval)
             _parser.verify_metadata(cert_file.read_bytes())
 
