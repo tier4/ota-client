@@ -870,7 +870,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
     def _finalize_client_update(self) -> None:
         logger.info("local client update finished, finalize...")
         self._ota_client_package.finalize()
-        # self.shutdown_event.set()
+        self.shutdown_event.set()
 
     # API
 
