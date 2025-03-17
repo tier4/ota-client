@@ -56,6 +56,13 @@ def grpc_server_process(
         from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
         from otaclient_api.v2.api_stub import OtaClientServiceV2
 
+        # Create a task to monitor the stop event more efficiently
+        async def monitor_stop_event():
+            while not server_stop_event.is_set():
+                await asyncio.sleep(1)
+            logger.info("grpc API server stop event detected")
+            return
+
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
         ecu_tracker.start()
@@ -81,15 +88,14 @@ def grpc_server_process(
         logger.info(f"launch grpc API server at {_address_info}")
         await server.start()
 
-        # Wait for the stop event
-        while True:
-            if server_stop_event.is_set():
-                logger.info("grpc API server stopped")
-                break
-            # Process is still running even though the server is stopped
-            await asyncio.sleep(1)
-
-        await server.stop(1)
-        thread_pool.shutdown(wait=True)
+        try:
+            # Wait for the stop event without busy polling
+            await monitor_stop_event()
+        finally:
+            # Ensure server gets stopped properly on exceptions
+            logger.info("stopping grpc API server...")
+            await server.stop(1)
+            thread_pool.shutdown(wait=True)
+            logger.info("grpc API server stopped")
 
     asyncio.run(_grpc_server_launcher())
