@@ -234,3 +234,239 @@ class TestOTAClient:
         # --- assertion on interrupted OTA update --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+
+
+class TestOTAClientUpdater:
+    """Testing on OTAClientUpdater workflow."""
+
+    SESSION_ID = "client_update_session_id"
+    CLIENT_UPDATE_VERSION = "client_update_version"
+    CLIENT_UPDATE_URL = "https://example.com/ota-client/"
+    CLIENT_UPDATE_COOKIES_JSON = r'{"test": "client-cookie"}'
+
+    @pytest.fixture(autouse=True)
+    def mock_setup(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+    ):
+        _, self.status_report_queue = ota_status_collector
+        self.ecu_status_flags = mocker.MagicMock()
+        self.server_stop_event = mocker.MagicMock()
+        self.shutdown_event = mocker.MagicMock()
+
+        # Create a real temporary directory for the session
+        self.session_workdir = tmp_path / "test_client_update"
+        self.session_workdir.mkdir(parents=True, exist_ok=True)
+
+        # Mock OTAClientPackage
+        self.mock_ota_client_package = mocker.MagicMock()
+        self.patcher_client_package = mocker.patch(
+            f"{OTA_CORE_MODULE}.OTAClientPackage",
+            return_value=self.mock_ota_client_package,
+        )
+
+        # Mock DownloaderPool
+        self.mock_downloader_pool = mocker.MagicMock()
+        self.patcher_downloader_pool = mocker.patch(
+            f"{OTA_CORE_MODULE}.DownloaderPool", return_value=self.mock_downloader_pool
+        )
+
+        # Set up CA chains store
+        self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+
+        # Mock the creation of session directory
+        mocker.patch(f"{OTA_CORE_MODULE}.Path.mkdir")
+
+        # Mock shutil.rmtree
+        self.rmtree_patcher = mocker.patch("shutil.rmtree")
+
+    def setup_client_updater(self, mocker: pytest_mock.MockerFixture):
+        # Create an instance of _OTAClientUpdater for testing
+        client_updater = ota_core._OTAClientUpdater(
+            version=self.CLIENT_UPDATE_VERSION,
+            raw_url_base=self.CLIENT_UPDATE_URL,
+            cookies_json=self.CLIENT_UPDATE_COOKIES_JSON,
+            ca_chains_store=self.ca_chains_store,
+            ecu_status_flags=self.ecu_status_flags,
+            status_report_queue=self.status_report_queue,
+            session_id=self.SESSION_ID,
+            server_stop_event=self.server_stop_event,
+            shutdown_event=self.shutdown_event,
+            upper_otaproxy=None,
+        )
+
+        # Patch the _session_workdir attribute after instance creation
+        mocker.patch.object(client_updater, "_session_workdir", self.session_workdir)
+
+        return client_updater
+
+    def test_client_updater_init(self, mocker: pytest_mock.MockerFixture):
+        # Test initialization of _OTAClientUpdater
+
+        # Instead of trying to mock the parent class init, create the instance directly
+        client_updater = self.setup_client_updater(mocker)
+
+        # Assert initialization parameters
+        assert client_updater.server_stop_event == self.server_stop_event
+        assert client_updater.shutdown_event == self.shutdown_event
+        assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
+
+    def test_stop_grpc_server(self, mocker: pytest_mock.MockerFixture):
+        # Test stopping gRPC server
+        client_updater = self.setup_client_updater(mocker)
+
+        client_updater._stop_grpc_server()
+
+        self.server_stop_event.set.assert_called_once()
+
+    def test_run_service(self, mocker: pytest_mock.MockerFixture):
+        # Test running the service
+        client_updater = self.setup_client_updater(mocker)
+
+        client_updater._run_service()
+
+        self.mock_ota_client_package.run_service.assert_called_once()
+
+    def test_handover_status(self, mocker: pytest_mock.MockerFixture):
+        # Test handover status
+        client_updater = self.setup_client_updater(mocker)
+
+        client_updater._handover_status()
+
+        self.mock_ota_client_package.handover_status.assert_called_once()
+
+    def test_finalize_client_update(self, mocker: pytest_mock.MockerFixture):
+        # Test finalizing client update
+        client_updater = self.setup_client_updater(mocker)
+
+        client_updater._finalize_client_update()
+
+        self.mock_ota_client_package.finalize.assert_called_once()
+        self.shutdown_event.set.assert_called_once()
+
+    def test_download_client_package_files(self, mocker: pytest_mock.MockerFixture):
+        # Test downloading client package files
+        client_updater = self.setup_client_updater(mocker)
+
+        # Mock _download_and_process_file_with_condition method
+        mock_download_method = mocker.patch.object(
+            client_updater, "_download_and_process_file_with_condition"
+        )
+
+        client_updater._download_client_package_files()
+
+        # Verify correct parameters were passed
+        mock_download_method.assert_called_once_with(
+            thread_name_prefix="download_client_file",
+            get_downloads_generator=self.mock_ota_client_package.download_client_package,
+        )
+
+    def test_download_client_package_resources(self, mocker: pytest_mock.MockerFixture):
+        # Test downloading client package resources
+        client_updater = self.setup_client_updater(mocker)
+
+        # Mock the internal _download_client_package_files method
+        mock_download_files = mocker.patch.object(
+            client_updater, "_download_client_package_files"
+        )
+
+        # Mock the status report queue's put_nowait method
+        mock_put_nowait = mocker.patch.object(self.status_report_queue, "put_nowait")
+
+        client_updater._download_client_package_resources()
+
+        # Verify correct status update was sent
+        mock_put_nowait.assert_called_once()
+        call_args = mock_put_nowait.call_args
+        status_report = call_args[0][0]  # Get first positional argument
+
+        assert (
+            status_report.payload.new_update_phase
+            == ota_core.UpdatePhase.DOWNLOADING_OTA_CLIENT
+        )
+
+        # Verify download method was called
+        mock_download_files.assert_called_once()
+
+        # Verify download method was called
+        mock_download_files.assert_called_once()
+
+    def test_execute_client_update_flow(self, mocker: pytest_mock.MockerFixture):
+        # Test the full execution flow
+        client_updater = self.setup_client_updater(mocker)
+
+        # Mock all the component methods
+        mock_handle_proxy = mocker.patch.object(client_updater, "_handle_upper_proxy")
+        mock_process_metadata = mocker.patch.object(client_updater, "_process_metadata")
+        mock_download_resources = mocker.patch.object(
+            client_updater, "_download_client_package_resources"
+        )
+        mock_stop_grpc = mocker.patch.object(client_updater, "_stop_grpc_server")
+        mock_run_service = mocker.patch.object(client_updater, "_run_service")
+        mock_finalize = mocker.patch.object(client_updater, "_finalize_client_update")
+
+        # Execute the client update
+        client_updater._execute_client_update()
+
+        # Verify all methods were called in the correct order
+        mock_handle_proxy.assert_called_once()
+        mock_process_metadata.assert_called_once()
+        mock_download_resources.assert_called_once()
+        mock_stop_grpc.assert_called_once()
+        mock_run_service.assert_called_once()
+        mock_finalize.assert_called_once()
+
+    def test_execute_success(self, mocker: pytest_mock.MockerFixture):
+        # Test successful execution
+        client_updater = self.setup_client_updater(mocker)
+
+        # Mock the main execution method
+        mock_execute = mocker.patch.object(client_updater, "_execute_client_update")
+
+        client_updater.execute()
+
+        # Verify execution was successful
+        mock_execute.assert_called_once()
+        self.rmtree_patcher.assert_called_with(self.session_workdir, ignore_errors=True)
+
+    def test_execute_failure(self, mocker: pytest_mock.MockerFixture):
+        # Test execution with failure
+        client_updater = self.setup_client_updater(mocker)
+
+        # Mock execution to raise an exception
+        mock_execute = mocker.patch.object(
+            client_updater,
+            "_execute_client_update",
+            side_effect=ota_core.ota_errors.OTAError("Test error", module="test"),
+        )
+
+        # Exception should be raised through execute()
+        with pytest.raises(ota_core.ota_errors.OTAError):
+            client_updater.execute()
+
+        # Verify error handling
+        mock_execute.assert_called_once()
+        self.rmtree_patcher.assert_called_with(self.session_workdir, ignore_errors=True)
+
+    def test_download_with_tasks_ensure_failed(self, mocker: pytest_mock.MockerFixture):
+        # Test handling of TasksEnsureFailed during download
+        client_updater = self.setup_client_updater(mocker)
+
+        # Import the exception class
+        from otaclient_common.retry_task_map import TasksEnsureFailed
+
+        # Mock _download_client_package_files to raise TasksEnsureFailed
+        mocker.patch.object(
+            client_updater,
+            "_download_client_package_files",
+            side_effect=TasksEnsureFailed(),
+        )
+
+        # Should raise NetworkError
+        with pytest.raises(ota_core.ota_errors.NetworkError):
+            client_updater._download_client_package_resources()
+
+        # Verify downloader pool was shut down
+        self.mock_downloader_pool.shutdown.assert_called_once()
