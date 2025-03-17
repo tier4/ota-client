@@ -36,7 +36,7 @@ from otaclient import __version__
 from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.downloader import DownloadInfo
+from otaclient_common.download_info import DownloadInfo
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,7 @@ class OTAClientPackage:
         self._base_url = base_url
         self._session_dir = Path(session_dir)
         self._download_dir = self._session_dir / f".download_{os.urandom(4).hex()}"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
 
         self._manifest = None
         self.package = None
@@ -116,12 +117,12 @@ class OTAClientPackage:
 
         # ------ step 2: download the target package ------ #
         _package_filename = _available_package_metadata.filename
-        _package_path = cfg.OTACLIENT_INSTALLATION_RELEASE / _package_filename
+        _package_file = cfg.OTACLIENT_INSTALLATION_RELEASE + "/" + _package_filename
         _downloaded_package_file = self._download_dir / _package_filename
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, _package_path),
+                    url=urljoin_ensure_base(self._base_url, _package_file),
                     dst=_downloaded_package_file,
                 )
             ]
@@ -135,7 +136,7 @@ class OTAClientPackage:
             raise ValueError("manifest.json is not loaded yet, abort")
 
         # ------ step 1: get current otaclient version and architecture ------ #
-        _version = {__version__}
+        _current_version = __version__
         _machine, _arch = platform.machine(), platform.processor()
         if _machine == "x86_64" or _arch == "x86_64":
             _architecture = self.ARCHITECTURE_X86_64
@@ -149,7 +150,7 @@ class OTAClientPackage:
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = Path(
             cfg.OTACLIENT_INSTALLATION_RELEASE
-            + f"/otaclient-{_architecture}_v{__version__}.squashfs"
+            + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
 
@@ -165,7 +166,7 @@ class OTAClientPackage:
                     if (
                         package.metadata is not None
                         and package.metadata.patch_base_version is not None
-                        and package.metadata.patch_base_version == _version
+                        and package.metadata.patch_base_version == _current_version
                     ):
                         return package
 
@@ -178,7 +179,7 @@ class OTAClientPackage:
                 return package
 
         raise ValueError(
-            f"No suitable package found for architecture {_architecture} and version {_version}"
+            f"No suitable package found for architecture {_architecture} and version {_current_version}"
         )
 
     def get_target_squashfs_path(self) -> Path:
@@ -227,8 +228,6 @@ class OTAClientPackage:
         1. download and parse manifest.json
         2. download the target OTA client package.
         """
-        self._download_dir.mkdir(exist_ok=True, parents=True)
-
         try:
             yield from self._prepare_manifest(condition)
             yield from self._prepare_client_package(condition)
