@@ -77,6 +77,7 @@ from typing_extensions import Self
 
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_proxy import OTAFileCacheControl
+from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrEnum
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
@@ -637,7 +638,8 @@ class OTAMetadata:
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
 
-            while not _shutdown:
+            _retry_counter = 0
+            while not cfg.DOWNLOAD_INACTIVE_TIMEOUT:
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -654,6 +656,7 @@ class OTAMetadata:
                     logger.warning(
                         f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
                     )
+                    _retry_counter += 1
                     time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
@@ -669,7 +672,8 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
 
-            while not _shutdown:
+            _retry_counter = 0
+            while not cfg.DOWNLOAD_INACTIVE_TIMEOUT:
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, cert_fname),
@@ -696,6 +700,7 @@ class OTAMetadata:
                             raise OTARequestsAuthTokenInvalid from e
 
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
+                    _retry_counter += 1
                     time.sleep(self.retry_interval)
 
             cert_bytes = cert_file.read_bytes()
