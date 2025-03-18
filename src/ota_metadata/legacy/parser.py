@@ -661,7 +661,9 @@ class OTAMetadata:
             _downloaded_meta_f = Path(meta_f.name)
 
             _retry_duration = 0
-            while (not _shutdown) and (_retry_duration < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT):
+            while (not _shutdown) and (
+                _retry_duration < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+            ):
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -706,7 +708,9 @@ class OTAMetadata:
             cert_file = Path(cert_f.name)
 
             _retry_duration = 0
-            while (not _shutdown) and (_retry_duration < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT):
+            while (not _shutdown) and (
+                _retry_duration < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT
+            ):
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, cert_fname),
