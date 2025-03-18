@@ -76,6 +76,7 @@ from requests import Response
 from typing_extensions import Self
 
 from ota_proxy import OTAFileCacheControl
+from otaclient.app.configs import config as cfg
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader
 from otaclient_common.proto_streamer import (
@@ -90,7 +91,6 @@ from otaclient_common.retry_task_map import (
 
 from . import SUPORTED_COMPRESSION_TYPES
 from .types import DirectoryInf, PersistentInf, RegularInf, SymbolicLinkInf
-from otaclient.app.configs import config as cfg
 
 logger = logging.getLogger(__name__)
 
@@ -659,7 +659,7 @@ class OTAMetadata:
         # download and parse metadata.jwt
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
-            
+
             _retry_counter = 0
             while _retry_counter < cfg.DOWNLOAD_GROUP_INACTIVE_TIMEOUT:
                 try:
