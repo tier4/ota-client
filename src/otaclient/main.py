@@ -21,8 +21,10 @@ import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
 import multiprocessing.shared_memory as mp_shm
+import os
 import secrets
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -122,7 +124,7 @@ def main() -> None:  # pragma: no cover
         all_success=mp_ctx.Event(),
     )
     server_stop_event = mp_ctx.Event()
-    shutdown_event = mp_ctx.Event()
+    start_new_client_event = mp_ctx.Event()
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -135,7 +137,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             server_stop_event=server_stop_event,
-            shutdown_event=shutdown_event,
+            start_new_client_event=start_new_client_event,
         ),
         name="otaclient_ota_core",
     )
@@ -187,6 +189,39 @@ def main() -> None:  # pragma: no cover
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown()
 
-        if shutdown_event.is_set():
-            logger.info("otaclient shutdown requested")
-            return _on_shutdown()
+        if start_new_client_event.is_set():
+            logger.info("ota_core requested to start a new client")
+            _mount_dir = cfg.MOUNT_DIR
+            try:
+                # Activate the virtual environment
+                _activate_script = f"{_mount_dir}/otaclient/venv/bin/activate"
+                exec(open(_activate_script).read(), {"__file__": _activate_script})
+
+                # Create a copy of the current environment
+                env = os.environ.copy()
+                # Add the SKIP_OTACLIENT_CHECK environment variable
+                env["SKIP_DUPLICATE_OTA_CLIENT_CHECK"] = "1"
+
+                # Run the OTA client
+                while True:
+                    process = subprocess.Popen(
+                        [
+                            f"{_mount_dir}/otaclient/venv/bin/python3",
+                            "-m",
+                            "otaclient",
+                            "--mount-dir",
+                            _mount_dir,
+                        ],
+                        env=env,  # Pass the modified environment to the subprocess
+                    )
+                    logger.info(
+                        f"Started OTA client with PID: {process.pid} and mount dir: {_mount_dir}"
+                    )
+                    process.wait()
+                    logger.warning(
+                        "OTA client exited with non-zero status, restarting..."
+                    )
+            except Exception as e:
+                logger.exception(f"Failed to start OTA client: {e}")
+            finally:
+                _on_shutdown(sys_exit=True)

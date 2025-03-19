@@ -173,7 +173,7 @@ class TestOTAClient:
             return_value=False
         )
         server_stop_event = mocker.MagicMock()
-        shutdown_event = mocker.MagicMock()
+        start_new_client_event = mocker.MagicMock()
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
@@ -198,7 +198,7 @@ class TestOTAClient:
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
             server_stop_event=server_stop_event,
-            shutdown_event=shutdown_event,
+            start_new_client_event=start_new_client_event,
         )
 
     def test_update_normal_finished(self):
@@ -254,7 +254,7 @@ class TestOTAClientUpdater:
         _, self.status_report_queue = ota_status_collector
         self.ecu_status_flags = mocker.MagicMock()
         self.server_stop_event = mocker.MagicMock()
-        self.shutdown_event = mocker.MagicMock()
+        self.start_new_client_event = mocker.MagicMock()
 
         # Create a real temporary directory for the session
         self.session_workdir = tmp_path / "test_client_update"
@@ -293,7 +293,7 @@ class TestOTAClientUpdater:
             status_report_queue=self.status_report_queue,
             session_id=self.SESSION_ID,
             server_stop_event=self.server_stop_event,
-            shutdown_event=self.shutdown_event,
+            start_new_client_event=self.start_new_client_event,
             upper_otaproxy=None,
         )
 
@@ -310,7 +310,7 @@ class TestOTAClientUpdater:
 
         # Assert initialization parameters
         assert client_updater.server_stop_event == self.server_stop_event
-        assert client_updater.shutdown_event == self.shutdown_event
+        assert client_updater.start_new_client_event == self.start_new_client_event
         assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
 
     def test_stop_grpc_server(self, mocker: pytest_mock.MockerFixture):
@@ -344,7 +344,7 @@ class TestOTAClientUpdater:
         client_updater._finalize_client_update()
 
         self.mock_ota_client_package.finalize.assert_called_once()
-        self.shutdown_event.set.assert_called_once()
+        self.start_new_client_event.set.assert_called_once()
 
     def test_download_client_package_files(self, mocker: pytest_mock.MockerFixture):
         # Test downloading client package files
