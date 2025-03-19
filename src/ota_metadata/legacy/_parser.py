@@ -638,8 +638,10 @@ class OTAMetadata:
         with NamedTemporaryFile(prefix="metadata_jwt", dir=self.run_dir) as meta_f:
             _downloaded_meta_f = Path(meta_f.name)
 
-            _retry_counter = 0
-            while _retry_counter <= cfg.DOWNLOAD_INACTIVE_TIMEOUT:
+            _retry_duration = 0
+            while (not _shutdown) and (
+                _retry_duration < cfg.DOWNLOAD_INACTIVE_TIMEOUT
+            ):
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, self.METADATA_JWT),
@@ -656,7 +658,7 @@ class OTAMetadata:
                     logger.warning(
                         f"failed to download {_downloaded_meta_f}, retrying: {e!r}"
                     )
-                    _retry_counter += 1
+                    _retry_duration += self.retry_interval
                     time.sleep(self.retry_interval)
 
             _parser = _MetadataJWTParser(
@@ -672,8 +674,10 @@ class OTAMetadata:
             cert_fname, cert_hash = cert_info.file, cert_info.hash
             cert_file = Path(cert_f.name)
 
-            _retry_counter = 0
-            while _retry_counter <= cfg.DOWNLOAD_INACTIVE_TIMEOUT:
+            _retry_duration = 0
+            while (not _shutdown) and (
+                _retry_duration < cfg.DOWNLOAD_INACTIVE_TIMEOUT
+            ):
                 try:
                     self._downloader.download(
                         urljoin_ensure_base(self.url_base, cert_fname),
@@ -700,7 +704,7 @@ class OTAMetadata:
                             raise OTARequestsAuthTokenInvalid from e
 
                     logger.warning(f"failed to download {cert_info}, retrying: {e!r}")
-                    _retry_counter += 1
+                    _retry_duration += self.retry_interval
                     time.sleep(self.retry_interval)
 
             cert_bytes = cert_file.read_bytes()

@@ -55,6 +55,7 @@ from ota_metadata.file_table._orm import (
     FileTableRegularORM,
 )
 from ota_metadata.utils.cert_store import CAChainStore
+from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
@@ -163,7 +164,7 @@ class OTAMetadata:
                     dst=_metadata_jwt_fpath,
                 )
             ]
-            condition.wait()  # wait for download finished
+            condition.wait(cfg.DOWNLOAD_INACTIVE_TIMEOUT)  # wait for download finished
 
         _parser = MetadataJWTParser(
             _metadata_jwt_fpath.read_text(),
@@ -188,7 +189,7 @@ class OTAMetadata:
                     digest=cert_hash,
                 )
             ]
-            condition.wait()
+            condition.wait(cfg.DOWNLOAD_INACTIVE_TIMEOUT)
 
         cert_bytes = _cert_fpath.read_bytes()
         _parser.verify_metadata_cert(cert_bytes)
@@ -263,7 +264,7 @@ class OTAMetadata:
             ]
             with condition:
                 yield _download_list
-                condition.wait()  # wait for download finished
+                condition.wait(cfg.DOWNLOAD_INACTIVE_TIMEOUT)  # wait for download finished
 
             # ------ parse metafiles ------ #
             self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
@@ -303,7 +304,7 @@ class OTAMetadata:
                     digest=persist_meta.hash,
                 )
             ]
-            condition.wait()
+            condition.wait(cfg.DOWNLOAD_INACTIVE_TIMEOUT)
 
         # save the persists.txt to session_dir for later use
         shutil.move(str(persist_meta_save_fpath), self._session_dir)
