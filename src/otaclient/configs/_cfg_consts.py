@@ -85,6 +85,11 @@ class Consts:
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
 
+    #
+    # ------ env vars ------ #
+    #
+    SKIP_DUPLICATE_OTA_CLIENT_CHECK = "SKIP_DUPLICATE_OTA_CLIENT_CHECK"
+
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
 
