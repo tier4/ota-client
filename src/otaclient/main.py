@@ -95,7 +95,9 @@ def main() -> None:  # pragma: no cover
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
 
-    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
+    check_other_otaclient(
+        cfg.OTACLIENT_PID_FILE, bool(os.getenv(cfg.SKIP_DUPLICATE_OTA_CLIENT_CHECK))
+    )
     create_otaclient_rundir(cfg.RUN_DIR)
 
     #
@@ -124,7 +126,7 @@ def main() -> None:  # pragma: no cover
         all_success=mp_ctx.Event(),
     )
     server_stop_event = mp_ctx.Event()
-    start_new_client_event = mp_ctx.Event()
+    start_dynamic_client_event = mp_ctx.Event()
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -137,7 +139,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             server_stop_event=server_stop_event,
-            start_new_client_event=start_new_client_event,
+            start_dynamic_client_event=start_dynamic_client_event,
         ),
         name="otaclient_ota_core",
     )
@@ -189,7 +191,7 @@ def main() -> None:  # pragma: no cover
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown()
 
-        if start_new_client_event.is_set():
+        if start_dynamic_client_event.is_set():
             logger.info("ota_core requested to start a new client")
             _mount_dir = cfg.MOUNT_DIR
             try:
@@ -200,7 +202,7 @@ def main() -> None:  # pragma: no cover
                 # Create a copy of the current environment
                 env = os.environ.copy()
                 # Add the SKIP_OTACLIENT_CHECK environment variable
-                env["SKIP_DUPLICATE_OTA_CLIENT_CHECK"] = "1"
+                env[cfg.SKIP_DUPLICATE_OTA_CLIENT_CHECK] = "true"
 
                 # Run the OTA client
                 while True:
