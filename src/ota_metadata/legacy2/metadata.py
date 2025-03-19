@@ -264,7 +264,9 @@ class OTAMetadata:
             ]
             with condition:
                 yield _download_list
-                condition.wait(cfg.DOWNLOAD_INACTIVE_TIMEOUT)  # wait for download finished
+                condition.wait(
+                    cfg.DOWNLOAD_INACTIVE_TIMEOUT
+                )  # wait for download finished
 
             # ------ parse metafiles ------ #
             self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
