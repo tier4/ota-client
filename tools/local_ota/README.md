@@ -19,5 +19,5 @@ Currently supports API version 2.
 1. make the OTA update request API call as follow:
 
 ```shell
- python3 tools/local_ota/api_v2 -i 10.0.1.10 update_request.yaml
+ python3 tools/local_ota/api_v2.py -i 10.0.1.10 update_request.yaml
 ```

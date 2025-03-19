@@ -42,6 +42,9 @@ class Consts:
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
 
+    # mount point for otaclient
+    MOUNT_DIR = "/mnt/otaclient"
+
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 

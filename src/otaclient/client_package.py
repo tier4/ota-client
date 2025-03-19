@@ -25,7 +25,6 @@ import logging
 import os.path
 import platform
 import subprocess
-import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -237,78 +236,20 @@ class OTAClientPackage:
             )
             raise
 
-    def run_service(
-        self,
-    ):
-        """Get and Run the downloaded OTA client service."""
+    def mount_squashfs(self):
+        """Mount the squashfs file."""
         squashfs_path = self.get_target_squashfs_path()
 
-        # Check if another instance of otaclient is already running
-        """
-        for proc in psutil.process_iter(["pid", "name"]):
-            if "otaclient" in proc.info["name"]:
-                logger.error("Another instance of otaclient is already running.")
-                raise RuntimeError("Another instance of otaclient is already running.")
-        """
-
         # Create a temporary directory to mount the squashfs
-        with tempfile.TemporaryDirectory() as mount_dir:
-            try:
-                # Mount the squashfs file
-                subprocess.run(
-                    ["sudo", "mount", "-t", "squashfs", str(squashfs_path), mount_dir],
-                    check=True,
-                )
+        _mount_dir = cfg.MOUNT_DIR
+        os.makedirs(_mount_dir, exist_ok=True)
 
-                # Create and start the systemd service
-                self._create_systemd_service(self.NEW_SERVICE_NAME, mount_dir)
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to run OTA client service: {e!r}")
-                raise
-
-    def _create_systemd_service(self, service_name: str, mount_dir: str):
-        service_content = """
-        [Unit]
-        Description=OTA Client Dynamic Service
-        After=network-online.target nss-lookup.target
-        Wants=network-online.target
-
-        [Service]
-        Type=simple
-        ExecStart=/usr/bin/python3 -m otaclient --mount-dir {mount_dir}
-        Restart=always
-        RestartSec=16
-
-        [Install]
-        WantedBy=multi-user.target
-        """
-
-        service_path = f"/etc/systemd/system/{service_name}.service"
-        with open(service_path, "w") as service_file:
-            service_file.write(service_content)
-
-        # Reload systemd manager configuration
-        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
-        # Enable the service
-        subprocess.run(["sudo", "systemctl", "enable", service_name], check=True)
-        # Start the service
-        subprocess.run(["sudo", "systemctl", "start", service_name], check=True)
-
-    def handover_status(
-        self,
-    ):
-        """Handover the status of the current OTA client status to the new service."""
-        pass
-
-    def finalize(self):
-        """Finalize the OTA client package."""
-        # Disable the service
-        subprocess.run(
-            ["sudo", "systemctl", "disable", self.EXISTING_SERVICE_NAME], check=True
-        )
-        # Stop the service
-        """
-        subprocess.run(
-            ["sudo", "systemctl", "stop", self.EXISTING_SERVICE_NAME], check=True
-        )
-        """
+        try:
+            # Mount the squashfs file
+            subprocess.run(
+                ["mount", "-t", "squashfs", str(squashfs_path), _mount_dir],
+                check=True,
+            )
+        except Exception as e:
+            logger.exception(f"failed to mount squashfs: {e!r}")
+            raise

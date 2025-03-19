@@ -61,6 +61,11 @@ def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
 
     NOTE that otaclient should not run inside a PID namespace.
     """
+    # Skip check if environment variable is set
+    if os.getenv("SKIP_DUPLICATE_OTA_CLIENT_CHECK"):
+        logger.info("Skipping otaclient check due to environment variable")
+        return
+
     pid_fpath = Path(pid_fpath)
     if pid := read_str_from_file(pid_fpath, _default=""):
         # running process will have a folder under /proc
