@@ -343,7 +343,7 @@ class Downloader:
         """
         self._session.close()
 
-    @retry_on_digest_mismatch
+
     def download(
         self,
         url: str,
