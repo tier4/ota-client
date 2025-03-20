@@ -343,7 +343,6 @@ class Downloader:
         """
         self._session.close()
 
-
     def download(
         self,
         url: str,
