@@ -194,6 +194,10 @@ def main() -> None:  # pragma: no cover
         if start_dynamic_client_event.is_set():
             logger.info("ota_core requested to start a new client")
             _mount_dir = cfg.MOUNT_DIR
+            if not os.path.exists(_mount_dir):
+                logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
+                break
+
             try:
                 # Activate the virtual environment
                 _activate_script = f"{_mount_dir}/otaclient/venv/bin/activate"
