@@ -60,9 +60,6 @@ class OTAClientPackage:
 
     """
 
-    EXISTING_SERVICE_NAME = "otaclient"
-    NEW_SERVICE_NAME = "otaclient-dynamic"
-
     ENTRY_POINT = cfg.OTACLIENT_INSTALLATION_RELEASE + "/manifest.json"
     ARCHITECTURE_X86_64 = "x86_64"
     ARCHITECTURE_ARM64 = "arm64"
