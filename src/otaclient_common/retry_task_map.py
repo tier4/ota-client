@@ -67,7 +67,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         max_total_retry: Optional[int] = None,
         max_retry_on_entry: Optional[int] = None,
         thread_name_prefix: str = "",
-        watchdog_funcs: Optional[list[Callable]] = None,
+        watchdog_func: Optional[Callable] = None,
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
@@ -98,10 +98,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._checker_funcs: list[Callable[[], Any]] = []
         self._max_total_retry = max_total_retry
 
-        if watchdog_funcs:
-            for _func in watchdog_funcs:
-                if callable(_func):
-                    self._checker_funcs.append(_func)
+        if callable(watchdog_func):
+            self._checker_funcs.append(watchdog_func)
 
         self._failure_msg = ""
         super().__init__(
