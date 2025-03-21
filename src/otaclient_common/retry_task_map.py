@@ -173,7 +173,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         except Exception:  # if re-schedule doesn't happen, release se
             self._concurrent_semaphore.release()
 
-    def _fut_gen(self, interval: int) -> Generator[Future[Any]]:
+    def _fut_gen(self, interval: float) -> Generator[Future[Any]]:
         """Generator which yields the done future, controlled by the caller.
 
         Caller of ensure_tasks will directly cooperate with this generator.
@@ -227,7 +227,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         func: Callable[[T], RT],
         iterable: Iterable[T],
         *,
-        ensure_tasks_pull_interval: int = 1,
+        ensure_tasks_pull_interval: float = 1,
     ) -> Generator[Future[RT]]:
         with self._lock:
             if self._started or self._rtm_lower_pool_shutdown:
@@ -324,7 +324,7 @@ if TYPE_CHECKING:
             func: Callable[[T], RT],
             iterable: Iterable[T],
             *,
-            ensure_tasks_pull_interval: int = 1,
+            ensure_tasks_pull_interval: float = 1,
         ) -> Generator[Future[RT]]:
             """Ensure all the items in <iterable> are processed by <func> in the pool.
 
