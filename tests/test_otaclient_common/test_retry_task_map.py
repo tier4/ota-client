@@ -95,7 +95,9 @@ class TestRetryTaskMap:
                     if _fut.exception():
                         failure_count += 1
 
-    def test_retry_exceed_retry_limit(self):
+        assert failure_count >= MAX_RETRY
+
+    def test_retry_exceed_total_retry_limit(self):
         MAX_TOTAL_RETRY = 200
         failure_count = 0
         with retry_task_map.ThreadPoolExecutorWithRetry(
@@ -108,12 +110,32 @@ class TestRetryTaskMap:
         ) as executor:
             with pytest.raises(retry_task_map.TasksEnsureFailed):
                 for _fut in executor.ensure_tasks(
-                    self.workload_aways_failed, range(TASKS_COUNT)
+                    self.workload_aways_failed,
+                    range(TASKS_COUNT),
+                    ensure_tasks_pull_interval=0.001,
                 ):
                     if _fut.exception():
                         failure_count += 1
 
         assert failure_count >= MAX_TOTAL_RETRY
+
+    def test_retry_exceed_entry_retry_limit(self):
+        MAX_RETRY_ON_ENTRY = 200
+        with retry_task_map.ThreadPoolExecutorWithRetry(
+            max_concurrent=MAX_CONCURRENT,
+            max_retry_on_entry=MAX_RETRY_ON_ENTRY,
+            initializer=_thread_initializer,
+            initargs=(THREAD_INIT_MSG,),
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_max=BACKOFF_MAX,
+        ) as executor:
+            with pytest.raises(retry_task_map.TasksEnsureFailed):
+                for _fut in executor.ensure_tasks(
+                    self.workload_aways_failed,
+                    range(TASKS_COUNT),
+                    ensure_tasks_pull_interval=0.001,
+                ):
+                    ...
 
     def test_retry_finally_succeeded(self):
         count = 0
