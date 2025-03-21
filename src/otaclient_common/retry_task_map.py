@@ -230,7 +230,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         iterable: Iterable[T],
         *,
         ensure_tasks_pull_interval: int = 1,
-    ) -> Generator[Future[RT], None, None]:
+    ) -> Generator[Future[RT]]:
         with self._lock:
             if self._started or self._rtm_lower_pool_shutdown:
                 try:
@@ -240,13 +240,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 finally:  # do not hold refs to input params
                     del self, func, iterable
             self._started = True
-
-        if self._checker_funcs:
-            threading.Thread(
-                target=self._watchdog_runner_thread,
-                args=(self._checker_funcs, self._watchdog_check_interval),
-                daemon=True,
-            ).start()
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher_thread() -> None:
@@ -272,6 +265,12 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             else:
                 logger.warning("no task is scheduled!")
 
+        if self._checker_funcs:
+            threading.Thread(
+                target=self._watchdog_runner_thread,
+                args=(self._checker_funcs, self._watchdog_check_interval),
+                daemon=True,
+            ).start()
         threading.Thread(target=_dispatcher_thread, daemon=True).start()
 
         # ------ ensure all tasks are finished ------ #
@@ -328,7 +327,7 @@ if TYPE_CHECKING:
             iterable: Iterable[T],
             *,
             ensure_tasks_pull_interval: int = 1,
-        ) -> Generator[Future[RT], None, None]:
+        ) -> Generator[Future[RT]]:
             """Ensure all the items in <iterable> are processed by <func> in the pool.
 
             Args:
