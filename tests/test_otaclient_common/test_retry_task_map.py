@@ -120,9 +120,9 @@ class TestRetryTaskMap:
         assert failure_count >= MAX_TOTAL_RETRY
 
     def test_retry_exceed_entry_retry_limit(self):
-        MAX_RETRY_ON_ENTRY = 200
+        MAX_RETRY_ON_ENTRY = 30
         with retry_task_map.ThreadPoolExecutorWithRetry(
-            max_concurrent=MAX_CONCURRENT,
+            max_concurrent=16,
             max_retry_on_entry=MAX_RETRY_ON_ENTRY,
             initializer=_thread_initializer,
             initargs=(THREAD_INIT_MSG,),
