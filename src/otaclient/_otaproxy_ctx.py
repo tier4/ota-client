@@ -24,6 +24,7 @@ import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
 import shutil
+import threading
 import time
 from functools import partial
 from pathlib import Path
@@ -39,15 +40,24 @@ logger = logging.getLogger(__name__)
 
 _otaproxy_p: mp_ctx.SpawnProcess | None = None
 _global_shutdown: bool = False
+_global_shutdown_lock = threading.Lock()
 
-
-def shutdown_otaproxy_server() -> None:
-    global _otaproxy_p, _global_shutdown
+def _on_global_shutdown() -> None:
+    global _global_shutdown
     _global_shutdown = True
-    if _otaproxy_p:
-        _otaproxy_p.terminate()
-        _otaproxy_p.join()
-        _otaproxy_p = None
+    _shutdown_otaproxy()
+
+
+def _shutdown_otaproxy():
+    global _otaproxy_p
+    if _global_shutdown_lock.acquire(blocking=False):
+        try:
+            if _otaproxy_p:
+                _otaproxy_p.terminate()
+                _otaproxy_p.join()
+                _otaproxy_p = None
+        finally:
+            _global_shutdown_lock.release()
 
 
 OTAPROXY_CHECK_INTERVAL = 3
@@ -93,7 +103,7 @@ def otaproxy_process(*, init_cache: bool) -> None:
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
 ) -> None:  # pragma: no cover
-    atexit.register(shutdown_otaproxy_server)
+    atexit.register(_on_global_shutdown)
 
     _mp_ctx = mp.get_context("spawn")
 
@@ -134,4 +144,4 @@ def otaproxy_control_thread(
 
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
             logger.info("shutting down otaproxy as not needed now ...")
-            shutdown_otaproxy_server()
+            _shutdown_otaproxy()
