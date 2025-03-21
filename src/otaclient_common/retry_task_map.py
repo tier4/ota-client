@@ -65,7 +65,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         max_concurrent: int,
         max_workers: Optional[int] = None,
         max_total_retry: Optional[int] = None,
-        max_continues_retry_on_entry: Optional[int] = None,
+        max_retry_on_entry: Optional[int] = None,
         thread_name_prefix: str = "",
         watchdog_funcs: Optional[list[Callable]] = None,
         watchdog_check_interval: int = 3,  # seconds
@@ -88,7 +88,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self.backoff_max = backoff_max
 
         self._entry_retry_tracker = _RetryOnEntryTracker(max_concurrent)
-        self._max_continues_retry_on_entry = max_continues_retry_on_entry
+        self._max_retry_on_entry = max_retry_on_entry
 
         self._total_retry_counter = itertools.count(start=1)
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
@@ -155,7 +155,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         # check continues retry on the same entry
         _retry_on_entry = self._entry_retry_tracker.register(item)
         if (
-            _max_entry_retry := self._max_continues_retry_on_entry
+            _max_entry_retry := self._max_retry_on_entry
         ) is not None and _retry_on_entry > _max_entry_retry:
             _err_msg = (
                 f"{_retry_on_entry=} on {item=} exceed {_max_entry_retry=}, abort"
@@ -291,7 +291,7 @@ if TYPE_CHECKING:
             max_concurrent: int,
             max_workers: Optional[int] = None,
             max_total_retry: Optional[int] = None,
-            max_continues_retry_on_entry: Optional[int] = None,
+            max_retry_on_entry: Optional[int] = None,
             thread_name_prefix: str = "",
             watchdog_func: Optional[Callable] = None,
             watchdog_check_interval: int = 3,  # seconds
@@ -306,7 +306,7 @@ if TYPE_CHECKING:
                 max_concurrent (int): Limit the number pending scheduled tasks.
                 max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
                 max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
-                max_continues_retry_on_entry (Optional[int]): Max total retry on the same entry. Defaults to None.
+                max_retry_on_entry (Optional[int]): Max total retry on the same entry. Defaults to None.
                 thread_name_prefix (str, optional): Defaults to "".
                 watchdog_func (Optional[Callable]): A custom func to be called on watchdog thread, when
                     this func raises exception, the watchdog will interrupt the tasks execution. Defaults to None.
