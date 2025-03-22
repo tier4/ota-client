@@ -80,8 +80,8 @@ class TestGrpcServerLauncher:
     def test_grpc_server_start(self, setup_mocks):
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
-        server_stop_event = MagicMock()
-        server_stop_event.is_set.side_effect = [False, True]
+        stop_server_event = MagicMock()
+        stop_server_event.is_set.side_effect = [False, True]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -106,7 +106,7 @@ class TestGrpcServerLauncher:
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
-                server_stop_event=server_stop_event,
+                stop_server_event=stop_server_event,
             )
 
         # Verify server methods were called
@@ -116,14 +116,14 @@ class TestGrpcServerLauncher:
         assert mock_server.add_insecure_port_called is True
 
         # Verify the stop event was checked
-        assert server_stop_event.is_set.call_count == 2
+        assert stop_server_event.is_set.call_count == 2
 
-    def test_grpc_server_stop_event(self, setup_mocks):
+    def test_grpc_stop_server_event(self, setup_mocks):
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
-        server_stop_event = MagicMock()
+        stop_server_event = MagicMock()
         # Configure the stop event to return False twice then True
-        server_stop_event.is_set.side_effect = [False, False, True]
+        stop_server_event.is_set.side_effect = [False, False, True]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -148,11 +148,11 @@ class TestGrpcServerLauncher:
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
-                server_stop_event=server_stop_event,
+                stop_server_event=stop_server_event,
             )
 
         # Check that is_set was called the expected number of times
-        assert server_stop_event.is_set.call_count == 3
+        assert stop_server_event.is_set.call_count == 3
         # Check that the server was started and stopped
         assert mock_server.start_called is True
         assert mock_server.stop_called is True
