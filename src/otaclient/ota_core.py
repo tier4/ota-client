@@ -860,12 +860,11 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         self.stop_server_event.set()
 
     def _mount_squashfs(self) -> None:
-        logger.info("start to run service...")
+        logger.info("mount squashfs...")
         self._ota_client_package.mount_squashfs()
 
     def _run_squashfs(self) -> None:
         logger.info("start to run service...")
-
         self.start_dynamic_client_event.set()
 
     # API

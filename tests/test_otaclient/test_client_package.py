@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Optional
 from unittest.mock import MagicMock, mock_open, patch
@@ -25,8 +26,8 @@ from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
-    ReleasePackage,
 )
+from otaclient.configs.cfg import cfg
 
 
 class TestClientPackage:
@@ -230,19 +231,48 @@ class TestClientPackage:
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
 
-    @patch("subprocess.run")
-    @patch("builtins.open", new_callable=mock_open)
-    def test_run_service(self, mock_open, mock_subprocess, ota_client_package):
-        manifest_data = json.loads(self.DUMMY_MANIFEST)
-        package_data = manifest_data["packages"][0]
+    def test_get_target_squashfs_path(self, ota_client_package):
+        ota_client_package.package = MagicMock()
+        ota_client_package.package.type = "squashfs"
+        ota_client_package.downloaded_package_file = (
+            "/tmp/session/.download/package.squashfs"
+        )
 
-        ota_client_package.package = ReleasePackage(**package_data)
-        ota_client_package.downloaded_package_file = Path("/tmp/package.squashfs")
-        ota_client_package.current_squashfs_path = Path("/tmp/current.squashfs")
-        ota_client_package.run_service()
-        mock_subprocess.assert_called()
+        target_path = ota_client_package.get_target_squashfs_path()
+        assert target_path == Path("/tmp/session/.download/package.squashfs")
 
-    @patch("subprocess.run")
-    def test_finalize(self, mock_subprocess, ota_client_package):
-        ota_client_package.finalize()
-        mock_subprocess.assert_called()
+    def test_download_client_package(self, ota_client_package):
+        condition = threading.Condition()
+
+        with patch.object(
+            ota_client_package, "_prepare_manifest"
+        ) as mock_prepare_manifest, patch.object(
+            ota_client_package, "_prepare_client_package"
+        ) as mock_prepare_client_package:
+            mock_prepare_manifest.return_value = iter([[]])
+            mock_prepare_client_package.return_value = iter([[]])
+
+            download_info = list(ota_client_package.download_client_package(condition))
+            assert len(download_info) == 2
+
+    def test_mount_squashfs(self, ota_client_package):
+        ota_client_package.get_target_squashfs_path = MagicMock(
+            return_value=Path("/tmp/session/.download/package.squashfs")
+        )
+
+        with patch("os.makedirs") as mock_makedirs, patch("subprocess.run") as mock_run:
+            mock_makedirs.return_value = None
+            mock_run.return_value = None
+
+            ota_client_package.mount_squashfs()
+            mock_makedirs.assert_called_once_with(cfg.MOUNT_DIR, exist_ok=True)
+            mock_run.assert_called_once_with(
+                [
+                    "mount",
+                    "-t",
+                    "squashfs",
+                    "/tmp/session/.download/package.squashfs",
+                    cfg.MOUNT_DIR,
+                ],
+                check=True,
+            )
