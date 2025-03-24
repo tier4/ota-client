@@ -36,7 +36,7 @@ def grpc_server_process(
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
-    server_stop_event: mp_sync.Event,
+    stop_server_event: mp_sync.Event,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -58,7 +58,7 @@ def grpc_server_process(
 
         # Create a task to monitor the stop event more efficiently
         async def monitor_stop_event():
-            while not server_stop_event.is_set():
+            while not stop_server_event.is_set():
                 await asyncio.sleep(1)
             logger.info("grpc API server stop event detected")
             return

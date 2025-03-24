@@ -125,7 +125,7 @@ def main() -> None:  # pragma: no cover
         any_requires_network=mp_ctx.Event(),
         all_success=mp_ctx.Event(),
     )
-    server_stop_event = mp_ctx.Event()
+    stop_server_event = mp_ctx.Event()
     start_dynamic_client_event = mp_ctx.Event()
 
     _ota_core_p = mp_ctx.Process(
@@ -138,7 +138,7 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
-            server_stop_event=server_stop_event,
+            stop_server_event=stop_server_event,
             start_dynamic_client_event=start_dynamic_client_event,
         ),
         name="otaclient_ota_core",
@@ -154,7 +154,7 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
-            server_stop_event=server_stop_event,
+            stop_server_event=stop_server_event,
         ),
         name="otaclient_api_server",
     )
