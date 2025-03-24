@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTA Service API v2 implementation."""
 
-
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +43,7 @@ WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT = 6  # seconds
 class OTAClientAPIServicer:
     """Handlers for otaclient service API.
 
-    This class also handles otaproxy lifecyle and dependence managing.
+    This class also handles otaproxy lifecycle and dependency management.
     """
 
     def __init__(
@@ -67,10 +66,25 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
-    # API servicer
-
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
         """Thread worker for dispatching a local update."""
+        return self._dispatch_local_request(request, api_types.UpdateResponseEcu)
+
+    def _local_client_update(
+        self, request: UpdateRequestV2
+    ) -> api_types.ClientUpdateResponseEcu:
+        """Thread worker for dispatching a local client update."""
+        return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
+
+    def _local_rollback(
+        self, rollback_request: RollbackRequestV2
+    ) -> api_types.RollbackResponseEcu:
+        """Thread worker for dispatching a local rollback."""
+        return self._dispatch_local_request(
+            rollback_request, api_types.RollbackResponseEcu
+        )
+
+    def _dispatch_local_request(self, request, response_type):
         self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
@@ -80,27 +94,27 @@ class OTAClientAPIServicer:
             ), "mismatched session_id"
 
             if _req_response.res == IPCResEnum.ACCEPT:
-                return api_types.UpdateResponseEcu(
+                return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.NO_FAILURE,
                 )
             else:
                 logger.error(
-                    f"local otaclient doesn't accept upate request: {_req_response.msg}"
+                    f"local otaclient doesn't accept request: {_req_response.msg}"
                 )
-                return api_types.UpdateResponseEcu(
+                return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.RECOVERABLE,
                 )
         except AssertionError as e:
             logger.error(f"local otaclient response with unexpected msg: {e!r}")
-            return api_types.UpdateResponseEcu(
+            return response_type(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
-        except Exception as e:  # failed to get ACK from otaclient within timeout
+        except Exception as e:
             logger.error(f"local otaclient failed to ACK request: {e!r}")
-            return api_types.UpdateResponseEcu(
+            return response_type(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.UNRECOVERABLE,
             )
@@ -108,33 +122,65 @@ class OTAClientAPIServicer:
     async def update(
         self, request: api_types.UpdateRequest
     ) -> api_types.UpdateResponse:
-        logger.info(f"receive update request: {request}")
-        update_acked_ecus = set()
-        response = api_types.UpdateResponse()
+        return await self._handle_request(
+            request,
+            self._local_update,
+            OTAClientCall.update_call,
+            api_types.UpdateResponse,
+            api_types.UpdateResponseEcu,
+        )
 
-        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
-        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
-        #                 to upper is by status API.
+    async def client_update(
+        self, request: api_types.ClientUpdateRequest
+    ) -> api_types.ClientUpdateResponse:
+        return await self._handle_request(
+            request,
+            self._local_client_update,
+            OTAClientCall.client_update_call,
+            api_types.ClientUpdateResponse,
+            api_types.ClientUpdateResponseEcu,
+        )
+
+    async def rollback(
+        self, request: api_types.RollbackRequest
+    ) -> api_types.RollbackResponse:
+        return await self._handle_request(
+            request,
+            self._local_rollback,
+            OTAClientCall.rollback_call,
+            api_types.RollbackResponse,
+            api_types.RollbackResponseEcu,
+        )
+
+    async def _handle_request(
+        self,
+        request,
+        local_handler,
+        remote_call,
+        response_type,
+        response_ecu_type,
+    ):
+        logger.info(f"receive request: {request}")
+        update_acked_ecus = set()
+        response = response_type()
+
         if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
-            logger.error(
-                "ecu_info.yaml is not loaded properly, reject any update request"
-            )
-            for _update_req in request.iter_ecu():
+            logger.error("ecu_info.yaml is not loaded properly, reject any request")
+            for _req in request.iter_ecu():
                 response.add_ecu(
-                    api_types.UpdateResponseEcu(
-                        ecu_id=_update_req.ecu_id,
+                    response_ecu_type(
+                        ecu_id=_req.ecu_id,
                         result=api_types.FailureType.UNRECOVERABLE,
                     )
                 )
             return response
 
-        # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
-                OTAClientCall.update_call(
+                remote_call(
                     ecu_contact.ecu_id,
                     str(ecu_contact.ip_addr),
                     ecu_contact.port,
@@ -143,36 +189,32 @@ class OTAClientAPIServicer:
                 )
             )
             tasks[_task] = ecu_contact
-        if tasks:  # NOTE: input for asyncio.wait must not be empty!
+        if tasks:
             done, _ = await asyncio.wait(tasks)
             for _task in done:
                 try:
-                    _ecu_resp: api_types.UpdateResponse = _task.result()
+                    _ecu_resp = _task.result()
                     update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
                     logger.warning(
-                        f"{_ecu_contact} doesn't respond to update request on-time"
+                        f"{_ecu_contact} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    # NOTE(20230517): aligns with the previous behavior that create
-                    #                 response with RECOVERABLE OTA error for unresponsive
-                    #                 ECU.
                     response.add_ecu(
-                        api_types.UpdateResponseEcu(
+                        response_ecu_type(
                             ecu_id=_ecu_contact.ecu_id,
                             result=api_types.FailureType.RECOVERABLE,
                         )
                     )
             tasks.clear()
 
-        # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             new_session_id = gen_session_id(update_req_ecu.version)
             _resp = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
-                self._local_update,
+                local_handler,
                 UpdateRequestV2(
                     version=update_req_ecu.version,
                     url_base=update_req_ecu.url,
@@ -185,126 +227,13 @@ class OTAClientAPIServicer:
                 update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp)
 
-        # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
-            logger.info(f"ECUs accept OTA request: {update_acked_ecus}")
+            logger.info(f"ECUs accept request: {update_acked_ecus}")
             asyncio.create_task(
                 self._ecu_status_storage.on_ecus_accept_update_request(
                     update_acked_ecus
                 )
             )
-        return response
-
-    def _local_rollback(
-        self, rollback_request: RollbackRequestV2
-    ) -> api_types.RollbackResponseEcu:
-        """Thread worker for dispatching a local rollback."""
-
-        self._op_queue.put_nowait(rollback_request)
-        try:
-            _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
-            assert isinstance(
-                _req_response, IPCResponse
-            ), f"unexpected response: {type(_req_response)}"
-            assert (
-                _req_response.session_id == rollback_request.session_id
-            ), "mismatched session_id"
-
-            if _req_response.res == IPCResEnum.ACCEPT:
-                return api_types.RollbackResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-            else:
-                logger.error(
-                    f"local otaclient doesn't accept upate request: {_req_response.msg}"
-                )
-                return api_types.RollbackResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                )
-        except AssertionError as e:
-            logger.error(f"local otaclient response with unexpected msg: {e!r}")
-            return api_types.RollbackResponseEcu(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
-            )
-        except Exception as e:  # failed to get ACK from otaclient within timeout
-            logger.error(f"local otaclient failed to ACK request: {e!r}")
-            return api_types.RollbackResponseEcu(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.UNRECOVERABLE,
-            )
-
-    async def rollback(
-        self, request: api_types.RollbackRequest
-    ) -> api_types.RollbackResponse:
-        logger.info(f"receive rollback request: {request}")
-        response = api_types.RollbackResponse()
-
-        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
-        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
-        #                 to upper is by status API.
-        if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
-            logger.error(
-                "ecu_info.yaml is not loaded properly, reject any rollback request"
-            )
-            for _rollback_req in request.iter_ecu():
-                response.add_ecu(
-                    api_types.RollbackResponseEcu(
-                        ecu_id=_rollback_req.ecu_id,
-                        result=api_types.FailureType.UNRECOVERABLE,
-                    )
-                )
-            return response
-
-        # first: dispatch rollback request to all directly connected subECUs
-        tasks: dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.sub_ecus:
-            if not request.if_contains_ecu(ecu_contact.ecu_id):
-                continue
-            _task = asyncio.create_task(
-                OTAClientCall.rollback_call(
-                    ecu_contact.ecu_id,
-                    str(ecu_contact.ip_addr),
-                    ecu_contact.port,
-                    request=request,
-                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
-                )
-            )
-            tasks[_task] = ecu_contact
-        if tasks:  # NOTE: input for asyncio.wait must not be empty!
-            done, _ = await asyncio.wait(tasks)
-            for _task in done:
-                try:
-                    _ecu_resp: api_types.RollbackResponse = _task.result()
-                    response.merge_from(_ecu_resp)
-                except ECUNoResponse as e:
-                    _ecu_contact = tasks[_task]
-                    logger.warning(
-                        f"{_ecu_contact} doesn't respond to rollback request on-time"
-                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
-                    )
-                    # NOTE(20230517): aligns with the previous behavior that create
-                    #                 response with RECOVERABLE OTA error for unresponsive
-                    #                 ECU.
-                    response.add_ecu(
-                        api_types.RollbackResponseEcu(
-                            ecu_id=_ecu_contact.ecu_id,
-                            result=api_types.FailureType.RECOVERABLE,
-                        )
-                    )
-            tasks.clear()
-
-        # second: dispatch rollback request to local if required
-        if request.find_ecu(self.my_ecu_id):
-            new_session_id = gen_session_id("__rollback")
-            _local_resp = await asyncio.get_running_loop().run_in_executor(
-                self._executor,
-                self._local_rollback,
-                RollbackRequestV2(session_id=new_session_id),
-            )
-            response.add_ecu(_local_resp)
         return response
 
     async def status(self, _=None) -> api_types.StatusResponse:
