@@ -21,7 +21,7 @@ import os
 import re
 from datetime import datetime, timezone
 
-from client_manifest.schema import Manifest, PackageExtraMetadata, ReleasePackage
+from otaclient_manifest.schema import Manifest, PackageExtraMetadata, ReleasePackage
 
 SCHEMA_VERSION = "1"
 

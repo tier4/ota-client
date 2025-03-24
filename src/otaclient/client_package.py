@@ -30,12 +30,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional
 
-from client_manifest.schema import Manifest, ReleasePackage
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
+from otaclient_manifest.schema import Manifest, ReleasePackage
 
 logger = logging.getLogger(__name__)
 
