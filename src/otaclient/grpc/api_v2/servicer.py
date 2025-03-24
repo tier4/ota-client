@@ -119,39 +119,6 @@ class OTAClientAPIServicer:
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
-    async def update(
-        self, request: api_types.UpdateRequest
-    ) -> api_types.UpdateResponse:
-        return await self._handle_request(
-            request,
-            self._local_update,
-            OTAClientCall.update_call,
-            api_types.UpdateResponse,
-            api_types.UpdateResponseEcu,
-        )
-
-    async def client_update(
-        self, request: api_types.ClientUpdateRequest
-    ) -> api_types.ClientUpdateResponse:
-        return await self._handle_request(
-            request,
-            self._local_client_update,
-            OTAClientCall.client_update_call,
-            api_types.ClientUpdateResponse,
-            api_types.ClientUpdateResponseEcu,
-        )
-
-    async def rollback(
-        self, request: api_types.RollbackRequest
-    ) -> api_types.RollbackResponse:
-        return await self._handle_request(
-            request,
-            self._local_rollback,
-            OTAClientCall.rollback_call,
-            api_types.RollbackResponse,
-            api_types.RollbackResponseEcu,
-        )
-
     async def _handle_request(
         self,
         request,
@@ -235,6 +202,41 @@ class OTAClientAPIServicer:
                 )
             )
         return response
+
+    # API methods
+
+    async def update(
+        self, request: api_types.UpdateRequest
+    ) -> api_types.UpdateResponse:
+        return await self._handle_request(
+            request,
+            self._local_update,
+            OTAClientCall.update_call,
+            api_types.UpdateResponse,
+            api_types.UpdateResponseEcu,
+        )
+
+    async def client_update(
+        self, request: api_types.ClientUpdateRequest
+    ) -> api_types.ClientUpdateResponse:
+        return await self._handle_request(
+            request,
+            self._local_client_update,
+            OTAClientCall.client_update_call,
+            api_types.ClientUpdateResponse,
+            api_types.ClientUpdateResponseEcu,
+        )
+
+    async def rollback(
+        self, request: api_types.RollbackRequest
+    ) -> api_types.RollbackResponse:
+        return await self._handle_request(
+            request,
+            self._local_rollback,
+            OTAClientCall.rollback_call,
+            api_types.RollbackResponse,
+            api_types.RollbackResponseEcu,
+        )
 
     async def status(self, _=None) -> api_types.StatusResponse:
         return await self._ecu_status_storage.export()
