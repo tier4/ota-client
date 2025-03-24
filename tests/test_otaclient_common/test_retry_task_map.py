@@ -19,6 +19,7 @@ import logging
 import random
 import threading
 import time
+from collections import defaultdict
 
 import pytest
 
@@ -37,7 +38,9 @@ BACKOFF_MAX = 0.1
 
 
 class _RetryTaskMapTestErr(Exception):
-    """"""
+    def __init__(self,  idx: int, *args: object) -> None:
+        self.idx = idx
+        super().__init__(*args)
 
 
 def _thread_initializer(msg: str) -> None:
@@ -59,14 +62,14 @@ class TestRetryTaskMap:
 
     def workload_aways_failed(self, idx: int) -> int:
         time.sleep((TASKS_COUNT - random.randint(0, idx)) / WAIT_CONST)
-        raise _RetryTaskMapTestErr
+        raise _RetryTaskMapTestErr(idx)
 
     def workload_failed_and_then_succeed(self, idx: int) -> int:
         time.sleep((TASKS_COUNT - random.randint(0, idx)) / WAIT_CONST)
         if time.time() > self._start_time + self._success_wait_dict[idx]:
             self._succeeded_tasks[idx] = True
             return idx
-        raise _RetryTaskMapTestErr
+        raise _RetryTaskMapTestErr(idx)
 
     def workload_succeed(self, idx: int) -> int:
         time.sleep((TASKS_COUNT - random.randint(0, idx)) / WAIT_CONST)
@@ -121,6 +124,7 @@ class TestRetryTaskMap:
 
     def test_retry_exceed_entry_retry_limit(self):
         MAX_RETRY_ON_ENTRY = 30
+        entry_failure_count: defaultdict[int, int] = defaultdict(lambda : 0)
         with retry_task_map.ThreadPoolExecutorWithRetry(
             max_concurrent=16,
             max_retry_on_entry=MAX_RETRY_ON_ENTRY,
@@ -133,9 +137,14 @@ class TestRetryTaskMap:
                 for _fut in executor.ensure_tasks(
                     self.workload_aways_failed,
                     range(TASKS_COUNT),
-                    ensure_tasks_pull_interval=0.001,
+                    # need to be faster enough, otherwise fut will come later than pool shutdown
+                    ensure_tasks_pull_interval=0.0001,
                 ):
-                    ...
+                    if _exc := _fut.exception():
+                        assert isinstance(_exc, _RetryTaskMapTestErr)
+                        entry_failure_count[_exc.idx] += 1
+
+        assert any(_failure_count > MAX_RETRY_ON_ENTRY for _failure_count in entry_failure_count.values())
 
     def test_retry_finally_succeeded(self):
         count = 0
