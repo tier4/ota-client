@@ -75,6 +75,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         backoff_max: float = 1,
     ) -> None:
         self._rtm_start_lock = threading.Lock()
+        # NOTE: ThreadPoolExecutor itself also has a _shutdown_lock!
         self._rtm_shutdown_lock = threading.Lock()
         self._rtm_started = False
         self._total_task_num = 0
