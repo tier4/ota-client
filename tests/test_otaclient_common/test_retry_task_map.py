@@ -139,7 +139,7 @@ class TestRetryTaskMap:
                     self.workload_aways_failed,
                     range(TASKS_COUNT),
                     # need to be faster enough, otherwise fut will come later than pool shutdown
-                    ensure_tasks_pull_interval=0.0001,
+                    ensure_tasks_pull_interval=0.00001,
                 ):
                     if _exc := _fut.exception():
                         assert isinstance(_exc, _RetryTaskMapTestErr)
