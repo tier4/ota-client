@@ -74,7 +74,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         backoff_factor: float = 0.01,
         backoff_max: float = 1,
     ) -> None:
-        self._lock = threading.Lock()
+        self._start_lock = threading.Lock()
+        self._shutdown_lock = threading.Lock()
         self._started = False
         self._total_task_num = 0
         """
@@ -207,7 +208,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if self._rtm_lower_pool_shutdown:
             return  # no need to shutdown again
 
-        if self._lock.acquire(blocking=False):
+        # NOTE: only one shutdown is allowed
+        if self._shutdown_lock.acquire(blocking=False):
             try:
                 _err_msg = f"shutdown executor and drain workitem queue: {msg}"
                 logger.warning(_err_msg)
@@ -220,7 +222,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     while True:
                         self._work_queue.get_nowait()
             finally:
-                self._lock.release()
+                self._shutdown_lock.release()
 
     def ensure_tasks(
         self,
@@ -229,7 +231,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         *,
         ensure_tasks_pull_interval: float = 1,
     ) -> Generator[Future[RT]]:
-        with self._lock:
+        with self._start_lock:
             if self._started or self._rtm_lower_pool_shutdown:
                 try:
                     raise ValueError(
