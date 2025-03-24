@@ -38,7 +38,7 @@ BACKOFF_MAX = 0.1
 
 
 class _RetryTaskMapTestErr(Exception):
-    def __init__(self,  idx: int, *args: object) -> None:
+    def __init__(self, idx: int, *args: object) -> None:
         self.idx = idx
         super().__init__(*args)
 
@@ -124,7 +124,7 @@ class TestRetryTaskMap:
 
     def test_retry_exceed_entry_retry_limit(self):
         MAX_RETRY_ON_ENTRY = 30
-        entry_failure_count: defaultdict[int, int] = defaultdict(lambda : 0)
+        entry_failure_count: defaultdict[int, int] = defaultdict(lambda: 0)
         with retry_task_map.ThreadPoolExecutorWithRetry(
             max_concurrent=16,
             max_retry_on_entry=MAX_RETRY_ON_ENTRY,
@@ -144,7 +144,10 @@ class TestRetryTaskMap:
                         assert isinstance(_exc, _RetryTaskMapTestErr)
                         entry_failure_count[_exc.idx] += 1
 
-        assert any(_failure_count > MAX_RETRY_ON_ENTRY for _failure_count in entry_failure_count.values())
+        assert any(
+            _failure_count > MAX_RETRY_ON_ENTRY
+            for _failure_count in entry_failure_count.values()
+        )
 
     def test_retry_finally_succeeded(self):
         count = 0
