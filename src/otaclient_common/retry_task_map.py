@@ -51,7 +51,7 @@ class _RetryOnEntryTracker:
     def register(self, entry: Any) -> int:
         with self._lock:
             _entry_id = id(entry)
-            self._register[_entry_id] =  _retries = self._register.get(_entry_id, 0) + 1
+            self._register[_entry_id] = _retries = self._register.get(_entry_id, 0) + 1
             self._register.move_to_end(_entry_id)
             if len(self._register) > self._max_entries:
                 self._register.popitem(last=False)
