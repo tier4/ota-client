@@ -74,9 +74,9 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         backoff_factor: float = 0.01,
         backoff_max: float = 1,
     ) -> None:
-        self._start_lock = threading.Lock()
-        self._shutdown_lock = threading.Lock()
-        self._started = False
+        self._rtm_start_lock = threading.Lock()
+        self._rtm_shutdown_lock = threading.Lock()
+        self._rtm_started = False
         self._total_task_num = 0
         """
         NOTE:
@@ -96,11 +96,11 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
 
         self._watchdog_check_interval = watchdog_check_interval
-        self._checker_funcs: list[Callable[[], Any]] = []
+        self._rtm_watchdog_funcs: list[Callable[[], Any]] = []
         self._max_total_retry = max_total_retry
 
         if callable(watchdog_func):
-            self._checker_funcs.append(watchdog_func)
+            self._rtm_watchdog_funcs.append(watchdog_func)
 
         self._failure_msg = ""
         super().__init__(
@@ -209,7 +209,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             return  # no need to shutdown again
 
         # NOTE: only one shutdown is allowed
-        if self._shutdown_lock.acquire(blocking=False):
+        if self._rtm_shutdown_lock.acquire(blocking=False):
             try:
                 _err_msg = f"shutdown executor and drain workitem queue: {msg}"
                 logger.warning(_err_msg)
@@ -222,7 +222,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     while True:
                         self._work_queue.get_nowait()
             finally:
-                self._shutdown_lock.release()
+                self._rtm_shutdown_lock.release()
 
     def ensure_tasks(
         self,
@@ -231,15 +231,15 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         *,
         ensure_tasks_pull_interval: float = 1,
     ) -> Generator[Future[RT]]:
-        with self._start_lock:
-            if self._started or self._rtm_lower_pool_shutdown:
+        with self._rtm_start_lock:
+            if self._rtm_started or self._rtm_lower_pool_shutdown:
                 try:
                     raise ValueError(
                         "ensure_tasks cannot be started more than once or lower pool has already shutdown"
                     )
                 finally:  # do not hold refs to input params
                     del self, func, iterable
-            self._started = True
+            self._rtm_started = True
 
         # ------ dispatch tasks from iterable ------ #
         def _dispatcher_thread() -> None:
@@ -265,10 +265,10 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             else:
                 logger.warning("no task is scheduled!")
 
-        if self._checker_funcs:
+        if self._rtm_watchdog_funcs:
             threading.Thread(
                 target=self._watchdog_runner_thread,
-                args=(self._checker_funcs, self._watchdog_check_interval),
+                args=(self._rtm_watchdog_funcs, self._watchdog_check_interval),
                 daemon=True,
             ).start()
         threading.Thread(target=_dispatcher_thread, daemon=True).start()
