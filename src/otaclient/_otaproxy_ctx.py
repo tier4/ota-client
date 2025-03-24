@@ -42,6 +42,7 @@ _otaproxy_p: mp_ctx.SpawnProcess | None = None
 _global_shutdown: bool = False
 _global_shutdown_lock = threading.Lock()
 
+
 def _on_global_shutdown() -> None:
     global _global_shutdown
     _global_shutdown = True
