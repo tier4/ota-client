@@ -115,7 +115,8 @@ class TestRetryTaskMap:
                 for _fut in executor.ensure_tasks(
                     self.workload_aways_failed,
                     range(TASKS_COUNT),
-                    ensure_tasks_pull_interval=0.001,
+                    # need to be faster enough, otherwise fut will come later than pool shutdown
+                    ensure_tasks_pull_interval=0.0001,
                 ):
                     if _fut.exception():
                         failure_count += 1
