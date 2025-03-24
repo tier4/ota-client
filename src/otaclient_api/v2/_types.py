@@ -587,3 +587,72 @@ class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[pb2.UpdateRespon
             update_response = self.__class__.convert(update_response)
         # NOTE, TODO: duplication check is not done
         self.ecu.extend(update_response.ecu)
+
+
+# client update API
+
+
+class ClientUpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
+    __slots__ = calculate_slots(pb2.UpdateRequestEcu)
+    cookies: str
+    ecu_id: str
+    url: str
+    version: str
+
+    def __init__(
+        self,
+        *,
+        ecu_id: _Optional[str] = ...,
+        version: _Optional[str] = ...,
+        url: _Optional[str] = ...,
+        cookies: _Optional[str] = ...,
+    ) -> None: ...
+
+
+class ClientUpdateRequest(
+    ECUList[ClientUpdateRequestEcu], MessageWrapper[pb2.UpdateRequest]
+):
+    __slots__ = calculate_slots(pb2.UpdateRequest)
+    ecu: RepeatedCompositeContainer[ClientUpdateRequestEcu]
+
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[ClientUpdateRequestEcu]] = ...
+    ) -> None: ...
+
+
+class ClientUpdateResponseEcu(MessageWrapper[pb2.UpdateResponseEcu]):
+    __slots__ = calculate_slots(pb2.UpdateResponseEcu)
+    ecu_id: str
+    result: FailureType
+
+    def __init__(
+        self,
+        *,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[FailureType, str]] = ...,
+    ) -> None: ...
+
+
+class ClientUpdateResponse(
+    ECUList[ClientUpdateResponseEcu], MessageWrapper[pb2.UpdateResponse]
+):
+    __slots__ = calculate_slots(pb2.UpdateResponse)
+    ecu: RepeatedCompositeContainer[ClientUpdateResponseEcu]
+
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[ClientUpdateResponseEcu]] = ...
+    ) -> None: ...
+
+    @cached_property
+    def ecus_acked_update(self) -> _Set[str]:
+        return {
+            ecu_resp.ecu_id
+            for ecu_resp in self.ecu
+            if ecu_resp.result is FailureType.NO_FAILURE
+        }
+
+    def merge_from(self, update_response: _Union[Self, pb2.UpdateResponse]):
+        if isinstance(update_response, pb2.UpdateResponse):
+            update_response = self.__class__.convert(update_response)
+        # NOTE, TODO: duplication check is not done
+        self.ecu.extend(update_response.ecu)

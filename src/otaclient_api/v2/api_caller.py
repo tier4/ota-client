@@ -90,15 +90,15 @@ class OTAClientCall:
         ecu_ipaddr: str,
         ecu_port: int,
         *,
-        request: _types.UpdateRequest,
+        request: _types.ClientUpdateRequest,
         timeout=None,
-    ) -> _types.UpdateResponse:
+    ) -> _types.ClientUpdateResponse:
         try:
             ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
             async with grpc.aio.insecure_channel(ecu_addr) as channel:
                 stub = pb2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.ClientUpdate(request.export_pb(), timeout=timeout)
-                return _types.UpdateResponse.convert(resp)
+                return _types.ClientUpdateResponse.convert(resp)
         except Exception as e:
             _msg = (
                 f"{ecu_id=} failed to respond to client update request on-time: {e!r}"

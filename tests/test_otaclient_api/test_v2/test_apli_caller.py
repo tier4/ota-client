@@ -115,6 +115,11 @@ class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
         _res.CopyFrom(self.DUMMY_STATUS)
         return _res
 
+    async def ClientUpdate(self, request: v2.UpdateRequest, context):
+        _res = v2.UpdateResponse()
+        _res.CopyFrom(self.DUMMY_UPDATE_RESPONSE)
+        return _res
+
 
 class TestOTAClientCall:
     OTA_CLIENT_SERVICE_PORT = 50051
@@ -162,6 +167,20 @@ class TestOTAClientCall:
             _response.export_pb(), _DummyOTAClientService.DUMMY_ROLLBACK_RESPONSE
         )
 
+    async def test_client_update_call(self, dummy_ota_client_service):
+        _req = api_types.ClientUpdateRequest.convert(
+            _DummyOTAClientService.DUMMY_UPDATE_REQUEST
+        )
+        _response = await OTAClientCall.client_update_call(
+            ecu_id=self.DUMMY_ECU_ID,
+            ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            request=_req,
+        )
+        compare_message(
+            _response.export_pb(), _DummyOTAClientService.DUMMY_UPDATE_RESPONSE
+        )
+
     async def test_status_call(self, dummy_ota_client_service):
         _response = await OTAClientCall.status_call(
             ecu_id=self.DUMMY_ECU_ID,
@@ -179,6 +198,19 @@ class TestOTAClientCall:
         )
         with pytest.raises(ECUNoResponse):
             await OTAClientCall.update_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+                timeout=1,
+            )
+
+    async def test_client_update_call_no_response(self):
+        _req = api_types.ClientUpdateRequest.convert(
+            _DummyOTAClientService.DUMMY_UPDATE_REQUEST
+        )
+        with pytest.raises(ECUNoResponse):
+            await OTAClientCall.client_update_call(
                 ecu_id=self.DUMMY_ECU_ID,
                 ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
                 ecu_port=self.OTA_CLIENT_SERVICE_PORT,
