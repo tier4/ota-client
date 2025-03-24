@@ -323,30 +323,28 @@ class TestOTAClientUpdater:
 
         self.stop_server_event.set.assert_called_once()
 
-    def test_run_service(self, mocker: pytest_mock.MockerFixture):
+    def test_mount_squashfs(self, mocker: pytest_mock.MockerFixture):
         # Test running the service
         client_updater = self.setup_client_updater(mocker)
 
-        client_updater._run_service()
+        client_updater._mount_squashfs()
 
-        self.mock_ota_client_package.run_service.assert_called_once()
+        self.mock_ota_client_package.mount_squashfs.assert_called_once()
 
-    def test_handover_status(self, mocker: pytest_mock.MockerFixture):
-        # Test handover status
+    def test_run_squashfs(self, mocker: pytest_mock.MockerFixture):
+        # Setup the client updater instance
         client_updater = self.setup_client_updater(mocker)
 
-        client_updater._handover_status()
+        # Mock the start_dynamic_client_event's set method
+        mock_start_event_set = mocker.patch.object(
+            client_updater.start_dynamic_client_event, "set"
+        )
 
-        self.mock_ota_client_package.handover_status.assert_called_once()
+        # Call the method to test
+        client_updater._run_squashfs()
 
-    def test_finalize_client_update(self, mocker: pytest_mock.MockerFixture):
-        # Test finalizing client update
-        client_updater = self.setup_client_updater(mocker)
-
-        client_updater._finalize_client_update()
-
-        self.mock_ota_client_package.finalize.assert_called_once()
-        self.start_dynamic_client_event.set.assert_called_once()
+        # Assert that the start_dynamic_client_event's set method was called once
+        mock_start_event_set.assert_called_once()
 
     def test_download_client_package_files(self, mocker: pytest_mock.MockerFixture):
         # Test downloading client package files
@@ -406,8 +404,8 @@ class TestOTAClientUpdater:
             client_updater, "_download_client_package_resources"
         )
         mock_stop_grpc = mocker.patch.object(client_updater, "_stop_grpc_server")
-        mock_run_service = mocker.patch.object(client_updater, "_run_service")
-        mock_finalize = mocker.patch.object(client_updater, "_finalize_client_update")
+        mock_mount_squashfs = mocker.patch.object(client_updater, "_mount_squashfs")
+        mock_run_squashfs = mocker.patch.object(client_updater, "_run_squashfs")
 
         # Execute the client update
         client_updater._execute_client_update()
@@ -417,8 +415,8 @@ class TestOTAClientUpdater:
         mock_process_metadata.assert_called_once()
         mock_download_resources.assert_called_once()
         mock_stop_grpc.assert_called_once()
-        mock_run_service.assert_called_once()
-        mock_finalize.assert_called_once()
+        mock_mount_squashfs.assert_called_once()
+        mock_run_squashfs.assert_called_once()
 
     def test_execute_success(self, mocker: pytest_mock.MockerFixture):
         # Test successful execution
