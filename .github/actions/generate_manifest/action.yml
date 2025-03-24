@@ -25,7 +25,7 @@ runs:
       env:
         DIR: ${{ inputs.dir }}
         OUTPUT_MANIFEST: ${{ inputs.output_manifest }}
-        PYTHONPATH: ${{ github.workspace }} # to refer client_manifest module
+        PYTHONPATH: ${{ github.workspace }}/src # to refer client_manifest module
       shell: bash
       run: |
         python ./.github/actions/generate_manifest/generate_manifest.py \
