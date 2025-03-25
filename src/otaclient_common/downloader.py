@@ -401,7 +401,11 @@ class Downloader:
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
         with self._session.get(
-            prepared_url, stream=True, headers=prepared_headers, timeout=timeout
+            prepared_url,
+            stream=True,
+            headers=prepared_headers,
+            timeout=timeout,
+            verify=False,
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
