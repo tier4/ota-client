@@ -49,6 +49,18 @@ service OtaClientService {
    * contained by `StatusResponse`.
    */
   rpc Status (StatusRequest) returns (StatusResponse) {}
+
+  /*
+   * `ClientUpdate` service requests OTA client to start client updating.
+   * The OTA client of each ECU retrieves the request that matches its own ECU
+   * id and starts it. Requests to each ECU included in the `UpdateRequest` are
+   * handled by that respective ECU and returns the response to the parent ECU.
+   * Main ECU merges the responses as UpdateResponse.
+   * After requesting `ClientUpdate` and if the OTA status is `CLIENT_UPDATING`,
+   * the request is successful. Note that if the child ECU doesn't respond, the
+   * grandchild response is not included by `UpdateResponse`.
+   */
+   rpc ClientUpdate (UpdateRequest) returns (UpdateResponse) {}
 }
 
 //
@@ -124,6 +136,7 @@ enum StatusOta {
   UPDATING = 3;
   ROLLBACKING = 4;
   ROLLBACK_FAILURE = 5;
+  CLIENT_UPDATING = 6;
 }
 
 enum StatusProgressPhase {
@@ -187,6 +200,7 @@ enum UpdatePhase {
   APPLYING_UPDATE = 4;
   PROCESSING_POSTUPDATE = 5;
   FINALIZING_UPDATE = 6; // set during first reboot boot switch finalizing
+  DOWNLOADING_OTA_CLIENT = 7;
 }
 
 message StatusResponseEcuV2 {
