@@ -34,7 +34,7 @@ from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.errors import OTAErrorRecoverable
-from otaclient.ota_core import OTAClient, _OTAUpdater
+from otaclient.ota_core import OTAClient, _OTAClientUpdater, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
@@ -178,6 +178,7 @@ class TestOTAClient:
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
         self.ota_updater = mocker.MagicMock(spec=_OTAUpdater)
+        self.ota_client_updater = mocker.MagicMock(spec=_OTAClientUpdater)
 
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
 
@@ -189,6 +190,9 @@ class TestOTAClient:
 
         # patch inject mocked updater
         mocker.patch(f"{OTA_CORE_MODULE}._OTAUpdater", return_value=self.ota_updater)
+        mocker.patch(
+            f"{OTA_CORE_MODULE}._OTAClientUpdater", return_value=self.ota_client_updater
+        )
         mocker.patch(
             f"{OTA_CORE_MODULE}.get_boot_controller", return_value=self.boot_controller
         )
@@ -233,6 +237,48 @@ class TestOTAClient:
 
         # --- assertion on interrupted OTA update --- #
         self.ota_updater.execute.assert_called_once()
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+
+    def test_client_update_normal_finished(self):
+        """Test client update with normal completion."""
+        from otaclient._types import ClientUpdateRequestV2
+
+        # --- execution --- #
+        self.ota_client.client_update(
+            request=ClientUpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_client_update_normal_finished",
+            )
+        )
+
+        # --- assert on update finished --- #
+        self.ota_client_updater.execute.assert_called_once()
+        assert self.ota_client.live_ota_status == OTAStatus.CLIENT_UPDATING
+
+    def test_client_update_interrupted(self):
+        """Test client update with interruption."""
+        from otaclient._types import ClientUpdateRequestV2
+
+        # inject exception
+        _error = OTAErrorRecoverable(
+            "client update interrupted by test as expected", module=__name__
+        )
+        self.ota_client_updater.execute.side_effect = _error
+
+        # --- execution --- #
+        self.ota_client.client_update(
+            request=ClientUpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_client_update_interrupted",
+            )
+        )
+
+        # --- assertion on interrupted client update --- #
+        self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
 
 

@@ -60,6 +60,7 @@ from otaclient._status_monitor import (
     UpdateProgressReport,
 )
 from otaclient._types import (
+    ClientUpdateRequestV2,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -1060,7 +1061,7 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
-    def client_update(self, request: UpdateRequestV2) -> None:
+    def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
@@ -1170,6 +1171,24 @@ class OTAClient:
                     name="ota_update_executor",
                 )
                 _update_thread.start()
+
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+
+            elif isinstance(request, ClientUpdateRequestV2):
+
+                _client_update_thread = threading.Thread(
+                    target=self.client_update,
+                    args=[request],
+                    daemon=True,
+                    name="ota_client_update_executor",
+                )
+                _client_update_thread.start()
 
                 resp_queue.put_nowait(
                     IPCResponse(

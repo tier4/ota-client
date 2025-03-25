@@ -167,5 +167,14 @@ class UpdateRequestV2(IPCRequest):
 
 
 @dataclass
+class ClientUpdateRequestV2(IPCRequest):
+    """Compatible with OTA API version 2."""
+
+    version: str
+    url_base: str
+    cookies_json: str
+
+
+@dataclass
 class RollbackRequestV2(IPCRequest):
     """Compatbile with OTA API version 2."""

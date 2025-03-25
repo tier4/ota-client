@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
+    ClientUpdateRequestV2,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
@@ -71,7 +72,7 @@ class OTAClientAPIServicer:
         return self._dispatch_local_request(request, api_types.UpdateResponseEcu)
 
     def _local_client_update(
-        self, request: UpdateRequestV2
+        self, request: ClientUpdateRequestV2
     ) -> api_types.ClientUpdateResponseEcu:
         """Thread worker for dispatching a local client update."""
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
@@ -123,6 +124,7 @@ class OTAClientAPIServicer:
         self,
         request,
         local_handler,
+        request_cls,
         remote_call,
         response_type,
         response_ecu_type,
@@ -179,15 +181,19 @@ class OTAClientAPIServicer:
 
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             new_session_id = gen_session_id(update_req_ecu.version)
-            _resp = await asyncio.get_running_loop().run_in_executor(
-                self._executor,
-                local_handler,
-                UpdateRequestV2(
+            if request_cls == RollbackRequestV2:
+                local_request = request_cls(session_id=new_session_id)
+            else:
+                local_request = request_cls(
                     version=update_req_ecu.version,
                     url_base=update_req_ecu.url,
                     cookies_json=update_req_ecu.cookies,
                     session_id=new_session_id,
-                ),
+                )
+            _resp = await asyncio.get_running_loop().run_in_executor(
+                self._executor,
+                local_handler,
+                local_request,
             )
 
             if _resp.result == api_types.FailureType.NO_FAILURE:
@@ -211,6 +217,7 @@ class OTAClientAPIServicer:
         return await self._handle_request(
             request,
             self._local_update,
+            UpdateRequestV2,
             OTAClientCall.update_call,
             api_types.UpdateResponse,
             api_types.UpdateResponseEcu,
@@ -222,6 +229,7 @@ class OTAClientAPIServicer:
         return await self._handle_request(
             request,
             self._local_client_update,
+            ClientUpdateRequestV2,
             OTAClientCall.client_update_call,
             api_types.ClientUpdateResponse,
             api_types.ClientUpdateResponseEcu,
@@ -233,6 +241,7 @@ class OTAClientAPIServicer:
         return await self._handle_request(
             request,
             self._local_rollback,
+            RollbackRequestV2,
             OTAClientCall.rollback_call,
             api_types.RollbackResponse,
             api_types.RollbackResponseEcu,
