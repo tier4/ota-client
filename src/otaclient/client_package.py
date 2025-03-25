@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional
 
+from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
@@ -70,9 +71,11 @@ class OTAClientPackage:
         self,
         *,
         base_url: str,
+        ota_metadata: OTAMetadata,
         session_dir: StrOrPath,
     ) -> None:
         self._base_url = base_url
+        self._ota_metadata = ota_metadata
         self._session_dir = Path(session_dir)
         self._download_dir = self._session_dir / f".download_{os.urandom(4).hex()}"
         self._download_dir.mkdir(exist_ok=True, parents=True)
@@ -86,12 +89,17 @@ class OTAClientPackage:
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
 
+        _metadata_jwt = self._ota_metadata.metadata_jwt
+        if _metadata_jwt is None or _metadata_jwt.directory is None:
+            raise ValueError("metadata_jwt is not loaded yet, abort")
+        _rootfs_url = urljoin_ensure_base(self._base_url, _metadata_jwt.directory.file)
+
         # ------ step 1: download manifest.json ------ #
         _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, self.ENTRY_POINT),
+                    url=urljoin_ensure_base(_rootfs_url, self.ENTRY_POINT),
                     dst=_client_manifest_fpath,
                 )
             ]

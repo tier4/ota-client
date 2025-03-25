@@ -45,9 +45,22 @@ class TestClientPackage:
 
     @pytest.fixture
     def ota_client_package(self):
-        return OTAClientPackage(
-            base_url=self.DUMMY_URL, session_dir=self.DUMMY_SESSION_DIR
+        # Create mock with the desired structure first
+        mock_metadata = MagicMock()
+        mock_jwt = MagicMock()
+        mock_directory = MagicMock()
+        mock_directory.file = "dummy_file"
+        mock_jwt.directory = mock_directory
+
+        # Configure the mock to return our structure when metadata_jwt is accessed
+        type(mock_metadata).metadata_jwt = mock_jwt
+
+        ota_client_package = OTAClientPackage(
+            base_url=self.DUMMY_URL,
+            ota_metadata=mock_metadata,
+            session_dir=self.DUMMY_SESSION_DIR,
         )
+        return ota_client_package
 
     @patch(
         "otaclient_common.common.urljoin_ensure_base", return_value=DUMMY_MANIFEST_URL

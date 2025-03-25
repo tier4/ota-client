@@ -809,6 +809,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         # ------ setup OTA client package parser ------ #
         self._ota_client_package = OTAClientPackage(
             base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
             session_dir=self._session_workdir,
         )
 
