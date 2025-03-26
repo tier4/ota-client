@@ -302,7 +302,7 @@ class _OTAUpdater:
             condition.notify()  # notify the metadata generator that this batch of download is finished
         return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
 
-    def _downloader_workder_initializer(self) -> None:
+    def _downloader_worker_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
             self._downloader_pool.get_instance()
         )
@@ -313,7 +313,7 @@ class _OTAUpdater:
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
             thread_name_prefix="download_ota_files",
-            initializer=self._downloader_workder_initializer,
+            initializer=self._downloader_worker_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
                 ctx=DownloadPoolWatchdogFuncContext(
@@ -419,8 +419,9 @@ class _OTAUpdater:
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
+            max_retry_on_entry=cfg.MAX_RETRY_ON_ENTRY_COUNT,
             thread_name_prefix="download_metadata_files",
-            initializer=self._downloader_workder_initializer,
+            initializer=self._downloader_worker_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
                 ctx=self._download_watchdog_ctx,
