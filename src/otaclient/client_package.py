@@ -90,9 +90,12 @@ class OTAClientPackage:
         """Download raw manifest.json and parse it."""
 
         _metadata_jwt = self._ota_metadata.metadata_jwt
-        if _metadata_jwt is None or _metadata_jwt.directory is None:
+        if _metadata_jwt is None or _metadata_jwt.rootfs_directory is None:
             raise ValueError("metadata_jwt is not loaded yet, abort")
-        _rootfs_url = urljoin_ensure_base(self._base_url, _metadata_jwt.directory.file)
+        _rootfs_url = urljoin_ensure_base(
+            self._base_url,
+            f"{_metadata_jwt.rootfs_directory.strip('/')}/",
+        )
 
         # ------ step 1: download manifest.json ------ #
         _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
