@@ -341,6 +341,7 @@ class _OTAUpdateOperator:
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
+            max_retry_on_entry=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
             thread_name_prefix=thread_name_prefix,
             initializer=self._downloader_workder_initializer,
             watchdog_func=partial(
