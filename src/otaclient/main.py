@@ -192,11 +192,13 @@ def main() -> None:  # pragma: no cover
             return _on_shutdown()
 
         if start_dynamic_client_event.is_set():
+            start_dynamic_client_event.clear()
+
             logger.info("request to start a new client")
             _mount_dir = cfg.MOUNT_DIR
             if not os.path.exists(_mount_dir):
                 logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
-                break
+                continue
 
             try:
                 # Create a copy of the current environment
@@ -207,6 +209,11 @@ def main() -> None:  # pragma: no cover
                 # Run the OTA client
                 # Loop forever, restarting the downloaded OTA client if it exits
                 while True:
+
+                    def cleanup_child(proc):
+                        if proc.poll() is None:
+                            proc.kill()
+
                     process = subprocess.Popen(
                         [
                             f"{_mount_dir}/otaclient/venv/bin/python3",
@@ -217,9 +224,11 @@ def main() -> None:  # pragma: no cover
                         ],
                         env=env,  # Pass the modified environment to the subprocess
                     )
+                    atexit.register(cleanup_child, process)
                     logger.info(
                         f"Started OTA client with PID: {process.pid} and mount dir: {_mount_dir}"
                     )
+
                     process.wait()
                     logger.warning(
                         "OTA client exited with non-zero status, restarting..."

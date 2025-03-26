@@ -103,5 +103,4 @@ def grpc_server_process(
     # Keep the process alive even after the gRPC server stops by stop_server_event
     logger.info("gRPC server has stopped, but keeping the process alive")
     while stop_server_event.is_set():
-        # Sleep to avoid busy waiting
         time.sleep(1)
