@@ -1067,6 +1067,11 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
+        if cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT:
+            raise NotImplementedError(
+                "multiple dynamic clients downloading is not supported"
+            )
+
         self._live_ota_status = OTAStatus.CLIENT_UPDATING
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
@@ -1260,6 +1265,7 @@ def ota_core_process(
         msg_queue=_local_status_report_queue,
         shm_status=shm_writer,
         max_traceback_size=max_traceback_size,
+        stop_server_event=stop_server_event,
     )
     _status_monitor.start()
     _status_monitor.start_log_thread()

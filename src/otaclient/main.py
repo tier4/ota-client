@@ -96,7 +96,7 @@ def main() -> None:  # pragma: no cover
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
 
     check_other_otaclient(
-        cfg.OTACLIENT_PID_FILE, bool(os.getenv(cfg.SKIP_DUPLICATE_OTA_CLIENT_CHECK))
+        cfg.OTACLIENT_PID_FILE, bool(os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT))
     )
     create_otaclient_rundir(cfg.RUN_DIR)
 
@@ -202,7 +202,7 @@ def main() -> None:  # pragma: no cover
                 # Create a copy of the current environment
                 env = os.environ.copy()
                 # Add the SKIP_OTACLIENT_CHECK environment variable
-                env[cfg.SKIP_DUPLICATE_OTA_CLIENT_CHECK] = "true"
+                env[cfg.DYNAMIC_OTA_CLIENT] = "true"
 
                 # Run the OTA client
                 while True:

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import atexit
 import logging
+import multiprocessing.synchronize as mp_sync
 import queue
 import time
 from dataclasses import asdict, dataclass
@@ -247,6 +248,7 @@ class OTAClientStatusCollector:
         min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
         max_traceback_size: int,
+        stop_server_event: mp_sync.Event,
     ) -> None:
         self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
@@ -258,6 +260,8 @@ class OTAClientStatusCollector:
 
         self._status = None
         self._shm_status = shm_status
+
+        self.stop_server_event = stop_server_event
 
         atexit.register(shm_status.atexit)
 
@@ -308,7 +312,8 @@ class OTAClientStatusCollector:
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
-        while True:
+        # NOTE: status collector will stop when stop_server_event is set
+        while not self.stop_server_event.is_set():
             _now = time.time()
             try:
                 report = self._input_queue.get_nowait()
