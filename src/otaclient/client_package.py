@@ -11,11 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""OTA client package implementation.
-
-OTA client package release format definition: https://tier4.atlassian.net/wiki/spaces/OTA/pages/3486056633/4.+The+release+format+of+otaclient
-
-"""
+"""OTA client package implementation."""
 
 
 from __future__ import annotations

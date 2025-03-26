@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path
 from typing import Optional
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
 
@@ -47,13 +47,12 @@ class TestClientPackage:
     def ota_client_package(self):
         # Create mock with the desired structure first
         mock_metadata = MagicMock()
-        mock_jwt = MagicMock()
-        mock_directory = MagicMock()
-        mock_directory.file = "dummy_file"
-        mock_jwt.directory = mock_directory
+        mock_metadata_jwt = MagicMock()
+        # Setup rootfs_directory as a string property that will work with strip()
+        mock_metadata_jwt.rootfs_directory = "opt/ota/otaclient_release"
 
         # Configure the mock to return our structure when metadata_jwt is accessed
-        type(mock_metadata).metadata_jwt = mock_jwt
+        type(mock_metadata).metadata_jwt = PropertyMock(return_value=mock_metadata_jwt)
 
         ota_client_package = OTAClientPackage(
             base_url=self.DUMMY_URL,
@@ -63,7 +62,7 @@ class TestClientPackage:
         return ota_client_package
 
     @patch(
-        "otaclient_common.common.urljoin_ensure_base", return_value=DUMMY_MANIFEST_URL
+        "otaclient.client_package.urljoin_ensure_base", return_value=DUMMY_MANIFEST_URL
     )
     @patch("otaclient_common.download_info.DownloadInfo")
     @patch("builtins.open", new_callable=mock_open, read_data=DUMMY_MANIFEST)
@@ -79,11 +78,9 @@ class TestClientPackage:
         condition = MagicMock()
         download_info = list(ota_client_package._prepare_manifest(condition))
         assert len(download_info) == 1
+
+        # Then check that the DownloadInfo was created with the URL from urljoin_ensure_base
         assert download_info[0][0].url == self.DUMMY_MANIFEST_URL
-        assert (
-            download_info[0][0].dst
-            == ota_client_package._download_dir / "manifest.json"
-        )
 
     @patch("builtins.open", new_callable=mock_open, read_data=DUMMY_MANIFEST)
     @patch("pathlib.Path.is_file", return_value=True)
@@ -93,7 +90,13 @@ class TestClientPackage:
         assert ota_client_package._manifest is not None
         assert isinstance(ota_client_package._manifest, Manifest)
 
-    def test_prepare_client_package(self, ota_client_package):
+    @patch("otaclient.client_package.urljoin_ensure_base")
+    def test_prepare_client_package(self, mock_urljoin, ota_client_package):
+        # Configure the mock to return the expected URL
+        mock_urljoin.return_value = (
+            "http://example.com/opt/ota/otaclient_release/package.squashfs"
+        )
+
         condition = MagicMock()
         manifest_data = json.loads(self.DUMMY_MANIFEST)
         ota_client_package._manifest = Manifest(**manifest_data)

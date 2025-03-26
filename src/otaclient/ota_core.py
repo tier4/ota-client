@@ -20,6 +20,7 @@ import json
 import logging
 import multiprocessing.queues as mp_queue
 import multiprocessing.synchronize as mp_sync
+import os
 import shutil
 import signal
 import sys
@@ -1067,7 +1068,7 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT:
+        if os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT):
             raise NotImplementedError(
                 "multiple dynamic clients downloading is not supported"
             )

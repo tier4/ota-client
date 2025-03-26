@@ -24,7 +24,7 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from otaclient._types import (
     FailureType,
@@ -248,7 +248,7 @@ class OTAClientStatusCollector:
         min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
         max_traceback_size: int,
-        stop_server_event: mp_sync.Event,
+        stop_server_event: Optional[mp_sync.Event] = None,
     ) -> None:
         self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
@@ -313,7 +313,7 @@ class OTAClientStatusCollector:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
         # NOTE: status collector will stop when stop_server_event is set
-        while not self.stop_server_event.is_set():
+        while not (self.stop_server_event and self.stop_server_event.is_set()):
             _now = time.time()
             try:
                 report = self._input_queue.get_nowait()

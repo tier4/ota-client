@@ -81,7 +81,9 @@ class TestGrpcServerLauncher:
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
         stop_server_event = MagicMock()
-        stop_server_event.is_set.side_effect = [False, True]
+        # Configure the stop event to return False, True for the main loop
+        # and False for the final check in the while loop
+        stop_server_event.is_set.side_effect = [False, True, False]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -89,7 +91,9 @@ class TestGrpcServerLauncher:
             return mock_shm_reader
 
         # Run the server process function with patched asyncio.run
-        with patch("asyncio.run") as mock_run:
+        with patch("asyncio.run") as mock_run, patch(
+            "time.sleep"
+        ):  # Add patch for time.sleep
 
             def run_and_execute_coroutine(coro):
                 # Actually run the coroutine function
@@ -116,14 +120,15 @@ class TestGrpcServerLauncher:
         assert mock_server.add_insecure_port_called is True
 
         # Verify the stop event was checked
-        assert stop_server_event.is_set.call_count == 2
+        assert stop_server_event.is_set.call_count == 3
 
     def test_grpc_stop_server_event(self, setup_mocks):
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
         stop_server_event = MagicMock()
         # Configure the stop event to return False twice then True
-        stop_server_event.is_set.side_effect = [False, False, True]
+        # Add False at the end to handle the check in the final loop
+        stop_server_event.is_set.side_effect = [False, False, True, False]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -131,7 +136,9 @@ class TestGrpcServerLauncher:
             return mock_shm_reader
 
         # Run the server process function with patched asyncio.run
-        with patch("asyncio.run") as mock_run:
+        with patch("asyncio.run") as mock_run, patch(
+            "time.sleep"
+        ):  # Add patch for time.sleep
 
             def run_and_execute_coroutine(coro):
                 # Actually run the coroutine function
@@ -152,7 +159,7 @@ class TestGrpcServerLauncher:
             )
 
         # Check that is_set was called the expected number of times
-        assert stop_server_event.is_set.call_count == 3
+        assert stop_server_event.is_set.call_count == 4
         # Check that the server was started and stopped
         assert mock_server.start_called is True
         assert mock_server.stop_called is True

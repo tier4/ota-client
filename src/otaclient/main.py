@@ -201,10 +201,11 @@ def main() -> None:  # pragma: no cover
             try:
                 # Create a copy of the current environment
                 env = os.environ.copy()
-                # Add the SKIP_OTACLIENT_CHECK environment variable
-                env[cfg.DYNAMIC_OTA_CLIENT] = "true"
+                # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable
+                env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
 
                 # Run the OTA client
+                # Loop forever, restarting the downloaded OTA client if it exits
                 while True:
                     process = subprocess.Popen(
                         [

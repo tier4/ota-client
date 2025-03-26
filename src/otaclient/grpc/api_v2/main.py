@@ -57,7 +57,6 @@ def grpc_server_process(
         from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
         from otaclient_api.v2.api_stub import OtaClientServiceV2
 
-        # Create a task to monitor the stop event more efficiently
         async def monitor_stop_event():
             while not stop_server_event.is_set():
                 await asyncio.sleep(1)
@@ -101,7 +100,7 @@ def grpc_server_process(
 
     asyncio.run(_grpc_server_launcher())
 
-    # Keep the process alive even after the gRPC server stops
+    # Keep the process alive even after the gRPC server stops by stop_server_event
     logger.info("gRPC server has stopped, but keeping the process alive")
     while stop_server_event.is_set():
         # Sleep to avoid busy waiting

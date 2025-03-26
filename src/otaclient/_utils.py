@@ -55,13 +55,15 @@ def wait_and_log(
         time.sleep(check_interval)
 
 
-def check_other_otaclient(pid_fpath: StrOrPath, is_skip: bool) -> None:
+def check_other_otaclient(
+    pid_fpath: StrOrPath, is_skip: bool
+) -> None:  # pragma: no cover
     """Check if there is another otaclient instance running, and then
     create a pid lock file for this otaclient instance.
 
     NOTE that otaclient should not run inside a PID namespace.
     """
-    # Skip check if environment variable is set
+    # Skip check if the condition is met
     if is_skip:
         logger.info("Skipping otaclient check due to environment variable")
         return

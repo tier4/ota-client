@@ -13,6 +13,7 @@
 # limitations under the License.
 """OTA Service API v2 implementation."""
 
+
 from __future__ import annotations
 
 import asyncio
@@ -144,6 +145,7 @@ class OTAClientAPIServicer:
                 )
             return response
 
+        # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
@@ -158,7 +160,7 @@ class OTAClientAPIServicer:
                 )
             )
             tasks[_task] = ecu_contact
-        if tasks:
+        if tasks:  # NOTE: input for asyncio.wait must not be empty!
             done, _ = await asyncio.wait(tasks)
             for _task in done:
                 try:
@@ -171,6 +173,9 @@ class OTAClientAPIServicer:
                         f"{_ecu_contact} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
+                    # NOTE(20230517): aligns with the previous behavior that create
+                    #                 response with RECOVERABLE OTA error for unresponsive
+                    #                 ECU.
                     response.add_ecu(
                         response_ecu_type(
                             ecu_id=_ecu_contact.ecu_id,
@@ -179,6 +184,7 @@ class OTAClientAPIServicer:
                     )
             tasks.clear()
 
+        # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
             new_session_id = gen_session_id(update_req_ecu.version)
             if request_cls == RollbackRequestV2:
@@ -200,8 +206,9 @@ class OTAClientAPIServicer:
                 update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp)
 
+        # finally, trigger ecu_status_storage entering active mode if needed
         if update_acked_ecus:
-            logger.info(f"ECUs accept request: {update_acked_ecus}")
+            logger.info(f"ECUs accept OTA request: {update_acked_ecus}")
             asyncio.create_task(
                 self._ecu_status_storage.on_ecus_accept_update_request(
                     update_acked_ecus
