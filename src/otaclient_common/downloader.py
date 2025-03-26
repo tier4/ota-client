@@ -406,6 +406,7 @@ class Downloader:
             headers=prepared_headers,
             timeout=timeout,
             verify=False,
+            cert=None,
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
