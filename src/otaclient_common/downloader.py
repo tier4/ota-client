@@ -289,7 +289,8 @@ class Downloader:
 
         parsed_cookies = cookies.copy() if cookies else {}
         self._proxies = parsed_proxies = proxies.copy() if proxies else {}
-        self._force_http = use_http_if_http_proxy_set and "http" in parsed_proxies
+        # self._force_http = use_http_if_http_proxy_set and "http" in parsed_proxies
+        self._force_http = True
 
         # downloading stats collecting
         self._downloaded_bytes = 0
@@ -405,8 +406,6 @@ class Downloader:
             stream=True,
             headers=prepared_headers,
             timeout=timeout,
-            verify=False,
-            cert=None,
         ) as resp, open(dst, "wb") as dst_fp:
             resp.raise_for_status()
 
