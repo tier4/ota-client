@@ -98,13 +98,14 @@ class OTAClientPackage:
         condition: threading.Condition,
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
-
         # ------ step 1: download manifest.json ------ #
         _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(self._rootfs_url, self.ENTRY_POINT),
+                    url=urljoin_ensure_base(
+                        self._rootfs_url, self.ENTRY_POINT.lstrip("/")
+                    ),
                     dst=_client_manifest_fpath,
                 )
             ]
@@ -131,7 +132,9 @@ class OTAClientPackage:
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(self._rootfs_url, _package_file),
+                    url=urljoin_ensure_base(
+                        self._rootfs_url, _package_file.lstrip("/")
+                    ),
                     dst=_downloaded_package_file,
                 )
             ]
@@ -165,7 +168,7 @@ class OTAClientPackage:
 
         # ------ step 3: find the target package ------ #
         # the schema of manifest.json is defined in .github/actions/generate_manifest/schema.py
-        # first, try to find the patch file
+        # first, try to find the patch file corresponding to the current squashfs
         if _is_squashfs_exists:
             for package in self._manifest.packages:
                 if (
