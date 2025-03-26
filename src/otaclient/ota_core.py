@@ -341,9 +341,9 @@ class _OTAUpdateOperator:
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
-            max_retry_on_entry=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+            max_retry_on_entry=cfg.MAX_RETRY_ON_ENTRY_COUNT,
             thread_name_prefix=thread_name_prefix,
-            initializer=self._downloader_workder_initializer,
+            initializer=self._downloader_worker_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
                 ctx=self._download_watchdog_ctx,
@@ -434,7 +434,7 @@ class _OTAUpdateOperator:
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
             thread_name_prefix="download_ota_files",
-            initializer=self._downloader_workder_initializer,
+            initializer=self._downloader_worker_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
                 ctx=DownloadPoolWatchdogFuncContext(
@@ -500,7 +500,7 @@ class _OTAUpdateOperator:
             self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
 
-    def _downloader_workder_initializer(self) -> None:
+    def _downloader_worker_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
             self._downloader_pool.get_instance()
         )
