@@ -29,10 +29,12 @@ import sys
 import threading
 import time
 from functools import partial
+from threading import Thread
 
 from otaclient import __version__
 from otaclient._types import MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
+from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +81,45 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     _on_shutdown(sys_exit=True)
 
 
+def _thread_dynamic_client() -> None:
+    _mount_dir = cfg.MOUNT_DIR
+    if not os.path.exists(_mount_dir):
+        logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
+        return
+
+    try:
+        # Create a copy of the current environment
+        env = os.environ.copy()
+        # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable
+        env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
+
+        # Run the OTA client
+        # Loop forever, restarting the downloaded OTA client if it exits
+        while True:
+            process = subprocess.Popen(
+                [
+                    f"{_mount_dir}/otaclient/venv/bin/python3",
+                    "-m",
+                    "otaclient",
+                    "--mount-dir",
+                    _mount_dir,
+                ],
+                env=env,  # Pass the modified environment to the subprocess
+            )
+            logger.info(
+                f"Started OTA client with PID: {process.pid} and mount dir: {_mount_dir}"
+            )
+
+            process.wait()
+            logger.warning("OTA client exited with non-zero status, restarting...")
+    except Exception as e:
+        logger.exception(f"Failed to start OTA client: {e}")
+
+
 def main() -> None:  # pragma: no cover
     from otaclient._logging import configure_logging
     from otaclient._otaproxy_ctx import otaproxy_control_thread
     from otaclient._utils import check_other_otaclient, create_otaclient_rundir
-    from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
 
@@ -193,47 +229,17 @@ def main() -> None:  # pragma: no cover
 
         if start_dynamic_client_event.is_set():
             start_dynamic_client_event.clear()
-
             logger.info("request to start a new client")
-            _mount_dir = cfg.MOUNT_DIR
-            if not os.path.exists(_mount_dir):
-                logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
-                continue
 
-            try:
-                # Create a copy of the current environment
-                env = os.environ.copy()
-                # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable
-                env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
+            dynamic_client_thread = Thread(target=_thread_dynamic_client, daemon=True)
+            dynamic_client_thread.start()
 
-                # Run the OTA client
-                # Loop forever, restarting the downloaded OTA client if it exits
-                while True:
+            # Create a closure with the current thread instance to avoid the loop variable binding issue
+            def create_thread_exit_handler(thread):
+                def _thread_exit():
+                    thread.join(6)
 
-                    def cleanup_child(proc):
-                        if proc.poll() is None:
-                            proc.kill()
+                return _thread_exit
 
-                    process = subprocess.Popen(
-                        [
-                            f"{_mount_dir}/otaclient/venv/bin/python3",
-                            "-m",
-                            "otaclient",
-                            "--mount-dir",
-                            _mount_dir,
-                        ],
-                        env=env,  # Pass the modified environment to the subprocess
-                    )
-                    atexit.register(cleanup_child, process)
-                    logger.info(
-                        f"Started OTA client with PID: {process.pid} and mount dir: {_mount_dir}"
-                    )
-
-                    process.wait()
-                    logger.warning(
-                        "OTA client exited with non-zero status, restarting..."
-                    )
-            except Exception as e:
-                logger.exception(f"Failed to start OTA client: {e}")
-            finally:
-                _on_shutdown(sys_exit=True)
+            # Register the atexit handler with the current thread instance
+            atexit.register(create_thread_exit_handler(dynamic_client_thread))
