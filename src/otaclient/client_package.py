@@ -83,26 +83,28 @@ class OTAClientPackage:
         self._manifest = None
         self.package = None
 
+    @property
+    def _rootfs_url(self) -> str:
+        _metadata_jwt = self._ota_metadata.metadata_jwt
+        if _metadata_jwt is None or _metadata_jwt.rootfs_directory is None:
+            raise ValueError("metadata_jwt is not loaded yet, abort")
+        return urljoin_ensure_base(
+            self._base_url,
+            f"{_metadata_jwt.rootfs_directory.strip('/')}/",
+        )
+
     def _prepare_manifest(
         self,
         condition: threading.Condition,
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
 
-        _metadata_jwt = self._ota_metadata.metadata_jwt
-        if _metadata_jwt is None or _metadata_jwt.rootfs_directory is None:
-            raise ValueError("metadata_jwt is not loaded yet, abort")
-        _rootfs_url = urljoin_ensure_base(
-            self._base_url,
-            f"{_metadata_jwt.rootfs_directory.strip('/')}/",
-        )
-
         # ------ step 1: download manifest.json ------ #
         _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(_rootfs_url, self.ENTRY_POINT),
+                    url=urljoin_ensure_base(self._rootfs_url, self.ENTRY_POINT),
                     dst=_client_manifest_fpath,
                 )
             ]
@@ -129,7 +131,7 @@ class OTAClientPackage:
         with condition:
             yield [
                 DownloadInfo(
-                    url=urljoin_ensure_base(self._base_url, _package_file),
+                    url=urljoin_ensure_base(self._rootfs_url, _package_file),
                     dst=_downloaded_package_file,
                 )
             ]
