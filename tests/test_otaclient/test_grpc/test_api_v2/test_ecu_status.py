@@ -501,7 +501,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
+            assert (
+                getattr(self.ecu_storage._state, k) == v
+            ), f"status_report attr {k} mismatch"
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
@@ -647,7 +649,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert getattr(self.ecu_storage, k) == v, f"status_report attr {k} mismatch"
+            assert (
+                getattr(self.ecu_storage._state, k) == v
+            ), f"status_report attr {k} mismatch"
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
