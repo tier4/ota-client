@@ -64,8 +64,11 @@ ACTIVE_POLLING_INTERVAL = 1  # seconds
 
 
 @dataclass
-class ECUStatusState:
+class _ECUStatusState:
     """State container for ECUStatusStorage."""
+
+    # ECU status flags
+    ecu_status_flags: MultipleECUStatusFlags
 
     # ECU status storage
     storage_last_updated_timestamp: int = 0
@@ -97,7 +100,6 @@ class ECUStatusState:
 
 
 class ECUStatusStorage:
-
     def __init__(
         self,
         *,
@@ -106,8 +108,6 @@ class ECUStatusStorage:
         self.my_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
 
-        self.ecu_status_flags = ecu_status_flags
-
         # The attribute that will be exported in status API response,
         # NOTE(20230801): for web.auto user, available_ecu_ids in status API response
         #                 will be used to generate update request list, so be-careful!
@@ -115,7 +115,7 @@ class ECUStatusStorage:
         #                 ECUs that in the secondaries field but no in available_ecu_ids field
         #                 are considered to be the ECUs not ready for OTA. See ecu_info.yaml doc.
         # Initialize the state dataclass
-        self._state = ECUStatusState()
+        self._state = _ECUStatusState(ecu_status_flags=ecu_status_flags)
         # Initialize available_ecu_ids with the list from ecu_info
         self._state.available_ecu_ids = dict.fromkeys(ecu_info.get_available_ecu_ids())
 
@@ -144,7 +144,7 @@ class ECUStatusStorage:
         NOTE: as special case, lost_ecus set is calculated against all reachable ECUs.
         """
         self._state.properties_last_update_timestamp = cur_timestamp = int(time.time())
-        ecu_status_flags = self.ecu_status_flags
+        ecu_status_flags = self._state.ecu_status_flags
 
         # check unreachable ECUs
         # NOTE(20230801): this property is calculated against all reachable ECUs,
@@ -334,7 +334,7 @@ class ECUStatusStorage:
         their ota_status to UPDATING on-time due to status polling interval mismatch),
         the above set value will be kept for <DELAY_OVERALL_STATUS_REPORT_UPDATE> seconds.
         """
-        ecu_status_flags = self.ecu_status_flags
+        ecu_status_flags = self._state.ecu_status_flags
         async with self._properties_update_lock:
             self._state.last_update_request_received_timestamp = int(time.time())
             self._state.lost_ecus_id -= ecus_accept_update
