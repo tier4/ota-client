@@ -121,6 +121,7 @@ source = [
   "otaclient_common",
   "ota_metadata",
   "ota_proxy",
+  "otaclient_manifest"
 ]
 
 [tool.coverage.report]

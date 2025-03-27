@@ -25,6 +25,7 @@ runs:
       env:
         DIR: ${{ inputs.dir }}
         OUTPUT_MANIFEST: ${{ inputs.output_manifest }}
+        PYTHONPATH: ${{ github.workspace }}/src # to use otaclient_manifest module
       shell: bash
       run: |
         python ./.github/actions/generate_manifest/generate_manifest.py \
