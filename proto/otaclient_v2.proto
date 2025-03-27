@@ -92,6 +92,7 @@ message UpdateRequest {
 message UpdateResponseEcu {
   string ecu_id = 1; // EUC id responded
   FailureType result = 2; // result
+  string message = 3; // message
 }
 
 message UpdateResponse {
@@ -113,8 +114,9 @@ message RollbackRequest {
 
 // Response
 message RollbackResponseEcu {
-  string ecu_id = 1;
-  FailureType result = 2;
+  string ecu_id = 1; // ECU id responded
+  FailureType result = 2; // result
+  string message = 3; // message
 }
 
 message RollbackResponse {
