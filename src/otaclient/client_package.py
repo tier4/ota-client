@@ -124,19 +124,19 @@ class OTAClientPackage:
         # ------ step 2: download the target package ------ #
         _package_filename = _available_package_metadata.filename
         _package_file = cfg.OTACLIENT_INSTALLATION_RELEASE + "/" + _package_filename
-        _downloaded_package_file = self._download_dir / _package_filename
+        _downloaded_package_path = self._download_dir / _package_filename
         with condition:
             yield [
                 DownloadInfo(
                     url=urljoin_ensure_base(
                         self._rootfs_url, _package_file.lstrip("/")
                     ),
-                    dst=_downloaded_package_file,
+                    dst=_downloaded_package_path,
                 )
             ]
             condition.wait()  # wait for download finished
         self.package = _available_package_metadata
-        self.downloaded_package_file = _downloaded_package_file
+        self.downloaded_package_path = _downloaded_package_path
 
     def _get_available_package_metadata(self) -> ReleasePackage:
         """Get the available package for the current platform."""
@@ -192,39 +192,61 @@ class OTAClientPackage:
 
     def get_target_squashfs_path(self) -> Path:
         """Get the target squashfs file path."""
-        """Run the downloaded OTA client service."""
         if self.package is None:
             raise ValueError("OTA client package is not downloaded yet, abort")
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
             # apply patch to the existing squashfs
             _architecture = self.package.architecture
-            _patch_file = self.downloaded_package_file
-            _current_squashfs_file = str(self.current_squashfs_path)
+            # Validate architecture string to prevent injection
+            if _architecture not in (self.ARCHITECTURE_X86_64, self.ARCHITECTURE_ARM64):
+                raise ValueError(f"Invalid architecture: {_architecture}")
+
+            _patch_path = self.downloaded_package_path
+            _current_squashfs_path = self.current_squashfs_path
             _target_version = self.package.version
-            target_squashfs_path = Path(
+
+            # Validate version string to prevent injection
+            if (
+                not isinstance(_target_version, str)
+                or not _target_version.replace(".", "").isalnum()
+            ):
+                raise ValueError(f"Invalid version string: {_target_version}")
+
+            _target_squashfs_path = Path(
                 cfg.OTACLIENT_INSTALLATION_RELEASE
                 + f"/otaclient-{_architecture}_v{_target_version}.squashfs"
             )
 
-            # apply patch
-            command = [
-                "zstd",
-                "-d",
-                f"--patch-from={_current_squashfs_file}",
-                str(_patch_file),
-                "-o",
-                str(target_squashfs_path),
-            ]
+            # Apply patch using subprocess with list arguments (safer)
+            # and validate all paths are actually Path objects
+            if not (
+                isinstance(_current_squashfs_path, Path)
+                and isinstance(_patch_path, Path)
+                and isinstance(_target_squashfs_path, Path)
+            ):
+                raise TypeError("All paths must be Path objects")
+
             try:
-                subprocess.run(command, check=True)
+                subprocess.run(
+                    [
+                        "zstd",
+                        "-d",
+                        f"--patch-from={_current_squashfs_path}",
+                        str(_patch_path),
+                        "-o",
+                        str(_target_squashfs_path),
+                    ],
+                    check=True,
+                    capture_output=True,  # Capture output to prevent terminal injection
+                )
             except subprocess.CalledProcessError as e:
-                logger.warning(f"failed to apply patch: {e!r}")
+                logger.warning(f"failed to apply patch: {e.stderr.decode()}")
                 raise
-            return target_squashfs_path
+            return _target_squashfs_path
 
         # directly use the downloaded squashfs
-        return Path(self.downloaded_package_file)
+        return self.downloaded_package_path
 
     # APIs
 
