@@ -860,6 +860,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _stop_grpc_server(self) -> None:
         logger.info("stop gRPC server...")
+        # let grpc process to stop the server
         self.stop_server_event.set()
 
     def _mount_squashfs(self) -> None:
@@ -868,6 +869,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _run_squashfs(self) -> None:
         logger.info("start to run service...")
+        # let main process to start the new client
         self.start_dynamic_client_event.set()
 
     # API

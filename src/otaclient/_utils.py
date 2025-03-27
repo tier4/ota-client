@@ -65,7 +65,7 @@ def check_other_otaclient(
     """
     # Skip check if the condition is met
     if is_skip:
-        logger.info("Skipping otaclient check due to environment variable")
+        logger.info("Skipping otaclient multiple instances check")
         return
 
     pid_fpath = Path(pid_fpath)
