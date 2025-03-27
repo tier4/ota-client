@@ -163,7 +163,6 @@ class OTAClientAPIServicer:
         request_cls: type[UpdateRequestV2],
         remote_call: Callable,
         response_type: type[api_types.UpdateResponse],
-        response_ecu_type: type[api_types.UpdateResponseEcu],
         update_acked_ecus: set[str],
     ) -> api_types.UpdateResponse: ...
 
@@ -175,7 +174,6 @@ class OTAClientAPIServicer:
         request_cls: type[RollbackRequestV2],
         remote_call: Callable,
         response_type: type[api_types.RollbackResponse],
-        response_ecu_type: type[api_types.RollbackResponseEcu],
         update_acked_ecus: None,
     ) -> api_types.RollbackResponse: ...
 
@@ -187,9 +185,6 @@ class OTAClientAPIServicer:
         remote_call: Callable,
         response_type: (
             type[api_types.UpdateResponse] | type[api_types.RollbackResponse]
-        ),
-        response_ecu_type: (
-            type[api_types.UpdateResponseEcu] | type[api_types.RollbackResponseEcu]
         ),
         update_acked_ecus: set[str] | None,
     ) -> api_types.UpdateResponse | api_types.RollbackResponse:
@@ -294,7 +289,6 @@ class OTAClientAPIServicer:
             request_cls=UpdateRequestV2,
             remote_call=OTAClientCall.update_call,
             response_type=api_types.UpdateResponse,
-            response_ecu_type=api_types.UpdateResponseEcu,
             update_acked_ecus=set(),
         )
 
@@ -307,7 +301,6 @@ class OTAClientAPIServicer:
             request_cls=RollbackRequestV2,
             remote_call=OTAClientCall.rollback_call,
             response_type=api_types.RollbackResponse,
-            response_ecu_type=api_types.RollbackResponseEcu,
             update_acked_ecus=None,
         )
 
