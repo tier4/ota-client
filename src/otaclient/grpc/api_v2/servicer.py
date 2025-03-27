@@ -219,7 +219,7 @@ class OTAClientAPIServicer:
             for _task in done:
                 try:
                     _ecu_resp = _task.result()
-                    if update_acked_ecus:
+                    if update_acked_ecus is not None:
                         update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
@@ -238,8 +238,8 @@ class OTAClientAPIServicer:
 
         # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            if isinstance(update_req_ecu, api_types.UpdateRequestEcu) and isinstance(
-                request_cls, type(UpdateRequestV2)
+            if isinstance(update_req_ecu, api_types.UpdateRequestEcu) and (
+                request_cls is UpdateRequestV2
             ):
                 # update
                 new_session_id = gen_session_id(update_req_ecu.version)
@@ -249,9 +249,9 @@ class OTAClientAPIServicer:
                     cookies_json=update_req_ecu.cookies,
                     session_id=new_session_id,
                 )
-            elif isinstance(
-                update_req_ecu, api_types.RollbackRequestEcu
-            ) and isinstance(request_cls, type(RollbackRequestV2)):
+            elif isinstance(update_req_ecu, api_types.RollbackRequestEcu) and (
+                request_cls is RollbackRequestV2
+            ):
                 # rollback
                 new_session_id = gen_session_id("__rollback")
                 local_request = request_cls(session_id=new_session_id)
@@ -264,7 +264,10 @@ class OTAClientAPIServicer:
                 local_request,
             )
 
-            if update_acked_ecus and _resp.result == api_types.FailureType.NO_FAILURE:
+            if (
+                update_acked_ecus is not None
+                and _resp.result == api_types.FailureType.NO_FAILURE
+            ):
                 update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp)
 
