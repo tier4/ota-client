@@ -20,6 +20,7 @@ import asyncio
 import logging
 import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
@@ -79,7 +80,27 @@ class OTAClientAPIServicer:
             rollback_request, api_types.RollbackResponseEcu
         )
 
-    def _dispatch_local_request(self, request, response_type):
+    @overload
+    def _dispatch_local_request(
+        self,
+        request: UpdateRequestV2,
+        response_type: type[api_types.UpdateResponseEcu],
+    ) -> api_types.UpdateResponseEcu: ...
+
+    @overload
+    def _dispatch_local_request(
+        self,
+        request: RollbackRequestV2,
+        response_type: type[api_types.RollbackResponseEcu],
+    ) -> api_types.RollbackResponseEcu: ...
+
+    def _dispatch_local_request(
+        self,
+        request: UpdateRequestV2 | RollbackRequestV2,
+        response_type: (
+            type[api_types.UpdateResponseEcu] | type[api_types.RollbackResponseEcu]
+        ),
+    ) -> api_types.UpdateResponseEcu | api_types.RollbackResponseEcu:
         self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
@@ -114,27 +135,72 @@ class OTAClientAPIServicer:
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
+    def _add_ecu_into_response(
+        self,
+        response: api_types.UpdateResponse | api_types.RollbackResponse,
+        ecu_id: str,
+        failure_type: api_types.FailureType,
+    ) -> None:
+        """Add ECU into response with specified failure type."""
+        if isinstance(response, api_types.UpdateResponse):
+            ecu_response = api_types.UpdateResponseEcu(
+                ecu_id=ecu_id,
+                result=failure_type,
+            )
+            response.add_ecu(ecu_response)
+        elif isinstance(response, api_types.RollbackResponse):
+            ecu_response = api_types.RollbackResponseEcu(
+                ecu_id=ecu_id,
+                result=failure_type,
+            )
+            response.add_ecu(ecu_response)
+
+    @overload
     async def _handle_request(
         self,
-        request,
-        local_handler,
-        request_cls,
-        remote_call,
-        response_type,
-        response_ecu_type,
-    ):
+        request: api_types.UpdateRequest,
+        local_handler: Callable,
+        request_cls: type[UpdateRequestV2],
+        remote_call: Callable,
+        response_type: type[api_types.UpdateResponse],
+        response_ecu_type: type[api_types.UpdateResponseEcu],
+        update_acked_ecus: set[str],
+    ) -> api_types.UpdateResponse: ...
+
+    @overload
+    async def _handle_request(
+        self,
+        request: api_types.RollbackRequest,
+        local_handler: Callable,
+        request_cls: type[RollbackRequestV2],
+        remote_call: Callable,
+        response_type: type[api_types.RollbackResponse],
+        response_ecu_type: type[api_types.RollbackResponseEcu],
+        update_acked_ecus: None,
+    ) -> api_types.RollbackResponse: ...
+
+    async def _handle_request(
+        self,
+        request: api_types.UpdateRequest | api_types.RollbackRequest,
+        local_handler: Callable,
+        request_cls: type[UpdateRequestV2] | type[RollbackRequestV2],
+        remote_call: Callable,
+        response_type: (
+            type[api_types.UpdateResponse] | type[api_types.RollbackResponse]
+        ),
+        response_ecu_type: (
+            type[api_types.UpdateResponseEcu] | type[api_types.RollbackResponseEcu]
+        ),
+        update_acked_ecus: set[str] | None,
+    ) -> api_types.UpdateResponse | api_types.RollbackResponse:
         logger.info(f"receive request: {request}")
-        update_acked_ecus = set()
         response = response_type()
 
         if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
             logger.error("ecu_info.yaml is not loaded properly, reject any request")
             for _req in request.iter_ecu():
-                response.add_ecu(
-                    response_ecu_type(
-                        ecu_id=_req.ecu_id,
-                        result=api_types.FailureType.UNRECOVERABLE,
-                    )
+                self._add_ecu_into_response(
+                    response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
                 )
             return response
 
@@ -158,7 +224,8 @@ class OTAClientAPIServicer:
             for _task in done:
                 try:
                     _ecu_resp = _task.result()
-                    update_acked_ecus.update(_ecu_resp.ecus_acked_update)
+                    if update_acked_ecus:
+                        update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
@@ -169,33 +236,40 @@ class OTAClientAPIServicer:
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
-                    response.add_ecu(
-                        response_ecu_type(
-                            ecu_id=_ecu_contact.ecu_id,
-                            result=api_types.FailureType.RECOVERABLE,
-                        )
+                    self._add_ecu_into_response(
+                        response, _ecu_contact.ecu_id, api_types.FailureType.RECOVERABLE
                     )
             tasks.clear()
 
         # second: dispatch update request to local if required by incoming request
         if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            new_session_id = gen_session_id(update_req_ecu.version)
-            if request_cls == RollbackRequestV2:
-                local_request = request_cls(session_id=new_session_id)
-            else:
+            if isinstance(update_req_ecu, api_types.UpdateRequestEcu) and isinstance(
+                request_cls, type(UpdateRequestV2)
+            ):
+                # update
+                new_session_id = gen_session_id(update_req_ecu.version)
                 local_request = request_cls(
                     version=update_req_ecu.version,
                     url_base=update_req_ecu.url,
                     cookies_json=update_req_ecu.cookies,
                     session_id=new_session_id,
                 )
+            elif isinstance(
+                update_req_ecu, api_types.RollbackRequestEcu
+            ) and isinstance(request_cls, type(RollbackRequestV2)):
+                # rollback
+                new_session_id = gen_session_id("__rollback")
+                local_request = request_cls(session_id=new_session_id)
+            else:
+                raise ValueError(f"unsupported request type: {type(request)}")
+
             _resp = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 local_handler,
                 local_request,
             )
 
-            if _resp.result == api_types.FailureType.NO_FAILURE:
+            if update_acked_ecus and _resp.result == api_types.FailureType.NO_FAILURE:
                 update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp)
 
@@ -215,24 +289,26 @@ class OTAClientAPIServicer:
         self, request: api_types.UpdateRequest
     ) -> api_types.UpdateResponse:
         return await self._handle_request(
-            request,
-            self._local_update,
-            UpdateRequestV2,
-            OTAClientCall.update_call,
-            api_types.UpdateResponse,
-            api_types.UpdateResponseEcu,
+            request=request,
+            local_handler=self._local_update,
+            request_cls=UpdateRequestV2,
+            remote_call=OTAClientCall.update_call,
+            response_type=api_types.UpdateResponse,
+            response_ecu_type=api_types.UpdateResponseEcu,
+            update_acked_ecus=set(),
         )
 
     async def rollback(
         self, request: api_types.RollbackRequest
     ) -> api_types.RollbackResponse:
         return await self._handle_request(
-            request,
-            self._local_rollback,
-            RollbackRequestV2,
-            OTAClientCall.rollback_call,
-            api_types.RollbackResponse,
-            api_types.RollbackResponseEcu,
+            request=request,
+            local_handler=self._local_rollback,
+            request_cls=RollbackRequestV2,
+            remote_call=OTAClientCall.rollback_call,
+            response_type=api_types.RollbackResponse,
+            response_ecu_type=api_types.RollbackResponseEcu,
+            update_acked_ecus=None,
         )
 
     async def status(self, _=None) -> api_types.StatusResponse:
