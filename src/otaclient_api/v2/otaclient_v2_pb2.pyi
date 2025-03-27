@@ -88,12 +88,14 @@ class UpdateRequest(_message.Message):
     def __init__(self, ecu: _Optional[_Iterable[_Union[UpdateRequestEcu, _Mapping]]] = ...) -> None: ...
 
 class UpdateResponseEcu(_message.Message):
-    __slots__ = ["ecu_id", "result"]
+    __slots__ = ["ecu_id", "result", "message"]
     ECU_ID_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
     ecu_id: str
     result: FailureType
-    def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ...) -> None: ...
+    message: str
+    def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ..., message: _Optional[str] = ...) -> None: ...
 
 class UpdateResponse(_message.Message):
     __slots__ = ["ecu"]
@@ -114,12 +116,14 @@ class RollbackRequest(_message.Message):
     def __init__(self, ecu: _Optional[_Iterable[_Union[RollbackRequestEcu, _Mapping]]] = ...) -> None: ...
 
 class RollbackResponseEcu(_message.Message):
-    __slots__ = ["ecu_id", "result"]
+    __slots__ = ["ecu_id", "result", "message"]
     ECU_ID_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
     ecu_id: str
     result: FailureType
-    def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ...) -> None: ...
+    message: str
+    def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ..., message: _Optional[str] = ...) -> None: ...
 
 class RollbackResponse(_message.Message):
     __slots__ = ["ecu"]

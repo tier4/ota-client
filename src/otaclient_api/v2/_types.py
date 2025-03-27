@@ -187,12 +187,14 @@ class RollbackResponseEcu(MessageWrapper[pb2.RollbackResponseEcu]):
     __slots__ = calculate_slots(pb2.RollbackRequestEcu)
     ecu_id: str
     result: FailureType
+    message: str
 
     def __init__(
         self,
         *,
         ecu_id: _Optional[str] = ...,
         result: _Optional[_Union[FailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -557,12 +559,14 @@ class UpdateResponseEcu(MessageWrapper[pb2.UpdateResponseEcu]):
     __slots__ = calculate_slots(pb2.UpdateResponseEcu)
     ecu_id: str
     result: FailureType
+    message: str
 
     def __init__(
         self,
         *,
         ecu_id: _Optional[str] = ...,
         result: _Optional[_Union[FailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
