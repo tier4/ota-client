@@ -191,6 +191,9 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
+        # NOTE(20241220): due to the fact that OTA Service API doesn't have field
+        #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
+        #                 to upper is by status API.
         if not otaclient_cfg.ECU_INFO_LOADED_SUCCESSFULLY:
             logger.error("ecu_info.yaml is not loaded properly, reject any request")
             for _req in request.iter_ecu():
@@ -237,19 +240,19 @@ class OTAClientAPIServicer:
             tasks.clear()
 
         # second: dispatch update request to local if required by incoming request
-        if update_req_ecu := request.find_ecu(self.my_ecu_id):
-            if isinstance(update_req_ecu, api_types.UpdateRequestEcu) and (
+        if req_ecu := request.find_ecu(self.my_ecu_id):
+            if isinstance(req_ecu, api_types.UpdateRequestEcu) and (
                 request_cls is UpdateRequestV2
             ):
                 # update
-                new_session_id = gen_session_id(update_req_ecu.version)
+                new_session_id = gen_session_id(req_ecu.version)
                 local_request = request_cls(
-                    version=update_req_ecu.version,
-                    url_base=update_req_ecu.url,
-                    cookies_json=update_req_ecu.cookies,
+                    version=req_ecu.version,
+                    url_base=req_ecu.url,
+                    cookies_json=req_ecu.cookies,
                     session_id=new_session_id,
                 )
-            elif isinstance(update_req_ecu, api_types.RollbackRequestEcu) and (
+            elif isinstance(req_ecu, api_types.RollbackRequestEcu) and (
                 request_cls is RollbackRequestV2
             ):
                 # rollback
