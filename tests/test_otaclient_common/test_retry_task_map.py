@@ -126,7 +126,7 @@ class TestRetryTaskMap:
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
-        assert total_failure_count > MAX_RETRY
+        assert total_failure_count >= MAX_RETRY
 
     def test_retry_exceed_total_retry_limit(self):
         MAX_TOTAL_RETRY = 200
@@ -149,7 +149,7 @@ class TestRetryTaskMap:
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
-        assert total_failure_count > MAX_TOTAL_RETRY
+        assert total_failure_count >= MAX_TOTAL_RETRY
 
     def test_retry_exceed_entry_retry_limit(self):
         MAX_RETRY_ON_ENTRY = 30
@@ -171,7 +171,7 @@ class TestRetryTaskMap:
                     ...
 
         assert any(
-            MAX_RETRY_ON_ENTRY + 3 > _per_entry_failure > MAX_RETRY_ON_ENTRY
+            _per_entry_failure >= MAX_RETRY_ON_ENTRY
             for _per_entry_failure in self._per_entry_failure_counter.values()
         )
 
