@@ -250,7 +250,7 @@ class TestClientPackage:
     def test_get_target_squashfs_path(self, ota_client_package):
         ota_client_package.package = MagicMock()
         ota_client_package.package.type = "squashfs"
-        ota_client_package.downloaded_package_file = (
+        ota_client_package.downloaded_package_path = Path(
             "/tmp/session/.download/package.squashfs"
         )
 
