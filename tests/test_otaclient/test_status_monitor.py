@@ -429,3 +429,33 @@ class TestStatusMonitor:
         assert (update_progress := otaclient_status.update_progress)
         assert update_progress.processed_files_num == self.TOTAL_FILES_NUM
         assert update_progress.processed_files_size == self.TOTAL_FILES_SIZE
+
+    def test_downloading_ota_client(
+        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
+    ) -> None:
+        status_collector, msg_queue = ota_status_collector
+
+        # ------ execution ------ #
+        msg_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.CLIENT_UPDATING,
+                ),
+                session_id=self.SESSION_ID_FOR_TEST,
+            ),
+        )
+        msg_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_CLIENT,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.SESSION_ID_FOR_TEST,
+            )
+        )
+
+        time.sleep(2)  # wait for reports being processed
+        otaclient_status = status_collector.otaclient_status
+        assert otaclient_status
+        assert otaclient_status.ota_status == OTAStatus.CLIENT_UPDATING
+        assert otaclient_status.update_phase == UpdatePhase.DOWNLOADING_OTA_CLIENT
