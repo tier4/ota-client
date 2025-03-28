@@ -280,7 +280,11 @@ class OTAClientStatusCollector:
                 payload.failure_traceback = _traceback[-self.max_traceback_size :]
 
             new_ota_status = payload.new_ota_status
-            if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
+            if new_ota_status in [
+                OTAStatus.UPDATING,
+                OTAStatus.ROLLBACKING,
+                OTAStatus.CLIENT_UPDATING,
+            ]:
                 status_storage.session_id = report.session_id
                 return _on_new_ota_session(status_storage, payload)
             status_storage.session_id = ""  # clear session if we are not in an OTA
@@ -334,9 +338,10 @@ class OTAClientStatusCollector:
     def _ota_status_logging_thread(self) -> None:
         while True:
             # when in active OTA, log OTA progress very <LOG_OTA_PROGRESS_INTERVAL>
-            if (
-                _cur_status := self._status
-            ) and _cur_status.ota_status == OTAStatus.UPDATING:
+            if (_cur_status := self._status) and _cur_status.ota_status in [
+                OTAStatus.UPDATING,
+                OTAStatus.CLIENT_UPDATING,
+            ]:
                 logger.info(f"ongoing OTA: {_cur_status}")
             time.sleep(LOG_OTA_PROGRESS_INTERVAL)
 
