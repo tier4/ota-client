@@ -108,7 +108,7 @@ class ECUStatusState:
         state_dict = {}
         for key, value in self.__dict__.items():
             if key == "ecu_status_flags":
-                # Pickel doesn't support serialization of Event objects
+                # Pickle doesn't support serialization of Event objects
                 # Extract the state of each flag instead of the Event objects
                 flags_state = {
                     "any_child_ecu_in_update": value.any_child_ecu_in_update.is_set(),

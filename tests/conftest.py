@@ -321,11 +321,17 @@ def ota_status_collector(
 ) -> Generator[tuple[OTAClientStatusCollector, Queue[StatusReport]], Any, None]:
     _shm_mock = class_mocker.MagicMock()
 
+    # mock the client_update_control_flags
+    _client_update_control_flags = class_mocker.MagicMock()
+    _client_update_control_flags.start_dynamic_client_event = class_mocker.MagicMock()
+    _client_update_control_flags.start_dynamic_client_event.is_set.return_value = False
+
     _report_queue: Queue[StatusReport] = Queue()
     _status_collector = OTAClientStatusCollector(
         msg_queue=_report_queue,
         shm_status=_shm_mock,
         max_traceback_size=MAX_TRACEBACK_SIZE,
+        client_update_control_flags=_client_update_control_flags,
     )
     _collector_thread = _status_collector.start()
 

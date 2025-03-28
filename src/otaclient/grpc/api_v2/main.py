@@ -19,13 +19,17 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
-import multiprocessing.synchronize as mp_sync
 import time
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
 
-from otaclient._types import IPCRequest, IPCResponse, MultipleECUStatusFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    IPCRequest,
+    IPCResponse,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import SharedOTAClientStatusReader
 
 logger = logging.getLogger(__name__)
@@ -37,7 +41,7 @@ def grpc_server_process(
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
-    stop_server_event: mp_sync.Event,
+    client_update_control_flags: ClientUpdateControlFlags,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -58,7 +62,7 @@ def grpc_server_process(
         from otaclient_api.v2.api_stub import OtaClientServiceV2
 
         async def monitor_stop_event():
-            while not stop_server_event.is_set():
+            while not client_update_control_flags.stop_server_event.is_set():
                 await asyncio.sleep(1)
             logger.info("grpc API server stop event detected")
             return
@@ -102,5 +106,5 @@ def grpc_server_process(
 
     # Keep the process alive even after the gRPC server stops by stop_server_event
     logger.info("gRPC server has stopped, but keeping the process alive")
-    while stop_server_event.is_set():
+    while client_update_control_flags.stop_server_event.is_set():
         time.sleep(1)

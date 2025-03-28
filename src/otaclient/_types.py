@@ -132,6 +132,13 @@ class MultipleECUStatusFlags:
     all_success: mp_sync.Event
 
 
+@dataclass
+class ClientUpdateControlFlags:
+    stop_server_event: mp_sync.Event
+    request_shutdown_event: mp_sync.Event
+    start_dynamic_client_event: mp_sync.Event
+
+
 #
 # ------ OTA requests IPC ------ #
 #

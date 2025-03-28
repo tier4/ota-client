@@ -172,8 +172,7 @@ class TestOTAClient:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        stop_server_event = mocker.MagicMock()
-        start_dynamic_client_event = mocker.MagicMock()
+        client_update_control_flags = mocker.MagicMock()
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
@@ -201,8 +200,7 @@ class TestOTAClient:
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
-            stop_server_event=stop_server_event,
-            start_dynamic_client_event=start_dynamic_client_event,
+            client_update_control_flags=client_update_control_flags,
         )
 
     def test_update_normal_finished(self):
@@ -299,8 +297,7 @@ class TestOTAClientUpdater:
     ):
         _, self.status_report_queue = ota_status_collector
         self.ecu_status_flags = mocker.MagicMock()
-        self.stop_server_event = mocker.MagicMock()
-        self.start_dynamic_client_event = mocker.MagicMock()
+        self.client_update_control_flags = mocker.MagicMock()
 
         # Create a real temporary directory for the session
         self.session_workdir = tmp_path / "test_client_update"
@@ -338,8 +335,7 @@ class TestOTAClientUpdater:
             ecu_status_flags=self.ecu_status_flags,
             status_report_queue=self.status_report_queue,
             session_id=self.SESSION_ID,
-            stop_server_event=self.stop_server_event,
-            start_dynamic_client_event=self.start_dynamic_client_event,
+            client_update_control_flags=self.client_update_control_flags,
             upper_otaproxy=None,
         )
 
@@ -355,9 +351,17 @@ class TestOTAClientUpdater:
         client_updater = self.setup_client_updater(mocker)
 
         # Assert initialization parameters
-        assert client_updater.stop_server_event == self.stop_server_event
         assert (
-            client_updater.start_dynamic_client_event == self.start_dynamic_client_event
+            client_updater.client_update_control_flags.stop_server_event
+            == self.client_update_control_flags.stop_server_event
+        )
+        assert (
+            client_updater.client_update_control_flags.request_shutdown_event
+            == self.client_update_control_flags.request_shutdown_event
+        )
+        assert (
+            client_updater.client_update_control_flags.start_dynamic_client_event
+            == self.client_update_control_flags.start_dynamic_client_event
         )
         assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
 
@@ -367,7 +371,7 @@ class TestOTAClientUpdater:
 
         client_updater._stop_grpc_server()
 
-        self.stop_server_event.set.assert_called_once()
+        self.client_update_control_flags.stop_server_event.set.assert_called_once()
 
     def test_mount_squashfs(self, mocker: pytest_mock.MockerFixture):
         # Test running the service
@@ -383,7 +387,7 @@ class TestOTAClientUpdater:
 
         # Mock the start_dynamic_client_event's set method
         mock_start_event_set = mocker.patch.object(
-            client_updater.start_dynamic_client_event, "set"
+            client_updater.client_update_control_flags.start_dynamic_client_event, "set"
         )
 
         # Call the method to test

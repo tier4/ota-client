@@ -32,7 +32,7 @@ from functools import partial
 from threading import Thread
 
 from otaclient import __version__
-from otaclient._types import MultipleECUStatusFlags
+from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 
@@ -81,13 +81,17 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     _on_shutdown(sys_exit=True)
 
 
-def _thread_dynamic_client() -> None:
-    _mount_dir = cfg.MOUNT_DIR
-    if not os.path.exists(_mount_dir):
-        logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
-        return
-
+def _thread_dynamic_client(
+    client_update_control_flags: ClientUpdateControlFlags,
+) -> None:
     try:
+        _mount_dir = cfg.MOUNT_DIR
+        if not os.path.exists(_mount_dir):
+            logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
+            raise FileNotFoundError(
+                f"Mount dir {_mount_dir} does not exist, aborting..."
+            )
+
         # Create a copy of the current environment
         env = os.environ.copy()
         # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable
@@ -114,6 +118,8 @@ def _thread_dynamic_client() -> None:
             logger.warning("OTA client exited with non-zero status, restarting...")
     except Exception as e:
         logger.exception(f"Failed to start OTA client: {e}")
+        # gRPC server has already been stopped, thus shutdown the whole otaclient
+        client_update_control_flags.request_shutdown_event.set()
 
 
 def main() -> None:  # pragma: no cover
@@ -161,8 +167,11 @@ def main() -> None:  # pragma: no cover
         any_requires_network=mp_ctx.Event(),
         all_success=mp_ctx.Event(),
     )
-    stop_server_event = mp_ctx.Event()
-    start_dynamic_client_event = mp_ctx.Event()
+    client_update_control_flags = ClientUpdateControlFlags(
+        stop_server_event=mp_ctx.Event(),
+        request_shutdown_event=mp_ctx.Event(),
+        start_dynamic_client_event=mp_ctx.Event(),
+    )
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -174,8 +183,7 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
-            stop_server_event=stop_server_event,
-            start_dynamic_client_event=start_dynamic_client_event,
+            client_update_control_flags=client_update_control_flags,
         ),
         name="otaclient_ota_core",
     )
@@ -189,8 +197,7 @@ def main() -> None:  # pragma: no cover
             ),
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
-            ecu_status_flags=ecu_status_flags,
-            stop_server_event=stop_server_event,
+            client_update_control_flags=client_update_control_flags,
         ),
         name="otaclient_api_server",
     )
@@ -227,8 +234,10 @@ def main() -> None:  # pragma: no cover
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown()
 
-        if start_dynamic_client_event.is_set():
-            start_dynamic_client_event.clear()
+        if client_update_control_flags.request_shutdown_event.is_set():
+            return _on_shutdown()
+
+        if client_update_control_flags.start_dynamic_client_event.is_set():
             logger.info("request to start a new client")
 
             dynamic_client_thread = Thread(target=_thread_dynamic_client, daemon=True)
