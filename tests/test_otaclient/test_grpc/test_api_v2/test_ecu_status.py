@@ -676,3 +676,139 @@ class TestECUStatusStorage:
         #   1. wait until _event_setter finished, or with a little bit delay.
         #   2. wait much less time than <_mocked_interval>.
         await asyncio.wait_for(_waiter(), timeout=_sleep_time + 1)
+
+    def test_ecu_status_state_pickle_serialization(self, mocker):
+        """Test serializing and deserializing ECUStatusState using pickle."""
+        import time
+
+        from otaclient.grpc.api_v2.ecu_status import ECUStatusState
+
+        # Create an original state with some test data
+        original_state = ECUStatusState(ecu_status_flags=self.ecu_status_flags)
+        original_state.storage_last_updated_timestamp = int(time.time())
+        original_state.available_ecu_ids = {"autoware": None, "p1": None}
+
+        # Add test data for all_ecus_status_v2
+        original_state.all_ecus_status_v2 = {
+            "autoware": api_types.StatusResponseEcuV2(
+                ecu_id="autoware",
+                ota_status=api_types.StatusOta.SUCCESS,
+                firmware_version="1.0.0",
+            ),
+            "p1": api_types.StatusResponseEcuV2(
+                ecu_id="p1",
+                ota_status=api_types.StatusOta.UPDATING,
+                firmware_version="0.9.0",
+            ),
+        }
+
+        # Add test data for all_ecus_status_v1
+        original_state.all_ecus_status_v1 = {
+            "autoware": api_types.StatusResponseEcu(
+                ecu_id="autoware",
+                result=api_types.FailureType.NO_FAILURE,
+                status=api_types.Status(
+                    status=api_types.StatusOta.SUCCESS, version="1.0.0"
+                ),
+            ),
+            "p1": api_types.StatusResponseEcu(
+                ecu_id="p1",
+                result=api_types.FailureType.NO_FAILURE,
+                status=api_types.Status(
+                    status=api_types.StatusOta.UPDATING, version="0.9.0"
+                ),
+            ),
+        }
+
+        # Set the missing timestamp properties
+        current_time = int(time.time())
+        original_state.properties_last_update_timestamp = current_time
+        original_state.last_update_request_received_timestamp = current_time - 100
+
+        original_state.lost_ecus_id = {"p2"}
+        original_state.failed_ecus_id = {"p3"}
+        original_state.in_update_ecus_id = {"p4"}
+        original_state.in_update_child_ecus_id = {"p5"}
+        original_state.success_ecus_id = {"autoware"}
+
+        # Serialize using to_pickle
+        pickled_data = original_state.to_pickle()
+
+        # Verify we got valid pickle data
+        assert isinstance(pickled_data, bytes)
+        assert len(pickled_data) > 0
+
+        # Create a new state instance
+        new_state = ECUStatusState(ecu_status_flags=self.ecu_status_flags)
+
+        # Deserialize using from_pickle
+        new_state.from_pickle(pickled_data)
+
+        # Verify all fields match the original
+        assert (
+            new_state.storage_last_updated_timestamp
+            == original_state.storage_last_updated_timestamp
+        )
+        assert new_state.available_ecu_ids == original_state.available_ecu_ids
+        assert new_state.lost_ecus_id == original_state.lost_ecus_id
+        assert new_state.failed_ecus_id == original_state.failed_ecus_id
+        assert new_state.in_update_ecus_id == original_state.in_update_ecus_id
+        assert (
+            new_state.in_update_child_ecus_id == original_state.in_update_child_ecus_id
+        )
+        assert new_state.success_ecus_id == original_state.success_ecus_id
+
+        # Verify the previously missing timestamp properties
+        assert (
+            new_state.properties_last_update_timestamp
+            == original_state.properties_last_update_timestamp
+        )
+        assert (
+            new_state.last_update_request_received_timestamp
+            == original_state.last_update_request_received_timestamp
+        )
+
+        # Verify ecu_status_flags is the same instance (object reference preserved)
+        assert new_state.ecu_status_flags is self.ecu_status_flags
+
+        # Check the pickled StatusResponseEcuV2 objects
+        assert (
+            new_state.all_ecus_status_v2.keys()
+            == original_state.all_ecus_status_v2.keys()
+        )
+        for key in new_state.all_ecus_status_v2:
+            assert (
+                new_state.all_ecus_status_v2[key].ecu_id
+                == original_state.all_ecus_status_v2[key].ecu_id
+            )
+            assert (
+                new_state.all_ecus_status_v2[key].ota_status
+                == original_state.all_ecus_status_v2[key].ota_status
+            )
+            assert (
+                new_state.all_ecus_status_v2[key].firmware_version
+                == original_state.all_ecus_status_v2[key].firmware_version
+            )
+
+        # Check the pickled StatusResponseEcu (v1) objects
+        assert (
+            new_state.all_ecus_status_v1.keys()
+            == original_state.all_ecus_status_v1.keys()
+        )
+        for key in new_state.all_ecus_status_v1:
+            assert (
+                new_state.all_ecus_status_v1[key].ecu_id
+                == original_state.all_ecus_status_v1[key].ecu_id
+            )
+            assert (
+                new_state.all_ecus_status_v1[key].result
+                == original_state.all_ecus_status_v1[key].result
+            )
+            assert (
+                new_state.all_ecus_status_v1[key].status.status
+                == original_state.all_ecus_status_v1[key].status.status
+            )
+            assert (
+                new_state.all_ecus_status_v1[key].status.version
+                == original_state.all_ecus_status_v1[key].status.version
+            )
