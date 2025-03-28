@@ -20,7 +20,6 @@ import asyncio
 import logging
 import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
@@ -79,20 +78,6 @@ class OTAClientAPIServicer:
         return self._dispatch_local_request(
             rollback_request, api_types.RollbackResponseEcu
         )
-
-    @overload
-    def _dispatch_local_request(
-        self,
-        request: UpdateRequestV2,
-        response_type: type[api_types.UpdateResponseEcu],
-    ) -> api_types.UpdateResponseEcu: ...
-
-    @overload
-    def _dispatch_local_request(
-        self,
-        request: RollbackRequestV2,
-        response_type: type[api_types.RollbackResponseEcu],
-    ) -> api_types.RollbackResponseEcu: ...
 
     def _dispatch_local_request(
         self,
@@ -155,40 +140,26 @@ class OTAClientAPIServicer:
             )
             response.add_ecu(ecu_response)
 
-    @overload
-    async def _handle_request(
-        self,
-        request: api_types.UpdateRequest,
-        local_handler: Callable,
-        request_cls: type[UpdateRequestV2],
-        remote_call: Callable,
-        response_type: type[api_types.UpdateResponse],
-        update_acked_ecus: set[str],
-    ) -> api_types.UpdateResponse: ...
-
-    @overload
-    async def _handle_request(
-        self,
-        request: api_types.RollbackRequest,
-        local_handler: Callable,
-        request_cls: type[RollbackRequestV2],
-        remote_call: Callable,
-        response_type: type[api_types.RollbackResponse],
-        update_acked_ecus: None,
-    ) -> api_types.RollbackResponse: ...
-
     async def _handle_request(
         self,
         request: api_types.UpdateRequest | api_types.RollbackRequest,
-        local_handler: Callable,
-        request_cls: type[UpdateRequestV2] | type[RollbackRequestV2],
-        remote_call: Callable,
-        response_type: (
-            type[api_types.UpdateResponse] | type[api_types.RollbackResponse]
-        ),
-        update_acked_ecus: set[str] | None,
     ) -> api_types.UpdateResponse | api_types.RollbackResponse:
         logger.info(f"receive request: {request}")
+        if isinstance(request, api_types.UpdateRequest):
+            local_handler = self._local_update
+            request_cls = UpdateRequestV2
+            remote_call = OTAClientCall.update_call
+            response_type = api_types.UpdateResponse
+            update_acked_ecus = set()
+        elif isinstance(request, api_types.RollbackRequest):
+            local_handler = self._local_rollback
+            request_cls = RollbackRequestV2
+            remote_call = OTAClientCall.rollback_call
+            response_type = api_types.RollbackResponse
+            update_acked_ecus = None
+        else:
+            raise ValueError(f"unsupported request type: {type(request)}")
+
         response = response_type()
 
         # NOTE(20241220): due to the fact that OTA Service API doesn't have field
@@ -291,11 +262,6 @@ class OTAClientAPIServicer:
     ) -> api_types.UpdateResponse:
         return await self._handle_request(
             request=request,
-            local_handler=self._local_update,
-            request_cls=UpdateRequestV2,
-            remote_call=OTAClientCall.update_call,
-            response_type=api_types.UpdateResponse,
-            update_acked_ecus=set(),
         )
 
     async def rollback(
@@ -303,11 +269,6 @@ class OTAClientAPIServicer:
     ) -> api_types.RollbackResponse:
         return await self._handle_request(
             request=request,
-            local_handler=self._local_rollback,
-            request_cls=RollbackRequestV2,
-            remote_call=OTAClientCall.rollback_call,
-            response_type=api_types.RollbackResponse,
-            update_acked_ecus=None,
         )
 
     async def status(self, _=None) -> api_types.StatusResponse:
