@@ -184,6 +184,8 @@ class OTAClientAPIServicer:
                 result=failure_type,
             )
             response.add_ecu(ecu_response)
+        else:
+            raise ValueError(f"invalid response type: {response}")
 
     def _create_local_request(
         self,
