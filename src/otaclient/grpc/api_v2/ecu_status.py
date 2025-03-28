@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import pickle
 import time
 from dataclasses import dataclass, field
 from itertools import chain
@@ -64,7 +65,7 @@ ACTIVE_POLLING_INTERVAL = 1  # seconds
 
 
 @dataclass
-class _ECUStatusState:
+class ECUStatusState:
     """State container for ECUStatusStorage."""
 
     # ECU status flags
@@ -98,6 +99,55 @@ class _ECUStatusState:
     # Update request tracking
     last_update_request_received_timestamp: int = 0
 
+    def to_pickle(self):
+        """Serialize the ECUStatusState instance to a byte string using pickle.
+
+        Returns:
+            bytes: Pickled representation of the ECUStatusState instance
+        """
+        state_dict = {}
+        for key, value in self.__dict__.items():
+            if key == "ecu_status_flags":
+                # Pickle doesn't support serialization of Event objects
+                # Extract the state of each flag instead of the Event objects
+                flags_state = {
+                    "any_child_ecu_in_update": value.any_child_ecu_in_update.is_set(),
+                    "any_requires_network": value.any_requires_network.is_set(),
+                    "all_success": value.all_success.is_set(),
+                    # Add any other flags that might be present in MultipleECUStatusFlags
+                }
+                state_dict[key] = flags_state
+            else:
+                state_dict[key] = value
+        return pickle.dumps(state_dict)
+
+    def from_pickle(self, pickled_data):
+        """Deserialize a pickled byte string to restore the ECUStatusState instance.
+
+        Args:
+            pickled_data (bytes): Pickled representation of the ECUStatusState instance.
+        """
+        state_dict = pickle.loads(pickled_data)
+        for key, value in state_dict.items():
+            if key == "ecu_status_flags":
+                # Restore the state of each flag
+                if value.get("any_child_ecu_in_update", False):
+                    self.ecu_status_flags.any_child_ecu_in_update.set()
+                else:
+                    self.ecu_status_flags.any_child_ecu_in_update.clear()
+
+                if value.get("any_requires_network", False):
+                    self.ecu_status_flags.any_requires_network.set()
+                else:
+                    self.ecu_status_flags.any_requires_network.clear()
+
+                if value.get("all_success", False):
+                    self.ecu_status_flags.all_success.set()
+                else:
+                    self.ecu_status_flags.all_success.clear()
+            else:
+                setattr(self, key, value)
+
 
 class ECUStatusStorage:
     def __init__(
@@ -115,7 +165,7 @@ class ECUStatusStorage:
         #                 ECUs that in the secondaries field but no in available_ecu_ids field
         #                 are considered to be the ECUs not ready for OTA. See ecu_info.yaml doc.
         # Initialize the state dataclass
-        self._state = _ECUStatusState(ecu_status_flags=ecu_status_flags)
+        self._state = ECUStatusState(ecu_status_flags=ecu_status_flags)
         # Initialize available_ecu_ids with the list from ecu_info
         self._state.available_ecu_ids = dict.fromkeys(ecu_info.get_available_ecu_ids())
 
