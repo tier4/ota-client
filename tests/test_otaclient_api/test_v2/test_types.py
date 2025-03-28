@@ -157,9 +157,10 @@ def test_convert_message(
 class Test_enum_wrapper_cooperate:
     def test_direct_compare(self):
         """protobuf enum and wrapper enum can compare directly."""
-        _protobuf_enum = v2.UPDATING
-        _wrapped = api_types.StatusOta.UPDATING
-        assert _protobuf_enum == _wrapped
+        _protobuf_enums = [v2.UPDATING, v2.ROLLBACKING, v2.CLIENT_UPDATING]
+        for _protobuf_enum in _protobuf_enums:
+            _wrapped = api_types.StatusOta(_protobuf_enum)
+            assert _protobuf_enum == _wrapped
 
     def test_assign_to_protobuf_message(self):
         """wrapper enum can be directly assigned in protobuf message."""
