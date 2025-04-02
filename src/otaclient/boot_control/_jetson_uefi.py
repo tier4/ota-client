@@ -77,6 +77,12 @@ FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
 """Only after R35.2, UEFI Capsule firmware update is introduced."""
 
 L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
+    "91db497c6c0292ac59a434d251da13e640186af5fb62f23273cd81eea8696dcc": BSPVersion(
+        36, 4,3,
+    ),
+    "23cf326f2f595c3a54da8d38f8be0b4e39b90a8a970e2820f57eeb679b9fe23c": BSPVersion(
+        36,4,0,
+    ),
     "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718": BSPVersion(
         36, 3, 0
     ),
