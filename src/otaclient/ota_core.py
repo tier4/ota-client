@@ -820,6 +820,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         self._download_client_package_resources()
         self._stop_grpc_server()
         self._mount_squashfs()
+        self._wait_sub_ecus()
         self._run_squashfs()
 
     def _download_client_package_resources(self) -> None:
@@ -866,6 +867,20 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._ota_client_package.mount_squashfs()
         except Exception:
             # after stopping the server, shutdown the client for any exceptions
+            self.client_update_control_flags.request_shutdown_event.set()
+
+    def _wait_sub_ecus(self) -> None:
+        logger.info("wait for all sub-ECU to finish client update...")
+        # wait for all sub-ECU to finish OTA update
+        result = wait_and_log(
+            check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+            check_for=False,
+            message="permit reboot flag",
+            log_func=logger.info,
+            timeout=cfg.CLIENT_UPDATE_TIMEOUT,
+        )
+        if result is False:
+            logger.warning("sub-ECU client update was aborted, shutdown client")
             self.client_update_control_flags.request_shutdown_event.set()
 
     def _run_squashfs(self) -> None:

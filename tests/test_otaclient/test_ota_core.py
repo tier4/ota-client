@@ -381,6 +381,28 @@ class TestOTAClientUpdater:
 
         self.mock_ota_client_package.mount_squashfs.assert_called_once()
 
+    def test_wait_sub_ecus(self, mocker: pytest_mock.MockerFixture):
+        # Test waiting for sub-ECUs to complete
+        client_updater = self.setup_client_updater(mocker)
+        # Mock the wait_and_log function
+        mock_wait_and_log = mocker.patch(f"{OTA_CORE_MODULE}.wait_and_log")
+        # Case 1: Test successful waiting (wait_and_log returns True)
+        mock_wait_and_log.return_value = True
+        client_updater._wait_sub_ecus()
+        # Verify that request_shutdown_event was not called (successful case)
+        self.client_update_control_flags.request_shutdown_event.set.assert_not_called()
+
+        # Reset mocks for second test case
+        mock_wait_and_log.reset_mock()
+        self.client_update_control_flags.request_shutdown_event.set.reset_mock()
+        # Case 2: Test timeout or failure case (wait_and_log returns False)
+        mock_wait_and_log.return_value = False
+        client_updater._wait_sub_ecus()
+        # Verify wait_and_log was called
+        mock_wait_and_log.assert_called_once()
+        # Verify that request_shutdown_event was set (timeout/failure case)
+        self.client_update_control_flags.request_shutdown_event.set.assert_called_once()
+
     def test_run_squashfs(self, mocker: pytest_mock.MockerFixture):
         # Setup the client updater instance
         client_updater = self.setup_client_updater(mocker)
@@ -455,6 +477,7 @@ class TestOTAClientUpdater:
         )
         mock_stop_grpc = mocker.patch.object(client_updater, "_stop_grpc_server")
         mock_mount_squashfs = mocker.patch.object(client_updater, "_mount_squashfs")
+        mock_wait_sub_ecus = mocker.patch.object(client_updater, "_wait_sub_ecus")
         mock_run_squashfs = mocker.patch.object(client_updater, "_run_squashfs")
 
         # Execute the client update
@@ -466,6 +489,7 @@ class TestOTAClientUpdater:
         mock_download_resources.assert_called_once()
         mock_stop_grpc.assert_called_once()
         mock_mount_squashfs.assert_called_once()
+        mock_wait_sub_ecus.assert_called_once()
         mock_run_squashfs.assert_called_once()
 
     def test_execute_success(self, mocker: pytest_mock.MockerFixture):

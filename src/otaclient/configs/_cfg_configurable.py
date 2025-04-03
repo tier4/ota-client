@@ -58,6 +58,7 @@ class _OTAClientSettings(BaseModel):
     MAX_CONCURRENT_DOWNLOAD_TASKS: int = 128
     DOWNLOAD_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
     MAX_RETRY_ON_ENTRY_COUNT: int = 300  # counts. almost 5 minutes
+    CLIENT_UPDATE_TIMEOUT: int = 5 * 60  # seconds
 
     #
     # ------ create standby settings ------ #

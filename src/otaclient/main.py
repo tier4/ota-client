@@ -94,7 +94,8 @@ def _thread_dynamic_client(
 
         # Create a copy of the current environment
         env = os.environ.copy()
-        # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable
+        # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
+        # downloaded OTA client
         env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
 
         # Run the OTA client
@@ -197,6 +198,7 @@ def main() -> None:  # pragma: no cover
             ),
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
+            ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
         ),
         name="otaclient_api_server",
