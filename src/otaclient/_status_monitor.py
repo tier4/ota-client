@@ -312,9 +312,9 @@ class OTAClientStatusCollector:
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
-        # NOTE: status collector will stop when start_dynamic_client_event is set
+        # NOTE: status collector will stop when stop_server_event is set
         # Because new otaclient will start to collect status
-        while not self.client_update_control_flags.start_dynamic_client_event.is_set():
+        while not self.client_update_control_flags.stop_server_event.is_set():
             _now = time.time()
             try:
                 report = self._input_queue.get_nowait()

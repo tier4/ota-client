@@ -99,8 +99,8 @@ def _thread_dynamic_client(
         env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
 
         # Run the OTA client
-        # Loop forever, restarting the downloaded OTA client if it exits
-        while True:
+        # retry to start the OTA client multiple times if it fails
+        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
             process = subprocess.Popen(
                 [
                     f"{_mount_dir}/otaclient/venv/bin/python3",
@@ -114,9 +114,13 @@ def _thread_dynamic_client(
             logger.info(
                 f"Started OTA client with PID: {process.pid} and mount dir: {_mount_dir}"
             )
-
             process.wait()
             logger.warning("OTA client exited with non-zero status, restarting...")
+
+        logger.warning(
+            "Reached maximum number of retries to start OTA client, shutting down..."
+        )
+        client_update_control_flags.request_shutdown_event.set()
     except Exception as e:
         logger.exception(f"Failed to start OTA client: {e}")
         # gRPC server has already been stopped, thus shutdown the whole otaclient
@@ -137,6 +141,9 @@ def main() -> None:  # pragma: no cover
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
+    logger.info(
+        f"env.downloaded_dynamic_ota_client: {os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
+    )
 
     check_other_otaclient(
         cfg.OTACLIENT_PID_FILE, bool(os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT))
@@ -241,6 +248,7 @@ def main() -> None:  # pragma: no cover
 
         if client_update_control_flags.start_dynamic_client_event.is_set():
             logger.info("request to start a new client")
+            client_update_control_flags.start_dynamic_client_event.clear()
 
             dynamic_client_thread = Thread(
                 target=_thread_dynamic_client,
