@@ -44,7 +44,7 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         response = await self._stub.client_update(
             _types.ClientUpdateRequest.convert(request)
         )
-        return response.export_pb()"
+        return response.export_pb()
     """
 
     async def Status(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
