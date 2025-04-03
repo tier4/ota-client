@@ -359,11 +359,6 @@ class _RPIBootControl:
                     initrd_img,
                     get_sysboot_files_fpath(INITRD_IMG, target_slot),
                 )
-
-            # NOTE(20240603): for backward compatibility(downgrade), still create the flag file.
-            #   The present of flag files means the firmware is updated.
-            flag_file = Path(cfg.SYSTEM_BOOT_MOUNT_POINT) / cfg.SWITCH_BOOT_FLAG_FILE
-            flag_file.write_text("")
             os.sync()
         except Exception as e:
             _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
