@@ -242,7 +242,11 @@ def main() -> None:  # pragma: no cover
         if client_update_control_flags.start_dynamic_client_event.is_set():
             logger.info("request to start a new client")
 
-            dynamic_client_thread = Thread(target=_thread_dynamic_client, daemon=True)
+            dynamic_client_thread = Thread(
+                target=_thread_dynamic_client,
+                args=(client_update_control_flags,),
+                daemon=True,
+            )
             dynamic_client_thread.start()
 
             # Create a closure with the current thread instance to avoid the loop variable binding issue

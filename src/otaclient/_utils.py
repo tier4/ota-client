@@ -51,8 +51,8 @@ def wait_and_log(
         check_for: The value to check against (True or False).
         check_interval: How often to check the flag in seconds.
         log_interval: How often to log a message in seconds.
-        timeout: Maximum time to wait in seconds. None means wait indefinitely.
         log_func: Function to use for logging.
+        timeout: Maximum time to wait in seconds. None means wait indefinitely.
 
     Returns:
         bool: True if condition was met, False if timeout occurred.
