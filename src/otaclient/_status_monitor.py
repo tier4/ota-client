@@ -280,7 +280,11 @@ class OTAClientStatusCollector:
                 payload.failure_traceback = _traceback[-self.max_traceback_size :]
 
             new_ota_status = payload.new_ota_status
-            if new_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
+            if new_ota_status in [
+                OTAStatus.UPDATING,
+                OTAStatus.ROLLBACKING,
+                OTAStatus.CLIENT_UPDATING,
+            ]:
                 status_storage.session_id = report.session_id
                 return _on_new_ota_session(status_storage, payload)
             status_storage.session_id = ""  # clear session if we are not in an OTA

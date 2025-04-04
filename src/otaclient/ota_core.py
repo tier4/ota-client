@@ -910,7 +910,11 @@ class OTAClient:
 
     @property
     def is_busy(self) -> bool:
-        return self._live_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]
+        return self._live_ota_status in [
+            OTAStatus.UPDATING,
+            OTAStatus.ROLLBACKING,
+            OTAStatus.CLIENT_UPDATING,
+        ]
 
     def update(self, request: UpdateRequestV2) -> None:
         """
