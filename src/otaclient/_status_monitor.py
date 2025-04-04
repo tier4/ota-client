@@ -338,10 +338,9 @@ class OTAClientStatusCollector:
     def _ota_status_logging_thread(self) -> None:
         while True:
             # when in active OTA, log OTA progress very <LOG_OTA_PROGRESS_INTERVAL>
-            if (_cur_status := self._status) and _cur_status.ota_status in [
-                OTAStatus.UPDATING,
-                OTAStatus.CLIENT_UPDATING,
-            ]:
+            if (
+                _cur_status := self._status
+            ) and _cur_status.ota_status == OTAStatus.UPDATING:
                 logger.info(f"ongoing OTA: {_cur_status}")
             time.sleep(LOG_OTA_PROGRESS_INTERVAL)
 
