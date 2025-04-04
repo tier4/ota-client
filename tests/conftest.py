@@ -325,6 +325,10 @@ def ota_status_collector(
     _client_update_control_flags = class_mocker.MagicMock()
     _client_update_control_flags.start_dynamic_client_event = class_mocker.MagicMock()
     _client_update_control_flags.start_dynamic_client_event.is_set.return_value = False
+    _client_update_control_flags.stop_server_event = class_mocker.MagicMock()
+    _client_update_control_flags.stop_server_event.is_set.return_value = False
+    _client_update_control_flags.request_shutdown_event = class_mocker.MagicMock()
+    _client_update_control_flags.request_shutdown_event.is_set.return_value = False
 
     _report_queue: Queue[StatusReport] = Queue()
     _status_collector = OTAClientStatusCollector(
