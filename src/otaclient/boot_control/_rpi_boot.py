@@ -357,12 +357,11 @@ class _RPIBootControl:
                     get_sysboot_files_fpath(INITRD_IMG, target_slot),
                 )
 
-            # NOTE(20240603): for backward compatibility(downgrade), still create the flag file.
-            #   The present of flag files means the firmware is updated.
-            flag_file = (
-                Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT) / boot_cfg.SWITCH_BOOT_FLAG_FILE
-            )
-            flag_file.write_text("")
+            # NOTE(20250403): previously, we will write the flag file used by otaclient v3.7.1 and older
+            #   after firmware update as the flag file was designed to indicate firmware update is finished.
+            #   But that will cause problem when we downgrade from otaclient v3.8.x back to v3.7.1,
+            #   as on 1st reboot processing for v3.7.1, slot switch finalizing(config file writing) will also occurs.
+            #   Skipping 1st reboot processing when downgrade to v3.7.1 will result in slot switch finalizing being skipped!
             os.sync()
         except Exception as e:
             _err_msg = f"failed to apply new kernel,initrd.img for {target_slot}: {e!r}"
