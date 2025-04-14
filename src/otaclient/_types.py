@@ -48,6 +48,7 @@ class UpdatePhase(StrEnum):
     APPLYING_UPDATE = "APPLYING_UPDATE"
     PROCESSING_POSTUPDATE = "PROCESSING_POSTUPDATE"
     FINALIZING_UPDATE = "FINALIZING_UPDATE"
+    DOWNLOADING_OTA_CLIENT = "DOWNLOADING_OTA_CLIENT"
 
 
 class OTAStatus(StrEnum):
@@ -57,6 +58,7 @@ class OTAStatus(StrEnum):
     UPDATING = "UPDATING"
     ROLLBACKING = "ROLLBACKING"
     ROLLBACK_FAILURE = "ROLLBACK_FAILURE"
+    CLIENT_UPDATING = "CLIENT_UPDATING"
 
 
 class FailureType(StrEnum):
@@ -158,6 +160,15 @@ class IPCRequest:
 
 @dataclass
 class UpdateRequestV2(IPCRequest):
+    """Compatible with OTA API version 2."""
+
+    version: str
+    url_base: str
+    cookies_json: str
+
+
+@dataclass
+class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
     version: str

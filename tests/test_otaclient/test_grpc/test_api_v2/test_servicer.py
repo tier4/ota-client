@@ -435,6 +435,50 @@ class TestOTAClientAPIServicer:
         self.ecu_status_storage.on_ecus_accept_update_request.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_client_update_local_ecu(self, mocker: MockerFixture):
+        # Arrange
+        client_update_request = api_types.ClientUpdateRequest()
+        client_update_request.add_ecu(
+            api_types.ClientUpdateRequestEcu(
+                ecu_id="autoware",
+                version="1.0.0",
+                url="http://example.com",
+                cookies="{}",
+            )
+        )
+
+        # Setup response for local update
+        self.resp_queue.get.return_value = IPCResponse(
+            session_id="test-session-id",
+            res=IPCResEnum.ACCEPT,
+            msg="OK",
+        )
+
+        # Setup executor to run the task and return result
+        async def mock_run_in_executor(executor, func, *args):
+            return func(*args)
+
+        loop_mock = mocker.AsyncMock()
+        loop_mock.run_in_executor = mock_run_in_executor
+        mocker.patch("asyncio.get_running_loop", return_value=loop_mock)
+
+        # Act
+        result = await self.servicer.client_update(client_update_request)
+
+        # Assert
+        expected_response = api_types.ClientUpdateResponse()
+        expected_response.add_ecu(
+            api_types.ClientUpdateResponseEcu(
+                ecu_id="autoware",
+                result=api_types.FailureType.NO_FAILURE,
+            )
+        )
+
+        compare_message(result, expected_response)
+        self.op_queue.put_nowait.assert_called_once()
+        self.ecu_status_storage.on_ecus_accept_update_request.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_status(self):
         # Arrange
         expected_response = api_types.StatusResponse()
