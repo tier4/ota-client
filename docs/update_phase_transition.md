@@ -1,6 +1,6 @@
 ```mermaid
 stateDiagram-v2
-    [*] --> INITIALIZING : update or client update API called
+    [*] --> INITIALIZING : wake up / session started / session finished
     INITIALIZING --> PROCESSING_METADATA : metadata processing is started
     PROCESSING_METADATA --> CALCULATING_DELTA : delta calculation is started
     CALCULATING_DELTA --> DOWNLOADING_OTA_FILES : delta resource downloading is started
