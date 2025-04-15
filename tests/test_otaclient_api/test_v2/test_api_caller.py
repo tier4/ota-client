@@ -110,6 +110,11 @@ class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
         _res.CopyFrom(self.DUMMY_ROLLBACK_RESPONSE)
         return _res
 
+    async def ClientUpdate(self, request: v2.UpdateRequest, context):
+        _res = v2.UpdateResponse()
+        _res.CopyFrom(self.DUMMY_UPDATE_RESPONSE)
+        return _res
+
     async def Status(self, request: v2.StatusRequest, context):
         _res = v2.StatusResponse()
         _res.CopyFrom(self.DUMMY_STATUS)
