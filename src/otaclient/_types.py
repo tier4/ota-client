@@ -134,9 +134,11 @@ class MultipleECUStatusFlags:
 
 @dataclass
 class ClientUpdateControlFlags:
-    stop_server_event: mp_sync.Event
-    request_shutdown_event: mp_sync.Event
-    start_dynamic_client_event: mp_sync.Event
+    """Flags for controlling the client update process."""
+
+    stop_server_event: mp_sync.Event  # for stopping gRPC server
+    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
+    start_dynamic_client_event: mp_sync.Event  # for starting downloaded dynamic client
 
 
 #

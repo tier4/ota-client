@@ -36,8 +36,6 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         response = await self._stub.rollback(_types.RollbackRequest.convert(request))
         return response.export_pb()
 
-    """
-    TODO: Uncomment when the client_update core part is implemented.
     async def ClientUpdate(
         self, request: pb2.UpdateRequest, context
     ) -> pb2.UpdateResponse:
@@ -45,16 +43,7 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
             _types.ClientUpdateRequest.convert(request)
         )
         return response.export_pb()
-    """
 
     async def Status(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
         response = await self._stub.status(_types.StatusRequest.convert(request))
-        return response.export_pb()
-
-    async def ClientUpdate(
-        self, request: pb2.UpdateRequest, context
-    ) -> pb2.UpdateResponse:
-        response = await self._stub.client_update(
-            _types.ClientUpdateRequest.convert(request)
-        )
         return response.export_pb()

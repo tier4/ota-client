@@ -120,11 +120,6 @@ class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
         _res.CopyFrom(self.DUMMY_STATUS)
         return _res
 
-    async def ClientUpdate(self, request: v2.UpdateRequest, context):
-        _res = v2.UpdateResponse()
-        _res.CopyFrom(self.DUMMY_UPDATE_RESPONSE)
-        return _res
-
 
 class TestOTAClientCall:
     OTA_CLIENT_SERVICE_PORT = 50051

@@ -312,8 +312,7 @@ class OTAClientStatusCollector:
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
-        # NOTE: status collector will stop when stop_server_event is set
-        # Because new otaclient will start to collect status
+        # NOTE: status collector will stop after gRPC server is stopped
         while not self.client_update_control_flags.stop_server_event.is_set():
             _now = time.time()
             try:

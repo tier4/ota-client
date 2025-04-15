@@ -91,7 +91,6 @@ def grpc_server_process(
 
         logger.info(f"launch grpc API server at {_address_info}")
         await server.start()
-
         try:
             # Wait for the stop event without busy polling
             await monitor_stop_event()
