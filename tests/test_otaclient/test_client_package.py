@@ -275,7 +275,7 @@ class TestClientPackage:
         ) as mock_prepare_manifest, patch.object(
             ota_client_package, "_prepare_client_package"
         ) as mock_prepare_client_package, patch.object(
-            ota_client_package, "_is_same_client_package_version"
+            ota_client_package, "is_same_client_package_version"
         ) as mock_is_same_version:
             mock_prepare_manifest.return_value = iter([[]])
             mock_prepare_client_package.return_value = iter([[]])
@@ -338,7 +338,7 @@ class TestClientPackage:
         with patch("otaclient.client_package.__version__", new=current_version):
             ota_client_package._manifest = Manifest(**manifest_data)
             assert (
-                ota_client_package._is_same_client_package_version() == expected_result
+                ota_client_package.is_same_client_package_version() == expected_result
             )
 
     def test_mount_squashfs(self, ota_client_package):
@@ -351,14 +351,14 @@ class TestClientPackage:
             mock_run.return_value = None
 
             ota_client_package.mount_squashfs()
-            mock_makedirs.assert_called_once_with(cfg.MOUNT_DIR, exist_ok=True)
+            mock_makedirs.assert_called_once_with(cfg.DYNAMIC_CLIENT_MNT, exist_ok=True)
             mock_run.assert_called_once_with(
                 [
                     "mount",
                     "-t",
                     "squashfs",
                     "/tmp/session/.download/package.squashfs",
-                    cfg.MOUNT_DIR,
+                    cfg.DYNAMIC_CLIENT_MNT,
                 ],
                 check=True,
             )
