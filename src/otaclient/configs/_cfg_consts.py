@@ -42,6 +42,9 @@ class Consts:
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
 
+    # mount point for downloaded otaclient
+    MOUNT_DIR = "/mnt/otaclient"
+
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
@@ -55,6 +58,7 @@ class Consts:
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
+    OTACLIENT_INSTALLATION_RELEASE = "/opt/ota/otaclient_release"
     CERT_DPATH = "/opt/ota/client/certs"
     IMAGE_META_DPATH = "/opt/ota/image-meta"
 
@@ -80,6 +84,11 @@ class Consts:
 
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
+
+    #
+    # ------ env vars ------ #
+    #
+    DOWNLOADED_DYNAMIC_OTA_CLIENT = "DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
