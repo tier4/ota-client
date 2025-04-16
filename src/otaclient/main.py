@@ -85,12 +85,15 @@ def _thread_dynamic_client(
     client_update_control_flags: ClientUpdateControlFlags,
 ) -> None:
     try:
-        _mount_dir = cfg.MOUNT_DIR
+        _mount_dir = cfg.DYNAMIC_CLIENT_MNT
         if not os.path.exists(_mount_dir):
             logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
             raise FileNotFoundError(
                 f"Mount dir {_mount_dir} does not exist, aborting..."
             )
+
+        # Save the current ECU status to a file
+        # TODO: implement the logic to save the current ECU status
 
         # Create a copy of the current environment
         env = os.environ.copy()
@@ -124,7 +127,6 @@ def _thread_dynamic_client(
         client_update_control_flags.request_shutdown_event.set()
     except Exception as e:
         logger.exception(f"Failed to start OTA client: {e}")
-        # gRPC server has already been stopped, thus shutdown the whole otaclient
         client_update_control_flags.request_shutdown_event.set()
 
 

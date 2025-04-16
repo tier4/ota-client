@@ -258,7 +258,7 @@ class OTAClientPackage:
         """
         try:
             yield from self._prepare_manifest(condition)
-            if not self._is_same_client_package_version():
+            if not self.is_same_client_package_version():
                 yield from self._prepare_client_package(condition)
             else:
                 logger.info("Skipping client package download as version is unchanged")
@@ -268,7 +268,7 @@ class OTAClientPackage:
             )
             raise
 
-    def _is_same_client_package_version(self) -> bool:
+    def is_same_client_package_version(self) -> bool:
         """Check if the current OTA client package version is the same as the target version in manifest"""
         if self._manifest is None:
             return False
@@ -283,7 +283,7 @@ class OTAClientPackage:
         squashfs_path = self.get_target_squashfs_path()
 
         # Create a temporary directory to mount the squashfs
-        _mount_dir = cfg.MOUNT_DIR
+        _mount_dir = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_dir, exist_ok=True)
 
         try:
