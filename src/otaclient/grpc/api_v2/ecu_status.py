@@ -105,6 +105,9 @@ class ECUStatusState:
         Returns:
             bytes: Pickled representation of the ECUStatusState instance
         """
+        # asdict doesn't support serialization of Event objects
+        # so we need to convert them to a serializable format
+        # and then convert them back to Event objects during deserialization
         state_dict = {}
         for key, value in self.__dict__.items():
             if isinstance(value, MultipleECUStatusFlags):
