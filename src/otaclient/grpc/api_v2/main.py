@@ -66,6 +66,7 @@ def grpc_server_process(
                 await asyncio.sleep(1)
             logger.info("grpc API server stop event detected")
 
+        # TODO: load pickle file from temporary file as needed
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
         ecu_tracker.start()
