@@ -107,14 +107,12 @@ class ECUStatusState:
         """
         state_dict = {}
         for key, value in self.__dict__.items():
-            if key == "ecu_status_flags":
+            if isinstance(value, MultipleECUStatusFlags):
                 # Pickle doesn't support serialization of Event objects
-                # Extract the state of each flag instead of the Event objects
                 flags_state = {
-                    "any_child_ecu_in_update": value.any_child_ecu_in_update.is_set(),
-                    "any_requires_network": value.any_requires_network.is_set(),
-                    "all_success": value.all_success.is_set(),
-                    # Add any other flags that might be present in MultipleECUStatusFlags
+                    flag_name: getattr(value, flag_name).is_set()
+                    for flag_name in dir(value)
+                    if isinstance(getattr(value, flag_name, None), asyncio.Event)
                 }
                 state_dict[key] = flags_state
             else:
@@ -129,22 +127,17 @@ class ECUStatusState:
         """
         state_dict = pickle.loads(pickled_data)
         for key, value in state_dict.items():
-            if key == "ecu_status_flags":
-                # Restore the state of each flag
-                if value.get("any_child_ecu_in_update", False):
-                    self.ecu_status_flags.any_child_ecu_in_update.set()
-                else:
-                    self.ecu_status_flags.any_child_ecu_in_update.clear()
-
-                if value.get("any_requires_network", False):
-                    self.ecu_status_flags.any_requires_network.set()
-                else:
-                    self.ecu_status_flags.any_requires_network.clear()
-
-                if value.get("all_success", False):
-                    self.ecu_status_flags.all_success.set()
-                else:
-                    self.ecu_status_flags.all_success.clear()
+            # Check if the value is of type MultipleECUStatusFlags
+            if isinstance(getattr(self, key, None), MultipleECUStatusFlags):
+                flags_instance = getattr(self, key)
+                for flag_name in dir(flags_instance):
+                    flag = getattr(flags_instance, flag_name, None)
+                    if isinstance(flag, asyncio.Event):
+                        flag_value = value.get(flag_name, False)
+                        if flag_value:
+                            flag.set()
+                        else:
+                            flag.clear()
             else:
                 setattr(self, key, value)
 
