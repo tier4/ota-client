@@ -42,19 +42,19 @@ class Consts:
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
 
-    # mount point for downloaded otaclient
-    MOUNT_DIR = "/mnt/otaclient"
-
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
     MOUNT_SPACE = "/run/otaclient/mnt"
     ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
     STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
+    # mount point for downloaded otaclient
+    DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
     OTA_TMP_META_STORE = "/.ota-meta"
+    OTA_TMP_STATUS_STORE = "/.ota-ecu-status"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"

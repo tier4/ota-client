@@ -875,7 +875,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self.client_update_control_flags.request_shutdown_event.set()
 
     def _is_same_client_package_version(self) -> bool:
-        return self._ota_client_package._is_same_client_package_version()
+        return self._ota_client_package.is_same_client_package_version()
 
     def _handle_same_version(self):
         """Handle the case where the client package version is the same."""
