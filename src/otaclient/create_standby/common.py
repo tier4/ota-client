@@ -594,6 +594,16 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
         #           the same file at the same time to improve performance and
         #           cache efficiency.
         random.Random(os.urandom(32)).shuffle(self._download_list)
+        
+        output_dir=cfg.OTACLIENT_INSTALLATION_DIR
+        download_list_file="download_list.csv"
+
+        with open(os.path.join(output_dir, download_list_file), "w") as _f:
+            _f.writelines("\n".join(f'{item.path},{item.size}' for item in self._download_list))
+            
+        rm_list_file="remove_list.csv"
+        with open(os.path.join(output_dir, rm_list_file), "w") as _f:
+            _f.writelines("\n".join(str(item) for item in self._rm))
 
         return DeltaBundle(
             rm_delta=self._rm,
