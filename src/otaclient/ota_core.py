@@ -1144,7 +1144,7 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT):
+        if os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT):
             raise NotImplementedError(
                 "multiple dynamic clients downloading is not supported"
             )

@@ -42,6 +42,7 @@ def grpc_server_process(
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
     client_update_control_flags: ClientUpdateControlFlags,
+    load_state: bool,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -66,8 +67,10 @@ def grpc_server_process(
                 await asyncio.sleep(1)
             logger.info("grpc API server stop event detected")
 
-        # TODO: load pickle file from temporary file as needed
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
+        # Load the ECU status when the downloaded client is running
+        if load_state:
+            ecu_status_storage.load_state()
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
         ecu_tracker.start()
 
@@ -94,6 +97,8 @@ def grpc_server_process(
         try:
             # Wait for the stop event without busy polling
             await monitor_stop_event()
+            # Save the ECU status to a file
+            ecu_status_storage.save_state()
         finally:
             # Ensure server gets stopped properly on exceptions
             logger.info("stopping grpc API server...")
