@@ -115,6 +115,7 @@ class TestGrpcServerLauncher:
                     start_dynamic_client_event=MagicMock(),
                     stop_server_event=stop_server_event,
                 ),
+                load_state=False,
             )
 
         # Verify server methods were called
@@ -164,6 +165,7 @@ class TestGrpcServerLauncher:
                     start_dynamic_client_event=MagicMock(),
                     stop_server_event=stop_server_event,
                 ),
+                load_state=False,
             )
 
         # Check that is_set was called the expected number of times
