@@ -63,8 +63,7 @@ def wait_and_log(
             return True
 
         # Check if timeout has been reached
-        if timeout and seconds >= timeout:
-            log_func(f"Timeout reached after {timeout}s waiting for {message}")
+        if timeout is not None and seconds >= timeout:
             return False
 
         _new_log_round = seconds // log_interval
