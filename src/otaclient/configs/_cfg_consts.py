@@ -48,13 +48,17 @@ class Consts:
     MOUNT_SPACE = "/run/otaclient/mnt"
     ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
     STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
+    # mount point for downloaded otaclient
+    DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
     OTA_TMP_META_STORE = "/.ota-meta"
+    OTA_TMP_STATUS_STORE = "/.ota-ecu-status"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
+    OTACLIENT_INSTALLATION_RELEASE = "/opt/ota/otaclient_release"
     CERT_DPATH = "/opt/ota/client/certs"
     IMAGE_META_DPATH = "/opt/ota/image-meta"
 
@@ -80,6 +84,11 @@ class Consts:
 
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
+
+    #
+    # ------ env vars ------ #
+    #
+    RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
