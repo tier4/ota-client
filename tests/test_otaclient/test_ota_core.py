@@ -392,9 +392,6 @@ class TestOTAClientUpdater:
         # Verify download method was called
         mock_download_files.assert_called_once()
 
-        # Verify download method was called
-        mock_download_files.assert_called_once()
-
     def test_download_client_package_files(self, mocker: pytest_mock.MockerFixture):
         # Test downloading client package files
         client_updater = self.setup_client_updater(mocker)
