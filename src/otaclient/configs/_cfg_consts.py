@@ -88,7 +88,7 @@ class Consts:
     #
     # ------ env vars ------ #
     #
-    DOWNLOADED_DYNAMIC_OTA_CLIENT = "DOWNLOADED_DYNAMIC_OTA_CLIENT"
+    RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""

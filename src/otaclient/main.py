@@ -92,14 +92,11 @@ def _thread_dynamic_client(
                 f"Mount dir {_mount_dir} does not exist, aborting..."
             )
 
-        # Save the current ECU status to a file
-        # TODO: implement the logic to save the current ECU status
-
         # Create a copy of the current environment
         env = os.environ.copy()
-        # Add the DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
+        # Add the RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
         # downloaded OTA client
-        env[cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
+        env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
 
         # Run the OTA client
         # retry to start the OTA client multiple times if it fails
@@ -145,11 +142,12 @@ def main() -> None:  # pragma: no cover
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
     logger.info(
-        f"env.downloaded_dynamic_ota_client: {os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
+        f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
     check_other_otaclient(
-        cfg.OTACLIENT_PID_FILE, bool(os.getenv(cfg.DOWNLOADED_DYNAMIC_OTA_CLIENT))
+        cfg.OTACLIENT_PID_FILE,
+        bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)),
     )
     create_otaclient_rundir(cfg.RUN_DIR)
 
@@ -210,6 +208,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
+            load_state=bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)),
         ),
         name="otaclient_api_server",
     )
