@@ -1,12 +1,21 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [
+  "hatch-vcs",
+  "hatchling>=1.20",
+]
+
 [project]
 name = "otaclient"
 readme = "README.md"
 license = { text = "LICENSE.md" }
-requires-python = ">=3.10"  # Changed to >=3.10
+requires-python = ">=3.8"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: Unix",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -89,7 +98,9 @@ testpaths = [
 [tool.black]
 line-length = 88
 target-version = [
-  'py310',  # Changed to only target py310 (or include others as needed)
+  'py38',
+  'py39',
+  'py310',
   'py311',
 ]
 extend-exclude = '''(
@@ -131,10 +142,10 @@ ignore = [
   "**/*_pb2.py*",
   "**/*_pb2_grpc.py*",
 ]
-pythonVersion = "3.10"  # Changed to 3.10
+pythonVersion = "3.8"
 
 [tool.ruff]
-target-version = "py310"  # Changed to py310
+target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
