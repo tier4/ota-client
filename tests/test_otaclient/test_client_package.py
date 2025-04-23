@@ -21,8 +21,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
@@ -131,13 +131,14 @@ class TestClientPackage:
         )
 
     @pytest.mark.parametrize(
-        "machine, arch, is_squashfs_exists, manifest_data, expected_filename",
+        "machine, arch, is_squashfs_exists, is_zstd_supported, manifest_data, expected_filename",
         [
             # 0: x86_64 squashfs
             (
                 "x86_64",
                 "x86_64",
                 False,
+                True,
                 {
                     "schema_version": "1",
                     "date": "2025-03-13T00:00:00",
@@ -157,6 +158,7 @@ class TestClientPackage:
                 "aarch64",
                 "aarch64",
                 False,
+                True,
                 {
                     "schema_version": "1",
                     "date": "2025-03-13T00:00:00",
@@ -176,6 +178,7 @@ class TestClientPackage:
                 "x86_64",
                 "x86_64",
                 False,
+                True,
                 {
                     "schema_version": "1",
                     "date": "2025-03-13T00:00:00",
@@ -194,6 +197,7 @@ class TestClientPackage:
             (
                 "x86_64",
                 "x86_64",
+                True,
                 True,
                 {
                     "schema_version": "1",
@@ -214,6 +218,7 @@ class TestClientPackage:
                 "x86_64",
                 "x86_64",
                 True,
+                True,
                 {
                     "schema_version": "1",
                     "date": "2025-03-13T00:00:00",
@@ -228,6 +233,26 @@ class TestClientPackage:
                 },
                 "patch_x86_64.squashfs",
             ),
+            # 4: squashfs exists and version match, but no zstd support
+            (
+                "x86_64",
+                "x86_64",
+                True,
+                False,
+                {
+                    "schema_version": "1",
+                    "date": "2025-03-13T00:00:00",
+                    "packages": [
+                        helper_generate_package(
+                            "package_x86_64.squashfs", "squashfs", "x86_64"
+                        ),
+                        helper_generate_package(
+                            "patch_x86_64.squashfs", "patch", "x86_64", __version__
+                        ),
+                    ],
+                },
+                "package_x86_64.squashfs",
+            ),
         ],
     )
     def test_get_available_package_metadata(
@@ -236,6 +261,7 @@ class TestClientPackage:
         machine,
         arch,
         is_squashfs_exists,
+        is_zstd_supported,
         manifest_data,
         expected_filename,
     ):
@@ -243,7 +269,10 @@ class TestClientPackage:
 
         with patch("platform.machine", return_value=machine), patch(
             "platform.processor", return_value=arch
-        ), patch.object(Path, "is_file", return_value=is_squashfs_exists):
+        ), patch.object(Path, "is_file", return_value=is_squashfs_exists), patch(
+            "otaclient.client_package.subprocess.call",
+            return_value=0 if is_zstd_supported else 1,
+        ):
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
 
