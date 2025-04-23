@@ -161,11 +161,24 @@ class OTAClientPackage:
             + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
+        try:
+            _is_zstd_supported = (
+                subprocess.call(
+                    ["which", "zstd"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                == 0
+            )
+        except Exception as e:
+            logger.warning(f"failed to check zstd support: {e!r}")
+            _is_zstd_supported = False
+            pass
 
         # ------ step 3: find the target package ------ #
-        # the schema of manifest.json is defined in .github/actions/generate_manifest/schema.py
+        # the schema of manifest.json is defined in otaclient_manifest/schema.py
         # first, try to find the patch file corresponding to the current squashfs
-        if _is_squashfs_exists:
+        if _is_squashfs_exists and _is_zstd_supported:
             for package in self._manifest.packages:
                 if (
                     package.architecture == _architecture
@@ -226,6 +239,7 @@ class OTAClientPackage:
                 raise TypeError("All paths must be Path objects")
 
             try:
+                # patch-from is not supported in zstandard, so use subprocess
                 subprocess.run(
                     [
                         "zstd",
@@ -238,8 +252,8 @@ class OTAClientPackage:
                     check=True,
                     capture_output=True,  # Capture output to prevent terminal injection
                 )
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"failed to apply patch: {e.stderr.decode()}")
+            except Exception as e:
+                logger.warning(f"failed to apply patch: {e!r}")
                 raise
             return _target_squashfs_path
 
