@@ -286,6 +286,7 @@ class OTAClientPackage:
         _mount_dir = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_dir, exist_ok=True)
 
+        logger.info(f"Mounting {squashfs_path} to {_mount_dir}")
         try:
             # Mount the squashfs file
             subprocess.run(
