@@ -62,10 +62,14 @@ class TestMain:
         # Mock processes
         self.mock_ota_core_p = mocker.MagicMock()
         self.mock_grpc_server_p = mocker.MagicMock()
+        self.mock_dynamic_client_p = mocker.MagicMock()
 
         # Return values for is_alive checks
         self.mock_ota_core_p.is_alive.return_value = True
         self.mock_grpc_server_p.is_alive.return_value = True
+
+        # Return values for process.poll
+        self.mock_dynamic_client_p.poll.return_value = None
 
     def test_on_shutdown(self, mocker: pytest_mock.MockerFixture):
         """Test the _on_shutdown function."""
@@ -75,9 +79,24 @@ class TestMain:
         main._ota_core_p = self.mock_ota_core_p
         main._grpc_server_p = self.mock_grpc_server_p
         main._shm = self.mock_shm
+        main._dynamic_client_p = self.mock_dynamic_client_p
+
+        # dynamic_client_p.poll returns None (running)
+        self.mock_dynamic_client_p.poll.return_value = None
+        self.mock_dynamic_client_p.pid = 1234
+
+        # Patch os.killpg and os.getpgid
+        killpg_mock = mocker.patch(f"{MAIN_MODULE}.os.killpg")
+        getpgid_mock = mocker.patch(f"{MAIN_MODULE}.os.getpgid", return_value=4321)
 
         # Call with sys_exit=False
         main._on_shutdown(sys_exit=False)
+
+        # Verify os.killpg called
+        killpg_mock.assert_called_once_with(4321, signal.SIGTERM)
+
+        # Verify dynamic client process wait called
+        self.mock_dynamic_client_p.wait.assert_called()
 
         # Verify processes are terminated and joined
         self.mock_ota_core_p.terminate.assert_called_once()
@@ -96,11 +115,15 @@ class TestMain:
         self.mock_ota_core_p.reset_mock()
         self.mock_grpc_server_p.reset_mock()
         self.mock_shm.reset_mock()
+        self.mock_dynamic_client_p.reset_mock()
+        killpg_mock.reset_mock()
+        getpgid_mock.reset_mock()
 
-        # Set up global variables again
+        # Set up global variables again (no dynamic client)
         main._ota_core_p = self.mock_ota_core_p
         main._grpc_server_p = self.mock_grpc_server_p
         main._shm = self.mock_shm
+        main._dynamic_client_p = None
 
         # Call with sys_exit=True
         main._on_shutdown(sys_exit=True)
@@ -138,27 +161,26 @@ class TestMain:
         mock_process.pid = 12345
         mock_popen.return_value = mock_process
 
-        # Mock process.wait to raise an exception after first call to break the infinite loop
-        mock_process.wait.side_effect = [None, KeyboardInterrupt]
+        # Mock process.wait to return None (simulate normal exit)
+        mock_process.wait.side_effect = [None, None, None]
 
         # Mock os.path.exists to return True
         mocker.patch("os.path.exists", return_value=True)
+
+        # Mock _shutdown_processing to ensure we don't early exit
+        mocker.patch("otaclient.main._shutdown_processing", False)
 
         # Setup control flags with proper attributes
         client_update_control_flags = MagicMock()
         client_update_control_flags.request_shutdown_event = MagicMock()
 
-        # Call the function with a try/except to handle the KeyboardInterrupt
-        try:
-            main._thread_dynamic_client(client_update_control_flags)
-        except KeyboardInterrupt:
-            pass
+        main._thread_dynamic_client(client_update_control_flags)
 
         # Verify process.wait was called
-        mock_process.wait.assert_called()
+        assert mock_process.wait.call_count == 3
 
-        # Verify the request_shutdown_event was not set
-        client_update_control_flags.request_shutdown_event.set.assert_not_called()
+        # Verify the request_shutdown_event was set after retry max
+        client_update_control_flags.request_shutdown_event.set.assert_called_once()
 
     @patch("subprocess.Popen")
     def test_thread_dynamic_client_mount_not_exists(
@@ -192,11 +214,13 @@ class TestMain:
         # Mock os.path.exists to return True
         mocker.patch("os.path.exists", return_value=True)
 
+        # Mock _shutdown_processing to ensure we don't early exit
+        mocker.patch("otaclient.main._shutdown_processing", False)
+
         # Setup control flags with proper attributes
         client_update_control_flags = MagicMock()
         client_update_control_flags.request_shutdown_event = MagicMock()
 
-        # Call the function
         main._thread_dynamic_client(client_update_control_flags)
 
         # Verify the request_shutdown_event was set due to exception
