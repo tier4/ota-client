@@ -388,6 +388,7 @@ class OTACache:
                 self._process_raw_url(raw_url),
                 proxy=self._upper_proxy,
                 headers=headers,
+                verify_ssl=False,
             ) as response:
                 yield response.headers  # type: ignore
                 # NOTE(20230803): sometimes aiohttp will raises:
