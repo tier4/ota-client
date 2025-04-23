@@ -42,7 +42,7 @@ def grpc_server_process(
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
     client_update_control_flags: ClientUpdateControlFlags,
-    load_state: bool,
+    should_load_state: bool,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -69,7 +69,7 @@ def grpc_server_process(
 
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
         # Load the ECU status when the downloaded client is running
-        if load_state:
+        if should_load_state:
             ecu_status_storage.load_state()
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
         ecu_tracker.start()
