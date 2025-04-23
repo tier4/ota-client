@@ -230,7 +230,9 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
-            load_state=bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)),
+            should_load_state=bool(
+                os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)
+            ),
         ),
         name="otaclient_api_server",
     )
