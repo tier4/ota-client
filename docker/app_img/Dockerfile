@@ -16,7 +16,7 @@ RUN set -eux; \
     # setup virtual env
     mkdir -p ${OTACLIENT_VENV}; \
     cd ${OTACLIENT_INSTALLATION}; \
-    python3 -m venv ${OTACLIENT_VENV}; \
+    python3 -m venv --copies ${OTACLIENT_VENV}; \
     . ${OTACLIENT_VENV}/bin/activate; \
     # install otaclient
     python3 -m pip install -U pip; \
