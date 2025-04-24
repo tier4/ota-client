@@ -62,9 +62,7 @@ RUN set -eux; \
         e2fsprogs \
         grub-common \
         systemd; \
-    if apt-cache show flash-kernel >/dev/null 2>&1; then \
-        apt-get install --no-install-recommends -y flash-kernel; \
-    fi; \
+    apt-get install --no-install-recommends -y flash-kernel || true; \
     apt-get clean; \
     rm -rf \
         /root/.cache \
