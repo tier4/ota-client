@@ -64,8 +64,8 @@ RUN set -eux; \
         e2fsprogs \
         grub-common \
         systemd \
-        flash-kernel \
-        apt-get clean; \
+        flash-kernel; \
+    apt-get clean; \
     rm -rf \
         /root/.cache \
         /tmp/* \
