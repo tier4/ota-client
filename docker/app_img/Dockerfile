@@ -58,7 +58,14 @@ RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         python3; \
-    apt-get clean; \
+        apt-get install --no-install-recommends -y \
+        python3 \
+        util-linux \
+        e2fsprogs \
+        grub-common \
+        systemd \
+        flash-kernel \
+        apt-get clean; \
     rm -rf \
         /root/.cache \
         /tmp/* \
