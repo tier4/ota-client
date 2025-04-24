@@ -83,3 +83,4 @@ runs:
             -all-root \
             -progress \
             -comp gzip
+        docker rm ${DOCKER_CONTAINER}
