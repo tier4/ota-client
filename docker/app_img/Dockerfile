@@ -58,11 +58,18 @@ RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         python3 \
+        # for lsblk, mount, umount, findmnt, blkid
         util-linux \
+        # for e2label, mkfs.ext4
         e2fsprogs \
+        # for  grub-mkconfig, grub-reboot
         grub-common \
+        # for reboot
         systemd; \
+    # for flash-kernel
+    # NOTE: this is only for arm architecture(raspberry pi)
     apt-get install --no-install-recommends -y flash-kernel || true; \
+    # NOTE: will bind nvbootctrl and nv_update_engine in the host
     apt-get clean; \
     rm -rf \
         /root/.cache \
