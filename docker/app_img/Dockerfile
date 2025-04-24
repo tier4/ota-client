@@ -57,8 +57,6 @@ ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
-        python3; \
-        apt-get install --no-install-recommends -y \
         python3 \
         util-linux \
         e2fsprogs \
