@@ -8,10 +8,17 @@ COPY ./${OTACLIENT_WHL} /tmp
 ARG OTACLIENT_INSTALLATION="/otaclient"
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
+# Install Python 3.8 with proper GPG handling
 RUN set -eux && \
     apt-get update -qq && \
-    apt-get install --no-install-recommends -y software-properties-common && \
-    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get install --no-install-recommends -y \
+        software-properties-common \
+        gnupg \
+        dirmngr \
+        apt-transport-https \
+        ca-certificates && \
+    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys F23C5A6CF475977595C89F51BA6932366A755776 && \
+    echo "deb http://ppa.launchpad.net/deadsnakes/ppa/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) main" > /etc/apt/sources.list.d/deadsnakes-ppa.list && \
     apt-get update -qq && \
     apt-get install --no-install-recommends -y \
         python3.8 \
