@@ -2,11 +2,19 @@ ARG UBUNTU_BASE=ubuntu:22.04
 
 FROM ${UBUNTU_BASE} AS image_build
 
+# Set timezone to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
 ARG OTACLIENT_WHL
 COPY ./${OTACLIENT_WHL} /tmp
 
 ARG OTACLIENT_INSTALLATION="/otaclient"
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
+
+RUN set -eux && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
 
 # Install Python 3.8 with proper GPG handling
 RUN set -eux && \
@@ -54,6 +62,10 @@ RUN set -eux && \
 
 FROM ${UBUNTU_BASE}
 
+# Set timezone to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
 ARG OTACLIENT_VERSION
 ARG OTACLIENT_INSTALLATION="/otaclient"
 
@@ -62,6 +74,10 @@ COPY --from=image_build ${OTACLIENT_INSTALLATION} ${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
 ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
+
+RUN set -eux && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone
 
 RUN set -eux; \
     apt-get update -qq; \
