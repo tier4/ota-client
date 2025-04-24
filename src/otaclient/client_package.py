@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os.path
+import os
 import platform
 import subprocess
 import threading
@@ -30,7 +30,11 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import urljoin_ensure_base
+from otaclient_common.common import (
+    subprocess_call,
+    subprocess_check_output,
+    urljoin_ensure_base,
+)
 from otaclient_common.download_info import DownloadInfo
 from otaclient_manifest.schema import Manifest, ReleasePackage
 
@@ -161,18 +165,14 @@ class OTAClientPackage:
             + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
+        _is_zstd_supported = False
         try:
+            _cmd = ["which", "zstd"]
             _is_zstd_supported = (
-                subprocess.call(
-                    ["which", "zstd"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                == 0
+                subprocess_check_output(_cmd, raise_exception=True) == 0
             )
         except Exception as e:
             logger.warning(f"failed to check zstd support: {e!r}")
-            _is_zstd_supported = False
             pass
 
         # ------ step 3: find the target package ------ #
@@ -238,21 +238,21 @@ class OTAClientPackage:
             ):
                 raise TypeError("All paths must be Path objects")
 
+            _cmd = [
+                "zstd",
+                "-d",
+                f"--patch-from={_current_squashfs_path}",
+                str(_patch_path),
+                "-o",
+                str(_target_squashfs_path),
+            ]
+            logger.info(f"Applying patch with command: {' '.join(_cmd)}")
             try:
-                # patch-from is not supported in zstandard, so use subprocess
-                subprocess.run(
-                    [
-                        "zstd",
-                        "-d",
-                        f"--patch-from={_current_squashfs_path}",
-                        str(_patch_path),
-                        "-o",
-                        str(_target_squashfs_path),
-                    ],
-                    check=True,
-                    capture_output=True,  # Capture output to prevent terminal injection
+                subprocess_call(
+                    _cmd,
+                    raise_exception=True,
                 )
-            except Exception as e:
+            except subprocess.CalledProcessError as e:
                 logger.warning(f"failed to apply patch: {e!r}")
                 raise
             return _target_squashfs_path
@@ -301,12 +301,9 @@ class OTAClientPackage:
         os.makedirs(_mount_dir, exist_ok=True)
 
         logger.info(f"Mounting {squashfs_path} to {_mount_dir}")
+        _cmd = ["mount", "-t", "squashfs", str(squashfs_path), _mount_dir]
         try:
-            # Mount the squashfs file
-            subprocess.run(
-                ["mount", "-t", "squashfs", str(squashfs_path), _mount_dir],
-                check=True,
-            )
-        except Exception as e:
+            subprocess_call(_cmd, raise_exception=True)
+        except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
