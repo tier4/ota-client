@@ -60,4 +60,4 @@ RUN set -eux; \
         /var/lib/apt/lists/* \
         /var/tmp/*
 
-CMD ["sh", "-c", "${OTACLIENT_VENV}/bin/python3 -m otaclient"]
+CMD ["${OTACLIENT_VENV}/bin/python3", "-m", "otaclient"]
