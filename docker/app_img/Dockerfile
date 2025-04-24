@@ -18,7 +18,7 @@ RUN set -eux; \
     cd ${OTACLIENT_INSTALLATION}; \
     python3 -m venv --copies ${OTACLIENT_VENV}; \
     . ${OTACLIENT_VENV}/bin/activate; \
-    # copy python3 to venv
+    # copy whole python3 to venv
     cp /usr/bin/python3 ${OTACLIENT_VENV}/bin/python3; \
     chmod +x ${OTACLIENT_VENV}/bin/python3; \
     # install otaclient
