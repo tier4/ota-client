@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -32,7 +33,6 @@ from otaclient.configs.cfg import cfg
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
-    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -165,15 +165,7 @@ class OTAClientPackage:
             + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
-        _is_zstd_supported = False
-        try:
-            _cmd = ["which", "zstd"]
-            _is_zstd_supported = (
-                subprocess_check_output(_cmd, raise_exception=True) == 0
-            )
-        except Exception as e:
-            logger.warning(f"failed to check zstd support: {e!r}")
-            pass
+        _is_zstd_supported = _is_zstd_supported = shutil.which("zstd") is not None
 
         # ------ step 3: find the target package ------ #
         # the schema of manifest.json is defined in otaclient_manifest/schema.py
