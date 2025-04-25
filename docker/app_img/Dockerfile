@@ -54,6 +54,9 @@ ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
 ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
+# Add cache directory for OTA
+RUN mkdir -p /ota-cache
+
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
