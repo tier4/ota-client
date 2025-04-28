@@ -57,6 +57,11 @@ ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 # Add cache directory for OTA
 RUN mkdir -p /ota-cache
 
+# Create dummy files to be binded by the host
+RUN mkdir -p usr/sbin; \
+    touch /usr/sbin/nvbootctrl; \
+    touch /usr/sbin/nv_update_engine;
+
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \

@@ -165,7 +165,7 @@ class OTAClientPackage:
             + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
-        _is_zstd_supported = _is_zstd_supported = shutil.which("zstd") is not None
+        _is_zstd_supported = shutil.which("zstd") is not None
 
         # ------ step 3: find the target package ------ #
         # the schema of manifest.json is defined in otaclient_manifest/schema.py
@@ -289,13 +289,20 @@ class OTAClientPackage:
         squashfs_path = self.get_target_squashfs_path()
 
         # Create a temporary directory to mount the squashfs
-        _mount_dir = cfg.DYNAMIC_CLIENT_MNT
-        os.makedirs(_mount_dir, exist_ok=True)
+        _mount_point = cfg.DYNAMIC_CLIENT_MNT
+        os.makedirs(_mount_point, exist_ok=True)
 
-        logger.info(f"Mounting {squashfs_path} to {_mount_dir}")
-        _cmd = ["mount", "-t", "squashfs", str(squashfs_path), _mount_dir]
+        logger.info(f"Mounting {squashfs_path} to {_mount_point}")
+        _cmd = ["mount", "-t", "squashfs", str(squashfs_path), _mount_point]
         try:
             subprocess_call(_cmd, raise_exception=True)
+        #            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
+        #            cmdhelper.ensure_mount(
+        #                target=str(squashfs_path),
+        #                mnt_point=_mount_point,
+        #                mount_func=cmdhelper.bind_mount_ro,
+        #                raise_exception=True,
+        #            )
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
