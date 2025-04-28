@@ -466,9 +466,11 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
     remove_list = []
     metadata_new_file_list = set()
 
-    output_name_download_list = Path(cfg.META_FOLDER)/ "delta_stage_1_download_list.csv"
-    output_name_remove_list = Path(cfg.META_FOLDER)/ "delta_stage_1_remove_list.csv"
-    output_name_copy_list = Path(cfg.META_FOLDER)/ "delta_stage_1_copy_list.csv"
+    output_name_download_list = (
+        Path(cfg.META_FOLDER) / "delta_stage_1_download_list.csv"
+    )
+    output_name_remove_list = Path(cfg.META_FOLDER) / "delta_stage_1_remove_list.csv"
+    output_name_copy_list = Path(cfg.META_FOLDER) / "delta_stage_1_copy_list.csv"
 
     try:
         with open(metadata_file_new, "r", newline="") as _metadata_new:
@@ -518,7 +520,7 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
                 for _new_row in _new_file_rows:
                     _file_path_new = _new_row[COLUMN_PATH]
                     copy_list.append([hash_value, _file_path_old, _file_path_new])
-                
+
                 for _old_row in _old_file_rows:
                     if _old_row[COLUMN_PATH] == _file_path_old:
                         continue
@@ -553,11 +555,13 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
 
     def _process_delta_src_v2(self):
         logger.info("start to calculate delta using new method")
-        new_metadata_regular = self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME)
+        new_metadata_regular = self._ota_metadata.iter_metafile(
+            MetafilesV1.REGULAR_FNAME
+        )
         old_metadata_regular = Path(cfg.META_FOLDER) / Path(OTAMetadata.REGULARS_BIN)
-        
+
         _process_delta_v2_stage_1(new_metadata_regular, old_metadata_regular)
-        
+
         self._process_delta_src()
 
     # API
@@ -572,13 +576,17 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
             self.total_regulars_num += 1
             self._new.add_entry(_entry)
             self._new_hash_size_dict[_entry.sha256hash] = _entry.size
-            
-        last_success_time_file_path = Path(cfg.META_FOLDER) / Path(cfg.OTA_LAST_SUCCESS_TIME)
+
+        last_success_time_file_path = Path(cfg.META_FOLDER) / Path(
+            cfg.OTA_LAST_SUCCESS_TIME
+        )
         if last_success_time := read_str_from_file(last_success_time_file_path):
             logger.info("last ota success time available, use delta calculation ver2.0")
             self._process_delta_src_v2()
         else:
-            logger.info("last ota success time not found, use delta calculation legacy method")
+            logger.info(
+                "last ota success time not found, use delta calculation legacy method"
+            )
             # generate delta and prepare files
             self._process_delta_src()
 
@@ -594,14 +602,16 @@ def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
         #           the same file at the same time to improve performance and
         #           cache efficiency.
         random.Random(os.urandom(32)).shuffle(self._download_list)
-        
-        output_dir=cfg.OTACLIENT_INSTALLATION_DIR
-        download_list_file="download_list.csv"
 
+        output_dir = cfg.META_FOLDER
+        download_list_file = "download_list.csv"
+        # save delta data for debugging purpose
         with open(os.path.join(output_dir, download_list_file), "w") as _f:
-            _f.writelines("\n".join(f'{item.path},{item.size}' for item in self._download_list))
-            
-        rm_list_file="remove_list.csv"
+            _f.writelines(
+                "\n".join(f"{str(item)}" for item in self._download_list)
+            )
+
+        rm_list_file = "remove_list.csv"
         with open(os.path.join(output_dir, rm_list_file), "w") as _f:
             _f.writelines("\n".join(str(item) for item in self._rm))
 
