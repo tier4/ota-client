@@ -17,6 +17,7 @@ r"""Common used helpers, classes and functions for different bank creating metho
 from __future__ import annotations
 
 import contextlib
+import csv
 import logging
 import os
 import random
@@ -38,7 +39,11 @@ from otaclient.app.update_stats import (
     OTAUpdateStatsCollector,
     ProcessOperation,
 )
-from otaclient_common.common import create_tmp_fname
+
+from otaclient_common.common import (
+    create_tmp_fname,
+    read_str_from_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -446,6 +451,115 @@ class DeltaGenerator:
                 self.total_download_files_size += _entry.size if _entry.size else 0
         self._new_hash_size_dict.clear()
 
+
+def _process_delta_v2_stage_1(metadata_file_new, metadata_file_old):
+
+    start_time = time.time()
+
+    COLUMN_HASH = 4
+    COLUMN_PATH = 5
+
+    metadata_new_data = {}
+    metadata_old_data = {}
+    copy_list = []
+    download_list_rows = []
+    remove_list = []
+    metadata_new_file_list = set()
+
+    output_name_download_list = Path(cfg.META_FOLDER)/ "delta_stage_1_download_list.csv"
+    output_name_remove_list = Path(cfg.META_FOLDER)/ "delta_stage_1_remove_list.csv"
+    output_name_copy_list = Path(cfg.META_FOLDER)/ "delta_stage_1_copy_list.csv"
+
+    try:
+        with open(metadata_file_new, "r", newline="") as _metadata_new:
+            _reader_new = csv.reader(
+                _metadata_new, quoting=csv.QUOTE_MINIMAL, quotechar="'"
+            )
+            for row in _reader_new:
+                if len(row) > COLUMN_HASH:
+                    hash_value = row[COLUMN_HASH]
+                    file_path = row[COLUMN_PATH]
+                    metadata_new_file_list.add(file_path)
+                    if hash_value not in metadata_new_data:
+                        metadata_new_data[hash_value] = []
+                    metadata_new_data[hash_value].append(row)
+
+        with open(metadata_file_old, "r", newline="") as _metadata_old:
+            _read_old = csv.reader(
+                _metadata_old, quoting=csv.QUOTE_MINIMAL, quotechar="'"
+            )
+            for row in _read_old:
+                if len(row) > COLUMN_HASH:
+                    hash_value = row[COLUMN_HASH]
+                    if hash_value not in metadata_old_data:
+                        metadata_old_data[hash_value] = []
+                    metadata_old_data[hash_value].append(row)
+
+        # 1. Check file hash code in new metadata but NOT in old metadata
+        for hash_value, rows in metadata_new_data.items():
+            if hash_value not in metadata_old_data:
+                download_list_rows.extend(rows)
+
+        # 2. Check file hash code in old metadata but NOT in new metadata
+        for hash_value, rows in metadata_old_data.items():
+            if hash_value not in metadata_new_data:
+                for row in rows:
+                    if row[COLUMN_PATH] not in metadata_new_file_list:
+                        remove_list.append(row[COLUMN_PATH])
+
+        # 3. Check file has code in both old and new metadata
+        for hash_value in metadata_new_data:
+            if hash_value in metadata_old_data:
+                _new_file_rows = metadata_new_data[hash_value]
+                _old_file_rows = metadata_old_data[hash_value]
+                _file_path_new = _new_file_rows[0][COLUMN_PATH]
+                _file_path_old = _old_file_rows[0][COLUMN_PATH]
+
+                for _new_row in _new_file_rows:
+                    _file_path_new = _new_row[COLUMN_PATH]
+                    copy_list.append([hash_value, _file_path_old, _file_path_new])
+                
+                for _old_row in _old_file_rows:
+                    if _old_row[COLUMN_PATH] == _file_path_old:
+                        continue
+                    else:
+                        remove_list.append(_old_row[COLUMN_PATH])
+
+        with open(output_name_download_list, "w", newline="") as outfile:
+            download_list_rows.sort(key=lambda row: row[COLUMN_PATH])
+            writer = csv.writer(outfile, quoting=csv.QUOTE_MINIMAL, quotechar="'")
+            writer.writerows(download_list_rows)
+
+        with open(output_name_remove_list, "w", newline="") as outfile:
+            writer = csv.writer(outfile, quoting=csv.QUOTE_MINIMAL, quotechar="'")
+            for path_value in sorted(remove_list):
+                writer.writerow([path_value.strip("'")])
+
+        with open(output_name_copy_list, "w", newline="") as outfile:
+            copy_list.sort(key=lambda row: row[1])
+            writer = csv.writer(outfile, quoting=csv.QUOTE_MINIMAL, quotechar="'")
+            writer.writerows(copy_list)
+
+    except FileNotFoundError:
+        print("Error: One or both of the input files were not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(
+        f"\nExecution time of delta_calculation_phase_1(): {elapsed_time:.4f} seconds"
+    )
+
+    def _process_delta_src_v2(self):
+        logger.info("start to calculate delta using new method")
+        new_metadata_regular = self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME)
+        old_metadata_regular = Path(cfg.META_FOLDER) / Path(OTAMetadata.REGULARS_BIN)
+        
+        _process_delta_v2_stage_1(new_metadata_regular, old_metadata_regular)
+        
+        self._process_delta_src()
+
     # API
 
     def calculate_and_process_delta(self) -> DeltaBundle:
@@ -458,9 +572,16 @@ class DeltaGenerator:
             self.total_regulars_num += 1
             self._new.add_entry(_entry)
             self._new_hash_size_dict[_entry.sha256hash] = _entry.size
+            
+        last_success_time_file_path = Path(cfg.META_FOLDER) / Path(cfg.OTA_LAST_SUCCESS_TIME)
+        if last_success_time := read_str_from_file(last_success_time_file_path):
+            logger.info("last ota success time available, use delta calculation ver2.0")
+            self._process_delta_src_v2()
+        else:
+            logger.info("last ota success time not found, use delta calculation legacy method")
+            # generate delta and prepare files
+            self._process_delta_src()
 
-        # generate delta and prepare files
-        self._process_delta_src()
         logger.info(
             "delta calculation finished: \n"
             f"total_regulars_num: {self.total_regulars_num} \n"

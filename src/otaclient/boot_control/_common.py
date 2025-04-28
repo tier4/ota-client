@@ -22,6 +22,7 @@ import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
+import time
 from typing import Callable, Literal, NoReturn, Optional, Union
 
 from otaclient.app.configs import config as cfg
@@ -535,6 +536,7 @@ class OTAStatusFilesControl:
             if self.finalize_switching_boot():
                 self._ota_status = api_types.StatusOta.SUCCESS
                 self._store_current_status(api_types.StatusOta.SUCCESS)
+                self._store_last_success_time()
             else:
                 self._ota_status = (
                     api_types.StatusOta.ROLLBACK_FAILURE
@@ -624,6 +626,11 @@ class OTAStatusFilesControl:
         write_str_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
+        )
+        
+    def _store_last_success_time(self):
+        write_str_to_file_sync(
+            Path(cfg.META_FOLDER) / Path(cfg.OTA_LAST_SUCCESS_TIME), str(time.time())
         )
 
     # helper methods
