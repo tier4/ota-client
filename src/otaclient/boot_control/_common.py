@@ -536,7 +536,6 @@ class OTAStatusFilesControl:
             if self.finalize_switching_boot():
                 self._ota_status = api_types.StatusOta.SUCCESS
                 self._store_current_status(api_types.StatusOta.SUCCESS)
-                self._store_last_success_time()
             else:
                 self._ota_status = (
                     api_types.StatusOta.ROLLBACK_FAILURE
@@ -583,7 +582,6 @@ class OTAStatusFilesControl:
             )
 
     # slot_in_use control
-
     def _store_current_slot_in_use(self, _slot: str):
         write_str_to_file_sync(
             self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
@@ -626,11 +624,6 @@ class OTAStatusFilesControl:
         write_str_to_file_sync(
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
-        )
-        
-    def _store_last_success_time(self):
-        write_str_to_file_sync(
-            Path(cfg.META_FOLDER) / Path(cfg.OTA_LAST_SUCCESS_TIME), str(time.time())
         )
 
     # helper methods

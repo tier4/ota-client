@@ -45,7 +45,7 @@ from otaclient.create_standby import (
 )
 from otaclient.create_standby.common import DeltaBundle
 from otaclient_api.v2 import types as api_types
-from otaclient_common.common import ensure_otaproxy_start
+from otaclient_common.common import ensure_otaproxy_start, write_str_to_file_sync
 from otaclient_common.downloader import (
     EMPTY_FILE_SHA256,
     Downloader,
@@ -488,6 +488,14 @@ class _OTAUpdater:
 
         logger.info("local update finished, wait on all subecs...")
         self._control_flags.wait_can_reboot_flag()
+    
+        last_update_file = Path(cfg.MOUNT_POINT) / cfg.OTA_DIR / cfg.OTA_LAST_UPDATE_TIME
+        write_str_to_file_sync(
+            last_update_file, str(time.time())
+        )
+        
+        logger.info("about to reboot")
+        
         next(_postupdate_gen, None)  # reboot
 
     # API

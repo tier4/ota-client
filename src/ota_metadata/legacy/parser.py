@@ -632,6 +632,7 @@ class OTAMetadata:
         self.retry_interval = retry_interval
         self._tmp_dir = TemporaryDirectory(prefix="ota_metadata", dir=run_dir)
         self._tmp_dir_path = Path(self._tmp_dir.name)
+        self._current_metadata_path = Path(cfg.META_FOLDER)
 
         # download and parse the metadata.jwt
         self.scheme_version = _MetadataJWTClaimsLayout.SCHEME_VERSION
@@ -794,6 +795,12 @@ class OTAMetadata:
     def iter_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
         _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
         with open(self._tmp_dir_path / _parser_info.bin_fname, "rb") as _f:
+            _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
+            yield from _stream_reader.iter_msg()
+            
+    def iter_current_metafile(self, metafile: MetafilesV1) -> Iterator[Any]:
+        _parser_info = self.METAFILE_PARSER_MAPPING[metafile]
+        with open(self._current_metadata_path / _parser_info.bin_fname, "rb") as _f:
             _stream_reader = Uint32LenDelimitedMsgReader(_f, _parser_info.wrapper_type)
             yield from _stream_reader.iter_msg()
 
