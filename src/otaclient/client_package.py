@@ -306,18 +306,16 @@ class OTAClientPackage:
             )
 
             # bind necessary directories
-            def bind_targets(targets, mount_base, mount_func):
-                for _target in targets:
-                    if not os.path.exists(_target):
-                        logger.warning(
-                            f"bind target does not exist: {_target}, skipping"
-                        )
+            def bind_targets(paths, mount_base, mount_func):
+                for _path in paths:
+                    if not os.path.exists(_path):
+                        logger.warning(f"bind path does not exist: {_path}, skipping")
                         continue
 
-                    _mount_point = f"{mount_base}{_target}"
+                    _mount_point = f"{mount_base}{_path}"
                     cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
                     cmdhelper.ensure_mount(
-                        target=_target,
+                        target=_path,
                         mnt_point=_mount_point,
                         mount_func=mount_func,
                         raise_exception=True,
@@ -325,14 +323,14 @@ class OTAClientPackage:
                     )
 
             # bind necessary directories
-            _rw_targets = [
+            RW_PATHS = [
                 "/boot",
                 "/dev",
                 "/ota-cache",
                 "/run",
                 "/tmp",
             ]
-            _ro_targets = [
+            RO_PATHS = [
                 "/etc",
                 "/opt",
                 "/proc",
@@ -340,8 +338,8 @@ class OTAClientPackage:
                 "/usr/sbin/nvbootctrl",
                 "/usr/sbin/nv_update_engine",
             ]
-            bind_targets(_rw_targets, _mount_base, cmdhelper.bind_mount_rw)
-            bind_targets(_ro_targets, _mount_base, cmdhelper.bind_mount_ro)
+            bind_targets(RW_PATHS, _mount_base, cmdhelper.bind_mount_rw)
+            bind_targets(RO_PATHS, _mount_base, cmdhelper.bind_mount_ro)
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount point: {e!r}")
