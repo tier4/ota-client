@@ -128,13 +128,13 @@ def _dynamic_client_thread(
 
         # Run the OTA client
         # retry to start the OTA client multiple times if it fails
+        logger.info(f"starting dynamic OTA client with mount dir: {_mount_point}")
         for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
             global _shutdown_processing, _dynamic_client_p
             if _shutdown_processing.locked():
                 logger.info("shutdown has already been requested, exiting thread...")
                 return
 
-            logger.info(f"Start OTA client with mount dir: {_mount_point}")
             _cmd = [
                 "/otaclient/venv/bin/python3",
                 "-m",
