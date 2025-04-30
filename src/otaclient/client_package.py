@@ -302,6 +302,44 @@ class OTAClientPackage:
                 mount_func=cmdhelper.mount_squashfs,
                 raise_exception=True,
             )
+
+            # bind necessary directories
+            _rw_targets = [
+                "/boot",
+                "/dev",
+                "/ota-cache",
+                "/run",
+                "/tmp",
+            ]
+            for _target in _rw_targets:
+                cmdhelper.ensure_mointpoint(
+                    f"{_mount_point}{_target}", ignore_error=True
+                )
+                cmdhelper.ensure_mount(
+                    target=_target,
+                    mnt_point=f"{_mount_point}{_target}",
+                    mount_func=cmdhelper.bind_mount_rw,
+                    raise_exception=True,
+                )
+
+            _ro_targets = [
+                "/etc",
+                "/opt",
+                "/proc",
+                "/sys",
+                "/usr/sbin/nvbootctrl",
+                "/usr/sbin/nv_update_engine",
+            ]
+            for _target in _ro_targets:
+                cmdhelper.ensure_mointpoint(
+                    f"{_mount_point}{_target}", ignore_error=True
+                )
+                cmdhelper.ensure_mount(
+                    target=_target,
+                    mnt_point=f"{_mount_point}{_target}",
+                    mount_func=cmdhelper.bind_mount_ro,
+                    raise_exception=True,
+                )
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
