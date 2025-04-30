@@ -34,7 +34,6 @@ from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common import cmdhelper
 from otaclient_common.linux import subprocess_popen_wrapper
 
 logger = logging.getLogger(__name__)
@@ -92,6 +91,7 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 
 def _dynamic_client_shutdown() -> None:
     # umount from the longest mount point to the shortest
+    """
     mnt_base = cfg.DYNAMIC_CLIENT_MNT
     with open("/proc/mounts") as f:
         mounts = [line.split()[1] for line in f]
@@ -105,6 +105,7 @@ def _dynamic_client_shutdown() -> None:
             cmdhelper.ensure_umount(mnt, ignore_error=True, max_retry=1)
         except Exception as e:
             logger.warning(f"failed to umount {mnt}: {e}")
+    """
 
     # kill the dynamic client process if it is running
     global _dynamic_client_p
@@ -112,10 +113,10 @@ def _dynamic_client_shutdown() -> None:
         try:
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
         except Exception as e:
-            print(f"Failed to kill dynamic client process group: {e}")
+            print(f"failed to kill dynamic client process group: {e}")
         _dynamic_client_p.wait()
         _dynamic_client_p = None
-    logger.info("Dynamic client shutdown completed.")
+    logger.info("dynamic client shutdown completed.")
 
 
 def _dynamic_client_thread(
@@ -126,9 +127,9 @@ def _dynamic_client_thread(
     try:
         _mount_point = cfg.DYNAMIC_CLIENT_MNT
         if not os.path.exists(_mount_point):
-            logger.error(f"Mount dir {_mount_point} does not exist, aborting...")
+            logger.error(f"mount dir {_mount_point} does not exist, aborting...")
             raise FileNotFoundError(
-                f"Mount dir {_mount_point} does not exist, aborting..."
+                f"mount dir {_mount_point} does not exist, aborting..."
             )
 
         # Create a copy of the current environment
@@ -163,12 +164,12 @@ def _dynamic_client_thread(
             logger.warning("OTA client exited with non-zero status, restarting...")
 
         logger.warning(
-            "Reached maximum number of retries to start OTA client, shutting down..."
+            "reached maximum number of retries to start OTA client, shutting down..."
         )
         # If the OTA client fails to start after multiple retries, set the shutdown event
         client_update_control_flags.request_shutdown_event.set()
     except Exception as e:
-        logger.exception(f"Failed to start OTA client: {e}")
+        logger.exception(f"failed to start OTA client: {e}")
         client_update_control_flags.request_shutdown_event.set()
     finally:
         _dynamic_client_shutdown()
