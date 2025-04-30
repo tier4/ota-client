@@ -486,6 +486,35 @@ def mount_ro(
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def mount_squashfs(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Mount the <target> sqiashfs to <mount_point>.
+
+    This is implemented by calling:
+        mount -t squashfs --make-private --make-unbindable <target> <mount_point>
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "--make-private", "--make-unbindable",
+        "-t", "squashfs",
+        str(target),
+        str(mount_point),
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
 def umount(
     target: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
