@@ -308,20 +308,21 @@ class OTAClientPackage:
             # bind necessary directories
             def bind_targets(targets, mount_base, mount_func):
                 for _target in targets:
-                    _mount_point = f"{mount_base}{_target}"
-                    try:
-                        cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
-                        cmdhelper.ensure_mount(
-                            target=_target,
-                            mnt_point=_mount_point,
-                            mount_func=mount_func,
-                            raise_exception=True,
-                            max_retry=3,
+                    if not os.path.exists(_target):
+                        logger.warning(
+                            f"bind target does not exist: {_target}, skipping"
                         )
-                    except OSError:
-                        # some mount points may not exist, ignore them
-                        logger.info(f"failed to mount point {_mount_point}, ignore it")
-                        pass
+                        continue
+
+                    _mount_point = f"{mount_base}{_target}"
+                    cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
+                    cmdhelper.ensure_mount(
+                        target=_target,
+                        mnt_point=_mount_point,
+                        mount_func=mount_func,
+                        raise_exception=True,
+                        max_retry=3,
+                    )
 
             # bind necessary directories
             _rw_targets = [
