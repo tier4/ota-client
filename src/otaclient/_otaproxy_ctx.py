@@ -32,7 +32,7 @@ from pathlib import Path
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
 from ota_proxy.config import config as otaproxy_cfg
-from otaclient._types import MultipleECUStatusFlags
+from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common.common import ensure_otaproxy_start
 
@@ -103,6 +103,7 @@ def otaproxy_process(*, init_cache: bool) -> None:
 
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
+    client_update_control_flags: ClientUpdateControlFlags,
 ) -> None:  # pragma: no cover
     atexit.register(_on_global_shutdown)
 
@@ -145,4 +146,12 @@ def otaproxy_control_thread(
 
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
             logger.info("shutting down otaproxy as not needed now ...")
+            _shutdown_otaproxy()
+
+        elif (
+            _otaproxy_p
+            and _otaproxy_running
+            and client_update_control_flags.stop_server_event.is_set()
+        ):
+            logger.info("otaproxy stop event detected")
             _shutdown_otaproxy()
