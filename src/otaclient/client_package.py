@@ -295,13 +295,14 @@ class OTAClientPackage:
 
         logger.info(f"Mounting {squashfs_path} squashfs to {_mount_base}")
         try:
+            # mount squashfs
             cmdhelper.ensure_mointpoint(_mount_base, ignore_error=True)
-            cmdhelper.ensure_umount(_mount_base, ignore_error=True)
             cmdhelper.ensure_mount(
                 target=squashfs_path,
                 mnt_point=_mount_base,
                 mount_func=cmdhelper.mount_squashfs,
                 raise_exception=True,
+                max_retry=3,
             )
 
             # bind necessary directories
@@ -309,12 +310,12 @@ class OTAClientPackage:
                 for target in targets:
                     mount_point = f"{mount_base}{target}"
                     cmdhelper.ensure_mointpoint(mount_point, ignore_error=True)
-                    cmdhelper.ensure_umount(mount_point, ignore_error=True)
                     cmdhelper.ensure_mount(
                         target=target,
                         mnt_point=mount_point,
                         mount_func=mount_func,
                         raise_exception=True,
+                        max_retry=3,
                     )
 
             # bind necessary directories
