@@ -326,6 +326,7 @@ class OTAClientPackage:
             RW_PATHS = [
                 "/boot",
                 "/dev",
+                "/dev/shm",
                 "/ota-cache",
                 "/run",
                 "/tmp",
