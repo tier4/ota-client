@@ -35,6 +35,7 @@ from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient_common.linux import subprocess_popen_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +100,11 @@ def _thread_dynamic_client(
     client_update_control_flags: ClientUpdateControlFlags,
 ) -> None:
     try:
-        _mount_dir = cfg.DYNAMIC_CLIENT_MNT
-        if not os.path.exists(_mount_dir):
-            logger.error(f"Mount dir {_mount_dir} does not exist, aborting...")
+        _mount_point = cfg.DYNAMIC_CLIENT_MNT
+        if not os.path.exists(_mount_point):
+            logger.error(f"Mount dir {_mount_point} does not exist, aborting...")
             raise FileNotFoundError(
-                f"Mount dir {_mount_dir} does not exist, aborting..."
+                f"Mount dir {_mount_point} does not exist, aborting..."
             )
 
         # Create a copy of the current environment
@@ -120,19 +121,18 @@ def _thread_dynamic_client(
                 logger.info("Shutdown requested, exiting dynamic client thread...")
                 return
 
-            _dynamic_client_p = subprocess.Popen(
-                [
-                    f"{_mount_dir}/otaclient/venv/bin/python3",
-                    "-m",
-                    "otaclient",
-                    "--mount-dir",
-                    _mount_dir,
-                ],
-                env=env,  # Pass the modified environment to the subprocess
-                start_new_session=True,  # To kill the child process when the parent exits
-            )
-            logger.info(
-                f"Started OTA client with PID: {_dynamic_client_p.pid} and mount dir: {_mount_dir}"
+            logger.info(f"Start OTA client with mount dir: {_mount_point}")
+            _cmd = [
+                "/otaclient/venv/bin/python3",
+                "-m",
+                "otaclient",
+            ]
+            _dynamic_client_p = subprocess_popen_wrapper(
+                _cmd,
+                check_output=True,
+                chroot=_mount_point,
+                env=env,
+                start_new_session=True,
             )
             _dynamic_client_p.wait()
             logger.warning("OTA client exited with non-zero status, restarting...")

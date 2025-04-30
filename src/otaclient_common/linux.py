@@ -181,6 +181,8 @@ def subprocess_run_wrapper(
         cmd (str | list[str]): command to be executed.
         check (bool): if True, raise CalledProcessError on non 0 return code.
         check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        chroot (Optional[StrOrPath], optional): chroot path. Defaults to None.
+        env (Optional[dict[str, str]], optional): environment variables. Defaults to None.
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
 
     Returns:
@@ -205,4 +207,48 @@ def subprocess_run_wrapper(
         timeout=timeout,
         preexec_fn=preexec_fn,
         env=env,
+    )
+
+
+def subprocess_popen_wrapper(
+    cmd: str | list[str],
+    *,
+    check_output: bool,
+    chroot: Optional[StrOrPath] = None,
+    env: Optional[dict[str, str]] = None,
+    start_new_session: bool = False,
+) -> subprocess.Popen[bytes]:
+    """A wrapper for subprocess.Popen method.
+
+    NOTE: this is for the requirement of customized subprocess call
+        in the future, like chroot or nsenter before execution.
+
+    Args:
+        cmd (str | list[str]): command to be executed.
+        check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        chroot (Optional[StrOrPath], optional): chroot path. Defaults to None.
+        env (Optional[dict[str, str]], optional): environment variables. Defaults to None.
+        start_new_session (bool, optional): if True, start a new session. Defaults to False.
+
+    Returns:
+        subprocess.Popen[bytes]: the process of the execution.
+    """
+    if isinstance(cmd, str):
+        cmd = shlex.split(cmd)
+
+    preexec_fn: Optional[Callable[..., Any]] = None
+    if chroot:
+
+        def _chroot():
+            os.chroot(chroot)
+
+        preexec_fn = _chroot
+
+    return subprocess.Popen(
+        cmd,
+        stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE if check_output else None,
+        preexec_fn=preexec_fn,
+        env=env,
+        start_new_session=start_new_session,
     )
