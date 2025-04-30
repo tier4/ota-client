@@ -393,6 +393,32 @@ def mount(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def bind_mount_rw(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Bind mount the <target> to <mount_point> read-write.
+
+    This is implemented by calling:
+        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "-o", "bind,rw",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
 def mount_rw(
     target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
@@ -417,32 +443,6 @@ def mount_rw(
         "--make-private", "--make-unbindable",
         str(target),
         str(mount_point),
-    ]
-    # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
-
-
-def bind_mount_rw(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
-) -> None:  # pragma: no cover
-    """Bind mount the <target> to <mount_point> read-write.
-
-    This is implemented by calling:
-        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
-
-    Args:
-        target (StrOrPath): target to be mounted.
-        mount_point (StrOrPath): mount point to mount to.
-        raise_exception (bool, optional): raise exception on subprocess call failed.
-            Defaults to True.
-    """
-    # fmt: off
-    cmd = [
-        "mount",
-        "-o", "bind,rw",
-        "--make-private", "--make-unbindable",
-        str(target),
-        str(mount_point)
     ]
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
