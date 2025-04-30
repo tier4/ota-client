@@ -343,5 +343,5 @@ class OTAClientPackage:
             bind_targets(RO_PATHS, _mount_base, cmdhelper.bind_mount_ro)
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
-            logger.exception(f"failed to mount point: {e!r}")
+            logger.exception(f"failed to mount squashfs: {e!r}")
             raise
