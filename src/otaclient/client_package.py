@@ -308,6 +308,7 @@ class OTAClientPackage:
             # bind necessary directories
             def bind_targets(targets, mount_base, mount_func):
                 for target in targets:
+                    logger.info(f"Binding {target} to {mount_base}{target}")
                     mount_point = f"{mount_base}{target}"
                     cmdhelper.ensure_mointpoint(mount_point, ignore_error=True)
                     cmdhelper.ensure_mount(
@@ -315,7 +316,7 @@ class OTAClientPackage:
                         mnt_point=mount_point,
                         mount_func=mount_func,
                         # some mount points may not exist
-                        raise_exception=False,
+                        raise_exception=True,
                         max_retry=3,
                     )
 
@@ -337,6 +338,7 @@ class OTAClientPackage:
             ]
             bind_targets(_rw_targets, _mount_base, cmdhelper.bind_mount_rw)
             bind_targets(_ro_targets, _mount_base, cmdhelper.bind_mount_ro)
+            logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
