@@ -213,6 +213,7 @@ def subprocess_run_wrapper(
 def subprocess_popen_wrapper(
     cmd: str | list[str],
     *,
+    check_error: bool,
     check_output: bool,
     chroot: Optional[StrOrPath] = None,
     env: Optional[dict[str, str]] = None,
@@ -225,6 +226,7 @@ def subprocess_popen_wrapper(
 
     Args:
         cmd (str | list[str]): command to be executed.
+        check_error (bool): if True, raise CalledProcessError on non 0 return code.
         check_output (bool): if True, the UTF-8 decoded stdout will be returned.
         chroot (Optional[StrOrPath], optional): chroot path. Defaults to None.
         env (Optional[dict[str, str]], optional): environment variables. Defaults to None.
@@ -246,7 +248,7 @@ def subprocess_popen_wrapper(
 
     return subprocess.Popen(
         cmd,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.PIPE if check_error else None,
         stdout=subprocess.PIPE if check_output else None,
         preexec_fn=preexec_fn,
         env=env,
