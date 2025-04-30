@@ -30,6 +30,7 @@ from typing import Generator, Optional
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
+from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
@@ -292,17 +293,15 @@ class OTAClientPackage:
         _mount_point = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_point, exist_ok=True)
 
-        logger.info(f"Mounting {squashfs_path} to {_mount_point}")
-        _cmd = ["mount", "-t", "squashfs", str(squashfs_path), _mount_point]
+        logger.info(f"Mounting {squashfs_path} squashfs to {_mount_point}")
         try:
-            subprocess_call(_cmd, raise_exception=True)
-        #            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
-        #            cmdhelper.ensure_mount(
-        #                target=str(squashfs_path),
-        #                mnt_point=_mount_point,
-        #                mount_func=cmdhelper.bind_mount_ro,
-        #                raise_exception=True,
-        #            )
+            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
+            cmdhelper.ensure_mount(
+                target=squashfs_path,
+                mnt_point=_mount_point,
+                mount_func=cmdhelper.mount_squashfs,
+                raise_exception=True,
+            )
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
