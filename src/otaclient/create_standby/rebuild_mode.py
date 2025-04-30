@@ -32,7 +32,7 @@ from otaclient_common.retry_task_map import (
     ThreadPoolExecutorWithRetry,
 )
 
-from .common import DeltaBundle, DeltaGenerator, HardlinkRegister
+from .common import DeltaBundle, DeltaGenerator, DeltaGeneratorV2, HardlinkRegister
 from .interface import StandbySlotCreatorProtocol
 
 logger = logging.getLogger(__name__)
@@ -63,13 +63,24 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _cal_and_prepare_delta(self):
         logger.info("generating delta...")
-        delta_calculator = DeltaGenerator(
+        # delta_calculator = DeltaGenerator(
+        #     ota_metadata=self._ota_metadata,
+        #     delta_src=self.active_slot_mp,
+        #     local_copy_dir=self._ota_tmp,
+        #     stats_collector=self.stats_collector,
+        # )
+        # delta_bundle = delta_calculator.calculate_and_process_delta()
+        
+        delta_calculator = DeltaGeneratorV2(
             ota_metadata=self._ota_metadata,
             delta_src=self.active_slot_mp,
             local_copy_dir=self._ota_tmp,
             stats_collector=self.stats_collector,
+            last_update_time="1743329621" # dummy
         )
-        delta_bundle = delta_calculator.calculate_and_process_delta()
+        delta_bundle = delta_calculator.calculate_and_process_delta_v2()
+        
+        
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
         self.delta_bundle = delta_bundle
 
