@@ -153,7 +153,8 @@ def _dynamic_client_thread(
             ]
             _dynamic_client_p = subprocess_popen_wrapper(
                 _cmd,
-                check_output=True,
+                check_error=False,
+                check_output=False,
                 chroot=_mount_point,
                 env=env,
                 start_new_session=True,
