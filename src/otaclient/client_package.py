@@ -315,7 +315,6 @@ class OTAClientPackage:
                         target=target,
                         mnt_point=mount_point,
                         mount_func=mount_func,
-                        # some mount points may not exist
                         raise_exception=True,
                         max_retry=3,
                     )
@@ -339,6 +338,10 @@ class OTAClientPackage:
             bind_targets(_rw_targets, _mount_base, cmdhelper.bind_mount_rw)
             bind_targets(_ro_targets, _mount_base, cmdhelper.bind_mount_ro)
             logger.info("mounted squashfs successfully")
+        except OSError as e:
+            # some mount points may not exist, ignore them
+            logger.info(f"failed to mount point, but ignore it: {e!r}")
+            pass
         except subprocess.CalledProcessError as e:
-            logger.exception(f"failed to mount squashfs: {e!r}")
+            logger.exception(f"failed to mount point: {e!r}")
             raise
