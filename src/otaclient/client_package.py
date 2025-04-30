@@ -290,18 +290,32 @@ class OTAClientPackage:
         squashfs_path = self.get_target_squashfs_path()
 
         # Create a temporary directory to mount the squashfs
-        _mount_point = cfg.DYNAMIC_CLIENT_MNT
-        os.makedirs(_mount_point, exist_ok=True)
+        _mount_base = cfg.DYNAMIC_CLIENT_MNT
+        os.makedirs(_mount_base, exist_ok=True)
 
-        logger.info(f"Mounting {squashfs_path} squashfs to {_mount_point}")
+        logger.info(f"Mounting {squashfs_path} squashfs to {_mount_base}")
         try:
-            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
+            cmdhelper.ensure_mointpoint(_mount_base, ignore_error=True)
+            cmdhelper.ensure_umount(_mount_base, ignore_error=True)
             cmdhelper.ensure_mount(
                 target=squashfs_path,
-                mnt_point=_mount_point,
+                mnt_point=_mount_base,
                 mount_func=cmdhelper.mount_squashfs,
                 raise_exception=True,
             )
+
+            # bind necessary directories
+            def bind_targets(targets, mount_base, mount_func):
+                for target in targets:
+                    mount_point = f"{mount_base}{target}"
+                    cmdhelper.ensure_mointpoint(mount_point, ignore_error=True)
+                    cmdhelper.ensure_umount(mount_point, ignore_error=True)
+                    cmdhelper.ensure_mount(
+                        target=target,
+                        mnt_point=mount_point,
+                        mount_func=mount_func,
+                        raise_exception=True,
+                    )
 
             # bind necessary directories
             _rw_targets = [
@@ -311,17 +325,6 @@ class OTAClientPackage:
                 "/run",
                 "/tmp",
             ]
-            for _target in _rw_targets:
-                cmdhelper.ensure_mointpoint(
-                    f"{_mount_point}{_target}", ignore_error=True
-                )
-                cmdhelper.ensure_mount(
-                    target=_target,
-                    mnt_point=f"{_mount_point}{_target}",
-                    mount_func=cmdhelper.bind_mount_rw,
-                    raise_exception=True,
-                )
-
             _ro_targets = [
                 "/etc",
                 "/opt",
@@ -330,16 +333,8 @@ class OTAClientPackage:
                 "/usr/sbin/nvbootctrl",
                 "/usr/sbin/nv_update_engine",
             ]
-            for _target in _ro_targets:
-                cmdhelper.ensure_mointpoint(
-                    f"{_mount_point}{_target}", ignore_error=True
-                )
-                cmdhelper.ensure_mount(
-                    target=_target,
-                    mnt_point=f"{_mount_point}{_target}",
-                    mount_func=cmdhelper.bind_mount_ro,
-                    raise_exception=True,
-                )
+            bind_targets(_rw_targets, _mount_base, cmdhelper.bind_mount_rw)
+            bind_targets(_ro_targets, _mount_base, cmdhelper.bind_mount_ro)
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
