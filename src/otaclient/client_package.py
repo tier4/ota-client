@@ -293,7 +293,7 @@ class OTAClientPackage:
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_base, exist_ok=True)
 
-        logger.info(f"Mounting {squashfs_path} squashfs to {_mount_base}")
+        logger.info(f"mounting {squashfs_path} squashfs to {_mount_base}")
         try:
             # mount squashfs
             cmdhelper.ensure_mointpoint(_mount_base, ignore_error=True)
@@ -307,20 +307,20 @@ class OTAClientPackage:
 
             # bind necessary directories
             def bind_targets(targets, mount_base, mount_func):
-                for target in targets:
-                    mount_point = f"{mount_base}{target}"
-                    cmdhelper.ensure_mointpoint(mount_point, ignore_error=True)
+                for _target in targets:
+                    _mount_point = f"{mount_base}{_target}"
                     try:
+                        cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
                         cmdhelper.ensure_mount(
-                            target=target,
-                            mnt_point=mount_point,
+                            target=_target,
+                            mnt_point=_mount_point,
                             mount_func=mount_func,
                             raise_exception=True,
                             max_retry=3,
                         )
-                    except OSError as e:
+                    except OSError:
                         # some mount points may not exist, ignore them
-                        logger.info(f"failed to mount point, but ignore it: {e!r}")
+                        logger.info(f"failed to mount point {_mount_point}, ignore it")
                         pass
 
             # bind necessary directories
