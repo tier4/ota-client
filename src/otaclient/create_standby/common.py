@@ -464,6 +464,14 @@ class DeltaGenerator:
         Path(cfg.OTA_DIR) / "delta_stage_1_remove_list.csv"
     )
 
+    OUTPUT_FILE_DOWNLOAD_LIST_STAGE_2 = (
+        Path(cfg.OTA_DIR) / "delta_stage_2_download_list.csv"
+    )
+    OUTPUT_FILE_COPY_LIST_STAGE_2 = Path(cfg.OTA_DIR) / "delta_stage_2_copy_list.csv"
+    OUTPUT_FILE_REMOVE_LIST_STAGE_2 = (
+        Path(cfg.OTA_DIR) / "delta_stage_2_remove_list.csv"
+    )
+
     def _copy_file_from_standby(
         self,
         source_path: Path,
@@ -475,14 +483,12 @@ class DeltaGenerator:
         hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
         try:
             hash_f = sha256()
-            with open(source_path, "rb") as source_f, open(target_path, "wb") as target_f:
+            with open(source_path, "rb") as source_f, open(
+                target_path, "wb"
+            ) as target_f:
                 while read_size := source_f.readinto(hash_buffer):
                     hash_f.update(hash_bufferview[:read_size])
                     target_f.write(hash_bufferview[:read_size])
-        except Exception as e:
-            logger.error(f"error happened when copy files : {e}")
-            return
-
 
         # report to the ota update stats collector
         # self._stats_collector.report_stat(
@@ -492,8 +498,11 @@ class DeltaGenerator:
         #         processed_file_num=1,
         #     ),
         # )
+        except Exception as e:
+            logger.error(f"error happened when copy files : {e}")
+            return
 
-    def _copy_to_standby_slot(self, copy_list: list):
+    def _copy_to_standby_slot(self):
         logger.debug("copy to standby slot ...")
 
         thread_local = threading.local()
@@ -515,18 +524,24 @@ class DeltaGenerator:
             thread_name_prefix="copy_task",
             initializer=_initializer,
         )
-
-        for copy_item in copy_list:
-            pool.submit(
-                self._copy_file_from_standby,
-                copy_item[1], # source path
-                copy_item[0], # hash code
-                thread_local=thread_local,
-            ).add_done_callback(_task_done_callback)
+        
+        with open(self.OUTPUT_FILE_COPY_LIST_STAGE_2, "r", newline="") as copy_file:
+            reader = csv.reader(copy_file, quoting=csv.QUOTE_MINIMAL, quotechar="'")
+            for row in reader:
+                if len(row) < 2:
+                    logger.error(f"illegal local copy list: {str(row)}")
+                    continue
+                hash_code = row[0].strip().strip("'")
+                source_path = row[1].strip().strip("'")
+                pool.submit(
+                    self._copy_file_from_standby,
+                    Path(source_path),  # source path
+                    hash_code,  # hash code
+                    thread_local=thread_local,
+                ).add_done_callback(_task_done_callback)
 
         # wait for all files being processed
         pool.shutdown(wait=True)
-
 
     def _process_delta_v2_stage_1(self):
         logger.info("entering stage1 calculation ... ")
@@ -569,7 +584,7 @@ class DeltaGenerator:
                 remove_list.append(_entry.path)
             else:
                 old_paths = old_hash_path_dict[_hash]
-                copy_list.append([_hash.hex(), old_paths[0]])
+                copy_list.append(f"{_hash.hex()}, '{old_paths[0]}'")
                 # new_paths = new_hash_path_dict[_hash]
                 # for path in new_paths:
                 #     copy_list.append([_hash.hex(), old_paths[0], path])
@@ -586,22 +601,60 @@ class DeltaGenerator:
 
         elapsed_time = time.time() - start_time
         logger.info(f"finished calculation stage 1, {elapsed_time: 0.2f} seconds used")
-        
+
+        self._download_list = download_list
+        self._rm = remove_list
+
+    def _process_delta_v2_stage_2(self):
+        logger.info("----- entering delta calculation v2 stage 2")
+        copy_list_stage_2 = []
+        missing_list = []
+        download_list_stage_2 = []
+        missing_list_hash = set()
+
+        with open(self.OUTPUT_FILE_COPY_LIST_STAGE_1, "r", newline="") as copy_file:
+            reader = csv.reader(copy_file, quoting=csv.QUOTE_MINIMAL, quotechar="'")
+            for row in reader:
+                if len(row) < 2:
+                    logger.error(f"illegal local copy list: {str(row)}")
+                    continue
+                hash_code = row[0].strip().strip("'")
+                source_path = row[1].strip().strip("'")
+                if not os.path.exists(source_path):
+                    missing_list.append(source_path)
+                    try:
+                        missing_list_hash.add(bytes.fromhex(hash_code))
+                    except Exception as e:
+                        logger.error(f"error happened in converting hash code : {e} : {hash_code}")
+                else:
+                    copy_list_stage_2.append(f"{hash_code},'{source_path}'")
+
+        download_list_stage_2.extend(
+            _entry
+            for _entry in self._ota_metadata.iter_metafile(MetafilesV1.REGULAR_FNAME)
+            if _entry.sha256hash in missing_list_hash
+        )
+
+        with open(self.OUTPUT_FILE_DOWNLOAD_LIST_STAGE_2, "w") as _f:
+            _f.writelines("\n".join(f"{str(item)}" for item in download_list_stage_2))
+
+        with open(self.OUTPUT_FILE_COPY_LIST_STAGE_2, "w") as _f:
+            _f.writelines("\n".join(f"{str(item)}" for item in copy_list_stage_2))
+            
         logger.info("-------- start to copy files ")
-        self._copy_to_standby_slot(copy_list)
+        self._copy_to_standby_slot()
         logger.info("--------- finished copy files ")
 
         # update output here
-        self._download_list = download_list
-        self._rm = remove_list
+        self._download_list.extend(download_list_stage_2)
 
     def _process_delta_src_v2(self):
         logger.info("start to calculate delta using new method")
 
         self._process_delta_v2_stage_1()
+        self._process_delta_v2_stage_2()
 
     # API
-
     def calculate_and_process_delta(self) -> DeltaBundle:
         # pre-load dirs info
         for _dir in self._ota_metadata.iter_metafile(MetafilesV1.DIRECTORY_FNAME):
