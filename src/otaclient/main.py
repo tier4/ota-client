@@ -53,13 +53,13 @@ _ota_core_p: mp_ctx.SpawnProcess | None = None
 _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
 _dynamic_client_p: subprocess.Popen | None = None
-_shutdown_processing = threading.Lock()
+_shutdown_processing = threading.Event()
 
 
 def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
     global _shutdown_processing, _dynamic_client_p, _ota_core_p, _grpc_server_p, _shm
 
-    _shutdown_processing.acquire(blocking=False)
+    _shutdown_processing.set()
 
     # kill the dynamic client process if it is running
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
@@ -131,7 +131,7 @@ def _dynamic_client_thread(
         logger.info(f"starting dynamic OTA client with mount dir: {_mount_point}")
         for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
             global _shutdown_processing, _dynamic_client_p
-            if _shutdown_processing.locked():
+            if _shutdown_processing.is_set():
                 logger.info("shutdown has already been requested, exiting thread...")
                 return
 
