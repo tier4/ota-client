@@ -488,14 +488,12 @@ class _OTAUpdater:
 
         logger.info("local update finished, wait on all subecs...")
         self._control_flags.wait_can_reboot_flag()
-    
-        last_update_file = Path(cfg.MOUNT_POINT) / cfg.OTA_DIR / cfg.OTA_LAST_UPDATE_TIME
-        write_str_to_file_sync(
-            last_update_file, str(time.time())
-        )
-        
+
+        last_update_file = Path(cfg.META_FOLDER) / cfg.OTA_LAST_UPDATE_TIME
+        write_str_to_file_sync(last_update_file, str(time.time()))
+
         logger.info("about to reboot")
-        
+
         next(_postupdate_gen, None)  # reboot
 
     # API

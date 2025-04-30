@@ -465,9 +465,6 @@ class DeltaGenerator:
             self._new.add_entry(_entry)
             self._new_hash_size_dict[_entry.sha256hash] = _entry.size
 
-        logger.info(
-            "last ota success time not found, use delta calculation legacy method"
-        )
         # generate delta and prepare files
         self._process_delta_src()
 

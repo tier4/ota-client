@@ -63,22 +63,31 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _cal_and_prepare_delta(self):
         logger.info("generating delta...")
-        # delta_calculator = DeltaGenerator(
-        #     ota_metadata=self._ota_metadata,
-        #     delta_src=self.active_slot_mp,
-        #     local_copy_dir=self._ota_tmp,
-        #     stats_collector=self.stats_collector,
-        # )
-        # delta_bundle = delta_calculator.calculate_and_process_delta()
         
-        delta_calculator = DeltaGeneratorV2(
-            ota_metadata=self._ota_metadata,
-            delta_src=self.active_slot_mp,
-            local_copy_dir=self._ota_tmp,
-            stats_collector=self.stats_collector,
-            last_update_time="1743329621" # dummy
-        )
-        delta_bundle = delta_calculator.calculate_and_process_delta_v2()
+        if not self.should_use_delta_v2():
+            delta_calculator = DeltaGenerator(
+                ota_metadata=self._ota_metadata,
+                delta_src=self.active_slot_mp,
+                local_copy_dir=self._ota_tmp,
+                stats_collector=self.stats_collector,
+            )
+            delta_bundle = delta_calculator.calculate_and_process_delta()
+        else:
+            last_update_time="" # default 
+            try:
+                with open(Path(cfg.MOUNT_POINT)/cfg.OTA_LAST_UPDATE_TIME, "r", encoding="utf-8") as file:
+                    last_update_time = file.read()
+            except Exception as e:
+                logger.error(f"Error reading last update time value: {e}")
+
+            delta_calculator = DeltaGeneratorV2(
+                ota_metadata=self._ota_metadata,
+                delta_src=self.active_slot_mp,
+                local_copy_dir=self._ota_tmp,
+                stats_collector=self.stats_collector,
+                last_update_time=last_update_time
+            )
+            delta_bundle = delta_calculator.calculate_and_process_delta_v2()
         
         
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
@@ -213,3 +222,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
         #       as it requires standby_slot to be erased before applying
         #       the changes.
         shutil.rmtree(self._ota_tmp, ignore_errors=True)
+
+    def should_use_delta_v2(self) -> bool:
+        last_update_time_file = Path(cfg.META_FOLDER) / cfg.OTA_LAST_UPDATE_TIME
+        if not os.path.exists(last_update_time_file):
+            return False
+        last_regular_file = Path(cfg.META_FOLDER) / "regulars.bin"
+        return bool(os.path.exists(last_regular_file))
