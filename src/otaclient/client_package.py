@@ -314,7 +314,8 @@ class OTAClientPackage:
                         target=target,
                         mnt_point=mount_point,
                         mount_func=mount_func,
-                        raise_exception=True,
+                        # some mount points may not exist
+                        raise_exception=False,
                         max_retry=3,
                     )
 
