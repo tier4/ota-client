@@ -131,7 +131,14 @@ def get_mount_point_by_dev(
         str: the FIRST mountpint of the <dev>, or empty string if <raise_exception> is False
             and the subprocess call failed(due to dev is not mounted or other reasons).
     """
-    cmd = ["findmnt", "-nfo", "TARGET", dev]
+    #    cmd = ["findmnt", "-nfo", "TARGET", dev]
+    cmd = [
+        "awk",
+        "-v",
+        f"dev={dev}",
+        "$10==dev{print $5; exit}",
+        "/proc/1/mountinfo",
+    ]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
