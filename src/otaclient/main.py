@@ -101,10 +101,7 @@ def _dynamic_client_shutdown() -> None:
         reverse=True,
     )
     for mnt in targets:
-        try:
-            cmdhelper.ensure_umount(mnt, ignore_error=True, max_retry=1)
-        except Exception as e:
-            logger.warning(f"failed to umount {mnt}: {e}")
+        cmdhelper.ensure_umount(mnt, ignore_error=True, max_retry=1)
 
     # kill the dynamic client process if it is running
     global _dynamic_client_p
