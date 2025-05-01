@@ -131,14 +131,7 @@ def get_mount_point_by_dev(
         str: the FIRST mountpint of the <dev>, or empty string if <raise_exception> is False
             and the subprocess call failed(due to dev is not mounted or other reasons).
     """
-    # cmd = ["findmnt", "-nfo", "TARGET", dev]
-    cmd = [
-        "awk",
-        "-v",
-        f"dev={dev}",
-        "$10==dev{print $5; exit}",
-        "/proc/1/mountinfo",
-    ]
+    cmd = ["findmnt", "-nfo", "TARGET", dev]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
@@ -158,14 +151,7 @@ def get_dev_by_mount_point(
     Returns:
         str: the source device of <mount_point>.
     """
-    # cmd = ["findmnt", "-no", "SOURCE", mount_point]
-    cmd = [
-        "awk",
-        "-v",
-        f"mp={mount_point}",
-        "$5==mp{print $10; exit}",
-        "/proc/1/mountinfo",
-    ]
+    cmd = ["findmnt", "-no", "SOURCE", mount_point]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
@@ -186,14 +172,7 @@ def is_target_mounted(
         Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
             <target> is not a mount point or not mounted.
     """
-    # cmd = ["findmnt", target]
-    cmd = [
-        "awk",
-        "-v",
-        f"tgt={target}",
-        "$5==tgt || $10==tgt{found=1; exit} END{exit !found}",
-        "/proc/1/mountinfo",
-    ]
+    cmd = ["findmnt", target]
     try:
         subprocess_call(cmd, raise_exception=True)
         return True
@@ -581,9 +560,6 @@ def ensure_mount(
     Raises:
         If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
     """
-    if is_target_mounted(mnt_point, raise_exception=False):
-        return
-
     for _retry in range(max_retry + 1):
         try:
             mount_func(target=target, mount_point=mnt_point)
