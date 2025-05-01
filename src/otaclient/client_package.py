@@ -292,18 +292,18 @@ class OTAClientPackage:
             self.get_target_squashfs_path(),
             cfg.OTACLIENT_SQUASHFS_FILE,
         )
-        squashfs_path = cfg.OTACLIENT_SQUASHFS_FILE
+        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
 
         # Create a temporary directory to mount the squashfs
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_base, exist_ok=True)
 
-        logger.info(f"mounting {squashfs_path} squashfs to {_mount_base}")
+        logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
             # mount squashfs
             cmdhelper.ensure_mointpoint(_mount_base, ignore_error=True)
             cmdhelper.ensure_mount(
-                target=squashfs_path,
+                target=_squashfs_file,
                 mnt_point=_mount_base,
                 mount_func=cmdhelper.mount_squashfs,
                 raise_exception=True,
