@@ -111,6 +111,7 @@ def otaproxy_control_thread(
 
     ota_cache_dir = Path(otaproxy_cfg.BASE_DIR)
     next_ota_cache_dir_checkpoint = 0
+    otaproxy_min_alive_until = 0
 
     global _otaproxy_p
     while not _global_shutdown:
@@ -141,17 +142,19 @@ def otaproxy_control_thread(
                 name="otaproxy",
             )
             _otaproxy_p.start()
-            next_ota_cache_dir_checkpoint = _now + OTAPROXY_MIN_STARTUP_TIME
-            time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
-
-        elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
-            logger.info("shutting down otaproxy as not needed now ...")
-            _shutdown_otaproxy()
+            next_ota_cache_dir_checkpoint = otaproxy_min_alive_until = (
+                _now + OTAPROXY_MIN_STARTUP_TIME
+            )
 
         elif (
             _otaproxy_p
             and _otaproxy_running
-            and client_update_control_flags.stop_server_event.is_set()
+            and not _otaproxy_should_run
+            and _now > otaproxy_min_alive_until  # to prevent pre-mature shutdown
         ):
+            logger.info("shutting down otaproxy as not needed now ...")
+            _shutdown_otaproxy()
+
+        elif _otaproxy_p and client_update_control_flags.stop_server_event.is_set():
             logger.info("otaproxy stop event detected")
             _shutdown_otaproxy()
