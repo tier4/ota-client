@@ -121,6 +121,14 @@ def otaproxy_control_thread(
         _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
         _otaproxy_should_run = ecu_status_flags.any_requires_network.is_set()
         _all_success = ecu_status_flags.all_success.is_set()
+        _stop_server_event = client_update_control_flags.stop_server_event.is_set()
+
+        if _stop_server_event:
+            logger.info("shutting down otaproxy as client update requested ...")
+            _shutdown_otaproxy()
+            while True:
+                # keep alive the thread without otaproxy running
+                time.sleep(1)
 
         if not _otaproxy_should_run and not _otaproxy_running:
             if (
@@ -146,15 +154,7 @@ def otaproxy_control_thread(
                 _now + OTAPROXY_MIN_STARTUP_TIME
             )
 
-        elif (
-            _otaproxy_p
-            and _otaproxy_running
-            and not _otaproxy_should_run
-            and _now > otaproxy_min_alive_until  # to prevent pre-mature shutdown
-        ):
-            logger.info("shutting down otaproxy as not needed now ...")
-            _shutdown_otaproxy()
-
-        elif _otaproxy_p and client_update_control_flags.stop_server_event.is_set():
-            logger.info("otaproxy stop event detected")
-            _shutdown_otaproxy()
+        elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
+            if _now > otaproxy_min_alive_until:  # to prevent pre-mature shutdown
+                logger.info("shutting down otaproxy as not needed now ...")
+                _shutdown_otaproxy()
