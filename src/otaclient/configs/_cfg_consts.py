@@ -42,6 +42,7 @@ class Consts:
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
     OTACLIENT_STATUS_FILE = "/run/otaclient.status"
+    OTACLIENT_SQUASHFS_FILE = "/run/otaclient.squashfs"
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 

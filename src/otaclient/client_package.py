@@ -287,7 +287,12 @@ class OTAClientPackage:
 
     def mount_squashfs(self):
         """Mount the squashfs file."""
-        squashfs_path = self.get_target_squashfs_path()
+        # copy the squashfs file
+        shutil.copy(
+            self.get_target_squashfs_path(),
+            cfg.OTACLIENT_SQUASHFS_FILE,
+        )
+        squashfs_path = cfg.OTACLIENT_SQUASHFS_FILE
 
         # Create a temporary directory to mount the squashfs
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
