@@ -196,6 +196,7 @@ def subprocess_run_wrapper(
 
         def _chroot():
             os.chroot(chroot)
+            os.chdir("/")
 
         preexec_fn = _chroot
 
@@ -243,6 +244,7 @@ def subprocess_popen_wrapper(
 
         def _chroot():
             os.chroot(chroot)
+            os.chdir("/")
 
         preexec_fn = _chroot
 
