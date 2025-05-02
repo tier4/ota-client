@@ -34,7 +34,7 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper, replace_root
+from otaclient_common import _env, cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_run_wrapper
@@ -361,7 +361,9 @@ class _CBootControl:
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
-                cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+                cmdhelper.get_current_rootfs_dev(
+                    cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+                )
             )
             self.parent_devpath = parent_devpath = Path(
                 cmdhelper.get_parent_dev(current_rootfs_devpath)

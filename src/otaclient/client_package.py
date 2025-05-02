@@ -30,7 +30,7 @@ from typing import Generator, Optional
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
@@ -253,6 +253,79 @@ class OTAClientPackage:
         # directly use the downloaded squashfs
         return self.downloaded_package_path
 
+    def _mount_squashfs_file(
+        self,
+        squashfs_file: StrOrPath,
+        mount_base: StrOrPath,
+    ) -> None:
+        """Mount the squashfs file to the mount base."""
+        # check if the squashfs file exists
+        if not os.path.exists(squashfs_file):
+            raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
+
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        # mount the squashfs file
+        cmdhelper.ensure_mount(
+            target=squashfs_file,
+            mnt_point=mount_base,
+            mount_func=cmdhelper.mount_squashfs,
+            raise_exception=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
+
+    def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
+        """Bind mount the host directories to the mount base."""
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        def bind_paths(paths, mount_base, mount_func):
+            for _path in paths:
+                if not os.path.exists(_path):
+                    logger.warning(f"bind path does not exist: {_path}, skipping")
+                    continue
+
+                _mount_point = f"{mount_base}{_path}"
+                cmdhelper.ensure_mointpoint(
+                    _mount_point,
+                    ignore_error=True,
+                    is_in_chroot=_env.is_dynamic_client_running(),
+                )
+                cmdhelper.ensure_mount(
+                    target=_path,
+                    mnt_point=_mount_point,
+                    mount_func=mount_func,
+                    raise_exception=True,
+                    is_in_chroot=_env.is_dynamic_client_running(),
+                )
+
+        # bind necessary directories
+        RW_PATHS = [
+            "/boot",
+            "/dev",
+            "/dev/shm",
+            "/ota-cache",
+            "/run",
+            "/tmp",
+        ]
+        RO_PATHS = [
+            "/etc",
+            "/opt",
+            "/proc",
+            "/sys",
+            "/usr/sbin/nvbootctrl",
+            "/usr/sbin/nv_update_engine",
+        ]
+        bind_paths(
+            paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
+        )
+        bind_paths(
+            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
+        )
+
     # APIs
 
     def download_client_package(
@@ -287,12 +360,7 @@ class OTAClientPackage:
 
     def mount_squashfs(self):
         """Mount the squashfs file."""
-        # copy the squashfs file
-        shutil.copy(
-            self.get_target_squashfs_path(),
-            cfg.OTACLIENT_SQUASHFS_FILE,
-        )
-        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        _squashfs_file = self.get_target_squashfs_path()
 
         # Create a temporary directory to mount the squashfs
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
@@ -300,53 +368,13 @@ class OTAClientPackage:
 
         logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
-            # mount squashfs
-            cmdhelper.ensure_mointpoint(_mount_base, ignore_error=True)
-            cmdhelper.ensure_mount(
-                target=_squashfs_file,
-                mnt_point=_mount_base,
-                mount_func=cmdhelper.mount_squashfs,
-                raise_exception=True,
-                max_retry=3,
-            )
+            self._mount_squashfs_file(_squashfs_file, _mount_base)
+            self._bind_mount_host_dirs(_mount_base)
 
-            # bind necessary directories
-            def bind_targets(paths, mount_base, mount_func):
-                for _path in paths:
-                    if not os.path.exists(_path):
-                        logger.warning(f"bind path does not exist: {_path}, skipping")
-                        continue
-
-                    _mount_point = f"{mount_base}{_path}"
-                    cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
-                    cmdhelper.ensure_mount(
-                        target=_path,
-                        mnt_point=_mount_point,
-                        mount_func=mount_func,
-                        raise_exception=True,
-                        max_retry=3,
-                    )
-
-            # bind necessary directories
-            RW_PATHS = [
-                "/boot",
-                "/dev",
-                "/dev/shm",
-                "/ota-cache",
-                "/run",
-                "/tmp",
-            ]
-            RO_PATHS = [
-                "/etc",
-                "/opt",
-                "/proc",
-                "/sys",
-                "/usr/sbin/nvbootctrl",
-                "/usr/sbin/nv_update_engine",
-            ]
-            bind_targets(RW_PATHS, _mount_base, cmdhelper.bind_mount_rw)
-            bind_targets(RO_PATHS, _mount_base, cmdhelper.bind_mount_ro)
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
+
+        # copy the squashfs file
+        shutil.copy(_squashfs_file, cfg.OTACLIENT_SQUASHFS_FILE)
