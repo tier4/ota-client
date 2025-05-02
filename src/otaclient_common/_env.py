@@ -13,9 +13,17 @@
 # limitations under the License.
 
 import os
+from typing import Optional
 
 from otaclient.configs.cfg import cfg
 
 
 def is_dynamic_client_running() -> bool:
+    """Check if the dynamic client is running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
+
+
+def get_original_root() -> Optional[str]:
+    if not is_dynamic_client_running():
+        return None
+    return os.path.relpath(cfg.ORIGINAL_ROOT_MNT, cfg.DYNAMIC_CLIENT_MNT)

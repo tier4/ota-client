@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn, Protocol
+from typing import Literal, NoReturn, Optional, Protocol
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call, subprocess_check_output
@@ -40,8 +40,6 @@ PartitionToken = Literal[
     "TYPE",
 ]
 # fmt: on
-
-CHROOT_ROOT = "/proc/1/root"
 
 
 def get_attrs_by_dev(
@@ -89,7 +87,10 @@ def get_dev_by_token(
 
 
 def get_current_rootfs_dev(
-    active_root: StrOrPath, *, raise_exception: bool = True, is_in_chroot: bool = False
+    active_root: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    original_root: Optional[str] = None,
 ) -> str:  # pragma: no cover
     """Get the devpath of current rootfs dev.
 
@@ -99,19 +100,19 @@ def get_current_rootfs_dev(
     Args:
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
 
     Returns:
         str: the devpath of current rootfs device.
     """
     cmd = ["findmnt", "-nfco", "SOURCE", active_root]
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
 def get_mount_point_by_dev(
-    dev: str, *, raise_exception: bool = True, is_in_chroot: bool = False
+    dev: str, *, raise_exception: bool = True, original_root: Optional[str] = None
 ) -> str:  # pragma: no cover
     """Get the FIRST mountpoint of the <dev>.
 
@@ -124,20 +125,23 @@ def get_mount_point_by_dev(
         dev (str): the device to check against.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
 
     Returns:
         str: the FIRST mountpint of the <dev>, or empty string if <raise_exception> is False
             and the subprocess call failed(due to dev is not mounted or other reasons).
     """
     cmd = ["findmnt", "-nfo", "TARGET", dev]
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
 def get_dev_by_mount_point(
-    mount_point: str, *, raise_exception: bool = True, is_in_chroot: bool = False
+    mount_point: str,
+    *,
+    raise_exception: bool = True,
+    original_root: Optional[str] = None,
 ) -> str:  # pragma: no cover
     """Return the source dev of the given <mount_point>.
 
@@ -148,19 +152,22 @@ def get_dev_by_mount_point(
         mount_point (str): mount_point to check against.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
 
     Returns:
         str: the source device of <mount_point>.
     """
     cmd = ["findmnt", "-no", "SOURCE", mount_point]
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
 def is_target_mounted(
-    target: StrOrPath, *, raise_exception: bool = False, is_in_chroot: bool = False
+    target: StrOrPath,
+    *,
+    raise_exception: bool = False,
+    original_root: Optional[str] = None,
 ) -> bool:  # pragma: no cover
     """Check if <target> is mounted or not. <target> can be a dev or a mount point.
 
@@ -171,7 +178,7 @@ def is_target_mounted(
         target (StrOrPath): the target to check against. Could be a device or a mount point.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
 
     Returns:
         Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
@@ -179,8 +186,8 @@ def is_target_mounted(
     """
     cmd = ["findmnt", target]
     try:
-        if is_in_chroot:
-            cmd = ["chroot", CHROOT_ROOT] + cmd
+        if original_root:
+            cmd = ["chroot", original_root] + cmd
         subprocess_call(cmd, raise_exception=True)
         return True
     except CalledProcessError:
@@ -347,7 +354,7 @@ class MountHelper(Protocol):
         mount_point: StrOrPath,
         *,
         raise_exception: bool = True,
-        is_in_chroot: bool = False,
+        original_root: Optional[str] = None,
     ) -> None: ...
 
 
@@ -358,7 +365,7 @@ def mount(
     options: list[str] | None = None,
     params: list[str] | None = None,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Thin wrapper to call mount using subprocess.
 
@@ -371,7 +378,7 @@ def mount(
         options (list[str] | None, optional): A list of options, append after -o. Defaults to None.
         params (list[str] | None, optional): A list of params. Defaults to None.
         raise_exception (bool, optional): Whether to raise exception on failed call. Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     cmd = ["mount"]
     if options:
@@ -379,8 +386,8 @@ def mount(
     if params:
         cmd.extend(params)
     cmd = [*cmd, str(target), str(mount_point)]
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -389,7 +396,7 @@ def bind_mount_rw(
     mount_point: StrOrPath,
     *,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-write.
 
@@ -401,7 +408,7 @@ def bind_mount_rw(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     # fmt: off
     cmd = [
@@ -412,8 +419,8 @@ def bind_mount_rw(
         str(mount_point)
     ]
     # fmt: on
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -422,7 +429,7 @@ def mount_rw(
     mount_point: StrOrPath,
     *,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
@@ -437,7 +444,7 @@ def mount_rw(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     # fmt: off
     cmd = [
@@ -448,8 +455,8 @@ def mount_rw(
         str(mount_point),
     ]
     # fmt: on
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -458,7 +465,7 @@ def bind_mount_ro(
     mount_point: StrOrPath,
     *,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-only.
 
@@ -470,7 +477,7 @@ def bind_mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     # fmt: off
     cmd = [
@@ -481,8 +488,8 @@ def bind_mount_ro(
         str(mount_point)
     ]
     # fmt: on
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -491,7 +498,7 @@ def mount_ro(
     mount_point: StrOrPath,
     *,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
@@ -503,18 +510,18 @@ def mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     # NOTE: set raise_exception to false to allow not mounted
     #       not mounted dev will have empty return str
     if _active_mount_point := get_mount_point_by_dev(
-        str(target), raise_exception=False, is_in_chroot=is_in_chroot
+        str(target), raise_exception=False, original_root=original_root
     ):
         bind_mount_ro(
             _active_mount_point,
             mount_point,
             raise_exception=raise_exception,
-            is_in_chroot=is_in_chroot,
+            original_root=original_root,
         )
     else:
         # target is not mounted, we mount it by ourself
@@ -527,8 +534,8 @@ def mount_ro(
             str(mount_point),
         ]
         # fmt: on
-        if is_in_chroot:
-            cmd = ["chroot", CHROOT_ROOT] + cmd
+        if original_root:
+            cmd = ["chroot", original_root] + cmd
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -537,7 +544,7 @@ def mount_squashfs(
     mount_point: StrOrPath,
     *,
     raise_exception: bool = True,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Mount the <target> sqiashfs to <mount_point>.
 
@@ -552,7 +559,7 @@ def mount_squashfs(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
-        is_in_chroot (bool, optional): if True, temporarily exit chroot to run the command.
+        original_root (str, optional): the original root path before chroot. if not in chroot, this will be None.
     """
     # fmt: off
     cmd = [
@@ -563,13 +570,16 @@ def mount_squashfs(
         str(mount_point),
     ]
     # fmt: on
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def umount(
-    target: StrOrPath, *, raise_exception: bool = True, is_in_chroot: bool = False
+    target: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Try to umount the <target>.
 
@@ -586,13 +596,15 @@ def umount(
     """
     # first try to check whether the target(either a mount point or a dev)
     # is mounted
-    if not is_target_mounted(target, raise_exception=False, is_in_chroot=is_in_chroot):
+    if not is_target_mounted(
+        target, raise_exception=False, original_root=original_root
+    ):
         return
 
     # if the target is mounted, try to unmount it.
     cmd = ["umount", str(target)]
-    if is_in_chroot:
-        cmd = ["chroot", CHROOT_ROOT] + cmd
+    if original_root:
+        cmd = ["chroot", original_root] + cmd
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -604,7 +616,7 @@ def ensure_mount(
     raise_exception: bool,
     max_retry: int = MAX_RETRY_COUNT,
     retry_interval: int = RETRY_INTERVAL,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Ensure the <target> mounted on <mnt_point> by our best.
 
@@ -613,9 +625,11 @@ def ensure_mount(
     """
     for _retry in range(max_retry + 1):
         try:
-            mount_func(target=target, mount_point=mnt_point, is_in_chroot=is_in_chroot)
+            mount_func(
+                target=target, mount_point=mnt_point, original_root=original_root
+            )
             is_target_mounted(
-                mnt_point, raise_exception=True, is_in_chroot=is_in_chroot
+                mnt_point, raise_exception=True, original_root=original_root
             )
             return
         except CalledProcessError as e:
@@ -645,7 +659,7 @@ def ensure_umount(
     ignore_error: bool,
     max_retry: int = MAX_RETRY_COUNT,
     retry_interval: int = RETRY_INTERVAL,
-    is_in_chroot: bool = False,
+    original_root: Optional[str] = None,
 ) -> None:  # pragma: no cover
     """Try to umount the <mnt_point> at our best.
 
@@ -655,10 +669,10 @@ def ensure_umount(
     for _retry in range(max_retry + 1):
         try:
             if not is_target_mounted(
-                mnt_point, raise_exception=False, is_in_chroot=is_in_chroot
+                mnt_point, raise_exception=False, original_root=original_root
             ):
                 break
-            umount(mnt_point, raise_exception=True, is_in_chroot=is_in_chroot)
+            umount(mnt_point, raise_exception=True, original_root=original_root)
         except CalledProcessError as e:
             logger.info(
                 (
@@ -678,7 +692,7 @@ def ensure_umount(
 
 
 def ensure_mointpoint(
-    mnt_point: StrOrPath, *, ignore_error: bool, is_in_chroot: bool = False
+    mnt_point: StrOrPath, *, ignore_error: bool, original_root: Optional[str] = None
 ) -> None:  # pragma: no cover
     """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
 
@@ -694,7 +708,7 @@ def ensure_mointpoint(
         return
 
     try:
-        ensure_umount(mnt_point, ignore_error=False, is_in_chroot=is_in_chroot)
+        ensure_umount(mnt_point, ignore_error=False, original_root=original_root)
     except Exception as e:
         if not ignore_error:
             logger.error(f"failed to prepare {mnt_point=}: {e!r}")

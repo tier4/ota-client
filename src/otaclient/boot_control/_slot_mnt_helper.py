@@ -52,7 +52,7 @@ class SlotMountHelper:  # pragma: no cover
                 cmdhelper.ensure_umount,
                 self.active_slot_mount_point,
                 ignore_error=True,
-                is_in_chroot=_env.is_dynamic_client_running(),
+                original_root=_env.get_original_root(),
             )
         )
         atexit.register(
@@ -61,7 +61,7 @@ class SlotMountHelper:  # pragma: no cover
                 self.standby_slot_mount_point,
                 ignore_error=True,
                 max_retry=3,
-                is_in_chroot=_env.is_dynamic_client_running(),
+                original_root=_env.get_original_root(),
             )
         )
 
@@ -75,12 +75,12 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_mointpoint(
             self.standby_slot_mount_point,
             ignore_error=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
         cmdhelper.ensure_umount(
             self.standby_slot_dev,
             ignore_error=False,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
         cmdhelper.ensure_mount(
@@ -88,7 +88,7 @@ class SlotMountHelper:  # pragma: no cover
             mnt_point=self.standby_slot_mount_point,
             mount_func=cmdhelper.mount_rw,
             raise_exception=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
     def mount_active(self) -> None:
@@ -101,14 +101,14 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_mointpoint(
             self.active_slot_mount_point,
             ignore_error=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
     def preserve_ota_folder_to_standby(self):
@@ -136,7 +136,7 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_umount(
             self.standby_slot_dev,
             ignore_error=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
         if erase_standby:
             return cmdhelper.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
@@ -151,10 +151,10 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_umount(
             self.active_slot_mount_point,
             ignore_error=ignore_error,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
         cmdhelper.ensure_umount(
             self.standby_slot_mount_point,
             ignore_error=ignore_error,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
