@@ -268,12 +268,17 @@ class OTAClientPackage:
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
         # mount the squashfs file
+        cmdhelper.ensure_mointpoint(
+            mount_base,
+            ignore_error=False,
+            original_root=_env.get_original_root(),
+        )
         cmdhelper.ensure_mount(
             target=squashfs_file,
             mnt_point=mount_base,
             mount_func=cmdhelper.mount_squashfs,
             raise_exception=True,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
@@ -291,15 +296,15 @@ class OTAClientPackage:
                 _mount_point = f"{mount_base}{_path}"
                 cmdhelper.ensure_mointpoint(
                     _mount_point,
-                    ignore_error=True,
-                    is_in_chroot=_env.is_dynamic_client_running(),
+                    ignore_error=False,
+                    original_root=_env.get_original_root(),
                 )
                 cmdhelper.ensure_mount(
                     target=_path,
                     mnt_point=_mount_point,
                     mount_func=mount_func,
                     raise_exception=True,
-                    is_in_chroot=_env.is_dynamic_client_running(),
+                    original_root=_env.get_original_root(),
                 )
 
         # bind necessary directories
@@ -324,6 +329,21 @@ class OTAClientPackage:
         )
         bind_paths(
             paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
+        )
+
+    def _bind_mount_original_root(self) -> None:
+        """Mount the original root to the mount base."""
+        cmdhelper.ensure_mointpoint(
+            cfg.ORIGINAL_ROOT_MNT,
+            ignore_error=False,
+            original_root=_env.get_original_root(),
+        )
+        cmdhelper.ensure_mount(
+            target=cfg.ACTIVE_ROOT,
+            mnt_point=cfg.ORIGINAL_ROOT_MNT,
+            mount_func=cmdhelper.bind_mount_ro,
+            raise_exception=True,
+            original_root=_env.get_original_root(),
         )
 
     # APIs
@@ -370,6 +390,7 @@ class OTAClientPackage:
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
+            self._bind_mount_original_root(_mount_base)
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
