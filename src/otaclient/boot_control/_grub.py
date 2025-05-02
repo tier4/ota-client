@@ -46,7 +46,7 @@ from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._io import (
     read_str_from_file,
     symlink_atomic,
@@ -318,7 +318,9 @@ class GrubABPartitionDetector:
         TODO: refine this method.
         """
         parent = cmdhelper.get_parent_dev(active_dev)
-        boot_dev = cmdhelper.get_dev_by_mount_point("/boot")
+        boot_dev = cmdhelper.get_dev_by_mount_point(
+            "/boot", is_in_chroot=_env.is_dynamic_client_running()
+        )
         if not boot_dev:
             _err_msg = "/boot is not mounted"
             logger.error(_err_msg)
@@ -357,7 +359,9 @@ class GrubABPartitionDetector:
             of the active slot.
         """
         try:
-            dev_path = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+            dev_path = cmdhelper.get_current_rootfs_dev(
+                cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+            )
             assert dev_path
         except Exception as e:
             _err_msg = f"failed to detect current rootfs dev: {e!r}"
