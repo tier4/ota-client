@@ -412,12 +412,12 @@ def copy_standby_slot_boot_to_internal_emmc(
         cmdhelper.umount(
             internal_emmc_devpath,
             raise_exception=False,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
         cmdhelper.mount_rw(
             target=str(internal_emmc_devpath),
             mount_point=internal_emmc_mp,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
     except Exception as e:
         _msg = f"failed to mount standby internal emmc dev: {e!r}"
@@ -436,7 +436,7 @@ def copy_standby_slot_boot_to_internal_emmc(
         cmdhelper.umount(
             internal_emmc_mp,
             raise_exception=False,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
 

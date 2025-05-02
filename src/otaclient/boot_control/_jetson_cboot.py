@@ -362,7 +362,7 @@ class _CBootControl:
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
                 cmdhelper.get_current_rootfs_dev(
-                    cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+                    cfg.ACTIVE_ROOT, is_in_chroot=_env.get_original_rootfs()
                 )
             )
             self.parent_devpath = parent_devpath = Path(

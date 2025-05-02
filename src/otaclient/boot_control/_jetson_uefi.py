@@ -180,7 +180,7 @@ def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:  # pragma: no cove
     if cmdhelper.is_target_mounted(
         EFIVARS_SYS_MOUNT_POINT,
         raise_exception=False,
-        is_in_chroot=_env.is_dynamic_client_running(),
+        original_root=_env.get_original_root(),
     ):
         options = "remount,rw,nosuid,nodev,noexec,relatime"
     else:
@@ -270,13 +270,13 @@ def _ensure_esp_mounted(
 
     try:
         cmdhelper.mount_rw(
-            str(esp_dev), mount_point, is_in_chroot=_env.is_dynamic_client_running()
+            str(esp_dev), mount_point, original_root=_env.get_original_root()
         )
         yield
         cmdhelper.umount(
             mount_point,
             raise_exception=False,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
     except Exception as e:
         _err_msg = f"failed to mount {esp_dev} to {mount_point}: {e!r}"
@@ -805,7 +805,7 @@ class _UEFIBootControl:
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
                 cmdhelper.get_current_rootfs_dev(
-                    cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+                    cfg.ACTIVE_ROOT, original_root=_env.get_original_root()
                 )
             )
             self.parent_devpath = parent_devpath = Path(
