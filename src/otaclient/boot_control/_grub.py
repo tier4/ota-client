@@ -319,7 +319,7 @@ class GrubABPartitionDetector:
         """
         parent = cmdhelper.get_parent_dev(active_dev)
         boot_dev = cmdhelper.get_dev_by_mount_point(
-            "/boot", is_in_chroot=_env.is_dynamic_client_running()
+            "/boot", original_root=_env.get_original_root()
         )
         if not boot_dev:
             _err_msg = "/boot is not mounted"
@@ -360,7 +360,7 @@ class GrubABPartitionDetector:
         """
         try:
             dev_path = cmdhelper.get_current_rootfs_dev(
-                cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+                cfg.ACTIVE_ROOT, original_root=_env.get_original_root()
             )
             assert dev_path
         except Exception as e:

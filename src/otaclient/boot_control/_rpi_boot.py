@@ -112,7 +112,7 @@ class _RPIBootControl:
     def __init__(self) -> None:
         self.system_boot_mp = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         self.system_boot_mp.mkdir(exist_ok=True)
-        self.is_in_chroot = _env.is_dynamic_client_running
+        self.original_root = _env.get_original_root()
 
         # sanity check, ensure we are running at raspberry pi device
         model_fpath = Path(boot_cfg.RPI_MODEL_FILE)
@@ -129,7 +129,7 @@ class _RPIBootControl:
         try:
             # ------ detect active slot ------ #
             active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                cfg.ACTIVE_ROOT, is_in_chroot=_env.is_dynamic_client_running()
+                cfg.ACTIVE_ROOT, original_root=_env.get_original_root()
             )
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
@@ -160,7 +160,7 @@ class _RPIBootControl:
         if not cmdhelper.is_target_mounted(
             self.system_boot_mp,
             raise_exception=False,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         ):
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
@@ -170,7 +170,7 @@ class _RPIBootControl:
                     system_boot_partition,
                     self.system_boot_mp,
                     options=["defaults"],
-                    is_in_chroot=_env.is_dynamic_client_running(),
+                    original_root=_env.get_original_root(),
                 )
             except subprocess.CalledProcessError as e:
                 _err_msg = (
@@ -318,7 +318,7 @@ class _RPIBootControl:
                     _mp,
                     options=["bind"],
                     params=["--make-unbindable"],
-                    is_in_chroot=_env.is_dynamic_client_running(),
+                    original_root=_env.get_original_root(),
                 )
             yield
             # NOTE: passthrough the mount failure to caller
@@ -327,7 +327,7 @@ class _RPIBootControl:
                 cmdhelper.umount(
                     _mp,
                     raise_exception=False,
-                    is_in_chroot=_env.is_dynamic_client_running(),
+                    original_root=_env.get_original_root(),
                 )
 
     def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):

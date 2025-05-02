@@ -105,7 +105,7 @@ def _dynamic_client_shutdown() -> None:
             mnt,
             ignore_error=True,
             max_retry=1,
-            is_in_chroot=_env.is_dynamic_client_running(),
+            original_root=_env.get_original_root(),
         )
 
     # kill the dynamic client process if it is running
