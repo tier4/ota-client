@@ -23,7 +23,7 @@ from functools import partial
 from pathlib import Path
 
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ class SlotMountHelper:  # pragma: no cover
                 cmdhelper.ensure_umount,
                 self.active_slot_mount_point,
                 ignore_error=True,
+                is_in_chroot=_env.is_dynamic_client_running(),
             )
         )
         atexit.register(
@@ -60,6 +61,7 @@ class SlotMountHelper:  # pragma: no cover
                 self.standby_slot_mount_point,
                 ignore_error=True,
                 max_retry=3,
+                is_in_chroot=_env.is_dynamic_client_running(),
             )
         )
 
@@ -70,14 +72,23 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount standby slot rootfs dev...")
-        cmdhelper.ensure_mointpoint(self.standby_slot_mount_point, ignore_error=True)
-        cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=False)
+        cmdhelper.ensure_mointpoint(
+            self.standby_slot_mount_point,
+            ignore_error=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
+        cmdhelper.ensure_umount(
+            self.standby_slot_dev,
+            ignore_error=False,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
 
         cmdhelper.ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,
             mount_func=cmdhelper.mount_rw,
             raise_exception=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
         )
 
     def mount_active(self) -> None:
@@ -87,12 +98,17 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
-        cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
+        cmdhelper.ensure_mointpoint(
+            self.active_slot_mount_point,
+            ignore_error=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
         )
 
     def preserve_ota_folder_to_standby(self):
@@ -117,7 +133,11 @@ class SlotMountHelper:  # pragma: no cover
         erase_standby: bool = False,
         fslabel: str | None = None,
     ) -> None:
-        cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=True)
+        cmdhelper.ensure_umount(
+            self.standby_slot_dev,
+            ignore_error=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
         if erase_standby:
             return cmdhelper.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
 
@@ -128,7 +148,13 @@ class SlotMountHelper:  # pragma: no cover
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
-        cmdhelper.ensure_umount(self.active_slot_mount_point, ignore_error=ignore_error)
         cmdhelper.ensure_umount(
-            self.standby_slot_mount_point, ignore_error=ignore_error
+            self.active_slot_mount_point,
+            ignore_error=ignore_error,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
+        cmdhelper.ensure_umount(
+            self.standby_slot_mount_point,
+            ignore_error=ignore_error,
+            is_in_chroot=_env.is_dynamic_client_running(),
         )

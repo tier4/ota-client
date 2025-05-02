@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 
 from ota_proxy.config import config
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -49,13 +49,18 @@ def mount_external_cache(
     logger.info(f"external cache dev detected at {_cache_dev}")
 
     try:
-        cmdhelper.ensure_mointpoint(mnt_point, ignore_error=True)
+        cmdhelper.ensure_mointpoint(
+            mnt_point,
+            ignore_error=True,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
         cmdhelper.ensure_mount(
             target=_cache_dev,
             mnt_point=mnt_point,
             mount_func=cmdhelper.mount_ro,
             raise_exception=True,
             max_retry=3,
+            is_in_chroot=_env.is_dynamic_client_running(),
         )
         logger.info(
             f"successfully mount external cache dev {_cache_dev} on {mnt_point}"
@@ -67,6 +72,8 @@ def mount_external_cache(
 
 def umount_external_cache(mnt_point: StrOrPath) -> None:
     try:
-        cmdhelper.ensure_umount(mnt_point, ignore_error=False)
+        cmdhelper.ensure_umount(
+            mnt_point, ignore_error=False, is_in_chroot=_env.is_dynamic_client_running()
+        )
     except Exception as e:
         logger.warning(f"failed to umount external cache {mnt_point=}: {e!r}")

@@ -19,7 +19,6 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
-import os
 import shutil
 import signal
 import sys
@@ -84,7 +83,7 @@ from otaclient.create_standby._delta_gen import (
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.metrics import OTAMetricsData
-from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, _env, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
@@ -1144,7 +1143,7 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT):
+        if _env.is_dynamic_client_running():
             raise NotImplementedError(
                 "multiple dynamic clients downloading is not supported"
             )

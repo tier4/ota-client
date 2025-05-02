@@ -34,7 +34,7 @@ from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common.linux import subprocess_popen_wrapper
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 
 
 def _dynamic_client_shutdown() -> None:
-    # umount from the longest mount point to the shortest
+    # umount paths related to dynamic client from the longest to the shortest
     mnt_base = cfg.DYNAMIC_CLIENT_MNT
     with open("/proc/mounts") as f:
         mounts = [line.split()[1] for line in f]
@@ -101,7 +101,12 @@ def _dynamic_client_shutdown() -> None:
         reverse=True,
     )
     for mnt in targets:
-        cmdhelper.ensure_umount(mnt, ignore_error=True, max_retry=1)
+        cmdhelper.ensure_umount(
+            mnt,
+            ignore_error=True,
+            max_retry=1,
+            is_in_chroot=_env.is_dynamic_client_running(),
+        )
 
     # kill the dynamic client process if it is running
     global _dynamic_client_p
@@ -166,9 +171,8 @@ def _dynamic_client_thread(
         client_update_control_flags.request_shutdown_event.set()
     except Exception as e:
         logger.exception(f"failed to start OTA client: {e}")
-        client_update_control_flags.request_shutdown_event.set()
     finally:
-        _dynamic_client_shutdown()
+        client_update_control_flags.request_shutdown_event.set()
 
 
 def main() -> None:  # pragma: no cover
@@ -190,8 +194,8 @@ def main() -> None:  # pragma: no cover
     )
 
     check_other_otaclient(
-        cfg.OTACLIENT_PID_FILE,
-        bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)),
+        pid_fpath=cfg.OTACLIENT_PID_FILE,
+        is_skip=_env.is_dynamic_client_running(),
     )
     create_otaclient_rundir(cfg.RUN_DIR)
 
