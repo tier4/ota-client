@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-import os
-
 from otaclient_common import replace_root
 from otaclient_common._typing import StrEnum
 
@@ -36,10 +34,6 @@ class Consts:
 
     @property
     def ACTIVE_ROOT(self) -> str:  # NOSONAR
-        if os.getenv(self.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT):
-            # in chroot environment, can't refer the origial root path.
-            # so we need to set the ACTIVE_ROOT to the mounted path from the original root
-            return self.ORIGINAL_ROOT_MNT
         return self._ACTIVE_ROOT
 
     def set_active_root(self, new_root: str) -> None:
