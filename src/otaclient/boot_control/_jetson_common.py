@@ -29,7 +29,7 @@ from typing import Any, NamedTuple, Optional
 from pydantic import BaseModel, BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
-from otaclient_common import _env, cmdhelper, replace_root
+from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import copytree_identical
@@ -409,15 +409,10 @@ def copy_standby_slot_boot_to_internal_emmc(
     internal_emmc_mp.mkdir(exist_ok=True, parents=True)
 
     try:
-        cmdhelper.umount(
-            internal_emmc_devpath,
-            raise_exception=False,
-            original_root=_env.get_original_root(),
-        )
+        cmdhelper.umount(internal_emmc_devpath, raise_exception=False)
         cmdhelper.mount_rw(
             target=str(internal_emmc_devpath),
             mount_point=internal_emmc_mp,
-            original_root=_env.get_original_root(),
         )
     except Exception as e:
         _msg = f"failed to mount standby internal emmc dev: {e!r}"
@@ -433,11 +428,7 @@ def copy_standby_slot_boot_to_internal_emmc(
         logger.error(_msg)
         raise ValueError(_msg) from e
     finally:
-        cmdhelper.umount(
-            internal_emmc_mp,
-            raise_exception=False,
-            original_root=_env.get_original_root(),
-        )
+        cmdhelper.umount(internal_emmc_mp, raise_exception=False)
 
 
 def preserve_ota_config_files_to_standby(

@@ -30,7 +30,7 @@ import otaclient.errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, cmdhelper
+from otaclient_common import cmdhelper
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import subprocess_run_wrapper
@@ -112,7 +112,6 @@ class _RPIBootControl:
     def __init__(self) -> None:
         self.system_boot_mp = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
         self.system_boot_mp.mkdir(exist_ok=True)
-        self.original_root = _env.get_original_root()
 
         # sanity check, ensure we are running at raspberry pi device
         model_fpath = Path(boot_cfg.RPI_MODEL_FILE)
@@ -128,9 +127,7 @@ class _RPIBootControl:
 
         try:
             # ------ detect active slot ------ #
-            active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                cfg.ACTIVE_ROOT, original_root=_env.get_original_root()
-            )
+            active_slot_dev = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
         except Exception as e:
@@ -157,11 +154,7 @@ class _RPIBootControl:
 
         # check system-boot partition mount
         system_boot_partition = device_tree[1]
-        if not cmdhelper.is_target_mounted(
-            self.system_boot_mp,
-            raise_exception=False,
-            original_root=_env.get_original_root(),
-        ):
+        if not cmdhelper.is_target_mounted(self.system_boot_mp, raise_exception=False):
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
 
@@ -170,7 +163,6 @@ class _RPIBootControl:
                     system_boot_partition,
                     self.system_boot_mp,
                     options=["defaults"],
-                    original_root=_env.get_original_root(),
                 )
             except subprocess.CalledProcessError as e:
                 _err_msg = (
@@ -318,17 +310,12 @@ class _RPIBootControl:
                     _mp,
                     options=["bind"],
                     params=["--make-unbindable"],
-                    original_root=_env.get_original_root(),
                 )
             yield
             # NOTE: passthrough the mount failure to caller
         finally:
             for _mp in mounts:
-                cmdhelper.umount(
-                    _mp,
-                    raise_exception=False,
-                    original_root=_env.get_original_root(),
-                )
+                cmdhelper.umount(_mp, raise_exception=False)
 
     def update_firmware(self, *, target_slot: SlotID, target_slot_mp: StrOrPath):
         """Call flash-kernel to install new dtb files, boot firmwares and kernel, initrd.img

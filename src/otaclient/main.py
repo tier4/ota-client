@@ -193,10 +193,7 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
-    check_other_otaclient(
-        pid_fpath=cfg.OTACLIENT_PID_FILE,
-        is_skip=_env.is_dynamic_client_running(),
-    )
+    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
     create_otaclient_rundir(cfg.RUN_DIR)
 
     #
