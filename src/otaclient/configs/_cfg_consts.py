@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from otaclient_common import replace_root
+from otaclient_common import _env, replace_root
 from otaclient_common._typing import StrEnum
 
 CANONICAL_ROOT = "/"
@@ -34,6 +34,10 @@ class Consts:
 
     @property
     def ACTIVE_ROOT(self) -> str:  # NOSONAR
+        if _env.is_dynamic_client_running():
+            # in chroot environment, can't refer the origial root path.
+            # so we need to set the ACTIVE_ROOT to the mounted path from the original root
+            return self.ORIGINAL_ROOT_MNT
         return self._ACTIVE_ROOT
 
     def set_active_root(self, new_root: str) -> None:
@@ -57,12 +61,12 @@ class Consts:
     DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
     # mount point for original rootfs
     ORIGINAL_ROOT_MNT = "/run/otaclient/mnt/dynamic_otaclient/original_root"
-    # downloaded squashfs location in local filesystem
-    OTACLIENT_SQUASHFS_FILE = "/tmp/otaclient.squashfs"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
     OTA_TMP_META_STORE = "/.ota-meta"
+    # downloaded squashfs location in local filesystem
+    OTACLIENT_SQUASHFS_FILE = "/tmp/otaclient.squashfs"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"

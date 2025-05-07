@@ -49,10 +49,7 @@ def mount_external_cache(
     logger.info(f"external cache dev detected at {_cache_dev}")
 
     try:
-        cmdhelper.ensure_mointpoint(
-            mnt_point,
-            ignore_error=True,
-        )
+        cmdhelper.ensure_mointpoint(mnt_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=_cache_dev,
             mnt_point=mnt_point,
@@ -70,9 +67,6 @@ def mount_external_cache(
 
 def umount_external_cache(mnt_point: StrOrPath) -> None:
     try:
-        cmdhelper.ensure_umount(
-            mnt_point,
-            ignore_error=False,
-        )
+        cmdhelper.ensure_umount(mnt_point, ignore_error=False)
     except Exception as e:
         logger.warning(f"failed to umount external cache {mnt_point=}: {e!r}")
