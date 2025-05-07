@@ -289,6 +289,7 @@ class OTAClientPackage:
         # NOTE: cannot refer the original rootfs after chroot. So we have to
         # use the original rootfs device to mount the active slot before chroot.
         _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
+        logger.info(f"mounting {_mount_point} to {cfg.ACTIVE_ROOT}")
         cmdhelper.ensure_mointpoint(
             _mount_point,
             ignore_error=True,
