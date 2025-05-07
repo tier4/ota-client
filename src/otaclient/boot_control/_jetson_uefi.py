@@ -42,7 +42,7 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, cmdhelper, replace_root
+from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest, file_sha256, write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call
@@ -177,11 +177,7 @@ EFIVARS_SYS_MOUNT_POINT = "/sys/firmware/efi/efivars/"
 @contextlib.contextmanager
 def _ensure_efivarfs_mounted() -> Generator[None, Any, None]:  # pragma: no cover
     """Ensure the efivarfs is mounted as rw, and then umount it."""
-    if cmdhelper.is_target_mounted(
-        EFIVARS_SYS_MOUNT_POINT,
-        raise_exception=False,
-        original_root=_env.get_original_root(),
-    ):
+    if cmdhelper.is_target_mounted(EFIVARS_SYS_MOUNT_POINT, raise_exception=False):
         options = "remount,rw,nosuid,nodev,noexec,relatime"
     else:
         logger.warning(
@@ -269,15 +265,9 @@ def _ensure_esp_mounted(
     mount_point.mkdir(exist_ok=True, parents=True)
 
     try:
-        cmdhelper.mount_rw(
-            str(esp_dev), mount_point, original_root=_env.get_original_root()
-        )
+        cmdhelper.mount_rw(str(esp_dev), mount_point)
         yield
-        cmdhelper.umount(
-            mount_point,
-            raise_exception=False,
-            original_root=_env.get_original_root(),
-        )
+        cmdhelper.umount(mount_point, raise_exception=False)
     except Exception as e:
         _err_msg = f"failed to mount {esp_dev} to {mount_point}: {e!r}"
         logger.error(_err_msg)
@@ -804,9 +794,7 @@ class _UEFIBootControl:
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
-                cmdhelper.get_current_rootfs_dev(
-                    cfg.ACTIVE_ROOT, original_root=_env.get_original_root()
-                )
+                cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
             )
             self.parent_devpath = parent_devpath = Path(
                 cmdhelper.get_parent_dev(current_rootfs_devpath)
