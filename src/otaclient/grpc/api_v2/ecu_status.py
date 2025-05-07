@@ -478,16 +478,16 @@ class ECUStatusStorage:
     def save_state(self) -> None:
         """Save the current state of the ECU status storage to a file."""
         _pickle = self._state.to_pickle()
-        _path = Path(cfg.DYNAMIC_CLIENT_MNT) / Path(cfg.OTA_TMP_STATUS_STORE)
+        _path = Path(cfg.OTACLIENT_STATUS_FILE)
         with open(_path, "wb") as f:
             f.write(_pickle)
-        logger.info(f"Saved ECU status storage to {_path}")
+        logger.info(f"saved ECU status storage to {_path}")
 
     def load_state(self) -> bool:
         """Load the state of the ECU status storage from a file."""
-        _path = Path(cfg.DYNAMIC_CLIENT_MNT) / Path(cfg.OTA_TMP_STATUS_STORE)
+        _path = Path(cfg.OTACLIENT_STATUS_FILE)
         if not _path.exists():
-            logger.warning(f"File {_path} does not exist, skipping loading state.")
+            logger.warning(f"file {_path} does not exist, skipping loading state.")
             return False
 
         with open(_path, "rb") as f:
