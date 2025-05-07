@@ -279,6 +279,28 @@ class OTAClientPackage:
             raise_exception=True,
         )
 
+    def _mount_active_slot(self, mount_base: StrOrPath) -> None:
+        """Mount the active slot to the mount base."""
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        # mount the active slot
+        # NOTE: cannot refer the original rootfs after chroot. So we have to
+        # use the original rootfs device to mount the active slot before chroot.
+        _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
+        cmdhelper.ensure_mointpoint(
+            _mount_point,
+            ignore_error=True,
+        )
+
+        cmdhelper.ensure_mount(
+            target=cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT),
+            mnt_point=_mount_point,
+            mount_func=cmdhelper.bind_mount_ro,
+            raise_exception=True,
+        )
+
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
         """Bind mount the host directories to the mount base."""
         # check if the mount base exists
@@ -370,6 +392,7 @@ class OTAClientPackage:
         logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
+            self._mount_active_slot(_mount_base)
             self._bind_mount_host_dirs(_mount_base)
 
             logger.info("mounted squashfs successfully")
