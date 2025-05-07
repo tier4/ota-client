@@ -287,7 +287,7 @@ class OTAClientPackage:
 
         # mount the active slot
         # NOTE: cannot refer the original rootfs after chroot. So we have to
-        # use the original rootfs device to mount the active slot before chroot.
+        # use the original rootfs to mount the active slot before chroot.
         _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
         logger.info(f"mounting {_mount_point} to {cfg.ACTIVE_ROOT}")
         cmdhelper.ensure_mointpoint(
@@ -393,8 +393,9 @@ class OTAClientPackage:
         logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
-            self._mount_active_slot(_mount_base)
             self._bind_mount_host_dirs(_mount_base)
+            # this should be mounted after each directory is bind mounted
+            self._mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
