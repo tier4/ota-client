@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os.path
+import os
 import platform
+import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
@@ -29,8 +30,12 @@ from typing import Generator, Optional
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
+from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import urljoin_ensure_base
+from otaclient_common.common import (
+    subprocess_call,
+    urljoin_ensure_base,
+)
 from otaclient_common.download_info import DownloadInfo
 from otaclient_manifest.schema import Manifest, ReleasePackage
 
@@ -161,19 +166,7 @@ class OTAClientPackage:
             + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
-        try:
-            _is_zstd_supported = (
-                subprocess.call(
-                    ["which", "zstd"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                == 0
-            )
-        except Exception as e:
-            logger.warning(f"failed to check zstd support: {e!r}")
-            _is_zstd_supported = False
-            pass
+        _is_zstd_supported = shutil.which("zstd") is not None
 
         # ------ step 3: find the target package ------ #
         # the schema of manifest.json is defined in otaclient_manifest/schema.py
@@ -238,27 +231,123 @@ class OTAClientPackage:
             ):
                 raise TypeError("All paths must be Path objects")
 
+            _cmd = [
+                "zstd",
+                "-d",
+                f"--patch-from={_current_squashfs_path}",
+                str(_patch_path),
+                "-o",
+                str(_target_squashfs_path),
+            ]
+            logger.info(f"Applying patch with command: {' '.join(_cmd)}")
             try:
-                # patch-from is not supported in zstandard, so use subprocess
-                subprocess.run(
-                    [
-                        "zstd",
-                        "-d",
-                        f"--patch-from={_current_squashfs_path}",
-                        str(_patch_path),
-                        "-o",
-                        str(_target_squashfs_path),
-                    ],
-                    check=True,
-                    capture_output=True,  # Capture output to prevent terminal injection
+                subprocess_call(
+                    _cmd,
+                    raise_exception=True,
                 )
-            except Exception as e:
+            except subprocess.CalledProcessError as e:
                 logger.warning(f"failed to apply patch: {e!r}")
                 raise
             return _target_squashfs_path
 
         # directly use the downloaded squashfs
         return self.downloaded_package_path
+
+    def _mount_squashfs_file(
+        self,
+        squashfs_file: StrOrPath,
+        mount_base: StrOrPath,
+    ) -> None:
+        """Mount the squashfs file to the mount base."""
+        # check if the squashfs file exists
+        if not os.path.exists(squashfs_file):
+            raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
+
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        # mount the squashfs file
+        cmdhelper.ensure_mointpoint(
+            mount_base,
+            ignore_error=False,
+        )
+        cmdhelper.ensure_mount(
+            target=squashfs_file,
+            mnt_point=mount_base,
+            mount_func=cmdhelper.mount_squashfs,
+            raise_exception=True,
+        )
+
+    def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
+        """Bind mount the host directories to the mount base."""
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        def bind_paths(paths, mount_base, mount_func):
+            for _path in paths:
+                if not os.path.exists(_path):
+                    logger.warning(f"bind path does not exist: {_path}, skipping")
+                    continue
+
+                _mount_point = f"{mount_base}{_path}"
+                cmdhelper.ensure_mointpoint(
+                    _mount_point,
+                    ignore_error=False,
+                )
+                cmdhelper.ensure_mount(
+                    target=_path,
+                    mnt_point=_mount_point,
+                    mount_func=mount_func,
+                    raise_exception=True,
+                )
+
+        # bind necessary directories
+        RW_PATHS = [
+            "/boot",
+            "/dev",
+            "/dev/shm",
+            "/ota-cache",
+            "/run",
+            "/tmp",
+        ]
+        RO_PATHS = [
+            "/etc",
+            "/opt",
+            "/proc",
+            "/sys",
+            "/usr/sbin/nvbootctrl",
+            "/usr/sbin/nv_update_engine",
+        ]
+        bind_paths(
+            paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
+        )
+        bind_paths(
+            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
+        )
+
+    def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
+        """Mount the active slot to the mount base."""
+        # After chroot, the active slot is not accessible from the chroot environment.
+        # So we need to bind mount the active slot before chroot.
+
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {cfg.ACTIVE_SLOT_MNT}")
+        cmdhelper.ensure_mointpoint(
+            cfg.ACTIVE_SLOT_MNT,
+            ignore_error=True,
+        )
+
+        cmdhelper.ensure_mount(
+            target=cfg.ACTIVE_ROOT,
+            mnt_point=cfg.ACTIVE_SLOT_MNT,
+            mount_func=cmdhelper.bind_mount_ro,
+            raise_exception=True,
+        )
 
     # APIs
 
@@ -294,19 +383,23 @@ class OTAClientPackage:
 
     def mount_squashfs(self):
         """Mount the squashfs file."""
-        squashfs_path = self.get_target_squashfs_path()
+        _squashfs_file = self.get_target_squashfs_path()
 
         # Create a temporary directory to mount the squashfs
-        _mount_dir = cfg.DYNAMIC_CLIENT_MNT
-        os.makedirs(_mount_dir, exist_ok=True)
+        _mount_base = cfg.DYNAMIC_CLIENT_MNT
+        os.makedirs(_mount_base, exist_ok=True)
 
-        logger.info(f"Mounting {squashfs_path} to {_mount_dir}")
+        logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
-            # Mount the squashfs file
-            subprocess.run(
-                ["mount", "-t", "squashfs", str(squashfs_path), _mount_dir],
-                check=True,
-            )
-        except Exception as e:
+            self._mount_squashfs_file(_squashfs_file, _mount_base)
+            self._bind_mount_host_dirs(_mount_base)
+            self._bind_mount_active_slot(_mount_base)
+
+            logger.info("mounted squashfs successfully")
+        except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
+
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(cfg.OTACLIENT_SQUASHFS_FILE), exist_ok=True)
+        shutil.copy(_squashfs_file, cfg.OTACLIENT_SQUASHFS_FILE)
