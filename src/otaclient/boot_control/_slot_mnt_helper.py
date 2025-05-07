@@ -87,7 +87,6 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
-
         cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
