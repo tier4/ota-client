@@ -343,7 +343,7 @@ class OTAClientPackage:
         cmdhelper.ensure_mount(
             target=cfg.ACTIVE_ROOT,
             mnt_point=_mount_point,
-            mount_func=cmdhelper.bind_mount_ro,
+            mount_func=cmdhelper.bind_mount_rw,
             raise_exception=True,
         )
 
