@@ -399,4 +399,5 @@ class OTAClientPackage:
             raise
 
         # copy the squashfs file
+        os.makedirs(os.path.dirname(cfg.OTACLIENT_SQUASHFS_FILE), exist_ok=True)
         shutil.copy(_squashfs_file, cfg.OTACLIENT_SQUASHFS_FILE)
