@@ -23,7 +23,7 @@ from functools import partial
 from pathlib import Path
 
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, cmdhelper
+from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -87,10 +87,6 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
-
-        if _env.is_dynamic_client_running():
-            # when dynamic client is running, active_rootfs has already been mounted
-            return
 
         cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_mount(
