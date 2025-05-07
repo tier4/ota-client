@@ -105,7 +105,6 @@ def _dynamic_client_shutdown() -> None:
             mnt,
             ignore_error=True,
             max_retry=1,
-            original_root=_env.get_original_root(),
         )
 
     # kill the dynamic client process if it is running
@@ -193,7 +192,10 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
-    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
+    check_other_otaclient(
+        pid_fpath=cfg.OTACLIENT_PID_FILE,
+        is_skip=_env.is_dynamic_client_running(),
+    )
     create_otaclient_rundir(cfg.RUN_DIR)
 
     #
