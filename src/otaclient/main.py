@@ -193,8 +193,8 @@ def main() -> None:  # pragma: no cover
     )
 
     if _env.is_dynamic_client_running():
-        logger.info("set the ACTIVE_ROOT to {cfg.DYNAMIC_CLIENT_MNT}")
-        cfg.dynamic_root(cfg.ORIGINAL_ROOT_MNT)
+        logger.info("set the ACTIVE_ROOT to {cfg.ORIGINAL_ROOT_MNT}")
+        cfg.set_active_root(cfg.ORIGINAL_ROOT_MNT)
 
     check_other_otaclient(
         pid_fpath=cfg.OTACLIENT_PID_FILE,
