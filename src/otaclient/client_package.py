@@ -295,7 +295,7 @@ class OTAClientPackage:
         )
 
         cmdhelper.ensure_mount(
-            target=cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT),
+            target=cfg.ACTIVE_ROOT,
             mnt_point=_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
