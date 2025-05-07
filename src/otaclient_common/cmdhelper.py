@@ -101,7 +101,16 @@ def get_current_rootfs_dev(
     Returns:
         str: the devpath of current rootfs device.
     """
-    cmd = ["findmnt", "-nfco", "SOURCE", active_root]
+    # NOTE: to return the original rootfs device in chroot environment,
+    #       need to check mountinfo directly instead of using findmnt.
+    #       findmnt will return the current rootfs device in chroot environment.
+    cmd = [
+        "awk",
+        "-v",
+        f"root={active_root}",
+        "$5==root{print $10; exit}",
+        "/proc/1/mountinfo",
+    ]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
