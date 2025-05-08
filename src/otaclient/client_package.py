@@ -310,22 +310,21 @@ class OTAClientPackage:
             "/dev",
             "/dev/shm",
             "/etc",
-            "/ota-cache",
-            "/run",
-            "/tmp",
-        ]
-        RO_PATHS = [
+            "/mnt/LOG",
             "/opt",
+            "/ota-cache",
             "/proc",
+            "/run",
+            "/run/lock",
+            "run/user/111",
+            "/run/user/1000",
             "/sys",
+            "/tmp",
             "/usr/sbin/nvbootctrl",
             "/usr/sbin/nv_update_engine",
         ]
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
-        )
-        bind_paths(
-            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
         )
 
     def bind_mount_all_current_mounts(self, mount_base: StrOrPath) -> None:
@@ -439,8 +438,7 @@ class OTAClientPackage:
         logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
-            # self._bind_mount_host_dirs(_mount_base)
-            self.bind_mount_all_current_mounts(_mount_base)
+            self._bind_mount_host_dirs(_mount_base)
             self._bind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
