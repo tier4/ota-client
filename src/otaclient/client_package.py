@@ -316,7 +316,7 @@ class OTAClientPackage:
             "/proc",
             "/run",
             "/run/lock",
-            "run/user/111",
+            "/run/user/111",
             "/run/user/1000",
             "/sys",
             "/tmp",
