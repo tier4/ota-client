@@ -104,6 +104,7 @@ def get_current_rootfs_dev(
     # NOTE: to return the original rootfs device in chroot environment,
     #       need to check mountinfo directly instead of using findmnt.
     #       findmnt will return the current rootfs device in chroot environment.
+    # cmd = ["findmnt", "-nfco", "SOURCE", active_root]
     cmd = [
         "awk",
         "-v",

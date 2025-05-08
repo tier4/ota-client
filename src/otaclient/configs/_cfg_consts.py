@@ -36,10 +36,6 @@ class Consts:
     def ACTIVE_ROOT(self) -> str:  # NOSONAR
         return self._ACTIVE_ROOT
 
-    def set_active_root(self, new_root: str) -> None:
-        """Set the ACTIVE_ROOT to a new value."""
-        self._ACTIVE_ROOT = new_root
-
     #
     # ------ paths ------ #
     #
