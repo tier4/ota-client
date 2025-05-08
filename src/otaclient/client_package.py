@@ -311,7 +311,6 @@ class OTAClientPackage:
             "/dev",
             "/dev/shm",
             "/etc",
-            "/mnt/LOG",
             "/opt",
             "/ota-cache",
             "/proc",
