@@ -308,12 +308,12 @@ class OTAClientPackage:
             "/boot",
             "/dev",
             "/dev/shm",
+            "/etc",
             "/ota-cache",
             "/run",
             "/tmp",
         ]
         RO_PATHS = [
-            "/etc",
             "/opt",
             "/proc",
             "/sys",
