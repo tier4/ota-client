@@ -77,7 +77,7 @@ RUN set -eux; \
     # for flash-kernel
     # NOTE: this is only for arm architecture(raspberry pi)
     apt-get install --no-install-recommends -y flash-kernel || true; \
-    # NOTE: will bind nvbootctrl and nv_update_engine in the host
+    # NOTE: will bind nvbootctrl and nv_update_engine in runtime
     apt-get clean; \
     rm -rf \
         /root/.cache \
