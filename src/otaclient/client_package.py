@@ -267,17 +267,51 @@ class OTAClientPackage:
         if not os.path.exists(mount_base):
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
-        # mount the squashfs file
-        cmdhelper.ensure_mointpoint(
-            mount_base,
-            ignore_error=False,
-        )
+        # Create temporary directories for overlay components
+        squashfs_mount = Path(str(mount_base) + ".squashfs_ro")
+        overlay_upper = Path(str(mount_base) + ".overlay_upper")
+        overlay_work = Path(str(mount_base) + ".overlay_work")
+
+        # Create the directories
+        os.makedirs(squashfs_mount, exist_ok=True)
+        os.makedirs(overlay_upper, exist_ok=True)
+        os.makedirs(overlay_work, exist_ok=True)
+
+        # Mount the squashfs to the temporary location
+        cmdhelper.ensure_mointpoint(squashfs_mount, ignore_error=False)
         cmdhelper.ensure_mount(
             target=squashfs_file,
-            mnt_point=mount_base,
+            mnt_point=squashfs_mount,
             mount_func=cmdhelper.mount_squashfs,
             raise_exception=True,
         )
+
+        # Ensure the actual mount point exists
+        cmdhelper.ensure_mointpoint(mount_base, ignore_error=False)
+
+        # Mount the overlay filesystem
+        mount_cmd = [
+            "mount",
+            "-t",
+            "overlay",
+            "overlay",
+            "-o",
+            f"lowerdir={squashfs_mount},upperdir={overlay_upper},workdir={overlay_work}",
+            str(mount_base),
+        ]
+
+        logger.info(f"Setting up overlay mount with command: {' '.join(mount_cmd)}")
+        try:
+            subprocess_call(mount_cmd, raise_exception=True)
+            logger.info(f"Successfully mounted overlay filesystem at {mount_base}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to mount overlay filesystem: {e!r}")
+            # Try to cleanup the squashfs mount
+            try:
+                subprocess_call(["umount", str(squashfs_mount)], raise_exception=False)
+            except Exception:
+                pass
+            raise
 
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
         """Bind mount the host directories to the mount base."""
@@ -309,24 +343,19 @@ class OTAClientPackage:
             "/boot/efi",
             "/dev",
             "/dev/shm",
-            "/ota-cache",
-            "/run",
-            "/tmp",
-        ]
-
-        RO_PATHS = [
             "/etc",
             "/opt",
+            "/ota-cache",
             "/proc",
+            "/run",
             "/sys",
+            "/tmp",
             "/usr/sbin/nvbootctrl",
             "/usr/sbin/nv_update_engine",
         ]
+
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
-        )
-        bind_paths(
-            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
         )
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
