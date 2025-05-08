@@ -321,7 +321,6 @@ class OTAClientPackage:
             "/proc",
             "/proc/sys/fs/binfmt_misc",
             "/run",
-            "/run/credentials/systemd-sysusers.service",
             "/run/lock",
             "/run/user/111",
             "/run/user/1000",
