@@ -43,6 +43,8 @@ class Consts:
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
     # status file by pickle
     OTACLIENT_STATUS_FILE = "/run/otaclient.status"
+    # downloaded squashfs location in local filesystem
+    OTACLIENT_SQUASHFS_FILE = "/run/otaclient.squashfs"
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
@@ -55,8 +57,6 @@ class Consts:
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
     OTA_TMP_META_STORE = "/.ota-meta"
-    # downloaded squashfs location in local filesystem
-    OTACLIENT_SQUASHFS_FILE = "/tmp/otaclient.squashfs"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
