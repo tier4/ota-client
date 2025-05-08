@@ -309,12 +309,12 @@ class OTAClientPackage:
             "/dev",
             "/dev/shm",
             "/etc",
-            "/opt",
             "/ota-cache",
             "/run",
             "/tmp",
         ]
         RO_PATHS = [
+            "/opt",
             "/proc",
             "/sys",
             "/usr/sbin/nvbootctrl",
