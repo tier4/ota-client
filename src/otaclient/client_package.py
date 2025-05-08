@@ -283,6 +283,21 @@ class OTAClientPackage:
             os.makedirs(dir_path, exist_ok=True)
             os.chmod(dir_path, 0o755)  # Ensure proper permissions
 
+        # Clean overlay_upper and overlay_work to ensure they're empty
+        for dir_path in [overlay_upper, overlay_work]:
+            for entry in os.listdir(dir_path):
+                entry_path = os.path.join(dir_path, entry)
+                if os.path.isdir(entry_path):
+                    shutil.rmtree(entry_path)
+                else:
+                    os.unlink(entry_path)
+
+        # Log device and contents for debugging
+        for dir_path in [squashfs_mount, overlay_upper, overlay_work, mount_base]:
+            logger.info(
+                f"{dir_path}: device={os.stat(dir_path).st_dev}, contents={os.listdir(dir_path)}"
+            )
+
         # Mount the squashfs
         logger.info(f"Mounting squashfs {squashfs_file} to {squashfs_mount}")
         cmdhelper.ensure_mointpoint(squashfs_mount, ignore_error=False)
