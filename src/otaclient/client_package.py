@@ -307,6 +307,7 @@ class OTAClientPackage:
         # bind necessary directories
         RW_PATHS = [
             "/boot",
+            "/boot/efi",
             "/dev",
             "/dev/shm",
             "/etc",
@@ -319,6 +320,11 @@ class OTAClientPackage:
             "/run/user/111",
             "/run/user/1000",
             "/sys",
+            "/sys/kernel/security",
+            "/sys/firmware/efi/efivars",
+            "/sys/fs/bpf",
+            "/sys/fs/cgroup",
+            "/sys/fs/pstore",
             "/tmp",
             "/usr/sbin/nvbootctrl",
             "/usr/sbin/nv_update_engine",
