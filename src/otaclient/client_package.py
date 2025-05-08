@@ -34,7 +34,6 @@ from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
-    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -309,81 +308,26 @@ class OTAClientPackage:
             "/boot",
             "/boot/efi",
             "/dev",
-            "/dev/hugepages",
-            "/dev/mqueue",
-            "/dev/pts",
             "/dev/shm",
-            "/etc",
-            "/mnt",
-            "/mnt/LOG",
-            "/opt",
             "/ota-cache",
-            "/proc",
-            "/proc/sys/fs/binfmt_misc",
             "/run",
-            "/run/lock",
-            "/run/user/111",
-            "/run/user/1000",
-            "/sys",
-            "/sys/kernel/config",
-            "/sys/kernel/security",
-            "/sys/kernel/tracing",
-            "/sys/kernel/debug",
-            "/sys/kernel/debug/tracing",
-            "/sys/firmware/efi/efivars",
-            "/sys/fs/bpf",
-            "/sys/fs/cgroup",
-            "/sys/fs/fuse/connections",
-            "/sys/fs/pstore",
             "/tmp",
+        ]
+
+        RO_PATHS = [
+            "/etc",
+            "/opt",
+            "/proc",
+            "/sys",
             "/usr/sbin/nvbootctrl",
             "/usr/sbin/nv_update_engine",
         ]
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
         )
-
-    def _bind_mount_all_current_mounts(self, mount_base: StrOrPath) -> None:
-        """Bind mount all current mount points under the given mount_base, preserving their permissions."""
-        cmd = ["mount"]
-        mount_output = subprocess_check_output(cmd, raise_exception=True).splitlines()
-        for line in mount_output:
-            # skip squashfs mounts
-            if str(mount_base) in line:
-                continue
-            # Example: /dev/sda2 on /boot type ext4 (rw,relatime)
-            tokens = line.split()
-            if len(tokens) < 3 or tokens[1] != "on":
-                continue
-
-            mount_point = tokens[2]
-            # Extract mount options
-            try:
-                options = (
-                    line.split("type", 1)[1]
-                    .split("(", 1)[1]
-                    .split(")", 1)[0]
-                    .split(",")
-                )
-            except Exception:
-                continue
-            permission = "rw" if "rw" in options else "ro"
-            target_mount_point = f"{mount_base}{mount_point}"
-            cmdhelper.ensure_mointpoint(target_mount_point, ignore_error=False)
-            if permission == "rw":
-                cmdhelper.ensure_mount(
-                    target=mount_point,
-                    mnt_point=target_mount_point,
-                    mount_func=cmdhelper.bind_mount_rw,
-                    raise_exception=True,
-                )
-            else:
-                cmdhelper.ensure_mount(
-                    target=mount_point,
-                    mnt_point=target_mount_point,
-                    mount_func=cmdhelper.bind_mount_ro,
-                    raise_exception=True,
-                )
+        bind_paths(
+            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
+        )
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
         """Mount the active slot to the mount base."""
@@ -454,7 +398,7 @@ class OTAClientPackage:
         logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
-            self._bind_mount_all_current_mounts(_mount_base)
+            self._bind_mount_host_dirs(_mount_base)
             self._bind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
