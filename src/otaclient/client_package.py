@@ -329,7 +329,7 @@ class OTAClientPackage:
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
         """Mount the active slot to the mount base."""
-        # After chroot, the active slot is not accessible from the chroot environment.
+        # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
 
         # check if the mount base exists
@@ -383,8 +383,11 @@ class OTAClientPackage:
         return False
 
     def mount_squashfs(self):
-        """Mount the squashfs file."""
-        _squashfs_file = self.get_target_squashfs_path()
+        """Copy and Mount the squashfs file."""
+        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
+        shutil.copy(self.get_target_squashfs_path(), _squashfs_file)
 
         # Create a temporary directory to mount the squashfs
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
@@ -400,7 +403,3 @@ class OTAClientPackage:
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
-
-        # copy the squashfs file
-        os.makedirs(os.path.dirname(cfg.OTACLIENT_SQUASHFS_FILE), exist_ok=True)
-        shutil.copy(_squashfs_file, cfg.OTACLIENT_SQUASHFS_FILE)
