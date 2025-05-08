@@ -349,7 +349,7 @@ class OTAClientPackage:
         mount_output = subprocess_check_output(cmd, raise_exception=True).splitlines()
         for line in mount_output:
             # skip squashfs mounts
-            if "squashfs" in line:
+            if str(mount_base) in line:
                 continue
             # Example: /dev/sda2 on /boot type ext4 (rw,relatime)
             tokens = line.split()
