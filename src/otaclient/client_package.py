@@ -285,7 +285,7 @@ class OTAClientPackage:
         if not os.path.exists(mount_base):
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
-        def bind_paths(paths, mount_base, mount_func):
+        def bind_paths(paths: list[str], mount_base: StrOrPath, mount_func) -> None:
             for _path in paths:
                 if not os.path.exists(_path):
                     logger.warning(f"bind path does not exist: {_path}, skipping")
@@ -306,12 +306,14 @@ class OTAClientPackage:
         # bind necessary directories
         RW_PATHS = [
             "/boot",
+            "/boot/efi",
             "/dev",
             "/dev/shm",
             "/ota-cache",
             "/run",
             "/tmp",
         ]
+
         RO_PATHS = [
             "/etc",
             "/opt",
@@ -329,22 +331,23 @@ class OTAClientPackage:
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
         """Mount the active slot to the mount base."""
-        # After chroot, the active slot is not accessible from the chroot environment.
+        # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
 
         # check if the mount base exists
         if not os.path.exists(mount_base):
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
-        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {cfg.ACTIVE_SLOT_MNT}")
+        _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
+        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {_mount_point}")
         cmdhelper.ensure_mointpoint(
-            cfg.ACTIVE_SLOT_MNT,
+            _mount_point,
             ignore_error=True,
         )
 
         cmdhelper.ensure_mount(
             target=cfg.ACTIVE_ROOT,
-            mnt_point=cfg.ACTIVE_SLOT_MNT,
+            mnt_point=_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
         )
@@ -382,8 +385,11 @@ class OTAClientPackage:
         return False
 
     def mount_squashfs(self):
-        """Mount the squashfs file."""
-        _squashfs_file = self.get_target_squashfs_path()
+        """Copy and Mount the squashfs file."""
+        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
+        shutil.copy(self.get_target_squashfs_path(), _squashfs_file)
 
         # Create a temporary directory to mount the squashfs
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
@@ -399,7 +405,3 @@ class OTAClientPackage:
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
-
-        # copy the squashfs file
-        os.makedirs(os.path.dirname(cfg.OTACLIENT_SQUASHFS_FILE), exist_ok=True)
-        shutil.copy(_squashfs_file, cfg.OTACLIENT_SQUASHFS_FILE)
