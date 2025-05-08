@@ -336,15 +336,16 @@ class OTAClientPackage:
         if not os.path.exists(mount_base):
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
-        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {cfg.ACTIVE_SLOT_MNT}")
+        _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
+        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {_mount_point}")
         cmdhelper.ensure_mointpoint(
-            cfg.ACTIVE_SLOT_MNT,
+            _mount_point,
             ignore_error=True,
         )
 
         cmdhelper.ensure_mount(
             target=cfg.ACTIVE_ROOT,
-            mnt_point=cfg.ACTIVE_SLOT_MNT,
+            mnt_point=_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
         )
