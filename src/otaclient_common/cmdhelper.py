@@ -101,7 +101,17 @@ def get_current_rootfs_dev(
     Returns:
         str: the devpath of current rootfs device.
     """
-    cmd = ["findmnt", "-nfco", "SOURCE", active_root]
+    # NOTE: to return the original rootfs device in chroot environment,
+    #       need to check mountinfo directly instead of using findmnt.
+    #       findmnt will return the current rootfs device in chroot environment.
+    # cmd = ["findmnt", "-nfco", "SOURCE", active_root]
+    cmd = [
+        "awk",
+        "-v",
+        f"root={active_root}",
+        "$5==root{print $10; exit}",
+        "/proc/1/mountinfo",
+    ]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 
@@ -365,6 +375,32 @@ def mount(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def bind_mount_rw(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Bind mount the <target> to <mount_point> read-write.
+
+    This is implemented by calling:
+        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "-o", "bind,rw",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
 def mount_rw(
     target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
@@ -456,6 +492,35 @@ def mount_ro(
         ]
         # fmt: on
         subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def mount_squashfs(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Mount the <target> sqiashfs to <mount_point>.
+
+    This is implemented by calling:
+        mount -t squashfs --make-private --make-unbindable <target> <mount_point>
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "--make-private", "--make-unbindable",
+        "-t", "squashfs",
+        str(target),
+        str(mount_point),
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def umount(

@@ -133,6 +133,15 @@ class MultipleECUStatusFlags:
     all_success: mp_sync.Event
 
 
+@dataclass
+class ClientUpdateControlFlags:
+    """Flags for controlling the client update process."""
+
+    stop_server_event: mp_sync.Event  # for stopping gRPC server
+    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
+    start_dynamic_client_event: mp_sync.Event  # for starting downloaded dynamic client
+
+
 #
 # ------ OTA requests IPC ------ #
 #
