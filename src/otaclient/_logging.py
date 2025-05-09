@@ -13,11 +13,13 @@
 # limitations under the License.
 """Configure the logging for otaclient."""
 
+
 from __future__ import annotations
 
 import atexit
 import contextlib
 import logging
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
@@ -104,7 +106,8 @@ class TransmitterHttp(Transmitter):
             self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
 
     def check(self, timeout: int) -> None:
-        pass
+        resp = self._session.head(self.log_upload_endpoint, timeout=timeout)
+        resp.raise_for_status()
 
 
 class TransmitterFactory:
@@ -121,6 +124,8 @@ class TransmitterFactory:
 class _LogTeeHandler(logging.Handler):
     """Implementation of teeing local logs to a remote otaclient-iot-logger server."""
 
+    LOGGING_SERVER_WAIT_TIMEOUT_SEC = 5
+
     def __init__(self, max_backlog: int = 2048) -> None:
         super().__init__()
         self._queue: Queue[QueueData | None] = Queue(maxsize=max_backlog)
@@ -135,6 +140,27 @@ class _LogTeeHandler(logging.Handler):
             )
             self._queue.put_nowait(QueueData(_log_type, _message))
 
+    def _wait_for_log_server_up(
+        self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str
+    ) -> None:
+        """Wait for the logging server to be up.
+
+        This is a blocking call. It will keep trying to connect to the server
+        until it succeeds or the timeout is reached.
+        """
+        _start = time.time()
+        while True:
+            if time.time() - _start > self.LOGGING_SERVER_WAIT_TIMEOUT_SEC:
+                break
+            try:
+                # send HEAD message via HTTP and check if logging server is up
+                TransmitterHttp(logging_upload_endpoint, ecu_id).check(timeout=1)
+                break
+            except Exception:
+                # ignore the exception and continue
+                pass
+            time.sleep(1)
+
     def start_upload_thread(
         self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str
     ) -> None:
@@ -142,6 +168,7 @@ class _LogTeeHandler(logging.Handler):
         stop_logging_upload = Event()
 
         def _thread_main():
+            self._wait_for_log_server_up(logging_upload_endpoint, ecu_id)
             _transmitter = TransmitterFactory.create(logging_upload_endpoint, ecu_id)
 
             while not stop_logging_upload.is_set():
