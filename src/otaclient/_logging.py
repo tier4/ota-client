@@ -29,15 +29,15 @@ from urllib.parse import urljoin, urlparse
 
 import grpc
 import requests
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2 as log_pb2,
+)
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
+)
 from pydantic import AnyHttpUrl
 
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.grpc.log_v1 import (
-    otaclient_iot_logging_server_v1_pb2 as log_pb2,
-)
-from otaclient.grpc.log_v1 import (
-    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
-)
 
 
 class LogType(Enum):
@@ -67,13 +67,13 @@ class Transmitter(ABC):
 
 
 class TransmitterGrpc(Transmitter):
-    def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
-        super().__init__(logging_upload_endpoint, ecu_id)
+    def __init__(self, logging_upload_grpc_endpoint: AnyHttpUrl, ecu_id: str):
+        super().__init__(logging_upload_grpc_endpoint, ecu_id)
 
-        parsed_url = urlparse(str(logging_upload_endpoint))
+        parsed_url = urlparse(str(logging_upload_grpc_endpoint))
         log_upload_endpoint = parsed_url.netloc
         channel = grpc.insecure_channel(log_upload_endpoint)
-        self._stub = log_v1_grpc.OtaClientIoTLoggingServiceStub(channel)
+        self._stub = log_v1_grpc.OTAClientIoTLoggingServiceStub(channel)
 
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
         pb2_log_type = (
@@ -88,7 +88,7 @@ class TransmitterGrpc(Transmitter):
 
     def check(self, timeout: int) -> None:
         # health check
-        log_entry = log_pb2.HealthCheckRequest(service="")
+        log_entry = log_pb2.HealthCheckRequest()
         self._stub.Check(log_entry)
 
 
@@ -112,13 +112,26 @@ class TransmitterHttp(Transmitter):
 
 class TransmitterFactory:
     @staticmethod
-    def create(logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
+    def create(
+        logging_upload_endpoint: AnyHttpUrl,
+        logging_upload_grpc_endpoint: AnyHttpUrl | None,
+        ecu_id: str,
+    ):
+        if not logging_upload_grpc_endpoint:
+            return TransmitterHttp(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
+
         try:
-            _transmitter_grpc = TransmitterGrpc(logging_upload_endpoint, ecu_id)
+            _transmitter_grpc = TransmitterGrpc(
+                logging_upload_grpc_endpoint=logging_upload_grpc_endpoint, ecu_id=ecu_id
+            )
             _transmitter_grpc.check(timeout=3)
             return _transmitter_grpc
         except Exception:
-            return TransmitterHttp(logging_upload_endpoint, ecu_id)
+            return TransmitterHttp(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
 
 
 class _LogTeeHandler(logging.Handler):
@@ -162,14 +175,30 @@ class _LogTeeHandler(logging.Handler):
             time.sleep(1)
 
     def start_upload_thread(
-        self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str
+        self,
+        logging_upload_endpoint: AnyHttpUrl,
+        logging_upload_grpc_endpoint: AnyHttpUrl | None,
+        ecu_id: str,
     ) -> None:
+        LOG_TRANSMITTER_TIMEOUT_SEC = 3
+
         log_queue = self._queue
         stop_logging_upload = Event()
 
         def _thread_main():
-            self._wait_for_log_server_up(logging_upload_endpoint, ecu_id)
-            _transmitter = TransmitterFactory.create(logging_upload_endpoint, ecu_id)
+            self._wait_for_log_server_up(
+                logging_upload_endpoint=logging_upload_endpoint, ecu_id=ecu_id
+            )
+            _transmitter = TransmitterFactory.create(
+                logging_upload_endpoint=logging_upload_endpoint,
+                logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
+                ecu_id=ecu_id,
+            )
+            _transmitter.send(
+                log_type=LogType.LOG,
+                message=f"Log server is up (using {_transmitter.__class__.__name__})",
+                timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
+            )
 
             while not stop_logging_upload.is_set():
                 entry = log_queue.get()
@@ -179,8 +208,13 @@ class _LogTeeHandler(logging.Handler):
                     continue  # skip uploading empty log line
 
                 try:
-                    _transmitter.send(entry.log_type, entry.message, timeout=3)
-                except Exception:
+                    _transmitter.send(
+                        log_type=entry.log_type,
+                        message=entry.message,
+                        timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
+                    )
+                except Exception as e:
+                    print(f"Failed to send log message: {e}")
                     # ignore the exception and continue
                     pass
 
@@ -207,12 +241,18 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
+        logging_upload_grpc_endpoint = proxy_info.logging_server_grpc
+
         log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         log_upload_handler.setFormatter(fmt)
 
         # star the logging thread
-        log_upload_handler.start_upload_thread(logging_upload_endpoint, ecu_info.ecu_id)
+        log_upload_handler.start_upload_thread(
+            logging_upload_endpoint=logging_upload_endpoint,
+            logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
+            ecu_id=ecu_info.ecu_id,
+        )
 
     for logger_name, loglevel in cfg.LOG_LEVEL_TABLE.items():
         _logger = logging.getLogger(logger_name)

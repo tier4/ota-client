@@ -24,6 +24,12 @@ from urllib.parse import urlparse
 import grpc
 import pytest
 import pytest_asyncio
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2 as log_pb2,
+)
+from otaclient_iot_logging_server_pb2.v1 import (
+    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
+)
 from pydantic import AnyHttpUrl
 from pytest_mock import MockerFixture
 
@@ -32,12 +38,6 @@ from otaclient._logging import LogType, configure_logging
 from otaclient.configs._cfg_configurable import _OTAClientSettings
 from otaclient.configs._ecu_info import ECUInfo
 from otaclient.configs._proxy_info import ProxyInfo
-from otaclient.grpc.log_v1 import (
-    otaclient_iot_logging_server_v1_pb2 as log_pb2,
-)
-from otaclient.grpc.log_v1 import (
-    otaclient_iot_logging_server_v1_pb2_grpc as log_v1_grpc,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class DummyQueueData:
     message: str
 
 
-class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
+class DummyLogServerService(log_v1_grpc.OTAClientIoTLoggingServiceServicer):
     def __init__(self, test_queue, data_ready):
         self._test_queue = test_queue
         self._data_ready = data_ready
@@ -80,7 +80,8 @@ class DummyLogServerService(log_v1_grpc.OtaClientIoTLoggingServiceServicer):
 
 
 class TestLogClient:
-    OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8084"
+    OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8083"
+    OTA_CLIENT_LOGGING_SERVER_GRPC = "http://127.0.0.1:8084"
     ECU_ID = "testclient"
 
     @pytest.fixture(autouse=True)
@@ -104,14 +105,17 @@ class TestLogClient:
     @pytest.fixture(autouse=True)
     def mock_proxy_info(self, mocker: MockerFixture):
         self._proxy_info = ProxyInfo(
-            logging_server=AnyHttpUrl(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
+            logging_server=AnyHttpUrl(TestLogClient.OTA_CLIENT_LOGGING_SERVER),
+            logging_server_grpc=AnyHttpUrl(
+                TestLogClient.OTA_CLIENT_LOGGING_SERVER_GRPC
+            ),
         )
         mocker.patch(f"{MODULE}.proxy_info", self._proxy_info)
 
     @pytest_asyncio.fixture
     async def launch_grpc_server(self):
         server = grpc.aio.server()
-        log_v1_grpc.add_OtaClientIoTLoggingServiceServicer_to_server(
+        log_v1_grpc.add_OTAClientIoTLoggingServiceServicer_to_server(
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
             server=server,
         )
