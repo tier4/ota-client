@@ -175,14 +175,14 @@ class NonRegularFileTypedDict(FileTableEntryTypedDict):
 
 
 class FileTableInode(TableSpec):
-    inode_id: int
-    uid: int
-    gid: int
-    mode: int
-    links_count: Optional[int] = None
+    inode_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    uid: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    gid: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    mode: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    links_count: Annotated[Optional[int], SkipValidation] = None
     # NOTE: due to legacy OTA image doesn't support xattrs, we
     #       just don't use this field for now.
-    xattrs: Optional[bytes] = None
+    xattrs: Annotated[Optional[bytes], SkipValidation] = None
 
 
 class FiletableInodeTypedDict(TypedDict, total=False):
@@ -196,7 +196,7 @@ class FiletableInodeTypedDict(TypedDict, total=False):
 
 class FileTableInodeORM(ORMBase[FileTableInode]):
     orm_bootstrap_table_name = FT_INODE_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
 
 
 # ------ regular file table ------ #
@@ -304,7 +304,7 @@ class FileTableResourceTypedDict(TypedDict, total=False):
 class FileTableResourceORM(ORMBase[FileTableResource]):
 
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]
