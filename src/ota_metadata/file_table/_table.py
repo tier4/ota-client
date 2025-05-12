@@ -18,15 +18,13 @@ from __future__ import annotations
 import os
 import shutil
 import stat
-from abc import abstractmethod
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Optional
+from typing import Literal, Optional, TypedDict
 
-from pydantic import BaseModel, SkipValidation
-from simple_sqlite3_orm import ConstrainRepr, TableSpec, TypeAffinityRepr
+from pydantic import SkipValidation
+from simple_sqlite3_orm import ConstrainRepr, TableSpec
 from typing_extensions import Annotated
 
-from ota_metadata.file_table._types import EntryAttrsType
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 
@@ -35,117 +33,134 @@ burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_faile
 CANONICAL_ROOT = "/"
 
 
-class FileTableBase(BaseModel):
-    schema_ver: ClassVar[Literal[1]] = 1
+#
+# ------ helper methods ------ #
+#
+def fpath_on_target(_canonical_path: StrOrPath, target_mnt: StrOrPath) -> Path:
+    """Return the fpath of self joined to <target_mnt>."""
+    _canonical_path = Path(_canonical_path)
+    _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
+    return _target_on_mnt
 
-    path: Annotated[
-        str,
-        TypeAffinityRepr(str),
-        ConstrainRepr("PRIMARY KEY"),
-        SkipValidation,
-    ]
+def prepare_dir(entry: DirTypedDict, *, target_mnt: StrOrPath) -> None:
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    try:
+        _target_on_mnt.mkdir(exist_ok=True, parents=True)
+        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+        os.chmod(_target_on_mnt, mode=entry["mode"])
+    except Exception as e:
+        burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
+        raise
 
-    entry_attrs: Annotated[
-        EntryAttrsType,
-        TypeAffinityRepr(bytes),
-        ConstrainRepr("NOT NULL"),
-    ]
-    """msgpacked basic attrs for this file entry.
+def prepare_non_regular(entry: NonRegularFileTypedDict, *, target_mnt: StrOrPath) -> None:
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    try:
+        if stat.S_ISLNK(entry["mode"]):
+            _symlink_target_raw = entry["meta"]
+            assert _symlink_target_raw, f"{entry!r} is symlink, but no symlink target is defined"
 
-    Ref: https://www.kernel.org/doc/html/latest/filesystems/ext4/inodes.html
+            _symlink_target = _symlink_target_raw.decode()
+            _target_on_mnt.symlink_to(_symlink_target)
 
-    including the following fields from inode table:
-    1. mode bits
-    2. uid
-    3. gid
-    4. inode(when the file is hardlinked)
-    5. xattrs
+            # NOTE(20241213): chown will reset the sticky bit of the file!!!
+            #   Remember to always put chown before chmod !!!
+            os.chown(
+                _target_on_mnt, uid=entry["uid"], gid=entry["gid"], follow_symlinks=False
+            )
+            # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
+            #   changing mode of symlink will even result in exception raised.
+            return
 
-    See file_table._types for more details.
-    """
+        # NOTE: legacy OTA image doesn't support char dev, so not process char device
+        # NOTE: just ignore unknown entries
+    except Exception as e:
+        burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
+        raise
 
-    def set_xattr(self, _target: StrOrPath) -> None:
-        """Set the xattr of self onto the <_target>.
+def prepare_regular(
+    entry: RegularFileTypedDict,
+    _rs: StrOrPath,
+    *,
+    target_mnt: StrOrPath,
+    prepare_method: Literal["move", "hardlink", "copy"],
+) -> None:
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
 
-        NOTE: this method always don't follow symlink.
-        """
-        if xattrs := self.entry_attrs.xattrs:
-            for k, v in xattrs.items():
-                os.setxattr(
-                    path=_target,
-                    attribute=k,
-                    value=v.encode(),
-                    follow_symlinks=False,
-                )
+    # NOTE(20241213): chown will reset the sticky bit of the file!!!
+    #   Remember to always put chown before chmod !!!
+    try:
+        if prepare_method == "copy":
+            shutil.copy(_rs, _target_on_mnt)
+            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+            os.chmod(_target_on_mnt, mode=entry["mode"])
+            return
 
-    def set_perm(self, _target: StrOrPath) -> None:
-        """Set the mode,uid,gid of self onto the <_target>."""
-        entry_attrs = self.entry_attrs
-        # NOTE(20241213): chown will reset the sticky bit of the file!!!
-        #   Remember to always put chown before chmod !!!
-        os.chown(_target, uid=entry_attrs.uid, gid=entry_attrs.gid)
-        os.chmod(_target, mode=entry_attrs.mode)
+        if prepare_method == "hardlink":
+            # NOTE: os.link will make dst a hardlink to src.
+            os.link(_rs, _target_on_mnt)
+            # NOTE: although we actually don't need to set_perm and set_xattr everytime
+            #   to file paths point to the same inode, for simplicity here we just
+            #   do it everytime.
+            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+            os.chmod(_target_on_mnt, mode=entry["mode"])
+            return
 
-    def fpath_on_target(self, target_mnt: StrOrPath) -> Path:
-        """Return the fpath of self joined to <target_mnt>."""
-        _canonical_path = Path(self.path)
-        _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
-        return _target_on_mnt
+        if prepare_method == "move":
+            shutil.move(str(_rs), _target_on_mnt)
+            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+            os.chmod(_target_on_mnt, mode=entry["mode"])
+    except Exception as e:
+        burst_suppressed_logger.exception(
+            f"failed on preparing {entry!r}, {_rs=}: {e!r}"
+        )
+        raise
 
-    @abstractmethod
-    def prepare_target(self, *args: Any, target_mnt: StrOrPath, **kwargs) -> None:
-        raise NotImplementedError
+
+#
+# ------ typeddicts ------ #
+#
+class FileTableEntryTypedDict(TypedDict):
+    """The result of joining ft_inode and ft_* table."""
+
+    path: str
+    uid: int
+    gid: int
+    mode: int
+    links_count: Optional[int]
+    xattrs: Optional[bytes]
 
 
-class FileTableRegularFiles(TableSpec, FileTableBase):
+class RegularFileTypedDict(FileTableEntryTypedDict):
+    digest: bytes
+    size: int
+
+class DirTypedDict(FileTableEntryTypedDict): ...
+
+class NonRegularFileTypedDict(FileTableEntryTypedDict):
+    meta: Optional[bytes]
+
+
+#
+# ------ types ------ #
+#
+class FileTableInode(TableSpec):
+    inode_id: int
+    uid: int
+    gid: int
+    mode: int
+    links_count: Optional[int] = None
+    # NOTE: due to legacy OTA image doesn't support xattrs, we
+    #       just don't use this field for now.
+    xattrs: Optional[bytes] = None
+
+class FileTableRegularFiles(TableSpec):
     """DB table for regular file entries."""
 
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
     resource_id: Annotated[int, SkipValidation]
 
-    def prepare_target(
-        self,
-        _rs: StrOrPath,
-        *,
-        target_mnt: StrOrPath,
-        prepare_method: Literal["move", "hardlink", "copy"],
-    ) -> None:
-        try:
-            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-
-            if prepare_method == "copy":
-                shutil.copy(_rs, _target_on_mnt)
-                self.set_perm(_target_on_mnt)
-                self.set_xattr(_target_on_mnt)
-                return
-
-            if prepare_method == "hardlink":
-                # NOTE: os.link will make dst a hardlink to src.
-                os.link(_rs, _target_on_mnt)
-                # NOTE: although we actually don't need to set_perm and set_xattr everytime
-                #   to file paths point to the same inode, for simplicity here we just
-                #   do it everytime.
-                self.set_perm(_target_on_mnt)
-                self.set_xattr(_target_on_mnt)
-                return
-
-            if prepare_method == "move":
-                shutil.move(str(_rs), _target_on_mnt)
-                self.set_perm(_target_on_mnt)
-                self.set_xattr(_target_on_mnt)
-        except Exception as e:
-            burst_suppressed_logger.exception(
-                f"failed on preparing {self!r}, {_rs=}: {e!r}"
-            )
-            raise
-
-
-class RegularFileEntry(FileTableRegularFiles):
-    """Subtype of FileTableRegularFiles, used forjoined ft_regular and ft_resource."""
-
-    digest: bytes
-
-
-class FileTableNonRegularFiles(TableSpec, FileTableBase):
+class FileTableNonRegularFiles(TableSpec):
     """DB table for non-regular file entries.
 
     This includes:
@@ -154,78 +169,22 @@ class FileTableNonRegularFiles(TableSpec, FileTableBase):
 
     NOTE that support for chardev file is only for overlayfs' whiteout file,
         so only device num as 0,0 will be allowed.
+    NOTE: chardev is not supported by legacy OTA image, so just ignore it.
     """
 
-    contents: Annotated[
-        Optional[bytes],
-        TypeAffinityRepr(bytes),
-        SkipValidation,
-    ] = None
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    meta: Annotated[Optional[bytes], SkipValidation] = None
     """The contents of the file. Currently only used by symlink."""
 
-    def set_perm(self, _target: StrOrPath) -> None:
-        """Set the mode,uid,gid of self onto the <_target>.
 
-        NOTE: this method always don't follow symlink.
-        """
-        entry_attrs = self.entry_attrs
-
-        # NOTE(20241213): chown will reset the sticky bit of the file!!!
-        #   Remember to always put chown before chmod !!!
-        os.chown(
-            _target, uid=entry_attrs.uid, gid=entry_attrs.gid, follow_symlinks=False
-        )
-        # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
-        #   changing mode of symlink will even result in exception raised.
-        if not stat.S_ISLNK(entry_attrs.mode):
-            os.chmod(_target, mode=entry_attrs.mode)
-
-    def prepare_target(self, *, target_mnt: StrOrPath) -> None:
-        try:
-            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-
-            entry_attrs = self.entry_attrs
-            _mode = entry_attrs.mode
-            if stat.S_ISLNK(_mode):
-                assert (
-                    _symlink_target_raw := self.contents
-                ), f"invalid entry {self}, entry is a symlink but no link target is defined"
-
-                _symlink_target = _symlink_target_raw.decode()
-                _target_on_mnt.symlink_to(_symlink_target)
-                self.set_perm(_target_on_mnt)
-                self.set_xattr(_target_on_mnt)
-                return
-
-            if stat.S_ISCHR(_mode):
-                _device_num = os.makedev(0, 0)
-                os.mknod(_target_on_mnt, mode=_mode, device=_device_num)
-                self.set_perm(_target_on_mnt)
-                self.set_xattr(_target_on_mnt)
-                return
-
-            raise ValueError(f"invalid entry {self}")
-        except Exception as e:
-            burst_suppressed_logger.exception(f"failed on preparing {self!r}: {e!r}")
-            raise
-
-
-class FileTableDirectories(TableSpec, FileTableBase):
+class FileTableDirectories(TableSpec):
     """DB table for directory entries."""
-
-    def prepare_target(self, *, target_mnt: StrOrPath) -> None:
-        try:
-            _target_on_mnt = self.fpath_on_target(target_mnt=target_mnt)
-            _target_on_mnt.mkdir(exist_ok=True, parents=True)
-            self.set_perm(_target_on_mnt)
-            self.set_xattr(_target_on_mnt)
-        except Exception as e:
-            burst_suppressed_logger.exception(f"failed on preparing {self!r}: {e!r}")
-            raise
-
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
 
 class FileTableResource(TableSpec):
 
     resource_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
-    digest: Annotated[bytes, SkipValidation]
-    size: Annotated[int, SkipValidation]
+    digest: Annotated[bytes, ConstrainRepr("NOT NULL"), SkipValidation]
+    size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
