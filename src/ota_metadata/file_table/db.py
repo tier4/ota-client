@@ -45,6 +45,7 @@ FT_INODE_TABLE_NAME = "ft_inode"
 FT_RESOURCE_TABLE_NAME = "ft_resource"
 MAX_ENTRIES_PER_DIGEST = 10
 
+
 #
 # ------ helper methods ------ #
 #
@@ -142,6 +143,7 @@ def prepare_regular(
 # ------ typeddicts ------ #
 #
 
+
 class FileTableEntryTypedDict(TypedDict):
     """The result of joining ft_inode and ft_* table."""
 
@@ -171,6 +173,7 @@ class NonRegularFileTypedDict(FileTableEntryTypedDict):
 
 # ------ inode table ------ #
 
+
 class FileTableInode(TableSpec):
     inode_id: int
     uid: int
@@ -181,11 +184,23 @@ class FileTableInode(TableSpec):
     #       just don't use this field for now.
     xattrs: Optional[bytes] = None
 
+
+class FiletableInodeTypedDict(TypedDict, total=False):
+    inode_id: int
+    uid: int
+    gid: int
+    mode: int
+    links_count: int
+    xattrs: bytes
+
+
 class FileTableInodeORM(ORMBase[FileTableInode]):
     orm_bootstrap_table_name = FT_INODE_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
+
 # ------ regular file table ------ #
+
 
 class FileTableRegularFiles(TableSpec):
     """DB table for regular file entries."""
@@ -193,6 +208,13 @@ class FileTableRegularFiles(TableSpec):
     path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
     resource_id: Annotated[int, SkipValidation]
+
+
+class FileTableRegularTypedDict(TypedDict, total=False):
+    path: str
+    inode_id: int
+    resource_id: int
+
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
@@ -203,7 +225,9 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
         CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
     ]
 
+
 # ------ non-regular file table ------ #
+
 
 class FileTableNonRegularFiles(TableSpec):
     """DB table for non-regular file entries.
@@ -222,6 +246,13 @@ class FileTableNonRegularFiles(TableSpec):
     meta: Annotated[Optional[bytes], SkipValidation] = None
     """The contents of the file. Currently only used by symlink."""
 
+
+class FileTableNonRegularTypedDict(TypedDict, total=False):
+    path: str
+    inode_id: int
+    meta: Optional[bytes]
+
+
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
@@ -230,12 +261,20 @@ class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
         CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
     ]
 
+
 # ------ directory table ------ #
+
 
 class FileTableDirectories(TableSpec):
 
     path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+
+
+class FileTableDirectoryTypedDict(TypedDict, total=False):
+    path: str
+    inode_id: int
+
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
 
@@ -245,13 +284,22 @@ class FileTableDirORM(ORMBase[FileTableDirectories]):
         CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
     ]
 
+
 # ------ resource table ------ #
+
 
 class FileTableResource(TableSpec):
 
     resource_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     digest: Annotated[bytes, ConstrainRepr("NOT NULL"), SkipValidation]
     size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+
+
+class FileTableResourceTypedDict(TypedDict, total=False):
+    resource_id: int
+    digest: bytes
+    size: int
+
 
 class FileTableResourceORM(ORMBase[FileTableResource]):
 
