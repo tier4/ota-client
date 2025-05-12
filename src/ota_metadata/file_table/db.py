@@ -190,8 +190,8 @@ class FiletableInodeTypedDict(TypedDict, total=False):
     uid: int
     gid: int
     mode: int
-    links_count: int
-    xattrs: bytes
+    links_count: Optional[int]
+    xattrs: Optional[bytes]
 
 
 class FileTableInodeORM(ORMBase[FileTableInode]):
