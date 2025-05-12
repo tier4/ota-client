@@ -21,12 +21,16 @@ import re
 import stat
 from typing import NamedTuple
 
-from ota_metadata.file_table import (
-    FileEntryAttrs,
+from ota_metadata.file_table.db import (
     FileTableDirectories,
+    FileTableDirectoryTypedDict,
     FileTableDirORM,
+    FileTableInode,
+    FileTableInodeORM,
+    FiletableInodeTypedDict,
     FileTableNonRegularFiles,
     FileTableNonRegularORM,
+    FileTableNonRegularTypedDict,
     FileTableRegularFiles,
     FileTableRegularORM,
     FileTableResource,
@@ -53,7 +57,9 @@ def de_escape(s: str) -> str:
 DIR_CSV_PATTERN = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>.*)")
 
 
-def parse_dirs_csv_line(line: str) -> FileTableDirectories:
+def parse_dirs_csv_line(
+    line: str,
+) -> tuple[FileTableDirectoryTypedDict, FiletableInodeTypedDict]:
     """Directory entry's CSV pattern.
 
     Examples:
@@ -73,29 +79,35 @@ def parse_dirs_csv_line(line: str) -> FileTableDirectories:
     gid = int(_ma.group("gid"))
     path = de_escape(_ma.group("path")[1:-1])
 
-    return FileTableDirectories(
-        path=path,
-        entry_attrs=FileEntryAttrs(
-            uid=uid,
-            gid=gid,
-            mode=mode,
-        ),
+    return FileTableDirectoryTypedDict(path=path), FiletableInodeTypedDict(
+        mode=mode, uid=uid, gid=gid
     )
 
 
-def parse_dirs_from_csv_file(_fpath: StrOrPath, _orm: FileTableDirORM) -> int:
+def parse_dirs_from_csv_file(
+    _fpath: StrOrPath, _orm: FileTableDirORM, _inode_orm: FileTableInodeORM
+) -> int:
     """Compatibility to the plaintext CSV dirs.txt."""
-    _batch, _batch_cnt = [], 0
+    _batch: list[FileTableDirectoryTypedDict] = []
+    _inode_batch: list[FiletableInodeTypedDict] = []
+    _batch_cnt = 0
+
     with open(_fpath, "r") as f:
         _idx = 0
         for _idx, line in enumerate(f, start=1):
-            _new = parse_dirs_csv_line(line)
+            _new, _new_inode = parse_dirs_csv_line(line)
             _batch.append(_new)
+            _inode_batch.append(_new_inode)
+
             if (_this_batch := _idx // ENTRIES_PROCESS_BATCH_SIZE) > _batch_cnt:
                 _batch_cnt = _this_batch
-                _orm.orm_insert_entries(_batch)
-                _batch = []
-        _orm.orm_insert_entries(_batch)
+                _orm.orm_insert_mappings(_batch)
+                _inode_orm.orm_insert_mappings(_inode_batch)
+
+                _batch, _inode_batch = [], []
+
+        _orm.orm_insert_mappings(_batch)
+        _inode_orm.orm_insert_mappings(_inode_batch)
         return _idx
 
 
@@ -108,7 +120,9 @@ SYMLINK_CSV_PATTERN = re.compile(
 )
 
 
-def parse_symlinks_csv_line(line: str) -> FileTableNonRegularFiles:
+def parse_symlinks_csv_line(
+    line: str,
+) -> tuple[FileTableNonRegularTypedDict, FiletableInodeTypedDict]:
     """Symlink entry's CSV pattern.
 
     Examples:
@@ -126,32 +140,36 @@ def parse_symlinks_csv_line(line: str) -> FileTableNonRegularFiles:
     slink = de_escape(_ma.group("link"))
     srcpath = de_escape(_ma.group("target"))
 
-    return FileTableNonRegularFiles(
+    return FileTableNonRegularTypedDict(
         path=slink,
-        entry_attrs=FileEntryAttrs(
-            mode=mode,
-            uid=uid,
-            gid=gid,
-        ),
-        contents=srcpath.encode("utf-8"),
-    )
+        meta=srcpath.encode(),
+    ), FiletableInodeTypedDict(mode=mode, uid=uid, gid=gid)
 
 
 def parse_symlinks_from_csv_file(
-    _fpath: StrOrPath, _orm: FileTableNonRegularORM
+    _fpath: StrOrPath, _orm: FileTableNonRegularORM, _inode_orm: FileTableInodeORM
 ) -> int:
     """Compatibility to the plaintext symlinks.txt."""
-    _batch, _batch_cnt = [], 0
+    _batch: list[FileTableNonRegularTypedDict] = []
+    _inode_batch: list[FiletableInodeTypedDict] = []
+    _batch_cnt = 0
+
     with open(_fpath, "r") as f:
         _idx = 0
         for _idx, line in enumerate(f, start=1):
-            _new = parse_symlinks_csv_line(line)
+            _new, _new_inode = parse_symlinks_csv_line(line)
             _batch.append(_new)
+            _inode_batch.append(_new_inode)
+
             if (_this_batch := _idx // ENTRIES_PROCESS_BATCH_SIZE) > _batch_cnt:
                 _batch_cnt = _this_batch
-                _orm.orm_insert_entries(_batch)
-                _batch = []
-        _orm.orm_insert_entries(_batch)
+                _orm.orm_insert_mappings(_batch)
+                _inode_orm.orm_insert_mappings(_inode_batch)
+
+                _batch, _inode_batch = [], []
+
+        _orm.orm_insert_mappings(_batch)
+        _inode_orm.orm_insert_mappings(_inode_batch)
         return _idx
 
 
