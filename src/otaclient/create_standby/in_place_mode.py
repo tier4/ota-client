@@ -20,6 +20,8 @@ import logging
 import os
 import shutil
 import threading
+import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -30,8 +32,10 @@ from typing import Generator
 from ota_metadata.file_table.db import (
     FileTableDirORM,
     FileTableRegularORMPool,
+    RegularFileTypedDict,
     prepare_dir,
     prepare_non_regular,
+    prepare_regular,
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
@@ -40,6 +44,7 @@ from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256, replace_root
 from otaclient_common._logging import BurstSuppressFilter
 from otaclient_common.common import create_tmp_fname
+from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = logging.getLogger(f"{__name__}.process_file_error")
@@ -58,6 +63,12 @@ CANONICAL_ROOT = cfg.CANONICAL_ROOT
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
 DB_CONN_NUMS = 2
+
+PROCESS_FILES_REPORT_BATCH = 256
+PROCESS_FILES_REPORT_INTERVAL = 1  # second
+
+PROCESS_FILES_CONCURRENCY = 64
+PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
 
 class TopDownCommonShortestPath:
@@ -239,7 +250,6 @@ class DeltaGenFullDiskScan:
             if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
                 path=str(canonical_fpath)
             ):
-                fpath.unlink(missing_ok=True)
                 return
 
             tmp_f = self._copy_dst / create_tmp_fname()
@@ -273,6 +283,8 @@ class DeltaGenFullDiskScan:
         except Exception as e:
             burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
         finally:
+            # after the resource is collected, remove the original file
+            fpath.unlink(missing_ok=True)
             self._max_pending_tasks.release()  # always release se first
 
     def _calculate_delta(self) -> None:
@@ -389,8 +401,8 @@ class InplaceMode:
         # NOTE: remember to yield the last group
         yield cur_digest, cur_digest_group
 
-    def _process_one_regular_files_group(  # NOSONAR
-        self, _input: tuple[bytes, list[RegularFileEntry]]
+    def _process_one_regular_files_group(
+        self, _input: tuple[bytes, list[RegularFileTypedDict]]
     ) -> tuple[int, int]:
         """Process a group of regular_files with the same digest.
 
@@ -404,59 +416,68 @@ class InplaceMode:
             #   download from remote, which both cases are recorded previously, so we minus one
             #   entry when calculating the processed_files_num and processed_files_size.
             processed_files_num = len(entries) - 1
-            processed_files_size = processed_files_num * (
-                entries[0].entry_attrs.size or 0
-            )
+            processed_files_size = processed_files_num * (entries[0]["size"] or 0)
 
             _rs = self._resource_dir / digest.hex()
 
-            _hardlinked: dict[int, list[RegularFileEntry]] = {}
-            _normal: list[RegularFileEntry] = []
+            _hardlinked: defaultdict[int, list[RegularFileTypedDict]] = defaultdict(
+                list
+            )
+            _normal: list[RegularFileTypedDict] = []
 
             for entry in entries:
-                if (_inode_group := entry.entry_attrs.inode) is not None:
-                    _entries_list = _hardlinked.setdefault(_inode_group, [])
-                    _entries_list.append(entry)
+                if entry["links_count"] is not None:
+                    _hardlinked[entry["inode_id"]].append(entry)
                 else:
                     _normal.append(entry)
 
             _first_one_prepared = False
             for entry in _normal:
                 if not _first_one_prepared:
-                    entry.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
+                    prepare_regular(
+                        entry,
+                        _rs,
+                        target_mnt=self._standby_slot_mp,
+                        prepare_method="hardlink",
                     )
                     _first_one_prepared = True
                 else:
-                    entry.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
+                    prepare_regular(
+                        entry,
+                        _rs,
+                        target_mnt=self._standby_slot_mp,
+                        prepare_method="copy",
                     )
 
             for _, entries in _hardlinked.items():
                 _hardlink_first_one = entries.pop()
                 if not _first_one_prepared:
-                    _hardlink_first_one.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="hardlink"
-                    )
-                    _first_one_prepared = True
-                else:
-                    _hardlink_first_one.prepare_target(
-                        _rs, target_mnt=self._standby_slot_mp, prepare_method="copy"
-                    )
-
-                _hardlink_first_one_fpath = _hardlink_first_one.fpath_on_target(
-                    target_mnt=self._standby_slot_mp
-                )
-                for entry in entries:
-                    entry.prepare_target(
-                        _hardlink_first_one_fpath,
+                    prepare_regular(
+                        _hardlink_first_one,
+                        _rs,
                         target_mnt=self._standby_slot_mp,
                         prepare_method="hardlink",
                     )
+                    _first_one_prepared = True
+                else:
+                    prepare_regular(
+                        _hardlink_first_one,
+                        _rs,
+                        target_mnt=self._standby_slot_mp,
+                        prepare_method="copy",
+                    )
 
-            # finally, remove the resource. Note that if anything wrong happens,
-            #   the _rs will not be removed on purpose.
-            _rs.unlink(missing_ok=True)
+                for entry in entries:
+                    prepare_regular(
+                        entry,
+                        _rs=replace_root(
+                            _hardlink_first_one["path"],
+                            cfg.CANONICAL_ROOT,
+                            self._standby_slot_mp,
+                        ),
+                        target_mnt=self._standby_slot_mp,
+                        prepare_method="hardlink",
+                    )
             return processed_files_num, processed_files_size
         except Exception as e:
             burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
@@ -544,3 +565,6 @@ class InplaceMode:
         self._process_dir_entries()
         self._process_non_regular_files()
         self._process_regular_files()
+
+        # finally, cleanup the resource dir
+        shutil.rmtree(self._resource_dir)
