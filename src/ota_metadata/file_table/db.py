@@ -27,6 +27,7 @@ from simple_sqlite3_orm import (
     CreateIndexParams,
     CreateTableParams,
     ORMBase,
+    ORMThreadPoolBase,
     TableSpec,
 )
 from typing_extensions import Annotated
@@ -230,6 +231,11 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     ]
 
 
+class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
+
+    orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
+
+
 # ------ non-regular file table ------ #
 
 
@@ -312,3 +318,8 @@ class FileTableResourceORM(ORMBase[FileTableResource]):
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="digest_index", index_cols=("digest",))
     ]
+
+
+class FileTableResourceORMPool(ORMThreadPoolBase[FileTableResource]):
+
+    orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
