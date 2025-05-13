@@ -81,13 +81,17 @@ def parse_dirs_csv_line(
     gid = int(_ma.group("gid"))
     path = de_escape(_ma.group("path")[1:-1])
 
-    return FileTableDirectoryTypedDict(path=path, inode_id=inode), FiletableInodeTypedDict(
-        mode=mode, uid=uid, gid=gid, inode_id=inode
-    )
+    return FileTableDirectoryTypedDict(
+        path=path, inode_id=inode
+    ), FiletableInodeTypedDict(mode=mode, uid=uid, gid=gid, inode_id=inode)
 
 
 def parse_dirs_from_csv_file(
-    _fpath: StrOrPath, _orm: FileTableDirORM, _inode_orm: FileTableInodeORM, *, inode_start: int
+    _fpath: StrOrPath,
+    _orm: FileTableDirORM,
+    _inode_orm: FileTableInodeORM,
+    *,
+    inode_start: int,
 ) -> tuple[int, int]:
     """Compatibility to the plaintext CSV dirs.txt."""
     _batch: list[FileTableDirectoryTypedDict] = []
@@ -151,7 +155,11 @@ def parse_symlinks_csv_line(
 
 
 def parse_symlinks_from_csv_file(
-    _fpath: StrOrPath, _orm: FileTableNonRegularORM, _inode_orm: FileTableInodeORM, *, inode_start: int
+    _fpath: StrOrPath,
+    _orm: FileTableNonRegularORM,
+    _inode_orm: FileTableInodeORM,
+    *,
+    inode_start: int,
 ) -> tuple[int, int]:
     """Compatibility to the plaintext symlinks.txt."""
     _batch: list[FileTableNonRegularTypedDict] = []
@@ -216,7 +224,7 @@ def parser_create_file_table_rs_entry(_ma: re.Match) -> DigestSize:
 
 
 def parse_create_file_table_row(
-    _ma: re.Match
+    _ma: re.Match,
 ) -> tuple[FileTableRegularTypedDict, FiletableInodeTypedDict, ResourceTable]:
     # NOTE: the ota-metadata generator strips away the file type bits.
     mode = int(_ma.group("mode"), 8) | stat.S_IFREG
@@ -272,7 +280,7 @@ def parse_regulars_from_csv_file(
     _orm_inode: FileTableInodeORM,
     _orm_rs: ResourceTableORM,
     *,
-    inode_start: int
+    inode_start: int,
 ) -> tuple[int, int]:
     """Compatibility to the plaintext regulars.txt."""
     digest_resources: dict[DigestSize, int] = {}
