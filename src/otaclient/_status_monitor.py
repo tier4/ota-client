@@ -35,6 +35,7 @@ from otaclient._types import (
     UpdateTiming,
 )
 from otaclient._utils import SharedOTAClientStatusWriter
+from otaclient.metrics import OTAMetrics
 from otaclient_common._logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,9 @@ def _on_new_ota_session(
 
 
 def _on_update_phase_changed(
-    status_storage: OTAClientStatus, payload: OTAUpdatePhaseChangeReport
+    status_storage: OTAClientStatus,
+    payload: OTAUpdatePhaseChangeReport,
+    metrics: OTAMetrics,
 ):
     if (update_timing := status_storage.update_timing) is None:
         logger.warning(
@@ -168,19 +171,23 @@ def _on_update_phase_changed(
     phase, trigger_timestamp = payload.new_update_phase, payload.trigger_timestamp
     if phase == UpdatePhase.PROCESSING_POSTUPDATE:
         update_timing.post_update_start_timestamp = trigger_timestamp
+        metrics.update(post_update_start_timestamp=trigger_timestamp)
     elif phase == UpdatePhase.DOWNLOADING_OTA_FILES:
         update_timing.download_start_timestamp = trigger_timestamp
+        metrics.update(download_start_timestamp=trigger_timestamp)
     elif phase == UpdatePhase.CALCULATING_DELTA:
         update_timing.delta_generate_start_timestamp = trigger_timestamp
+        metrics.update(delta_calculation_start_timestamp=trigger_timestamp)
     elif phase == UpdatePhase.APPLYING_UPDATE:
         update_timing.update_apply_start_timestamp = trigger_timestamp
+        metrics.update(apply_update_start_timestamp=trigger_timestamp)
 
     status_storage.update_phase = phase
     return True
 
 
 def _on_update_progress(
-    status_storage: OTAClientStatus, payload: UpdateProgressReport
+    status_storage: OTAClientStatus, payload: UpdateProgressReport, metrics: OTAMetrics
 ) -> bool:
     if (update_progress := status_storage.update_progress) is None:
         logger.warning(
@@ -202,12 +209,19 @@ def _on_update_progress(
         update_progress.downloaded_files_num += payload.processed_file_num
         update_progress.downloaded_files_size += payload.processed_file_size
         update_progress.downloading_errors += payload.errors
+
+        # metrics
+        metrics.update(downloaded_bytes=update_progress.downloaded_bytes)
+        metrics.update(downloaded_errors=update_progress.downloading_errors)
+
     elif op == UpdateProgressReport.Type.APPLY_REMOVE_DELTA:
         update_progress.removed_files_num += payload.processed_file_num
     return True
 
 
-def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaReport):
+def _on_update_meta(
+    status_storage: OTAClientStatus, payload: SetUpdateMetaReport, metrics: OTAMetrics
+) -> bool:
     if (update_meta := status_storage.update_meta) is None or (
         update_progress := status_storage.update_progress
     ) is None:
@@ -220,9 +234,27 @@ def _on_update_meta(status_storage: OTAClientStatus, payload: SetUpdateMetaRepor
     for k, v in _input.items():
         if k == "metadata_downloaded_bytes" and v:
             update_progress.downloaded_bytes += v
-            continue
-        if v:
+        elif v:
             setattr(update_meta, k, v)
+
+        # metrics
+        if k == "image_file_entries" and v:
+            metrics.update(ota_image_total_files_num=v)
+        if k == "image_size_uncompressed" and v:
+            metrics.update(ota_image_total_files_size=v)
+        if k == "metadata_downloaded_bytes" and v:
+            metrics.update(downloaded_bytes=update_progress.downloaded_bytes)
+
+        if k == "total_download_files_num" and v:
+            metrics.update(delta_download_resources_num=v)
+        if k == "total_download_files_size" and v:
+            metrics.update(delta_download_resources_size=v)
+        if k == "total_remove_files_num" and v:
+            metrics.update(delta_remove_resources_num=v)
+
+        if k == "update_firmware_version" and v:
+            metrics.update(target_firmware_version=v)
+
     return True
 
 
@@ -259,6 +291,8 @@ class OTAClientStatusCollector:
         self._status = None
         self._shm_status = shm_status
 
+        self._metrics = OTAMetrics()
+
         atexit.register(shm_status.atexit)
 
     def load_report(self, report: StatusReport) -> bool:
@@ -270,6 +304,8 @@ class OTAClientStatusCollector:
         # ------ update otaclient meta ------ #
         if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
+            # metrics
+            self._metrics.update(current_firmware_version=payload.firmware_version)
             return True
 
         # ------ on session start/end ------ #
@@ -278,6 +314,14 @@ class OTAClientStatusCollector:
                 _traceback
             ) > self.max_traceback_size:
                 payload.failure_traceback = _traceback[-self.max_traceback_size :]
+
+            # metrics
+            self._metrics.update(
+                failure_type=payload.failure_type,
+                failure_reason=payload.failure_reason,
+                failure_traceback=payload.failure_traceback,
+                failed_at_phase=payload.new_ota_status,
+            )
 
             new_ota_status = payload.new_ota_status
             if new_ota_status in [
@@ -298,11 +342,11 @@ class OTAClientStatusCollector:
             )
             return False
         if isinstance(payload, OTAUpdatePhaseChangeReport):
-            return _on_update_phase_changed(status_storage, payload)
+            return _on_update_phase_changed(status_storage, payload, self._metrics)
         if isinstance(payload, UpdateProgressReport):
-            return _on_update_progress(status_storage, payload)
+            return _on_update_progress(status_storage, payload, self._metrics)
         if isinstance(payload, SetUpdateMetaReport):
-            return _on_update_meta(status_storage, payload)
+            return _on_update_meta(status_storage, payload, self._metrics)
         return False
 
     def _status_collector_thread(self) -> None:
@@ -368,3 +412,7 @@ class OTAClientStatusCollector:
     @property
     def otaclient_status(self) -> OTAClientStatus | None:
         return self._status
+
+    @property
+    def otaclient_metrics(self) -> OTAMetrics | None:
+        return self._metrics
