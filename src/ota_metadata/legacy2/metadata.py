@@ -31,22 +31,34 @@ import logging
 import os.path
 import shutil
 import sqlite3
-import textwrap
 import threading
+import typing
 from contextlib import closing
 from pathlib import Path
-from typing import Generator
+from typing import Callable, Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm import utils
-from simple_sqlite3_orm.utils import enable_tmp_store_at_memory, enable_wal_mode
+from simple_sqlite3_orm import gen_sql_stmt
+from simple_sqlite3_orm.utils import (
+    check_db_integrity,
+    enable_tmp_store_at_memory,
+    enable_wal_mode,
+)
 
 from ota_metadata.file_table.db import (
+    FT_DIR_TABLE_NAME,
+    FT_INODE_TABLE_NAME,
+    FT_NON_REGULAR_TABLE_NAME,
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    DirTypedDict,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
+    NonRegularFileTypedDict,
+    RegularFileTypedDict,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -83,11 +95,11 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
         if not (
-            utils.check_db_integrity(
+            check_db_integrity(
                 con,
                 table_name=FileTableRegularORM.orm_bootstrap_table_name,
             )
-            and utils.check_db_integrity(
+            and check_db_integrity(
                 con,
                 table_name=FileTableResourceORM.orm_bootstrap_table_name,
             )
@@ -416,7 +428,7 @@ class OTAMetadata:
         with FileTableRegularORM(self.connect_fstable()) as orm:
             # fmt: off
             _stmt = gen_sql_stmt(
-                "SELECT", "inode_id,uid,gid,mode,links_count,xattrs,digest",
+                "SELECT", "inode_id,uid,gid,mode,links_count,xattrs,digest,size",
                 "FROM", FT_REGULAR_TABLE_NAME,
                 "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
                 "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
@@ -479,7 +491,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
@@ -503,7 +515,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
