@@ -102,8 +102,7 @@ class TransmitterHttp(Transmitter):
 
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
         # support only LogType.LOG
-        with contextlib.suppress(Exception):
-            self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
+        self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
 
     def check(self, timeout: int) -> None:
         resp = self._session.head(self.log_upload_endpoint, timeout=timeout)
@@ -137,8 +136,6 @@ class TransmitterFactory:
 class _LogTeeHandler(logging.Handler):
     """Implementation of teeing local logs to a remote otaclient-iot-logger server."""
 
-    LOGGING_SERVER_WAIT_TIMEOUT_SEC = 5
-
     def __init__(self, max_backlog: int = 2048) -> None:
         super().__init__()
         self._queue: Queue[QueueData | None] = Queue(maxsize=max_backlog)
@@ -158,19 +155,22 @@ class _LogTeeHandler(logging.Handler):
     ) -> None:
         """Wait for the logging server to be up.
 
-        This is a blocking call. It will keep trying to connect to the server
-        until it succeeds or the timeout is reached.
+        This is a blocking call. It will keep trying to connect to the server until it succeeds.
         """
-        _start = time.time()
         while True:
-            if time.time() - _start > self.LOGGING_SERVER_WAIT_TIMEOUT_SEC:
-                break
             try:
-                # send HEAD message via HTTP and check if logging server is up
-                TransmitterHttp(logging_upload_endpoint, ecu_id).check(timeout=1)
+                # send empty message via HTTP and check if logging server is up
+                # because HEAD is not supported by old iot-logger server
+                TransmitterHttp(logging_upload_endpoint, ecu_id).send(
+                    log_type=LogType.LOG, message="", timeout=1
+                )
                 break
-            except Exception:
-                # ignore the exception and continue
+            except (
+                requests.HTTPError,
+                requests.ConnectionError,
+                ConnectionRefusedError,
+            ):
+                # ignore the such exceptions and continue
                 pass
             time.sleep(1)
 
@@ -194,11 +194,6 @@ class _LogTeeHandler(logging.Handler):
                 logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
                 ecu_id=ecu_id,
             )
-            _transmitter.send(
-                log_type=LogType.LOG,
-                message=f"Log server is up (using {_transmitter.__class__.__name__})",
-                timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
-            )
 
             while not stop_logging_upload.is_set():
                 entry = log_queue.get()
@@ -207,16 +202,12 @@ class _LogTeeHandler(logging.Handler):
                 if not entry:
                     continue  # skip uploading empty log line
 
-                try:
+                with contextlib.suppress(Exception):
                     _transmitter.send(
                         log_type=entry.log_type,
                         message=entry.message,
                         timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
                     )
-                except Exception as e:
-                    print(f"Failed to send log message: {e}")
-                    # ignore the exception and continue
-                    pass
 
         log_upload_thread = Thread(target=_thread_main, daemon=True)
         log_upload_thread.start()
