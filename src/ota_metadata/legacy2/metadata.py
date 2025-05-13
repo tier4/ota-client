@@ -41,17 +41,12 @@ from urllib.parse import quote
 from simple_sqlite3_orm import utils
 from simple_sqlite3_orm.utils import enable_tmp_store_at_memory, enable_wal_mode
 
-from ota_metadata.file_table import (
-    FT_REGULAR_TABLE_NAME,
-    FT_RESOURCE_TABLE_NAME,
-    FileEntryToScan,
-    FileTableDirectories,
+from ota_metadata.file_table.db import (
     FileTableDirORM,
-    FileTableNonRegularFiles,
+    FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
-    RegularFileEntry,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
@@ -225,6 +220,7 @@ class OTAMetadata:
         with closing(self.connect_fstable()) as fst_conn, closing(
             self.connect_rstable()
         ) as rst_conn:
+            # ------ bootstrap each tables in the file_table database ------ #
             ft_regular_orm = FileTableRegularORM(fst_conn)
             ft_regular_orm.orm_bootstrap_db()
             ft_dir_orm = FileTableDirORM(fst_conn)
@@ -233,7 +229,10 @@ class OTAMetadata:
             ft_non_regular_orm.orm_bootstrap_db()
             ft_resource_orm = FileTableResourceORM(fst_conn)
             ft_resource_orm.orm_bootstrap_db()
+            ft_inode_orm = FileTableInodeORM(fst_conn)
+            ft_inode_orm.orm_bootstrap_db()
 
+            # ------ bootstrap table in the resource table database ------ #
             rs_orm = ResourceTableORM(rst_conn)
             rs_orm.orm_bootstrap_db()
 
@@ -278,20 +277,33 @@ class OTAMetadata:
                 yield _download_list
                 condition.wait()  # wait for download finished
 
+            inode_start = 1
             # ------ parse metafiles ------ #
-            self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
-                _fpath=regular_save_fpath,
-                _orm=ft_regular_orm,
-                _orm_ft_resource=ft_resource_orm,
-                _orm_rs=rs_orm,
+            self._total_regulars_num, inode_start = regulars_num = (
+                parse_regulars_from_csv_file(
+                    _fpath=regular_save_fpath,
+                    _orm=ft_regular_orm,
+                    _orm_ft_resource=ft_resource_orm,
+                    _orm_rs=rs_orm,
+                    _orm_inode=ft_inode_orm,
+                    inode_start=inode_start,
+                )
             )
             regular_save_fpath.unlink(missing_ok=True)
 
-            dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+            dirs_num, inode_start = parse_dirs_from_csv_file(
+                dir_save_fpath,
+                ft_dir_orm,
+                _inode_orm=ft_inode_orm,
+                inode_start=inode_start,
+            )
             dir_save_fpath.unlink(missing_ok=True)
 
-            symlinks_num = parse_symlinks_from_csv_file(
-                symlink_save_fpath, ft_non_regular_orm
+            symlinks_num, _ = parse_symlinks_from_csv_file(
+                symlink_save_fpath,
+                ft_non_regular_orm,
+                _inode_orm=ft_inode_orm,
+                inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
 
