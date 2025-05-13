@@ -60,7 +60,7 @@ DIR_CSV_PATTERN = re.compile(r"(?P<mode>\d+),(?P<uid>\d+),(?P<gid>\d+),(?P<path>
 
 
 def parse_dirs_csv_line(
-    line: str,
+    line: str, inode: int
 ) -> tuple[FileTableDirectoryTypedDict, FiletableInodeTypedDict]:
     """Directory entry's CSV pattern.
 
@@ -81,14 +81,14 @@ def parse_dirs_csv_line(
     gid = int(_ma.group("gid"))
     path = de_escape(_ma.group("path")[1:-1])
 
-    return FileTableDirectoryTypedDict(path=path), FiletableInodeTypedDict(
-        mode=mode, uid=uid, gid=gid
+    return FileTableDirectoryTypedDict(path=path, inode_id=inode), FiletableInodeTypedDict(
+        mode=mode, uid=uid, gid=gid, inode_id=inode
     )
 
 
 def parse_dirs_from_csv_file(
-    _fpath: StrOrPath, _orm: FileTableDirORM, _inode_orm: FileTableInodeORM
-) -> int:
+    _fpath: StrOrPath, _orm: FileTableDirORM, _inode_orm: FileTableInodeORM, *, inode_start: int
+) -> tuple[int, int]:
     """Compatibility to the plaintext CSV dirs.txt."""
     _batch: list[FileTableDirectoryTypedDict] = []
     _inode_batch: list[FiletableInodeTypedDict] = []
@@ -97,7 +97,8 @@ def parse_dirs_from_csv_file(
     with open(_fpath, "r") as f:
         _idx = 0
         for _idx, line in enumerate(f, start=1):
-            _new, _new_inode = parse_dirs_csv_line(line)
+            _new, _new_inode = parse_dirs_csv_line(line, inode_start)
+            inode_start += 1
             _batch.append(_new)
             _inode_batch.append(_new_inode)
 
@@ -110,7 +111,7 @@ def parse_dirs_from_csv_file(
 
         _orm.orm_insert_mappings(_batch)
         _inode_orm.orm_insert_mappings(_inode_batch)
-        return _idx
+        return _idx, inode_start
 
 
 #
@@ -123,7 +124,7 @@ SYMLINK_CSV_PATTERN = re.compile(
 
 
 def parse_symlinks_csv_line(
-    line: str,
+    line: str, inode: int
 ) -> tuple[FileTableNonRegularTypedDict, FiletableInodeTypedDict]:
     """Symlink entry's CSV pattern.
 
@@ -145,12 +146,13 @@ def parse_symlinks_csv_line(
     return FileTableNonRegularTypedDict(
         path=slink,
         meta=srcpath.encode(),
-    ), FiletableInodeTypedDict(mode=mode, uid=uid, gid=gid)
+        inode_id=inode,
+    ), FiletableInodeTypedDict(mode=mode, uid=uid, gid=gid, inode_id=inode)
 
 
 def parse_symlinks_from_csv_file(
-    _fpath: StrOrPath, _orm: FileTableNonRegularORM, _inode_orm: FileTableInodeORM
-) -> int:
+    _fpath: StrOrPath, _orm: FileTableNonRegularORM, _inode_orm: FileTableInodeORM, *, inode_start: int
+) -> tuple[int, int]:
     """Compatibility to the plaintext symlinks.txt."""
     _batch: list[FileTableNonRegularTypedDict] = []
     _inode_batch: list[FiletableInodeTypedDict] = []
@@ -159,7 +161,8 @@ def parse_symlinks_from_csv_file(
     with open(_fpath, "r") as f:
         _idx = 0
         for _idx, line in enumerate(f, start=1):
-            _new, _new_inode = parse_symlinks_csv_line(line)
+            _new, _new_inode = parse_symlinks_csv_line(line, inode_start)
+            inode_start += 1
             _batch.append(_new)
             _inode_batch.append(_new_inode)
 
@@ -172,7 +175,7 @@ def parse_symlinks_from_csv_file(
 
         _orm.orm_insert_mappings(_batch)
         _inode_orm.orm_insert_mappings(_inode_batch)
-        return _idx
+        return _idx, inode_start
 
 
 #
@@ -213,7 +216,7 @@ def parser_create_file_table_rs_entry(_ma: re.Match) -> DigestSize:
 
 
 def parse_create_file_table_row(
-    _ma: re.Match,
+    _ma: re.Match
 ) -> tuple[FileTableRegularTypedDict, FiletableInodeTypedDict, ResourceTable]:
     # NOTE: the ota-metadata generator strips away the file type bits.
     mode = int(_ma.group("mode"), 8) | stat.S_IFREG
@@ -268,10 +271,11 @@ def parse_regulars_from_csv_file(
     _orm_ft_resource: FileTableResourceORM,
     _orm_inode: FileTableInodeORM,
     _orm_rs: ResourceTableORM,
-) -> int:
+    *,
+    inode_start: int
+) -> tuple[int, int]:
     """Compatibility to the plaintext regulars.txt."""
     digest_resources: dict[DigestSize, int] = {}
-    normal_inode_cnt = 0
     hardlinked_inode: dict[int, FiletableInodeTypedDict] = {}
 
     _batch_cnt = 0
@@ -302,8 +306,8 @@ def parse_regulars_from_csv_file(
                 _inode_entry["links_count"] = _current_link_cnt
             # normal inode
             else:
-                normal_inode_cnt += 1
-                _inode_id = normal_inode_cnt
+                inode_start += 1
+                _inode_id = inode_start
                 _new_inode["inode_id"] = _inode_id
                 _batch_inode.append(_new_inode)
 
@@ -342,7 +346,7 @@ def parse_regulars_from_csv_file(
             for _digest_size, _rs_id in digest_resources.items()
         )
     )
-    return regular_file_entry_count
+    return regular_file_entry_count, inode_start
 
 
 #
