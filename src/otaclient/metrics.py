@@ -19,7 +19,7 @@ import logging
 from dataclasses import dataclass
 
 from _otaclient_version import __version__
-
+from otaclient._logging import LogType
 from otaclient.configs.cfg import (
     ecu_info,
 )
@@ -37,17 +37,17 @@ class OTAMetrics:
         """
 
         # Date
+        initializing_start_timestamp: int = 0
+        processing_metadata_start_timestamp: int = 0
         delta_calculation_start_timestamp: int = 0
-        delta_calculation_finish_timestamp: int = 0
         download_start_timestamp: int = 0
-        download_finish_timestamp: int = 0
         apply_update_start_timestamp: int = 0
-        apply_update_finish_timestamp: int = 0
         post_update_start_timestamp: int = 0
-        post_update_finish_timestamp: int = 0
+        finalizing_update_start_timestamp: int = 0
 
         # ECU and Firmware
         ecu_id: str = ecu_info.ecu_id
+        session_id: str = ""
         current_firmware_version: str = ""
         target_firmware_version: str = ""
 
@@ -57,22 +57,15 @@ class OTAMetrics:
         # Status
         failure_type: str = ""
         failure_reason: str = ""
-        failure_traceback: str = ""
         failed_at_phase: str = ""
 
         # Metrics
-        ota_image_total_files_num: int = 0
         ota_image_total_files_size: int = 0
-        ota_image_total_resources_num: int = 0
-        ota_image_total_non_regular_files_num: int = 0
+        ota_image_total_regulars_num: int = 0
         ota_image_total_directories_num: int = 0
-        delta_reuse_resources_num: int = 0
-        delta_reuse_resources_size: int = 0
-        delta_download_resources_num: int = 0
-        delta_download_resources_size: int = 0
-        delta_remove_resources_num: int = 0
-        processed_regular_files_num: int = 0
-        processed_resources_num: int = 0
+        ota_image_total_symlinks_num: int = 0
+        delta_download_files_num: int = 0
+        delta_download_files_size: int = 0
         downloaded_bytes: int = 0
         downloaded_errors: int = 0
 
@@ -96,6 +89,4 @@ class OTAMetrics:
         Publishes the metrics data to the metrics server.
         """
         # publishing the metrics via logging
-        # logger.info(json.dumps(self.metrics_data), extra={"log_type": LogType.METRICS})
-
-        logger.info(json.dumps(self.data))
+        logger.info(json.dumps(self.data), extra={"log_type": LogType.METRICS})

@@ -134,6 +134,8 @@ class OTAMetadata:
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
+        self._total_dirs_num = 0
+        self._total_symlinks_num = 0
 
     @property
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
@@ -143,6 +145,14 @@ class OTAMetadata:
     @property
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
+
+    @property
+    def total_dirs_num(self) -> int:
+        return self._total_dirs_num
+
+    @property
+    def total_symlinks_num(self) -> int:
+        return self._total_symlinks_num
 
     def _prepare_metadata(
         self,
@@ -273,10 +283,12 @@ class OTAMetadata:
             )
             regular_save_fpath.unlink(missing_ok=True)
 
-            dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+            self._total_dirs_num = dirs_num = parse_dirs_from_csv_file(
+                dir_save_fpath, ft_dir_orm
+            )
             dir_save_fpath.unlink(missing_ok=True)
 
-            symlinks_num = parse_symlinks_from_csv_file(
+            self._total_symlinks_num = symlinks_num = parse_symlinks_from_csv_file(
                 symlink_save_fpath, ft_non_regular_orm
             )
             symlink_save_fpath.unlink(missing_ok=True)

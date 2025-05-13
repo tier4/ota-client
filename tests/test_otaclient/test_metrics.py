@@ -22,8 +22,8 @@ import time
 from queue import Queue
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient import metrics
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
