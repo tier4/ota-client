@@ -324,13 +324,22 @@ class DeltaGenFullDiskScan:
                     self._dirs_to_remove.add_path(canonical_curdir_path)
                     continue
 
+                # remove any symlinks of directory under current dir
+                for _dname in dirnames:
+                    _dir = delta_src_curdir_path / _dname
+                    if _dir.is_symlink():
+                        _dir.unlink(missing_ok=True)
+
                 # skip files that over the max_filenum_per_folder,
                 # and add these files to remove list
                 if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
                     logger.warning(
                         f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
-                        "exceeded files will be ignored silently"
+                        "exceeded files will be cleaned up unconditionally"
                     )
+                    for _fname in filenames[self.MAX_FILENUM_PER_FOLDER:]:
+                        (delta_src_curdir_path / _fname).unlink(missing_ok=True)
+
                 self._process_dir(
                     filenames[: self.MAX_FILENUM_PER_FOLDER],
                     _dir_should_fully_scan,
