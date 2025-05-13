@@ -22,17 +22,14 @@ import stat
 from typing import NamedTuple
 
 from ota_metadata.file_table.db import (
-    FileTableDirectories,
     FileTableDirectoryTypedDict,
     FileTableDirORM,
-    FileTableInode,
     FileTableInodeORM,
     FiletableInodeTypedDict,
-    FileTableNonRegularFiles,
     FileTableNonRegularORM,
     FileTableNonRegularTypedDict,
-    FileTableRegularFiles,
     FileTableRegularORM,
+    FileTableRegularTypedDict,
     FileTableResource,
     FileTableResourceORM,
 )
@@ -48,6 +45,11 @@ ENTRIES_PROCESS_BATCH_SIZE = 2048
 def de_escape(s: str) -> str:
     """de-escape the previously escaped '\' character."""
     return s.replace(r"'\''", r"'")
+
+
+class DigestSize(NamedTuple):
+    digest: bytes
+    size: int
 
 
 #
@@ -202,11 +204,6 @@ def parse_regular_csv_line(line: str) -> re.Match:
     return _ma
 
 
-class DigestSize(NamedTuple):
-    digest: bytes
-    size: int
-
-
 def parser_create_file_table_rs_entry(_ma: re.Match) -> DigestSize:
     sha256hash = bytes.fromhex(_ma.group("hash"))
     size = 0
@@ -216,8 +213,8 @@ def parser_create_file_table_rs_entry(_ma: re.Match) -> DigestSize:
 
 
 def parse_create_file_table_row(
-    _ma: re.Match, resource_id: int
-) -> tuple[FileTableRegularFiles, ResourceTable]:
+    _ma: re.Match,
+) -> tuple[FileTableRegularTypedDict, FiletableInodeTypedDict, ResourceTable]:
     # NOTE: the ota-metadata generator strips away the file type bits.
     mode = int(_ma.group("mode"), 8) | stat.S_IFREG
     uid = int(_ma.group("uid"))
@@ -237,17 +234,13 @@ def parse_create_file_table_row(
             _compress_alg if (_compress_alg := _ma.group("compressed_alg")) else ""
         )
 
-    _new = FileTableRegularFiles(
-        path=path,
-        entry_attrs=FileEntryAttrs(
-            mode=mode,
-            uid=uid,
-            gid=gid,
-            size=size,
-            inode=inode,
-        ),
-        resource_id=resource_id,
-    )
+    _new_inode = FiletableInodeTypedDict(uid=uid, gid=gid, mode=mode)
+    # NOTE(20250512): for hardlinked entry, we use minus inode
+    #                 as inode_id to indentify it.
+    if inode:
+        _new_inode["inode_id"] = -inode
+
+    _new = FileTableRegularTypedDict(path=path)
 
     # NOTE: in rev4 of OTA image metadata we add compression support, and compressed version of resource
     #       can be retrieved by sha256digest in the OTA image's blob storage.
@@ -266,29 +259,57 @@ def parse_create_file_table_row(
         compression_alg=compressed_alg,
         original_size=size or 0,
     )
-    return _new, _new_rs
+    return _new, _new_inode, _new_rs
 
 
 def parse_regulars_from_csv_file(
     _fpath: StrOrPath,
     _orm: FileTableRegularORM,
     _orm_ft_resource: FileTableResourceORM,
+    _orm_inode: FileTableInodeORM,
     _orm_rs: ResourceTableORM,
 ) -> int:
     """Compatibility to the plaintext regulars.txt."""
     digest_resources: dict[DigestSize, int] = {}
+    normal_inode_cnt = 0
+    hardlinked_inode: dict[int, FiletableInodeTypedDict] = {}
 
-    _batch, _batch_rs, _batch_cnt = [], [], 0
+    _batch_cnt = 0
+    _batch: list[FileTableRegularTypedDict] = []
+    _batch_rs: list[ResourceTable] = []
+    _batch_inode: list[FiletableInodeTypedDict] = []
+
     with open(_fpath, "r") as f:
         regular_file_entry_count = 0
         for regular_file_entry_count, line in enumerate(f, start=1):
             _line_match = parse_regular_csv_line(line)
             _digest_size = parser_create_file_table_rs_entry(_line_match)
+
             _resource_id = digest_resources.setdefault(
                 _digest_size, len(digest_resources)
             )
 
-            _new, _new_rs = parse_create_file_table_row(_line_match, _resource_id)
+            _new, _new_inode, _new_rs = parse_create_file_table_row(_line_match)
+
+            # inode_id is generated, means it is a hardlinked inode
+            if (_inode_id := _new_inode.get("inode_id")) is not None:
+                _inode_entry = hardlinked_inode.setdefault(_inode_id, _new_inode)
+                _current_link_cnt = _inode_entry.get("links_count")
+                if _current_link_cnt is None:
+                    _current_link_cnt = 1
+                else:
+                    _current_link_cnt += 1
+                _inode_entry["links_count"] = _current_link_cnt
+            # normal inode
+            else:
+                normal_inode_cnt += 1
+                _inode_id = normal_inode_cnt
+                _new_inode["inode_id"] = _inode_id
+                _batch_inode.append(_new_inode)
+
+            # assign calculated inode_id and resource_id to the ft entry
+            _new["inode_id"] = _inode_id
+            _new["resource_id"] = _resource_id
 
             _batch.append(_new)
             _batch_rs.append(_new_rs)
@@ -297,13 +318,20 @@ def parse_regulars_from_csv_file(
                 _this_batch := regular_file_entry_count // ENTRIES_PROCESS_BATCH_SIZE
             ) > _batch_cnt:
                 _batch_cnt = _this_batch
-                _orm.orm_insert_entries(_batch)
+                _orm.orm_insert_mappings(_batch)
+                _orm_inode.orm_insert_mappings(_batch_inode)
                 # NOTE: ignore entries with same digest
                 _orm_rs.orm_insert_entries(_batch_rs, or_option="ignore")
 
-                _batch, _batch_rs = [], []
-        _orm.orm_insert_entries(_batch)
+                _batch, _batch_rs, _batch_inode = [], [], []
+
+        # insert the leftover entries
+        _orm.orm_insert_mappings(_batch)
+        _orm_inode.orm_insert_mappings(_batch_inode)
         _orm_rs.orm_insert_entries(_batch_rs, or_option="ignore")
+
+        # insert hardlinked inode tables
+        _orm_inode.orm_insert_mappings(hardlinked_inode.values())
 
     # prepare the ft_resource
     _orm_ft_resource.orm_insert_entries(
