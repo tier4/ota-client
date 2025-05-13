@@ -21,7 +21,6 @@ import os
 import shutil
 import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from hashlib import sha256
@@ -385,15 +384,15 @@ class InplaceMode:
 
     def _preprocess_regular_file_entries(
         self,
-    ) -> Generator[tuple[bytes, list[RegularFileEntry]]]:
+    ) -> Generator[tuple[bytes, list[RegularFileTypedDict]]]:
         """Yield a group of regular file entries which have the same digest each time.
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
-        cur_digest_group: list[RegularFileEntry] = []
+        cur_digest_group: list[RegularFileTypedDict] = []
         cur_digest: bytes = b""
         for _entry in self._ota_metadata.iter_regular_entries():
-            _this_digest = _entry.digest
+            _this_digest = _entry["digest"]
             if not cur_digest:
                 cur_digest = _this_digest
                 cur_digest_group.append(_entry)
@@ -420,72 +419,54 @@ class InplaceMode:
                 processed files' size.
         """
         digest, entries = _input
+        # NOTE: the very first entry in the group must be prepared by local copy or
+        #   download from remote, which both cases are recorded previously, so we minus one
+        #   entry when calculating the processed_files_num and processed_files_size.
+        processed_files_num = len(entries) - 1
+        processed_files_size = processed_files_num * (entries[0]["size"] or 0)
+
+        resource_file = self._resource_dir / digest.hex()
+        hardlinked: dict[int, str] = {}
+
         try:
-            # NOTE: the very first entry in the group must be prepared by local copy or
-            #   download from remote, which both cases are recorded previously, so we minus one
-            #   entry when calculating the processed_files_num and processed_files_size.
-            processed_files_num = len(entries) - 1
-            processed_files_size = processed_files_num * (entries[0]["size"] or 0)
-
-            _rs = self._resource_dir / digest.hex()
-
-            _hardlinked: defaultdict[int, list[RegularFileTypedDict]] = defaultdict(
-                list
+            first_entry = entries.pop()
+            prepare_regular(
+                first_entry,
+                _rs=resource_file,
+                target_mnt=self._standby_slot_mp,
+                prepare_method="hardlink",
             )
-            _normal: list[RegularFileTypedDict] = []
+            if first_entry["links_count"] is not None:
+                hardlinked[first_entry["inode_id"]] = first_entry["path"]
 
             for entry in entries:
                 if entry["links_count"] is not None:
-                    _hardlinked[entry["inode_id"]].append(entry)
+                    _inode_id = entry["inode_id"]
+                    if _first_hardlinked_canon := hardlinked.get(_inode_id):
+                        prepare_regular(
+                            entry,
+                            _rs=replace_root(
+                                _first_hardlinked_canon,
+                                cfg.CANONICAL_ROOT,
+                                self._standby_slot_mp,
+                            ),
+                            target_mnt=self._standby_slot_mp,
+                            prepare_method="hardlink",
+                        )
+                    else:
+                        prepare_regular(
+                            entry,
+                            resource_file,
+                            target_mnt=self._standby_slot_mp,
+                            prepare_method="copy",
+                        )
+                        hardlinked[_inode_id] = entry["path"]
                 else:
-                    _normal.append(entry)
-
-            _first_one_prepared = False
-            for entry in _normal:
-                if not _first_one_prepared:
                     prepare_regular(
                         entry,
-                        _rs,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="hardlink",
-                    )
-                    _first_one_prepared = True
-                else:
-                    prepare_regular(
-                        entry,
-                        _rs,
+                        resource_file,
                         target_mnt=self._standby_slot_mp,
                         prepare_method="copy",
-                    )
-
-            for _, entries in _hardlinked.items():
-                _hardlink_first_one = entries.pop()
-                if not _first_one_prepared:
-                    prepare_regular(
-                        _hardlink_first_one,
-                        _rs,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="hardlink",
-                    )
-                    _first_one_prepared = True
-                else:
-                    prepare_regular(
-                        _hardlink_first_one,
-                        _rs,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="copy",
-                    )
-
-                for entry in entries:
-                    prepare_regular(
-                        entry,
-                        _rs=replace_root(
-                            _hardlink_first_one["path"],
-                            cfg.CANONICAL_ROOT,
-                            self._standby_slot_mp,
-                        ),
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="hardlink",
                     )
             return processed_files_num, processed_files_size
         except Exception as e:
