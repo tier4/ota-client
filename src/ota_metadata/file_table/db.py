@@ -160,11 +160,15 @@ class RegularFileTypedDict(FileTableEntryTypedDict):
     size: int
 
 
-class DirTypedDict(FileTableEntryTypedDict): ...
-
-
 class NonRegularFileTypedDict(FileTableEntryTypedDict):
     meta: Optional[bytes]
+
+
+class DirTypedDict(TypedDict):
+    path: str
+    uid: int
+    gid: int
+    mode: int
 
 
 #
