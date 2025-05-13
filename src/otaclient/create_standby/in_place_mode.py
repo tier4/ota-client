@@ -70,6 +70,53 @@ PROCESS_FILES_CONCURRENCY = 64
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
 
+class DeltaGenerator:
+    """
+    NOTE: the instance of this class cannot be re-used after delta is generated.
+    """
+
+    CLEANUP_ENTRY = {"/lost+found", "/tmp", "/run"}
+
+    def __init__(
+        self,
+        *,
+        ota_metadata: OTAMetadata,
+        delta_src: Path,
+        copy_dst: Path,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        self._status_report_queue = status_report_queue
+        self.session_id = session_id
+
+        self._delta_src_mount_point = delta_src
+        self._copy_dst = copy_dst
+
+        self._ota_metadata = ota_metadata
+        self._ft_reg_orm = FileTableRegularORMPool(
+            con_factory=ota_metadata.connect_fstable, number_of_cons=DB_CONN_NUMS
+        )
+        self._ft_dir_orm = FileTableDirORM(ota_metadata.connect_fstable())
+        self._rst_orm = ResourceTableORMPool(
+            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
+        )
+
+        self._max_pending_tasks = threading.Semaphore(
+            cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
+        )
+        self._dirs_to_remove = dtr = TopDownCommonShortestPath()
+        for _p in self.CLEANUP_ENTRY:
+            dtr.add_path(Path(_p))
+
+        # put the empty file into copy_dst
+        (copy_dst / EMPTY_FILE_SHA256).touch()
+
+    @staticmethod
+    def _thread_worker_initializer(thread_local) -> None:
+        thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+        thread_local.view = memoryview(buffer)
+
+
 class TopDownCommonShortestPath:
     """Assume that the disk scan is top-down style."""
 
@@ -88,7 +135,7 @@ class TopDownCommonShortestPath:
         yield from self._store
 
 
-class DeltaGenFullDiskScan:
+class DeltaGenFullDiskScan(DeltaGenerator):
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
     FULL_SCAN_PATHS = {
@@ -111,8 +158,6 @@ class DeltaGenFullDiskScan:
         "/run",
         "/srv",
     }
-
-    CLEANUP_ENTRY = {"/lost+found", "/tmp", "/run"}
 
     # introduce limitations here to prevent unexpected
     # scanning in unknown large, deep folders in full
@@ -197,44 +242,6 @@ class DeltaGenFullDiskScan:
                 fully_scan=dir_should_fully_scan,
                 thread_local=thread_local,
             )
-
-    def __init__(
-        self,
-        *,
-        ota_metadata: OTAMetadata,
-        delta_src: Path,
-        copy_dst: Path,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
-    ) -> None:
-        self._status_report_queue = status_report_queue
-        self.session_id = session_id
-
-        self._delta_src_mount_point = delta_src
-        self._copy_dst = copy_dst
-
-        self._ft_reg_orm = FileTableRegularORMPool(
-            con_factory=ota_metadata.connect_fstable, number_of_cons=DB_CONN_NUMS
-        )
-        self._ft_dir_orm = FileTableDirORM(ota_metadata.connect_fstable())
-        self._rst_orm = ResourceTableORMPool(
-            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
-        )
-
-        self._max_pending_tasks = threading.Semaphore(
-            cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
-        )
-        self._dirs_to_remove = dtr = TopDownCommonShortestPath()
-        for _p in self.EXCLUDE_PATHS:
-            dtr.add_path(Path(_p))
-
-        # put the empty file into copy_dst
-        (copy_dst / EMPTY_FILE_SHA256).touch()
-
-    @staticmethod
-    def _thread_worker_initializer(thread_local) -> None:
-        thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
-        thread_local.view = memoryview(buffer)
 
     def _process_file(
         self,
@@ -362,6 +369,122 @@ class DeltaGenFullDiskScan:
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
             )
             shutil.rmtree(_delta_src_dir)
+
+    def process_slot(self):
+        try:
+            self._calculate_delta()
+            self._cleanup_base()
+        finally:
+            self._rst_orm.orm_pool_shutdown()
+            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_dir_orm.orm_con.close()
+
+
+class DeltaWithBaseFileTable(DeltaGenerator):
+
+    def _process_file(
+        self, fpath: Path, expected_digest: bytes, *, thread_local
+    ) -> bool:
+        try:
+            tmp_f = self._copy_dst / create_tmp_fname()
+            try:
+                hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
+                hash_f = sha256()
+                with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
+                    while read_size := src.readinto(hash_buffer):
+                        hash_f.update(hash_bufferview[:read_size])
+                        tmp_dst.write(hash_bufferview[:read_size])
+
+                dst_f = self._copy_dst / hash_f.hexdigest()
+                cal_digest = hash_f.digest()
+
+                if cal_digest != expected_digest:
+                    return False
+
+                # If the resource we scan here is listed in the resouce table, copy it
+                #   to the copy_dir at standby slot for later use.
+                if self._rst_orm.orm_delete_entries(digest=cal_digest) == 1:
+                    tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                processed_file_size=fpath.stat().st_size,
+                                processed_file_num=1,
+                            ),
+                            session_id=self.session_id,
+                        )
+                    )
+            finally:
+                tmp_f.unlink(missing_ok=True)
+            return True
+        except Exception as e:
+            burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
+            return False
+
+    def _process_files_with_same_digest(
+        self, fpaths: list[Path], expected_digest: bytes, *, thread_local
+    ) -> None:
+        try:
+            for fpath in fpaths:
+                if self._process_file(fpath, expected_digest, thread_local=thread_local):
+                    return
+        finally:
+            self._max_pending_tasks.release()
+
+    def _calculate_delta(self) -> None:
+        logger.debug("process delta src, generate delta and prepare local copy...")
+        thread_local = threading.local()
+        with ThreadPoolExecutor(
+            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            thread_name_prefix="scan_slot",
+            initializer=partial(self._thread_worker_initializer, thread_local),
+        ) as pool:
+            for (
+                digest,
+                fpaths,
+            ) in self._ota_metadata.iter_common_regular_entries_by_digest():
+                self._max_pending_tasks.acquire()
+                pool.submit(
+                    self._process_files_with_same_digest,
+                    fpaths,
+                    digest,
+                    thread_local=thread_local,
+                )
+
+        # heals the hole of the ft_rs table
+        self._rst_orm.orm_execute("VACUUM;")
+
+    def _cleanup_base(self):
+        _canonical_root = Path(CANONICAL_ROOT)
+        for curdir, dirnames, filenames in os.walk(
+            self._delta_src_mount_point, topdown=True, followlinks=False
+        ):
+            delta_src_curdir_path = Path(curdir)
+            canonical_curdir_path = Path(
+                replace_root(
+                    delta_src_curdir_path,
+                    self._delta_src_mount_point,
+                    _canonical_root,
+                )
+            )
+
+            if not self._ft_dir_orm.orm_check_entry_exist(
+                path=str(canonical_curdir_path)
+            ):
+                dirnames.clear()
+                shutil.rmtree(delta_src_curdir_path)
+                continue
+
+            # NOTE: remove the dir symlinks
+            for _dname in dirnames:
+                _dpath = delta_src_curdir_path / _dname
+                if _dpath.is_symlink():
+                    _dpath.unlink(missing_ok=True)
+
+            for _fname in filenames:
+                _fpath = delta_src_curdir_path / _fname
+                _fpath.unlink(missing_ok=True)
 
     def process_slot(self):
         try:
