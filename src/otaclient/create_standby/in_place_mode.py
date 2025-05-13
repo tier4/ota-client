@@ -213,9 +213,13 @@ class DeltaGenFullDiskScan:
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
 
-        self._ft_reg_orm = ft_regular_orm
-        self._ft_dir_orm = ft_dir_orm
-        self._rst_orm = rs_orm
+        self._ft_reg_orm = FileTableRegularORMPool(
+            con_factory=ota_metadata.connect_fstable, number_of_cons=DB_CONN_NUMS
+        )
+        self._ft_dir_orm = FileTableDirORM(ota_metadata.connect_fstable())
+        self._rst_orm = ResourceTableORMPool(
+            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
+        )
 
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
@@ -336,7 +340,7 @@ class DeltaGenFullDiskScan:
                         f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                         "exceeded files will be cleaned up unconditionally"
                     )
-                    for _fname in filenames[self.MAX_FILENUM_PER_FOLDER:]:
+                    for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
                         (delta_src_curdir_path / _fname).unlink(missing_ok=True)
 
                 self._process_dir(
@@ -360,8 +364,13 @@ class DeltaGenFullDiskScan:
             shutil.rmtree(_delta_src_dir)
 
     def process_slot(self):
-        self._calculate_delta()
-        self._cleanup_base()
+        try:
+            self._calculate_delta()
+            self._cleanup_base()
+        finally:
+            self._rst_orm.orm_pool_shutdown()
+            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_dir_orm.orm_con.close()
 
 
 class InplaceMode:
