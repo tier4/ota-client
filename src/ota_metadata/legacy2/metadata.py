@@ -382,54 +382,50 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(self) -> Generator[FileTableDirectories]:
+    def iter_dir_entries(self) -> Generator[DirTypedDict]:
         with FileTableDirORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_entries()
-
-    def iter_non_regular_entries(self) -> Generator[FileTableNonRegularFiles]:
-        """Yield entries from base file_table which digest presented in OTA image's file_table.
-
-        This is for assisting faster delta_calculation without full disk scan.
-        """
-        with FileTableNonRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_entries()
-
-    def iter_common_regular_entries_by_digest(
-        self,
-        base_file_table: StrOrPath,
-        *,
-        max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
-    ) -> Generator[tuple[bytes, list[FileEntryToScan]]]:
-        _hash, _cur = b"", []
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            for entry in orm.iter_common_by_digest(str(base_file_table)):
-                if entry.digest == _hash:
-                    # When there are too many entries for this digest, just pick the first
-                    #   <max_num_of_entries_per_digest> of them.
-                    if len(_cur) <= max_num_of_entries_per_digest:
-                        _cur.append(entry)
-                else:
-                    if _cur:
-                        yield _hash, _cur
-                    _hash, _cur = entry.digest, [entry]
-
-            if _cur:
-                yield _hash, _cur
-
-    def iter_regular_entries(self) -> Generator[RegularFileEntry]:
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            _stmt = textwrap.dedent(
-                f"""\
-                    SELECT {FT_REGULAR_TABLE_NAME}.*, {FT_RESOURCE_TABLE_NAME}.digest
-                    FROM {FT_REGULAR_TABLE_NAME}
-                    INNER JOIN {FT_RESOURCE_TABLE_NAME} USING(resource_id)
-                    ORDER BY digest
-            """
+            _row_factory = typing.cast(Callable[..., DirTypedDict], sqlite3.Row)
+            yield from orm.orm_select_entries(
+                _row_factory=_row_factory,
+                # fmt: off
+                _stmt = gen_sql_stmt(
+                    "SELECT", "path,uid,gid,mode",
+                    "FROM", FT_DIR_TABLE_NAME,
+                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                )
+                # fmt: on
             )
 
+    def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
+        with FileTableNonRegularORM(self.connect_fstable()) as orm:
+            _row_factory = typing.cast(
+                Callable[..., NonRegularFileTypedDict], sqlite3.Row
+            )
+            yield from orm.orm_select_entries(
+                _row_factory=_row_factory,
+                # fmt: off
+                _stmt = gen_sql_stmt(
+                    "SELECT", "path,uid,gid,mode",
+                    "FROM", FT_NON_REGULAR_TABLE_NAME,
+                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                )
+                # fmt: on
+            )
+
+    def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            # fmt: off
+            _stmt = gen_sql_stmt(
+                "SELECT", "inode_id,uid,gid,mode,links_count,xattrs,digest",
+                "FROM", FT_REGULAR_TABLE_NAME,
+                "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
+                "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
+                "ORDER BY", "digest"
+            )
+            # fmt: on
             yield from orm.orm_select_entries(
                 _stmt=_stmt,
-                _row_factory=RegularFileEntry.table_row_factory2,
+                _row_factory=sqlite3.Row,
             )  # type: ignore
 
     def connect_fstable(self) -> sqlite3.Connection:
