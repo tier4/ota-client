@@ -11,149 +11,115 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The implementation of tracking otaclient metrics."""
+"""Test module for OTA client metrics."""
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import random
-import sys
 import time
-from queue import Queue
-
-import pytest
+from unittest.mock import patch
 
 from _otaclient_version import __version__
 from otaclient import metrics
-from otaclient._status_monitor import (
-    OTAClientStatusCollector,
-    OTAStatusChangeReport,
-    OTAUpdatePhaseChangeReport,
-    SetUpdateMetaReport,
-    StatusReport,
-    UpdatePhase,
-)
-from otaclient._types import FailureType, OTAStatus
+from otaclient._logging import LogType
+from otaclient._types import FailureType
 from otaclient.configs.cfg import ecu_info
 
 MODULE = metrics.__name__
 
 
-class TestMetricsMonitor:
-
-    TEST_SESSION_ID_FOR_TEST = os.urandom(8).hex()
-
-    TEST_FAILURE_TYPE = random.choice(list(FailureType))
-    TEST_FAILURE_REASON = "test failure reason"
-    TEST_FAILURE_TRACEBACK = "test failure traceback"
-
-    TEST_IMAGE_FILE_ENTRIES = 10
-    TEST_IMAGE_SIZE_UNCOMPRESSED = 1024
-    TEST_METADATA_DOWNLOADED_BYTES = 512
-    TEST_TOTAL_DOWNLOAD_FILES_NUM = 5
-    TEST_TOTAL_DOWNLOAD_FILES_SIZE = 256
-    TEST_TOTAL_REMOVE_FILES_NUM = 3
-    TEST_TARGET_FIRMWARE_VERSION = "x.y.z"
+class TestOTAMetrics:
+    """Test class for OTAMetrics functionality."""
 
     def test_init(self):
+        """Test initialization of OTAMetrics."""
         ota_metrics = metrics.OTAMetrics()
         assert ota_metrics.data.otaclient_version == __version__
         assert ota_metrics.data.ecu_id == ecu_info.ecu_id
+        assert ota_metrics._already_published is False
 
-    @pytest.fixture
-    def start_session(
-        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
-    ):
-        status_collector, msg_queue = ota_status_collector
-        metrics = status_collector.otaclient_metrics
-        assert metrics
+    def test_update(self):
+        """Test update method of OTAMetrics."""
+        ota_metrics = metrics.OTAMetrics()
 
-        # To reuse the same session id, do all the tests in one function
-        # ------ execution ------ #
-        msg_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                    failure_type=self.TEST_FAILURE_TYPE,
-                    failure_reason=self.TEST_FAILURE_REASON,
-                    failure_traceback=self.TEST_FAILURE_TRACEBACK,
-                ),
-                session_id=self.TEST_SESSION_ID_FOR_TEST,
-            ),
+        # Test updating valid attributes
+        test_timestamp = int(time.time())
+        test_session_id = os.urandom(8).hex()
+        test_failure_type = random.choice(list(FailureType))
+        test_failure_reason = "Test failure reason"
+        test_firmware_version = "1.2.3"
+
+        ota_metrics.update(
+            download_start_timestamp=test_timestamp,
+            session_id=test_session_id,
+            failure_type=test_failure_type,
+            failure_reason=test_failure_reason,
+            target_firmware_version=test_firmware_version,
+            downloaded_bytes=1024,
+            downloaded_errors=2,
         )
 
-        # ------ assertion ------ #
-        time.sleep(2)  # wait for reports being processed
-        assert metrics.data.failure_type == self.TEST_FAILURE_TYPE
-        assert metrics.data.failure_reason == self.TEST_FAILURE_REASON
-        assert metrics.data.failure_traceback == self.TEST_FAILURE_TRACEBACK
-        assert metrics.data.failed_at_phase == OTAStatus.UPDATING
+        assert ota_metrics.data.download_start_timestamp == test_timestamp
+        assert ota_metrics.data.session_id == test_session_id
+        assert ota_metrics.data.failure_type == test_failure_type
+        assert ota_metrics.data.failure_reason == test_failure_reason
+        assert ota_metrics.data.target_firmware_version == test_firmware_version
+        assert ota_metrics.data.downloaded_bytes == 1024
+        assert ota_metrics.data.downloaded_errors == 2
 
-        return msg_queue, metrics
+    def test_update_invalid_key(self, caplog):
+        """Test update method with invalid key."""
+        ota_metrics = metrics.OTAMetrics()
 
-    @pytest.mark.parametrize(
-        "_new_update_phase, _target_key",
-        (
-            (UpdatePhase.CALCULATING_DELTA, "delta_calculation_start_timestamp"),
-            (UpdatePhase.DOWNLOADING_OTA_FILES, "download_start_timestamp"),
-            (UpdatePhase.APPLYING_UPDATE, "apply_update_start_timestamp"),
-            (UpdatePhase.PROCESSING_POSTUPDATE, "post_update_start_timestamp"),
-        ),
-    )
-    def test_update_phase_change_report(
-        self, start_session, _new_update_phase, _target_key
-    ):
-        msg_queue, metrics = start_session
+        with caplog.at_level(logging.WARNING):
+            ota_metrics.update(invalid_key="some value")
 
-        # ------ execution ------ #
-        _timpestamp = random.randint(0, sys.maxsize)
-        msg_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=_new_update_phase,
-                    trigger_timestamp=_timpestamp,
-                ),
-                session_id=self.TEST_SESSION_ID_FOR_TEST,
-            )
-        )
-        # ------ assertion ------ #
-        time.sleep(2)  # wait for reports being processed
-        assert getattr(metrics.data, _target_key) == _timpestamp
+        assert "Key invalid_key is not found in metrics_data" in caplog.text
 
-    def test_update_meta_report(self, start_session):
-        msg_queue, metrics = start_session
+    @patch("otaclient.metrics.logger")
+    def test_publish(self, mock_logger):
+        """Test publish method of OTAMetrics."""
+        ota_metrics = metrics.OTAMetrics()
+        test_session_id = "test_session_id"
+        ota_metrics.update(session_id=test_session_id)
 
-        # ------ execution ------ #
-        msg_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    image_file_entries=self.TEST_IMAGE_FILE_ENTRIES,
-                    image_size_uncompressed=self.TEST_IMAGE_SIZE_UNCOMPRESSED,
-                    metadata_downloaded_bytes=self.TEST_METADATA_DOWNLOADED_BYTES,
-                    total_download_files_num=self.TEST_TOTAL_DOWNLOAD_FILES_NUM,
-                    total_download_files_size=self.TEST_TOTAL_DOWNLOAD_FILES_SIZE,
-                    total_remove_files_num=self.TEST_TOTAL_REMOVE_FILES_NUM,
-                    update_firmware_version=self.TEST_TARGET_FIRMWARE_VERSION,
-                ),
-                session_id=self.TEST_SESSION_ID_FOR_TEST,
-            ),
-        )
-        # ------ assertion ------ #
-        time.sleep(2)  # wait for reports being processed
-        assert metrics.data.ota_image_total_files_num == self.TEST_IMAGE_FILE_ENTRIES
-        assert (
-            metrics.data.ota_image_total_files_size == self.TEST_IMAGE_SIZE_UNCOMPRESSED
-        )
-        assert metrics.data.downloaded_bytes == self.TEST_METADATA_DOWNLOADED_BYTES
-        assert (
-            metrics.data.delta_download_resources_num
-            == self.TEST_TOTAL_DOWNLOAD_FILES_NUM
-        )
-        assert (
-            metrics.data.delta_download_resources_size
-            == self.TEST_TOTAL_DOWNLOAD_FILES_SIZE
-        )
-        assert (
-            metrics.data.delta_remove_resources_num == self.TEST_TOTAL_REMOVE_FILES_NUM
-        )
-        assert metrics.data.target_firmware_version == self.TEST_TARGET_FIRMWARE_VERSION
+        ota_metrics.publish()
+
+        # Verify logger was called with JSON representation of data
+        mock_logger.info.assert_called_once()
+        log_message = mock_logger.info.call_args[0][0]
+        log_extra = mock_logger.info.call_args[1]["extra"]
+
+        # Verify the log message is valid JSON and contains our data
+        data_dict = json.loads(log_message)
+        assert data_dict["session_id"] == test_session_id
+        assert data_dict["ecu_id"] == ecu_info.ecu_id
+        assert data_dict["otaclient_version"] == __version__
+
+        # Verify log type is correct
+        assert log_extra["log_type"] == LogType.METRICS
+
+        # Verify already_published flag is set
+        assert ota_metrics._already_published is True
+
+        # Reset the mock and call publish again
+        mock_logger.reset_mock()
+        ota_metrics.publish()
+
+        # Verify logger was not called again
+        mock_logger.info.assert_not_called()
+
+    def test_publish_multiple_times(self):
+        """Test that publishing only happens once."""
+        ota_metrics = metrics.OTAMetrics()
+
+        with patch("otaclient.metrics.logger") as mock_logger:
+            ota_metrics.publish()
+            assert mock_logger.info.call_count == 1
+
+            # Second publish should not call logger again
+            ota_metrics.publish()
+            assert mock_logger.info.call_count == 1

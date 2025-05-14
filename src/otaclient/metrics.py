@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
 from otaclient._logging import LogType
@@ -71,6 +71,7 @@ class OTAMetrics:
 
     def __init__(self):
         self.data = self.OTAMetricsData()
+        self._already_published = False
 
     def update(self, **kwargs):
         """
@@ -88,5 +89,9 @@ class OTAMetrics:
         """
         Publishes the metrics data to the metrics server.
         """
-        # publishing the metrics via logging
-        logger.info(json.dumps(self.data), extra={"log_type": LogType.METRICS})
+        if self._already_published:
+            # metrics data has already been published.
+            return
+
+        logger.info(json.dumps(asdict(self.data)), extra={"log_type": LogType.METRICS})
+        self._already_published = True
