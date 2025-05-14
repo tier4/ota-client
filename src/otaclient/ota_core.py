@@ -78,6 +78,7 @@ from otaclient.create_standby._delta_gen import (
     DeltaGenWithFileTable,
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
+from otaclient.metrics import OTAMetrics
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.download_info import DownloadInfo
@@ -174,11 +175,13 @@ class _OTAUpdateOperator:
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
+        metrics: OTAMetrics,
     ) -> None:
         self.update_version = version
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
         self._status_report_queue = status_report_queue
+        self._metrics = metrics
 
         # ------ report INITIALIZING status ------ #
         status_report_queue.put_nowait(
@@ -190,6 +193,8 @@ class _OTAUpdateOperator:
                 session_id=session_id,
             )
         )
+        self._metrics.update(initializing_start_timestamp=self.update_start_timestamp)
+
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
@@ -198,6 +203,7 @@ class _OTAUpdateOperator:
                 session_id=session_id,
             )
         )
+        self._metrics.update(target_firmware_version=version)
 
         # ------ prepare runtime dirs ------ #
         # TODO: use a tmpfs mount with 320MB in size for session workdir
@@ -269,15 +275,17 @@ class _OTAUpdateOperator:
 
     def _process_metadata(self) -> None:
         """Process the metadata.jwt file and report."""
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.PROCESSING_METADATA,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(processing_metadata_start_timestamp=_current_time)
 
         try:
             logger.info("verify and download OTA image metadata ...")
@@ -301,6 +309,13 @@ class _OTAUpdateOperator:
                     session_id=self.session_id,
                 )
             )
+            self._metrics.update(
+                ota_image_total_files_size=_metadata_jwt.total_regular_size,
+                ota_image_total_regulars_num=self._ota_metadata.total_regulars_num,
+                ota_image_total_directories_num=self._ota_metadata.total_dirs_num,
+                ota_image_total_symlinks_num=self._ota_metadata.total_symlinks_num,
+            )
+
         except ota_errors.OTAError:
             raise  # raise top-level OTAError as it
         except ota_metadata_error.MetadataJWTVerificationFailed as e:
@@ -470,6 +485,11 @@ class _OTAUpdateOperator:
                 else:
                     _merged_payload.errors += 1
 
+                self._metrics.update(
+                    downloaded_bytes=_merged_payload.downloaded_bytes,
+                    downloaded_errors=_merged_payload.errors,
+                )
+
                 if (
                     _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
                 ) > _report_batch_cnt or _now > _next_commit_before:
@@ -570,15 +590,17 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _calculate_delta(self):
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(delta_calculation_start_timestamp=_current_time)
 
         # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
         # NOTE: get the db via active_slot mount_point
@@ -623,15 +645,18 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _download_delta_resources(self) -> None:
         """Download all the resources needed for the OTA update."""
         # ------ in-update: download resources ------ #
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(download_start_timestamp=_current_time)
+
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         resource_meta = ResourceMeta(
             base_url=self.url_base,
@@ -652,6 +677,10 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(
+            delta_download_files_num=resource_meta.resources_count,
+            delta_download_files_size=resource_meta.resources_size_sum,
+        )
 
         logger.info("start to download resources ...")
         try:
@@ -670,15 +699,18 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _apply_update(self) -> None:
         """Apply the OTA update to the standby slot."""
         logger.info("start to apply changes to standby slot...")
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.APPLYING_UPDATE,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(apply_update_start_timestamp=_current_time)
+
         standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._ota_metadata,
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
@@ -691,15 +723,18 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _post_update(self) -> None:
         """Post-update phase."""
         logger.info("enter post update phase...")
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(post_update_start_timestamp=_current_time)
+
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
         self._boot_controller.post_update()
@@ -742,15 +777,18 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
+        _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.FINALIZING_UPDATE,
-                    trigger_timestamp=int(time.time()),
+                    trigger_timestamp=_current_time,
                 ),
                 session_id=self.session_id,
             )
         )
+        self._metrics.update(finalizing_update_start_timestamp=_current_time)
+        self._metrics.publish()
 
         if proxy_info.enable_local_ota_proxy:
             wait_and_log(
@@ -783,6 +821,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
+            self._metrics.publish()
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
@@ -817,6 +856,9 @@ class OTAClient:
         self._status_report_queue = status_report_queue
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
+
+        self._metrics = OTAMetrics()
+        self._metrics.update(ecu_id=self.my_ecu_id)
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
@@ -862,6 +904,7 @@ class OTAClient:
                 ),
             )
         )
+        self._metrics.update(current_firmware_version=self.current_version)
 
         self.ca_chains_store = None
         try:
@@ -899,6 +942,11 @@ class OTAClient:
                     ),
                 )
             )
+            self._metrics.update(
+                failure_type=failure_type,
+                failure_reason=failure_reason,
+                failed_at_phase=ota_status,
+            )
         finally:
             del exc  # prevent ref cycle
 
@@ -923,6 +971,7 @@ class OTAClient:
         """
         self._live_ota_status = OTAStatus.UPDATING
         new_session_id = request.session_id
+        self._metrics.update(session_id=new_session_id)
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -952,6 +1001,7 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
+                metrics=self._metrics,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
