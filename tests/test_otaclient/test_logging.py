@@ -34,7 +34,7 @@ from pydantic import AnyHttpUrl
 from pytest_mock import MockerFixture
 
 import otaclient._logging as _logging
-from otaclient._logging import LogType, configure_logging
+from otaclient._logging import LogType, _LogTeeHandler, configure_logging
 from otaclient.configs._cfg_configurable import _OTAClientSettings
 from otaclient.configs._ecu_info import ECUInfo
 from otaclient.configs._proxy_info import ProxyInfo
@@ -119,7 +119,7 @@ class TestLogClient:
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
             server=server,
         )
-        parsed_url = urlparse(TestLogClient.OTA_CLIENT_LOGGING_SERVER)
+        parsed_url = urlparse(TestLogClient.OTA_CLIENT_LOGGING_SERVER_GRPC)
         server.add_insecure_port(parsed_url.netloc)
         try:
             await server.start()
@@ -171,8 +171,12 @@ class TestLogClient:
         log_message,
         extra,
         expected_log_type,
+        mocker: MockerFixture,
     ):
-        configure_logging()
+        with mocker.patch.object(
+            _LogTeeHandler, "_wait_for_log_server_up", return_value=None
+        ):
+            configure_logging()
         # send a test log message
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
