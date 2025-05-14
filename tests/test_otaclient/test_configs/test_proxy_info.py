@@ -48,6 +48,7 @@ MODULE_NAME = _proxy_info_module.__name__
                 'upper_ota_proxy: "http://10.0.0.1:8082"\n'
                 "enable_local_ota_proxy_cache: true\n"
                 'logging_server: "http://10.0.0.1:8083"\n'
+                'logging_server_grpc: "http://10.0.0.1:8084"\n'
             ),
             (
                 True,
@@ -60,6 +61,7 @@ MODULE_NAME = _proxy_info_module.__name__
                         "local_ota_proxy_listen_addr": "0.0.0.0",
                         "local_ota_proxy_listen_port": 8082,
                         "logging_server": "http://10.0.0.1:8083",
+                        "logging_server_grpc": "http://10.0.0.1:8084",
                     }
                 ),
             ),
