@@ -427,7 +427,9 @@ class DeltaWithBaseFileTable(DeltaGenerator):
     ) -> None:
         try:
             for fpath in fpaths:
-                if self._process_file(fpath, expected_digest, thread_local=thread_local):
+                if self._process_file(
+                    fpath, expected_digest, thread_local=thread_local
+                ):
                     return
         finally:
             self._max_pending_tasks.release()
@@ -469,8 +471,11 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 )
             )
 
-            if not self._ft_dir_orm.orm_check_entry_exist(
-                path=str(canonical_curdir_path)
+            if not (
+                canonical_curdir_path == _canonical_root
+                or self._ft_dir_orm.orm_check_entry_exist(
+                    path=str(canonical_curdir_path)
+                )
             ):
                 dirnames.clear()
                 shutil.rmtree(delta_src_curdir_path)
