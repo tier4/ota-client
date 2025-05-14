@@ -440,6 +440,44 @@ class OTAMetadata:
                 _row_factory=sqlite3.Row,
             )  # type: ignore
 
+    def iter_common_regular_entries_by_digest(
+        self,
+        base_file_table: StrOrPath,
+        *,
+        max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
+    ) -> Generator[tuple[bytes, list[Path]]]:
+        _hash = b""
+        _cur: list[Path] = []
+
+        # fmt: off
+        _stmt = gen_sql_stmt(
+            f"SELECT base.{FT_REGULAR_TABLE_NAME}.path, base.{FT_RESOURCE_TABLE_NAME}.digest",
+            f"FROM base.{FT_REGULAR_TABLE_NAME}",
+            f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
+            f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
+            f"ORDERY BY base.{FT_RESOURCE_TABLE_NAME}.digest"
+        )
+        # fmt: on
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            orm.orm_con.execute(f"ATTACH DATABASE '{base_file_table}' AS base;")
+            for entry in orm.orm_select_entries(
+                _stmt = _stmt,
+                _row_factory=sqlite3.Row,
+            ):
+                _this_digest, _this_path = entry["digest"], Path(entry["path"])
+                if _this_digest == _hash:
+                    # When there are too many entries for this digest, just pick the first
+                    #   <max_num_of_entries_per_digest> of them.
+                    if len(_cur) <= max_num_of_entries_per_digest:
+                        _cur.append(_this_path)
+                else:
+                    if _cur:
+                        yield _hash, _this_digest
+                    _hash, _cur = _this_digest, [_this_path]
+
+            if _cur:
+                yield _hash, _cur
+
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
             self._fst_db, check_same_thread=False, timeout=DB_TIMEOUT
