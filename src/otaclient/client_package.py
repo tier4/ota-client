@@ -262,104 +262,22 @@ class OTAClientPackage:
         # check if the squashfs file exists
         if not os.path.exists(squashfs_file):
             raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
+
         # check if the mount base exists
         if not os.path.exists(mount_base):
             raise ValueError(f"Mount base does not exist: {mount_base}")
 
-        # Clean up any existing mounts
-        for path in [mount_base, f"{mount_base}.squashfs_ro"]:
-            try:
-                cmdhelper.ensure_umount(str(path), ignore_error=False)
-            except Exception as e:
-                logger.warning(f"failed to umount squashfs {str(path)=}: {e!r}")
-
-        # Create temporary directories for overlay components
-        squashfs_mount = Path(str(mount_base) + ".squashfs_ro")
-        overlay_upper = Path(str(mount_base) + ".overlay_upper")
-        overlay_work = Path(str(mount_base) + ".overlay_work")
-
-        # Create directories with explicit permissions
-        for dir_path in [squashfs_mount, overlay_upper, overlay_work, mount_base]:
-            os.makedirs(dir_path, exist_ok=True)
-            os.chmod(dir_path, 0o755)  # Ensure proper permissions
-
-        # Clean overlay_upper and overlay_work to ensure they're empty
-        for dir_path in [overlay_upper, overlay_work]:
-            for entry in os.listdir(dir_path):
-                entry_path = os.path.join(dir_path, entry)
-                if os.path.isdir(entry_path):
-                    shutil.rmtree(entry_path)
-                else:
-                    os.unlink(entry_path)
-
-        # Log device and contents for debugging
-        for dir_path in [squashfs_mount, overlay_upper, overlay_work, mount_base]:
-            logger.info(
-                f"{dir_path}: device={os.stat(dir_path).st_dev}, contents={os.listdir(dir_path)}"
-            )
-
-        # Mount the squashfs
-        logger.info(f"Mounting squashfs {squashfs_file} to {squashfs_mount}")
-        cmdhelper.ensure_mointpoint(squashfs_mount, ignore_error=False)
+        # mount the squashfs file
+        cmdhelper.ensure_mointpoint(
+            mount_base,
+            ignore_error=False,
+        )
         cmdhelper.ensure_mount(
             target=squashfs_file,
-            mnt_point=squashfs_mount,
+            mnt_point=mount_base,
             mount_func=cmdhelper.mount_squashfs,
             raise_exception=True,
         )
-
-        # Verify the mount succeeded
-        if not os.listdir(squashfs_mount):
-            logger.error(f"Squashfs mount appears empty at {squashfs_mount}")
-            raise RuntimeError("Failed to mount squashfs content")
-
-        # Try overlay mount with clean work directory
-        logger.info(f"Setting up overlay mount at {mount_base}")
-        mount_opts = (
-            f"lowerdir={squashfs_mount},upperdir={overlay_upper},workdir={overlay_work}"
-        )
-
-        try:
-            mount_cmd = [
-                "mount",
-                "-t",
-                "overlay",
-                "overlay",
-                "-o",
-                mount_opts,
-                str(mount_base),
-            ]
-            logger.info(f"Executing: {' '.join(mount_cmd)}")
-            subprocess_call(mount_cmd, raise_exception=True)
-
-            # Verify overlay mount success
-            if len(os.listdir(mount_base)) > 0:
-                logger.info(f"Successfully mounted overlay at {mount_base}")
-                return
-            else:
-                logger.error("Overlay mount succeeded but contains no files")
-                raise RuntimeError("Empty overlay mount")
-
-        except Exception as e:
-            logger.error(f"Overlay mount failed: {e}")
-
-            # Fall back to direct mount
-            logger.warning("Falling back to direct squashfs mount")
-            try:
-                # First unmount the read-only squashfs
-                subprocess_call(["umount", str(squashfs_mount)], raise_exception=False)
-
-                # Mount directly to destination
-                cmdhelper.ensure_mount(
-                    target=squashfs_file,
-                    mnt_point=mount_base,
-                    mount_func=cmdhelper.mount_squashfs,
-                    raise_exception=True,
-                )
-                logger.info(f"Successfully mounted squashfs directly at {mount_base}")
-            except Exception as fallback_error:
-                logger.error(f"Direct mount also failed: {fallback_error}")
-                raise
 
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
         """Bind mount the host directories to the mount base."""
@@ -391,19 +309,24 @@ class OTAClientPackage:
             "/boot/efi",
             "/dev",
             "/dev/shm",
+            "/ota-cache",
+            "/run",
+            "/tmp",
+        ]
+
+        RO_PATHS = [
             "/etc",
             "/opt",
-            "/ota-cache",
             "/proc",
-            "/run",
             "/sys",
-            "/tmp",
             "/usr/sbin/nvbootctrl",
             "/usr/sbin/nv_update_engine",
         ]
-
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
+        )
+        bind_paths(
+            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
         )
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
