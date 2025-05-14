@@ -42,7 +42,6 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256, replace_root
 from otaclient_common._logging import BurstSuppressFilter
-from otaclient_common.common import create_tmp_fname
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 logger = logging.getLogger(__name__)
@@ -262,34 +261,27 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             ):
                 return
 
-            tmp_f = self._copy_dst / create_tmp_fname()
-            try:
-                hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
+            hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
+            hash_f = sha256()
+            with open(fpath, "rb") as src:
+                while read_size := src.readinto(hash_buffer):
+                    hash_f.update(hash_bufferview[:read_size])
+            dst_f = self._copy_dst / hash_f.hexdigest()
 
-                hash_f = sha256()
-                with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
-                    while read_size := src.readinto(hash_buffer):
-                        hash_f.update(hash_bufferview[:read_size])
-                        tmp_dst.write(hash_bufferview[:read_size])
-
-                dst_f = self._copy_dst / hash_f.hexdigest()
-
-                # If the resource we scan here is listed in the resouce table, copy it
-                #   to the copy_dir at standby slot for later use.
-                if self._rst_orm.orm_delete_entries(digest=hash_f.digest()) == 1:
-                    tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                                processed_file_size=fpath.stat().st_size,
-                                processed_file_num=1,
-                            ),
-                            session_id=self.session_id,
-                        )
+            # If the resource we scan here is listed in the resouce table, copy it
+            #   to the copy_dir at standby slot for later use.
+            if self._rst_orm.orm_delete_entries(digest=hash_f.digest()) == 1:
+                os.link(fpath, dst_f, follow_symlinks=False)
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                            processed_file_size=fpath.stat().st_size,
+                            processed_file_num=1,
+                        ),
+                        session_id=self.session_id,
                     )
-            finally:
-                tmp_f.unlink(missing_ok=True)
+                )
         except Exception as e:
             burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
         finally:
@@ -386,37 +378,31 @@ class DeltaWithBaseFileTable(DeltaGenerator):
         self, fpath: Path, expected_digest: bytes, *, thread_local
     ) -> bool:
         try:
-            tmp_f = self._copy_dst / create_tmp_fname()
-            try:
-                hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
-                hash_f = sha256()
-                with open(fpath, "rb") as src, open(tmp_f, "wb") as tmp_dst:
-                    while read_size := src.readinto(hash_buffer):
-                        hash_f.update(hash_bufferview[:read_size])
-                        tmp_dst.write(hash_bufferview[:read_size])
+            hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
+            hash_f = sha256()
+            with open(fpath, "rb") as src:
+                while read_size := src.readinto(hash_buffer):
+                    hash_f.update(hash_bufferview[:read_size])
+            dst_f = self._copy_dst / hash_f.hexdigest()
+            cal_digest = hash_f.digest()
 
-                dst_f = self._copy_dst / hash_f.hexdigest()
-                cal_digest = hash_f.digest()
+            if cal_digest != expected_digest:
+                return False
 
-                if cal_digest != expected_digest:
-                    return False
-
-                # If the resource we scan here is listed in the resouce table, copy it
-                #   to the copy_dir at standby slot for later use.
-                if self._rst_orm.orm_delete_entries(digest=cal_digest) == 1:
-                    tmp_f.rename(dst_f)  # rename will unconditionally replace the dst_f
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                                processed_file_size=fpath.stat().st_size,
-                                processed_file_num=1,
-                            ),
-                            session_id=self.session_id,
-                        )
+            # If the resource we scan here is listed in the resouce table, copy it
+            #   to the copy_dir at standby slot for later use.
+            if self._rst_orm.orm_delete_entries(digest=cal_digest) == 1:
+                os.link(fpath, dst_f)
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                            processed_file_size=fpath.stat().st_size,
+                            processed_file_num=1,
+                        ),
+                        session_id=self.session_id,
                     )
-            finally:
-                tmp_f.unlink(missing_ok=True)
+                )
             return True
         except Exception as e:
             burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
