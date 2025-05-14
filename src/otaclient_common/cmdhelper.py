@@ -456,6 +456,32 @@ def bind_mount_ro(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def rbind_mount_ro(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Rbind mount the <target> to <mount_point> read-only.
+
+    This is implemented by calling:
+        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "--rbind",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
 def mount_ro(
     target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
