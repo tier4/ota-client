@@ -434,7 +434,7 @@ class DeltaWithBaseFileTable(DeltaGenerator):
         finally:
             self._max_pending_tasks.release()
 
-    def _calculate_delta(self) -> None:
+    def _calculate_delta(self, base_fst: str) -> None:
         logger.debug("process delta src, generate delta and prepare local copy...")
         thread_local = threading.local()
         with ThreadPoolExecutor(
@@ -445,7 +445,7 @@ class DeltaWithBaseFileTable(DeltaGenerator):
             for (
                 digest,
                 fpaths,
-            ) in self._ota_metadata.iter_common_regular_entries_by_digest():
+            ) in self._ota_metadata.iter_common_regular_entries_by_digest(base_fst):
                 self._max_pending_tasks.acquire()
                 pool.submit(
                     self._process_files_with_same_digest,
@@ -491,9 +491,9 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 _fpath = delta_src_curdir_path / _fname
                 _fpath.unlink(missing_ok=True)
 
-    def process_slot(self):
+    def process_slot(self, base_file_table_db: str):
         try:
-            self._calculate_delta()
+            self._calculate_delta(base_file_table_db)
             self._cleanup_base()
         finally:
             self._rst_orm.orm_pool_shutdown()
