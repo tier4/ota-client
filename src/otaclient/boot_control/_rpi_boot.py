@@ -30,7 +30,7 @@ import otaclient.errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import subprocess_run_wrapper
@@ -127,7 +127,15 @@ class _RPIBootControl:
 
         try:
             # ------ detect active slot ------ #
-            active_slot_dev = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+            if _env.is_dynamic_client_running():
+                active_slot_dev = cmdhelper.get_current_rootfs_dev(
+                    active_root=cfg.ACTIVE_ROOT,
+                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                )
+            else:
+                active_slot_dev = cmdhelper.get_current_rootfs_dev(
+                    active_root=cfg.ACTIVE_ROOT
+                )
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
         except Exception as e:

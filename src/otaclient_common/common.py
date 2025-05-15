@@ -56,6 +56,7 @@ def subprocess_check_output(
     raise_exception: bool = False,
     default: str = "",
     timeout: Optional[float] = None,
+    chroot: Optional[str] = None,
 ) -> str:
     """Run the <cmd> and return UTF-8 decoded stripped stdout.
 
@@ -70,6 +71,9 @@ def subprocess_check_output(
         str: UTF-8 decoded stripped stdout.
     """
     try:
+        if chroot:
+            cmd = ["chroot", str(chroot)] + (cmd if isinstance(cmd, list) else [cmd])
+
         res = subprocess_run_wrapper(
             cmd, check=True, check_output=True, timeout=timeout
         )
