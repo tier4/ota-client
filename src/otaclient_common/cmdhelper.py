@@ -154,7 +154,7 @@ def get_dev_by_mount_point(
 
 
 def is_target_mounted(
-    target: StrOrPath, *, raise_exception: bool = False
+    target: StrOrPath, *, raise_exception: bool = False, chroot: str | None = None
 ) -> bool:  # pragma: no cover
     """Check if <target> is mounted or not. <target> can be a dev or a mount point.
 
@@ -165,12 +165,15 @@ def is_target_mounted(
         target (StrOrPath): the target to check against. Could be a device or a mount point.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
 
     Returns:
         Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
             <target> is not a mount point or not mounted.
     """
     cmd = ["findmnt", target]
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     try:
         subprocess_call(cmd, raise_exception=True)
         return True
@@ -338,6 +341,7 @@ class MountHelper(Protocol):
         mount_point: StrOrPath,
         *,
         raise_exception: bool = True,
+        chroot: str | None = None,
     ) -> None: ...
 
 
@@ -348,6 +352,7 @@ def mount(
     options: list[str] | None = None,
     params: list[str] | None = None,
     raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Thin wrapper to call mount using subprocess.
 
@@ -360,6 +365,7 @@ def mount(
         options (list[str] | None, optional): A list of options, append after -o. Defaults to None.
         params (list[str] | None, optional): A list of params. Defaults to None.
         raise_exception (bool, optional): Whether to raise exception on failed call. Defaults to True.
+        chroot (str | None, optional): The chroot path to use. Defaults to None.
     """
     cmd = ["mount"]
     if options:
@@ -367,11 +373,17 @@ def mount(
     if params:
         cmd.extend(params)
     cmd = [*cmd, str(target), str(mount_point)]
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def bind_mount_rw(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-write.
 
@@ -383,6 +395,7 @@ def bind_mount_rw(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # fmt: off
     cmd = [
@@ -393,11 +406,17 @@ def bind_mount_rw(
         str(mount_point)
     ]
     # fmt: on
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_rw(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
@@ -412,6 +431,7 @@ def mount_rw(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # fmt: off
     cmd = [
@@ -422,11 +442,17 @@ def mount_rw(
         str(mount_point),
     ]
     # fmt: on
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def bind_mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-only.
 
@@ -438,6 +464,7 @@ def bind_mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # fmt: off
     cmd = [
@@ -448,11 +475,17 @@ def bind_mount_ro(
         str(mount_point)
     ]
     # fmt: on
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def rbind_mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Rbind mount the <target> to <mount_point> read-only.
 
@@ -464,6 +497,7 @@ def rbind_mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # fmt: off
     cmd = [
@@ -474,11 +508,17 @@ def rbind_mount_ro(
         str(mount_point)
     ]
     # fmt: on
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
@@ -490,6 +530,7 @@ def mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # NOTE: set raise_exception to false to allow not mounted
     #       not mounted dev will have empty return str
@@ -500,6 +541,7 @@ def mount_ro(
             _active_mount_point,
             mount_point,
             raise_exception=raise_exception,
+            chroot=chroot,
         )
     else:
         # target is not mounted, we mount it by ourself
@@ -512,11 +554,17 @@ def mount_ro(
             str(mount_point),
         ]
         # fmt: on
+        if chroot:
+            cmd = ["chroot", chroot, *cmd]
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_squashfs(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Mount the <target> sqiashfs to <mount_point>.
 
@@ -531,6 +579,7 @@ def mount_squashfs(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # fmt: off
     cmd = [
@@ -541,11 +590,13 @@ def mount_squashfs(
         str(mount_point),
     ]
     # fmt: on
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def umount(
-    target: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath, *, raise_exception: bool = True, chroot: str | None = None
 ) -> None:  # pragma: no cover
     """Try to umount the <target>.
 
@@ -559,6 +610,7 @@ def umount(
         target (StrOrPath): target to be umounted.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
     """
     # first try to check whether the target(either a mount point or a dev)
     # is mounted
@@ -567,6 +619,8 @@ def umount(
 
     # if the target is mounted, try to unmount it.
     _cmd = ["umount", str(target)]
+    if chroot:
+        _cmd = ["chroot", chroot, *(_cmd)]
     subprocess_call(_cmd, raise_exception=raise_exception)
 
 
@@ -578,6 +632,7 @@ def ensure_mount(
     raise_exception: bool,
     max_retry: int = MAX_RETRY_COUNT,
     retry_interval: int = RETRY_INTERVAL,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Ensure the <target> mounted on <mnt_point> by our best.
 
@@ -586,8 +641,8 @@ def ensure_mount(
     """
     for _retry in range(max_retry + 1):
         try:
-            mount_func(target=target, mount_point=mnt_point)
-            is_target_mounted(mnt_point, raise_exception=True)
+            mount_func(target=target, mount_point=mnt_point, chroot=chroot)
+            is_target_mounted(mnt_point, raise_exception=True, chroot=chroot)
             return
         except CalledProcessError as e:
             logger.info(
@@ -616,6 +671,7 @@ def ensure_umount(
     ignore_error: bool,
     max_retry: int = MAX_RETRY_COUNT,
     retry_interval: int = RETRY_INTERVAL,
+    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Try to umount the <mnt_point> at our best.
 
@@ -624,9 +680,9 @@ def ensure_umount(
     """
     for _retry in range(max_retry + 1):
         try:
-            if not is_target_mounted(mnt_point, raise_exception=False):
+            if not is_target_mounted(mnt_point, raise_exception=False, chroot=chroot):
                 break
-            umount(mnt_point, raise_exception=True)
+            umount(mnt_point, raise_exception=True, chroot=chroot)
         except CalledProcessError as e:
             logger.info(
                 (
