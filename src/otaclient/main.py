@@ -105,7 +105,7 @@ def _dynamic_client_shutdown() -> None:
         try:
             cmdhelper.ensure_umount(
                 mnt,
-                ignore_error=True,
+                ignore_error=False,
                 max_retry=1,
             )
         except Exception:
