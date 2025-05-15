@@ -266,7 +266,8 @@ class GrubHelper:
                     raise_exception=True,
                     chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
                 )
-            return subprocess_check_output("grub-mkconfig", raise_exception=True)
+            else:
+                return subprocess_check_output("grub-mkconfig", raise_exception=True)
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
@@ -275,7 +276,14 @@ class GrubHelper:
     @staticmethod
     def grub_reboot(idx: int):
         try:
-            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+            if _env.is_dynamic_client_running():
+                subprocess_call(
+                    f"grub-reboot {idx}",
+                    raise_exception=True,
+                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                )
+            else:
+                subprocess_call(f"grub-reboot {idx}", raise_exception=True)
         except CalledProcessError:
             logger.exception(f"failed to grub-reboot to {idx}")
             raise
