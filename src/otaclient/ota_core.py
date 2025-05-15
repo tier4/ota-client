@@ -19,6 +19,7 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
 import signal
 import sys
@@ -741,6 +742,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
+        self._process_client_squashfs()
         self._boot_controller.post_update()
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
@@ -781,6 +783,20 @@ class _OTAUpdater(_OTAUpdateOperator):
         if _env.is_dynamic_client_running():
             # copy the squashfs file from active to standby slot
             _handler.preserve_persist_entry(cfg.OTACLIENT_SQUASHFS_FILE)
+
+    def _process_client_squashfs(self) -> None:
+        """Process the client squashfs file."""
+        if not _env.is_dynamic_client_running():
+            logger.info(
+                "dynamic client is not running, no need to copy client squashfs file"
+            )
+            return
+
+        _src = Path(cfg.OTACLIENT_SQUASHFS_FILE)
+        _dst = Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
+        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
+        os.makedirs(_dst, exist_ok=True)
+        shutil.copy2(_src, _dst, follow_symlinks=False)
 
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
