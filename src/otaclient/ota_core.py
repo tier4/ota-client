@@ -742,6 +742,10 @@ class _OTAUpdater(_OTAUpdateOperator):
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
+        if _env.is_dynamic_client_running():
+            # copy the squashfs file from active to standby slot
+            _handler.preserve_persist_entry(cfg.OTACLIENT_SQUASHFS_FILE)
+
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
