@@ -47,20 +47,15 @@ class SlotMountHelper:  # pragma: no cover
         self.active_slot_mount_point = Path(active_slot_mount_point)
 
         # ensure the each mount points being umounted at termination
-        # if the dynamic client is running, active slot should be mounted from the host rootfs
-        chroot = (
-            cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
-            if _env.is_dynamic_client_running()
-            else None
-        )
-        atexit.register(
-            partial(
-                cmdhelper.ensure_umount,
-                self.active_slot_mount_point,
-                ignore_error=True,
-                chroot=chroot,
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if not _env.is_dynamic_client_running():
+            atexit.register(
+                partial(
+                    cmdhelper.ensure_umount,
+                    self.active_slot_mount_point,
+                    ignore_error=True,
+                )
             )
-        )
         atexit.register(
             partial(
                 cmdhelper.ensure_umount,
@@ -94,18 +89,17 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
+
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if _env.is_dynamic_client_running():
+            return
+
         cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
-        chroot = (
-            cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
-            if _env.is_dynamic_client_running()
-            else None
-        )
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
-            chroot=chroot,
         )
 
     def preserve_ota_folder_to_standby(self):
@@ -141,15 +135,12 @@ class SlotMountHelper:  # pragma: no cover
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
-        # if the dynamic client is running, active slot should keep mounted
-        chroot = (
-            cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
-            if _env.is_dynamic_client_running()
-            else None
-        )
-        cmdhelper.ensure_umount(
-            self.active_slot_mount_point, ignore_error=ignore_error, chroot=chroot
-        )
+
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if not _env.is_dynamic_client_running():
+            cmdhelper.ensure_umount(
+                self.active_slot_mount_point, ignore_error=ignore_error
+            )
         cmdhelper.ensure_umount(
             self.standby_slot_mount_point, ignore_error=ignore_error
         )
