@@ -87,7 +87,7 @@ def get_dev_by_token(
 
 
 def get_current_rootfs_dev(
-    active_root: StrOrPath, *, raise_exception: bool = True
+    active_root: StrOrPath, *, raise_exception: bool = True, chroot: str | None = None
 ) -> str:  # pragma: no cover
     """Get the devpath of current rootfs dev.
 
@@ -95,23 +95,18 @@ def get_current_rootfs_dev(
         findmnt -nfc -o SOURCE <ACTIVE_ROOTFS_PATH>
 
     Args:
+        active_root (StrOrPath): the active rootfs path to check against.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
+            If not None, this function will use chroot to run the command.
 
     Returns:
         str: the devpath of current rootfs device.
     """
-    # NOTE: to return the original rootfs device in chroot environment,
-    #       need to check mountinfo directly instead of using findmnt.
-    #       findmnt will return the current rootfs device in chroot environment.
-    # cmd = ["findmnt", "-nfco", "SOURCE", active_root]
-    cmd = [
-        "awk",
-        "-v",
-        f"root={active_root}",
-        "$5==root{print $10; exit}",
-        "/proc/1/mountinfo",
-    ]
+    cmd = ["findmnt", "-nfco", "SOURCE", active_root]
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
     return subprocess_check_output(cmd, raise_exception=raise_exception)
 
 

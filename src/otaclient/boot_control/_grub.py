@@ -46,7 +46,7 @@ from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._io import (
     read_str_from_file,
     symlink_atomic,
@@ -260,6 +260,12 @@ class GrubHelper:
     @staticmethod
     def grub_mkconfig() -> str:
         try:
+            if _env.is_dynamic_client_running():
+                return subprocess_check_output(
+                    "grub-mkconfig",
+                    raise_exception=True,
+                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                )
             return subprocess_check_output("grub-mkconfig", raise_exception=True)
         except CalledProcessError as e:
             raise ValueError(
@@ -357,7 +363,13 @@ class GrubABPartitionDetector:
             of the active slot.
         """
         try:
-            dev_path = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+            if _env.is_dynamic_client_running():
+                dev_path = cmdhelper.get_current_rootfs_dev(
+                    active_root=cfg.ACTIVE_ROOT,
+                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                )
+            else:
+                dev_path = cmdhelper.get_current_rootfs_dev(active_root=cfg.ACTIVE_ROOT)
             assert dev_path
         except Exception as e:
             _err_msg = f"failed to detect current rootfs dev: {e!r}"
