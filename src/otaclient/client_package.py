@@ -161,9 +161,9 @@ class OTAClientPackage:
             )
 
         # ------ step 2: check if squahfs package exists ------ #
-        self.current_squashfs_path = Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-            + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
+        self.current_squashfs_path = (
+            Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
+            / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
