@@ -34,7 +34,7 @@ from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common import _env, cmdhelper
+from otaclient_common import _env
 from otaclient_common.common import subprocess_call
 from otaclient_common.linux import subprocess_popen_wrapper
 
@@ -102,14 +102,7 @@ def _dynamic_client_shutdown() -> None:
         reverse=True,
     )
     for mnt in targets:
-        try:
-            cmdhelper.ensure_umount(
-                mnt,
-                ignore_error=False,
-                max_retry=1,
-            )
-        except Exception:
-            subprocess_call(f"umount -l {mnt}", raise_exception=False)
+        subprocess_call(f"umount -l {mnt}", raise_exception=False)
 
     # kill the dynamic client process if it is running
     global _dynamic_client_p

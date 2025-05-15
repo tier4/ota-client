@@ -54,7 +54,7 @@ ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
 ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
-# Add cache directory for OTA
+# Add cache and original root point directory for OTA
 RUN mkdir -p /ota-cache /original_root
 
 # Create dummy files to be binded by the host
