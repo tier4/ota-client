@@ -314,10 +314,10 @@ def parse_regulars_from_csv_file(
                 _inode_entry["links_count"] = _current_link_cnt
             # normal inode
             else:
-                inode_start += 1
                 _inode_id = inode_start
                 _new_inode["inode_id"] = _inode_id
                 _batch_inode.append(_new_inode)
+                inode_start += 1
 
             # assign calculated inode_id and resource_id to the ft entry
             _new["inode_id"] = _inode_id
