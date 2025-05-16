@@ -41,13 +41,20 @@ class Consts:
     #
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
-
+    # status file by pickle
+    OTACLIENT_STATUS_FILE = "/run/otaclient.status"
+    # downloaded squashfs location in local filesystem
+    OTACLIENT_SQUASHFS_FILE = "/run/otaclient.squashfs"
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
     MOUNT_SPACE = "/run/otaclient/mnt"
     ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
     STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
+    # mount point for downloaded otaclient
+    DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
+    # mount point for original root point from dynamic client
+    DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT = "/original_root"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
@@ -55,6 +62,8 @@ class Consts:
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
+    # squashfs location in image
+    OTACLIENT_INSTALLATION_RELEASE = "/opt/ota/otaclient_release"
     CERT_DPATH = "/opt/ota/client/certs"
     IMAGE_META_DPATH = "/opt/ota/image-meta"
 
@@ -80,6 +89,11 @@ class Consts:
 
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082
+
+    #
+    # ------ env vars ------ #
+    #
+    RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:
         """For future updating the ACTIVE_ROOT."""
