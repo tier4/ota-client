@@ -74,11 +74,7 @@ from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_an
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
-from otaclient.create_standby._delta_gen import (
-    DeltaGenFullDiskScan,
-    DeltaGenWithFileTable,
-)
-from otaclient.create_standby.rebuild_mode import RebuildMode
+from otaclient.create_standby.in_place_mode import DeltaGenFullDiskScan, InplaceMode
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -172,7 +168,7 @@ class _OTAUpdater:
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
-        create_standby_cls: type[RebuildMode],
+        create_standby_cls,
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -577,37 +573,46 @@ class _OTAUpdater:
             )
         )
 
-        try:
-            if _verified_db := check_base_filetable(_base_ft_db):
-                logger.info(
-                    f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
-                )
-                delta_calculator = DeltaGenWithFileTable(
-                    ota_metadata=self._ota_metadata,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                    copy_dst=self._resource_dir_on_standby,
-                    status_report_queue=self._status_report_queue,
-                    session_id=self.session_id,
-                )
-                delta_calculator.calculate_delta(base_file_table=_verified_db)
-            else:
-                logger.info(
-                    f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
-                )
-                delta_calculator = DeltaGenFullDiskScan(
-                    ota_metadata=self._ota_metadata,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                    copy_dst=self._resource_dir_on_standby,
-                    status_report_queue=self._status_report_queue,
-                    session_id=self.session_id,
-                )
-                delta_calculator.calculate_delta()
-        except Exception as e:
-            _err_msg = f"failed to generate delta: {e!r}"
-            logger.exception(_err_msg)
-            raise ota_errors.UpdateDeltaGenerationFailed(
-                _err_msg, module=__name__
-            ) from e
+        # TODO: for test: force in-place mode here
+        DeltaGenFullDiskScan(
+            ota_metadata=self._ota_metadata,
+            delta_src=Path(cfg.STANDBY_SLOT_MNT),
+            copy_dst=self._resource_dir_on_standby,
+            status_report_queue=self._status_report_queue,
+            session_id=self.session_id,
+        ).process_slot()
+
+        # try:
+        #     if _verified_db := check_base_filetable(_base_ft_db):
+        #         logger.info(
+        #             f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
+        #         )
+        #         delta_calculator = DeltaGenWithFileTable(
+        #             ota_metadata=self._ota_metadata,
+        #             delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+        #             copy_dst=self._resource_dir_on_standby,
+        #             status_report_queue=self._status_report_queue,
+        #             session_id=self.session_id,
+        #         )
+        #         delta_calculator.calculate_delta(base_file_table=_verified_db)
+        #     else:
+        #         logger.info(
+        #             f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
+        #         )
+        #         delta_calculator = DeltaGenFullDiskScan(
+        #             ota_metadata=self._ota_metadata,
+        #             delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+        #             copy_dst=self._resource_dir_on_standby,
+        #             status_report_queue=self._status_report_queue,
+        #             session_id=self.session_id,
+        #         )
+        #         delta_calculator.calculate_delta()
+        # except Exception as e:
+        #     _err_msg = f"failed to generate delta: {e!r}"
+        #     logger.exception(_err_msg)
+        #     raise ota_errors.UpdateDeltaGenerationFailed(
+        #         _err_msg, module=__name__
+        #     ) from e
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
@@ -665,14 +670,15 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-        standby_slot_creator = self._create_standby_cls(
+        # TODO: for test: force use InplaceMode here
+        standby_slot_creator = InplaceMode(
             ota_metadata=self._ota_metadata,
             standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
             status_report_queue=self._status_report_queue,
             session_id=self.session_id,
             resource_dir=self._resource_dir_on_standby,
         )
-        standby_slot_creator.rebuild_standby()
+        standby_slot_creator.update_slot()
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
