@@ -161,9 +161,9 @@ class OTAClientPackage:
             )
 
         # ------ step 2: check if squahfs package exists ------ #
-        self.current_squashfs_path = Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-            + f"/otaclient-{_architecture}_v{_current_version}.squashfs"
+        self.current_squashfs_path = (
+            Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
+            / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
@@ -306,16 +306,15 @@ class OTAClientPackage:
         # bind necessary directories
         RW_PATHS = [
             "/boot",
-            "/boot/efi",
             "/dev",
             "/dev/shm",
+            "/etc",
             "/ota-cache",
             "/run",
             "/tmp",
         ]
 
         RO_PATHS = [
-            "/etc",
             "/opt",
             "/proc",
             "/sys",
@@ -327,6 +326,29 @@ class OTAClientPackage:
         )
         bind_paths(
             paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
+        )
+
+    def _rbind_mount_current_root(self, mount_base: StrOrPath) -> None:
+        """Mount the active slot to the mount base."""
+        # After chroot, the active slot root is not accessible from the chroot environment.
+        # So we need to bind mount the active slot before chroot.
+
+        # check if the mount base exists
+        if not os.path.exists(mount_base):
+            raise ValueError(f"Mount base does not exist: {mount_base}")
+
+        _mount_point = f"{mount_base}{cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT}"
+        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {_mount_point}")
+        cmdhelper.ensure_mointpoint(
+            _mount_point,
+            ignore_error=True,
+        )
+
+        cmdhelper.ensure_mount(
+            target=cfg.ACTIVE_ROOT,
+            mnt_point=_mount_point,
+            mount_func=cmdhelper.rbind_mount_ro,
+            raise_exception=True,
         )
 
     def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
@@ -399,6 +421,8 @@ class OTAClientPackage:
         try:
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
+            self._rbind_mount_current_root(_mount_base)
+
             self._bind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
