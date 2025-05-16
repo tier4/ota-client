@@ -1074,9 +1074,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self) -> NoReturn:
+    def finalizing_update(self, chroot: str | None = None) -> NoReturn:
         try:
-            cmdhelper.reboot()
+            cmdhelper.reboot(chroot=chroot)
         except Exception as e:
             _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)
