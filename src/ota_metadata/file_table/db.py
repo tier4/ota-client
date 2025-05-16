@@ -15,11 +15,7 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import stat
-from pathlib import Path
-from typing import Literal, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -33,7 +29,6 @@ from simple_sqlite3_orm import (
 from typing_extensions import Annotated
 
 from otaclient_common._logging import get_burst_suppressed_logger
-from otaclient_common._typing import StrOrPath
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
@@ -46,136 +41,6 @@ FT_INODE_TABLE_NAME = "ft_inode"
 FT_RESOURCE_TABLE_NAME = "ft_resource"
 MAX_ENTRIES_PER_DIGEST = 10
 
-
-#
-# ------ helper methods ------ #
-#
-def fpath_on_target(_canonical_path: StrOrPath, target_mnt: StrOrPath) -> Path:
-    """Return the fpath of self joined to <target_mnt>."""
-    _canonical_path = Path(_canonical_path)
-    _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
-    return _target_on_mnt
-
-
-def prepare_dir(entry: DirTypedDict, *, target_mnt: StrOrPath) -> None:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-    try:
-        _target_on_mnt.mkdir(exist_ok=True, parents=True)
-        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-        os.chmod(_target_on_mnt, mode=entry["mode"])
-    except Exception as e:
-        burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
-        raise
-
-
-def prepare_non_regular(
-    entry: NonRegularFileTypedDict, *, target_mnt: StrOrPath
-) -> None:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-    try:
-        if stat.S_ISLNK(entry["mode"]):
-            _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
-
-            _symlink_target = _symlink_target_raw.decode()
-            _target_on_mnt.symlink_to(_symlink_target)
-
-            # NOTE(20241213): chown will reset the sticky bit of the file!!!
-            #   Remember to always put chown before chmod !!!
-            os.chown(
-                _target_on_mnt,
-                uid=entry["uid"],
-                gid=entry["gid"],
-                follow_symlinks=False,
-            )
-            # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
-            #   changing mode of symlink will even result in exception raised.
-            return
-
-        # NOTE: legacy OTA image doesn't support char dev, so not process char device
-        # NOTE: just ignore unknown entries
-    except Exception as e:
-        burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
-        raise
-
-
-def prepare_regular(
-    entry: RegularFileTypedDict,
-    _rs: StrOrPath,
-    *,
-    target_mnt: StrOrPath,
-    prepare_method: Literal["move", "hardlink", "copy"],
-) -> None:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-
-    # NOTE(20241213): chown will reset the sticky bit of the file!!!
-    #   Remember to always put chown before chmod !!!
-    try:
-        if prepare_method == "copy":
-            shutil.copy(_rs, _target_on_mnt)
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
-            return
-
-        if prepare_method == "hardlink":
-            # NOTE: os.link will make dst a hardlink to src.
-            os.link(_rs, _target_on_mnt)
-            # NOTE: although we actually don't need to set_perm and set_xattr everytime
-            #   to file paths point to the same inode, for simplicity here we just
-            #   do it everytime.
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
-            return
-
-        if prepare_method == "move":
-            shutil.move(str(_rs), _target_on_mnt)
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
-    except Exception as e:
-        burst_suppressed_logger.exception(
-            f"failed on preparing {entry!r}, {_rs=}: {e!r}"
-        )
-        raise
-
-
-#
-# ------ typeddicts ------ #
-#
-
-
-class FileTableEntryTypedDict(TypedDict):
-    """The result of joining ft_inode and ft_* table."""
-
-    path: str
-    uid: int
-    gid: int
-    mode: int
-    links_count: Optional[int]
-    xattrs: Optional[bytes]
-
-
-class RegularFileTypedDict(FileTableEntryTypedDict):
-    digest: bytes
-    size: int
-    inode_id: int
-
-
-class NonRegularFileTypedDict(FileTableEntryTypedDict):
-    meta: Optional[bytes]
-
-
-class DirTypedDict(TypedDict):
-    path: str
-    uid: int
-    gid: int
-    mode: int
-
-
-#
-# ------ table defs and ORMs ------ #
-#
 
 # ------ inode table ------ #
 
@@ -227,7 +92,9 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="fr_resource_id_index", index_cols=("resource_id",)),
+        CreateIndexParams(
+            index_name="fr_resource_id_index", index_cols=("resource_id",)
+        ),
         CreateIndexParams(index_name="fr_inode_id_index", index_cols=("inode_id",)),
     ]
 
