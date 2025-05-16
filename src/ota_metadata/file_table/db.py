@@ -227,8 +227,8 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="resource_id_index", index_cols=("resource_id",)),
-        CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
+        CreateIndexParams(index_name="fr_resource_id_index", index_cols=("resource_id",)),
+        CreateIndexParams(index_name="fr_inode_id_index", index_cols=("inode_id",)),
     ]
 
 
@@ -269,7 +269,7 @@ class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
+        CreateIndexParams(index_name="fnr_inode_id_index", index_cols=("inode_id",)),
     ]
 
 
@@ -292,7 +292,7 @@ class FileTableDirORM(ORMBase[FileTableDirectories]):
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="inode_id_index", index_cols=("inode_id",)),
+        CreateIndexParams(index_name="fd_inode_id_index", index_cols=("inode_id",)),
     ]
 
 
@@ -317,7 +317,7 @@ class FileTableResourceORM(ORMBase[FileTableResource]):
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
-        CreateIndexParams(index_name="digest_index", index_cols=("digest",))
+        CreateIndexParams(index_name="frs_digest_index", index_cols=("digest",))
     ]
 
 
