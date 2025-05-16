@@ -278,7 +278,7 @@ class GrubHelper:
         try:
             if _env.is_dynamic_client_running():
                 subprocess_call(
-                    f"grub-reboot {idx}",
+                    ["grub-reboot", str(idx)],
                     raise_exception=True,
                     chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
                 )
