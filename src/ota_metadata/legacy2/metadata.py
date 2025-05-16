@@ -51,12 +51,14 @@ from ota_metadata.file_table.db import (
     FT_NON_REGULAR_TABLE_NAME,
     FT_REGULAR_TABLE_NAME,
     FT_RESOURCE_TABLE_NAME,
-    DirTypedDict,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
+)
+from ota_metadata.file_table.utils import (
+    DirTypedDict,
     NonRegularFileTypedDict,
     RegularFileTypedDict,
 )
@@ -461,7 +463,7 @@ class OTAMetadata:
         with FileTableRegularORM(self.connect_fstable()) as orm:
             orm.orm_con.execute(f"ATTACH DATABASE '{base_file_table}' AS base;")
             for entry in orm.orm_select_entries(
-                _stmt = _stmt,
+                _stmt=_stmt,
                 _row_factory=sqlite3.Row,
             ):
                 _this_digest, _this_path = entry["digest"], Path(entry["path"])

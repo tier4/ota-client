@@ -28,9 +28,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Generator
 
-from ota_metadata.file_table.db import (
-    FileTableDirORM,
-    FileTableRegularORMPool,
+from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
+from ota_metadata.file_table.utils import (
     RegularFileTypedDict,
     prepare_dir,
     prepare_non_regular,
