@@ -19,6 +19,7 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
 import signal
 import sys
@@ -741,6 +742,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
+        self._process_client_squashfs()
         self._boot_controller.post_update()
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
@@ -778,6 +780,22 @@ class _OTAUpdater(_OTAUpdateOperator):
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
+    def _process_client_squashfs(self) -> None:
+        """Process the client squashfs file."""
+        if not _env.is_dynamic_client_running():
+            logger.info(
+                "dynamic client is not running, no need to copy client squashfs file"
+            )
+            return
+
+        _src = Path(cfg.OTACLIENT_SQUASHFS_FILE)
+        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+        ).relative_to("/")
+        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
+        os.makedirs(_dst, exist_ok=True)
+        shutil.copy2(_src, _dst, follow_symlinks=False)
+
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
@@ -804,7 +822,12 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update()
+        if _env.is_dynamic_client_running():
+            self._boot_controller.finalizing_update(
+                chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
+            )
+        else:
+            self._boot_controller.finalizing_update()
 
     # API
 
