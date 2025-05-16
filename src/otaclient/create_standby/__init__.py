@@ -20,15 +20,20 @@ from otaclient.configs._cfg_configurable import CREATE_STANDBY_METHOD_LTIERAL
 
 logger = logging.getLogger(__name__)
 
+# TODO: (tmp): force the use of in-place mode
+
 
 def get_standby_slot_creator(mode: CREATE_STANDBY_METHOD_LTIERAL):
-    logger.info(f"use slot update mechanism: {mode!r}")
-    if mode == CreateStandbyMechanism.REBUILD:
-        from .rebuild_mode import RebuildMode
+    # logger.info(f"use slot update mechanism: {mode!r}")
+    # if mode == CreateStandbyMechanism.REBUILD:
+    #     from .rebuild_mode import RebuildMode
 
-        return RebuildMode
+    #     return RebuildMode
 
-    raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
+    # raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
+    from .in_place_mode import InplaceMode
+
+    return InplaceMode
 
 
 __all__ = ("get_standby_slot_creator",)
