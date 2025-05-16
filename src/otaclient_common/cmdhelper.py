@@ -292,7 +292,9 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
+def reboot(
+    args: list[str] | None = None, chroot: str | None = None
+) -> NoReturn:  # pragma: no cover
     """Reboot the system, with optional args passed to reboot command.
 
     This is implemented by calling:
@@ -304,6 +306,7 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     Args:
         args (Optional[list[str]], optional): args passed to reboot command.
             Defaults to None, not passing any args.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
 
     Raises:
         CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
@@ -312,6 +315,8 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     if args:
         logger.info(f"will reboot with argument: {args=}")
         cmd.extend(args)
+    if chroot:
+        cmd = ["chroot", chroot, *cmd]
 
     logger.warning("system will reboot now!")
     subprocess_call(cmd, raise_exception=True)
