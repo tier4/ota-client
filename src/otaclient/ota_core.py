@@ -789,7 +789,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             return
 
         _src = Path(cfg.OTACLIENT_SQUASHFS_FILE)
-        _dst = Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
+        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
         logger.info(f"copy client squashfs file from {_src} to {_dst}...")
         os.makedirs(_dst, exist_ok=True)
         shutil.copy2(_src, _dst, follow_symlinks=False)
