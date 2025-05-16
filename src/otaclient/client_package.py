@@ -417,12 +417,14 @@ class OTAClientPackage:
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
         os.makedirs(_mount_base, exist_ok=True)
 
-        logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
         try:
+            logger.info(f"mounting {_squashfs_file} to {_mount_base}")
             self._mount_squashfs_file(_squashfs_file, _mount_base)
+            logger.info(f"bind mounting host directories to {_mount_base}")
             self._bind_mount_host_dirs(_mount_base)
+            logger.info(f"rbind current slot to {_mount_base}")
             self._rbind_mount_current_root(_mount_base)
-
+            logger.info(f"bind active slot to {_mount_base}")
             self._bind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
