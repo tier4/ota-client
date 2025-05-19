@@ -423,7 +423,7 @@ class OTAClientPackage:
 
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
-            self._create_mount_namespaces()
+            #            self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
             self._rbind_mount_current_root(_mount_base)
