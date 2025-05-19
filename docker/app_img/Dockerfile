@@ -13,6 +13,7 @@ RUN set -eux; \
     apt-get install --no-install-recommends -y \
         python3-venv \
         python3-pip \
+        # to build unshare
         build-essential \
         python3-dev; \
     # setup virtual env
@@ -72,7 +73,9 @@ RUN set -eux; \
         # for reboot
         systemd \
         # for lsblk, mount, umount, findmnt, blkid
-        util-linux; \
+        util-linux \
+        # for fuser command
+        psmisc; \
     # for flash-kernel
     # NOTE: this is only for arm architecture(raspberry pi)
     apt-get install --no-install-recommends -y flash-kernel || true; \

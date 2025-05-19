@@ -95,6 +95,10 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 
 def _dynamic_client_shutdown() -> None:
     """Shutdown the dynamic client process."""
+    if _env.is_dynamic_client_running():
+        # in dynamic client environment, do not shutdown the dynamic client
+        return
+
     # kill the dynamic client process if it is running
     global _dynamic_client_p
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
