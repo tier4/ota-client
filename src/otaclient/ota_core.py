@@ -822,12 +822,9 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
-        if _env.is_dynamic_client_running():
-            self._boot_controller.finalizing_update(
-                chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
-            )
-        else:
-            self._boot_controller.finalizing_update()
+        self._boot_controller.finalizing_update(
+            chroot=_env.get_dynamic_client_chroot_path()
+        )
 
     # API
 

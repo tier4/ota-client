@@ -173,6 +173,7 @@ class NVBootctrlCommon:
         *,
         check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> Any:  # pragma: no cover
         """
         Raises:
@@ -184,6 +185,8 @@ class NVBootctrlCommon:
         cmd.append(_cmd)
         if _slot_id:
             cmd.append(str(_slot_id))
+        if chroot:
+            cmd = ["chroot", str(chroot)] + cmd
 
         res = subprocess.run(
             cmd,

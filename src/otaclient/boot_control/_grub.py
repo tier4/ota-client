@@ -260,14 +260,11 @@ class GrubHelper:
     @staticmethod
     def grub_mkconfig() -> str:
         try:
-            if _env.is_dynamic_client_running():
-                return subprocess_check_output(
-                    "grub-mkconfig",
-                    raise_exception=True,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
-                )
-            else:
-                return subprocess_check_output("grub-mkconfig", raise_exception=True)
+            return subprocess_check_output(
+                "grub-mkconfig",
+                raise_exception=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
@@ -276,14 +273,11 @@ class GrubHelper:
     @staticmethod
     def grub_reboot(idx: int):
         try:
-            if _env.is_dynamic_client_running():
-                subprocess_call(
-                    ["grub-reboot", str(idx)],
-                    raise_exception=True,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
-                )
-            else:
-                subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+            subprocess_call(
+                ["grub-reboot", str(idx)],
+                raise_exception=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except CalledProcessError:
             logger.exception(f"failed to grub-reboot to {idx}")
             raise
@@ -371,13 +365,10 @@ class GrubABPartitionDetector:
             of the active slot.
         """
         try:
-            if _env.is_dynamic_client_running():
-                dev_path = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
-                )
-            else:
-                dev_path = cmdhelper.get_current_rootfs_dev(active_root=cfg.ACTIVE_ROOT)
+            dev_path = cmdhelper.get_current_rootfs_dev(
+                active_root=cfg.ACTIVE_ROOT,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             assert dev_path
         except Exception as e:
             _err_msg = f"failed to detect current rootfs dev: {e!r}"
