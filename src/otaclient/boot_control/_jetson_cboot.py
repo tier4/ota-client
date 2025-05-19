@@ -86,7 +86,13 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         """Mark current slot as GOOD."""
         cmd = "mark-boot-successful"
         try:
-            cls._nvbootctrl(cmd, slot_id, check_output=False, target=target)
+            cls._nvbootctrl(
+                cmd,
+                slot_id,
+                check_output=False,
+                target=target,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except subprocess.CalledProcessError as e:
             logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
 
@@ -98,7 +104,11 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         cmd = "set-slot-as-unbootable"
         try:
             return cls._nvbootctrl(
-                cmd, SlotID(slot_id), check_output=False, target=target
+                cmd,
+                SlotID(slot_id),
+                check_output=False,
+                target=target,
+                chroot=_env.get_dynamic_client_chroot_path(),
             )
         except subprocess.CalledProcessError as e:
             logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
@@ -121,7 +131,11 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         """
         cmd = "is-unified-enabled"
         try:
-            cls._nvbootctrl(cmd, check_output=False)
+            cls._nvbootctrl(
+                cmd,
+                check_output=False,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             return True
         except subprocess.CalledProcessError as e:
             if e.returncode == 70:
@@ -137,7 +151,7 @@ class NVUpdateEngine:
     NV_UPDATE_ENGINE = "nv_update_engine"
 
     @classmethod
-    def _nv_update_engine(cls, payload: Path | str):
+    def _nv_update_engine(cls, payload: Path | str, chroot: str | None = None):
         """nv_update_engine apply BUP, non unified_ab version."""
         # fmt: off
         cmd = [
@@ -147,7 +161,7 @@ class NVUpdateEngine:
             "--no-reboot",
         ]
         # fmt: on
-        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True, chroot=chroot)
         logger.info(
             (
                 f"apply BUP {payload=}: \n"
@@ -157,7 +171,9 @@ class NVUpdateEngine:
         )
 
     @classmethod
-    def _nv_update_engine_unified_ab(cls, payload: Path | str):
+    def _nv_update_engine_unified_ab(
+        cls, payload: Path | str, chroot: str | None = None
+    ):
         """nv_update_engine apply BUP, unified_ab version."""
         # fmt: off
         cmd = [
@@ -166,7 +182,7 @@ class NVUpdateEngine:
             "--payload", str(payload),
         ]
         # fmt: on
-        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True, chroot=chroot)
         logger.info(
             (
                 f"apply BUP {payload=} with unified A/B: \n"
@@ -261,7 +277,7 @@ class NVUpdateEngine:
                 continue
 
             logger.warning(f"apply BUP {bup_fpath} to standby slot ...")
-            update_execute_func(bup_fpath)
+            update_execute_func(bup_fpath, chroot=_env.get_dynamic_client_chroot_path())
             firmware_update_executed = True
         return firmware_update_executed
 
@@ -360,16 +376,12 @@ class _CBootControl:
 
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
-            if _env.is_dynamic_client_running():
-                current_rootfs_devpath = cmdhelper.get_current_rootfs_dev(
+            self.curent_rootfs_devpath = current_rootfs_devpath = (
+                cmdhelper.get_current_rootfs_dev(
                     active_root=cfg.ACTIVE_ROOT,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                    chroot=_env.get_dynamic_client_chroot_path(),
                 )
-            else:
-                current_rootfs_devpath = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT
-                )
-            self.curent_rootfs_devpath = current_rootfs_devpath
+            )
             self.parent_devpath = parent_devpath = Path(
                 cmdhelper.get_parent_dev(current_rootfs_devpath)
             )

@@ -127,15 +127,10 @@ class _RPIBootControl:
 
         try:
             # ------ detect active slot ------ #
-            if _env.is_dynamic_client_running():
-                active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
-                )
-            else:
-                active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT
-                )
+            active_slot_dev = cmdhelper.get_current_rootfs_dev(
+                active_root=cfg.ACTIVE_ROOT,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
         except Exception as e:
