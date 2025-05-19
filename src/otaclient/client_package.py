@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional
 
+import unshare
+
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
@@ -253,6 +255,11 @@ class OTAClientPackage:
         # directly use the downloaded squashfs
         return self.downloaded_package_path
 
+    def _create_mount_namespaces(self) -> None:
+        """Create mount namespaces for the current process."""
+        # create a new mount namespace
+        unshare.unshare(unshare.CLONE_NEWNS)
+
     def _mount_squashfs_file(
         self,
         squashfs_file: StrOrPath,
@@ -416,6 +423,7 @@ class OTAClientPackage:
 
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
+            self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
             self._rbind_mount_current_root(_mount_base)
