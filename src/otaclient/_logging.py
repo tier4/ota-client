@@ -44,6 +44,14 @@ class LogType(Enum):
     LOG = "log"
     METRICS = "metrics"
 
+    def convert_to_pb2_log_type(self):
+        if self == LogType.LOG:
+            return log_pb2.LogType.LOG
+        elif self == LogType.METRICS:
+            return log_pb2.LogType.METRICS
+        else:
+            raise ValueError(f"Unknown log type: {self}")
+
 
 @dataclass
 class QueueData:
@@ -54,8 +62,9 @@ class QueueData:
 
 
 class Transmitter(ABC):
-    def __init__(self, logging_upload_endpoint, ecu_id: str):
-        self.ecu_id = ecu_id
+    @abstractmethod
+    def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
+        pass
 
     @abstractmethod
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
@@ -68,7 +77,7 @@ class Transmitter(ABC):
 
 class TransmitterGrpc(Transmitter):
     def __init__(self, logging_upload_grpc_endpoint: AnyHttpUrl, ecu_id: str):
-        super().__init__(logging_upload_grpc_endpoint, ecu_id)
+        self.ecu_id = ecu_id
 
         parsed_url = urlparse(str(logging_upload_grpc_endpoint))
         log_upload_endpoint = parsed_url.netloc
@@ -76,11 +85,7 @@ class TransmitterGrpc(Transmitter):
         self._stub = log_v1_grpc.OTAClientIoTLoggingServiceStub(channel)
 
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
-        pb2_log_type = (
-            log_pb2.LogType.METRICS
-            if log_type == LogType.METRICS
-            else log_pb2.LogType.LOG
-        )
+        pb2_log_type = log_type.convert_to_pb2_log_type()
         log_entry = log_pb2.PutLogRequest(
             ecu_id=self.ecu_id, log_type=pb2_log_type, message=message
         )
@@ -89,13 +94,11 @@ class TransmitterGrpc(Transmitter):
     def check(self, timeout: int) -> None:
         # health check
         log_entry = log_pb2.HealthCheckRequest()
-        self._stub.Check(log_entry)
+        self._stub.Check(log_entry, timeout=timeout)
 
 
 class TransmitterHttp(Transmitter):
     def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
-        super().__init__(logging_upload_endpoint, ecu_id)
-
         _endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
         self.log_upload_endpoint = urljoin(_endpoint, ecu_id)
         self._session = requests.Session()
@@ -238,7 +241,7 @@ def configure_logging() -> None:
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
         log_upload_handler.setFormatter(fmt)
 
-        # star the logging thread
+        # start the logging thread
         log_upload_handler.start_upload_thread(
             logging_upload_endpoint=logging_upload_endpoint,
             logging_upload_grpc_endpoint=logging_upload_grpc_endpoint,
