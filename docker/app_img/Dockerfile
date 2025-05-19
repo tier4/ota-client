@@ -73,9 +73,7 @@ RUN set -eux; \
         # for reboot
         systemd \
         # for lsblk, mount, umount, findmnt, blkid
-        util-linux \
-        # for fuser command
-        psmisc; \
+        util-linux; \
     # for flash-kernel
     # NOTE: this is only for arm architecture(raspberry pi)
     apt-get install --no-install-recommends -y flash-kernel || true; \
