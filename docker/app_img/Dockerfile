@@ -12,7 +12,7 @@ RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         python3-venv \
-        python3-pip; \
+        python3-pip \
         build-essential; \
     # setup virtual env
     mkdir -p ${OTACLIENT_VENV}; \
