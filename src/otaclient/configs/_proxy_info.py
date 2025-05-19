@@ -46,6 +46,7 @@ class ProxyInfo(BaseFixedConfig):
         upper_ota_proxy: the URL of upper OTA proxy used by local ota_proxy server
             or otaclient(proxy chain).
         logging_server: the URL of AWS IoT otaclient logs upload server.
+        logging_server_grpc: the URL of AWS IoT otaclient logs upload gRPC server.
     """
 
     format_version: int = 1
@@ -77,6 +78,11 @@ class ProxyInfo(BaseFixedConfig):
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
     logging_server: Optional[AnyHttpUrl] = AnyHttpUrl(
         f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
+    )
+
+    LOGGING_SERVER_GRPC_PORT: ClassVar[int] = 8084
+    logging_server_grpc: Optional[AnyHttpUrl] = AnyHttpUrl(
+        f"http://127.0.0.1:{LOGGING_SERVER_GRPC_PORT}"
     )
 
     def get_proxy_for_local_ota(self) -> str | None:
