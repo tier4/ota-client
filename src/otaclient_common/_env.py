@@ -26,5 +26,5 @@ def is_dynamic_client_running() -> bool:
 def get_dynamic_client_chroot_path() -> Optional[str]:
     """Get the chroot path."""
     if is_dynamic_client_running():
-        return cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT
+        return cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
     return None
