@@ -318,7 +318,6 @@ class OTAClientPackage:
             "/run",
             "/sys",
             "/tmp",
-            "/usr/local",
             "/var",
         ]
 
