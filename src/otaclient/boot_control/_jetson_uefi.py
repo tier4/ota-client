@@ -117,7 +117,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
             NVBootctrlExecError if failed to detect fw bsp version,
                 or the reported version doesn't make sense.
         """
-        _raw = cls.dump_slots_info()
+        _raw = cls.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())
         pa = re.compile(r"Current version:\s*(?P<bsp_ver>[\.\d]+)")
 
         if not (ma := pa.search(_raw)):
@@ -144,7 +144,7 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
         Returns:
             SlotID of active bootloader slot, or None if failed to detect.
         """
-        _raw = cls.dump_slots_info()
+        _raw = cls.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())
         pa = re.compile(r"Active bootloader slot:\s*(?P<slot_id_char>[AB])")
 
         if not (ma := pa.search(_raw)):
@@ -784,8 +784,13 @@ class _UEFIBootControl:
 
         # ------ check A/B slots ------ #
         try:
-            self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot()
-            self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot()
+            _chroot = _env.get_dynamic_client_chroot_path()
+            self.current_slot = current_slot = NVBootctrlJetsonUEFI.get_current_slot(
+                chroot=_chroot
+            )
+            self.standby_slot = standby_slot = NVBootctrlJetsonUEFI.get_standby_slot(
+                chroot=_chroot
+            )
             self.active_bootloader_slot = (
                 NVBootctrlJetsonUEFI.get_active_bootloader_slot()
             )
@@ -844,7 +849,7 @@ class _UEFIBootControl:
 
         logger.info("finished jetson-uefi boot control startup")
         logger.info(
-            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonUEFI.dump_slots_info()}"
+            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
         )
 
     # API
@@ -855,7 +860,9 @@ class _UEFIBootControl:
         logger.info(f"switch boot to standby slot({target_slot})")
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
-        NVBootctrlJetsonUEFI.set_active_boot_slot(target_slot)
+        NVBootctrlJetsonUEFI.set_active_boot_slot(
+            target_slot, chroot=_env.get_dynamic_client_chroot_path()
+        )
 
 
 class JetsonUEFIBootControl(BootControllerProtocol):
@@ -1035,7 +1042,8 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 )
                 logger.warning(_err_msg)
                 NVBootctrlJetsonUEFI.set_active_boot_slot(
-                    self._uefi_control.current_slot
+                    self._uefi_control.current_slot,
+                    chroot=_env.get_dynamic_client_chroot_path(),
                 )
                 self._uefi_control.active_bootloader_slot = (
                     NVBootctrlJetsonUEFI.get_active_bootloader_slot()
@@ -1046,7 +1054,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             if not firmware_update_triggered:
                 self._uefi_control.switch_boot_to_standby()
                 logger.info(
-                    f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info()}"
+                    f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
                 )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #

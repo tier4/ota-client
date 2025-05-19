@@ -344,18 +344,23 @@ class _CBootControl:
 
         # ------ check A/B slots ------ #
         try:
+            _chroot = _env.get_dynamic_client_chroot_path()
             self.current_bootloader_slot = current_bootloader_slot = (
-                NVBootctrlJetsonCBOOT.get_current_slot()
+                NVBootctrlJetsonCBOOT.get_current_slot(chroot=_chroot)
             )
             self.standby_bootloader_slot = standby_bootloader_slot = (
-                NVBootctrlJetsonCBOOT.get_standby_slot()
+                NVBootctrlJetsonCBOOT.get_standby_slot(chroot=_chroot)
             )
             if not self.unified_ab_enabled:
                 self.current_rootfs_slot = current_rootfs_slot = (
-                    NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
+                    NVBootctrlJetsonCBOOT.get_current_slot(
+                        target="rootfs", chroot=_chroot
+                    )
                 )
                 self.standby_rootfs_slot = standby_rootfs_slot = (
-                    NVBootctrlJetsonCBOOT.get_standby_slot(target="rootfs")
+                    NVBootctrlJetsonCBOOT.get_standby_slot(
+                        target="rootfs", chroot=_chroot
+                    )
                 )
             else:
                 self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
@@ -420,13 +425,14 @@ class _CBootControl:
             parent_devpath=f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}",
             partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
         )
+        _chroot = _env.get_dynamic_client_chroot_path()
         logger.info(f"finished cboot control init: {current_rootfs_slot=}")
         logger.info(
-            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}"
+            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_chroot)}"
         )
         if not unified_ab_enabled:
             logger.info(
-                f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs')}"
+                f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs', chroot=_chroot)}"
             )
 
     # API
@@ -450,15 +456,18 @@ class _CBootControl:
         target_slot = self.standby_rootfs_slot
 
         logger.info(f"switch boot to standby slot({target_slot})")
+        _chroot = _env.get_dynamic_client_chroot_path()
         if not self.unified_ab_enabled:
             logger.info(
                 f"unified AB slot is not enabled, also set active rootfs slot to ${target_slot}"
             )
-            NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, target="rootfs")
+            NVBootctrlJetsonCBOOT.set_active_boot_slot(
+                target_slot, target="rootfs", chroot=_chroot
+            )
 
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
-        NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot)
+        NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, chroot=_chroot)
 
 
 class JetsonCBootControl(BootControllerProtocol):
@@ -691,7 +700,9 @@ class JetsonCBootControl(BootControllerProtocol):
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
-            logger.info(f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}")
+            logger.info(
+                f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
+            )
             logger.info("post update finished, wait for reboot ...")
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
