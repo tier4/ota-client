@@ -188,6 +188,7 @@ class NVBootctrlCommon:
         if chroot:
             cmd = ["chroot", str(chroot)] + cmd
 
+        logger.warning(f"nvbootctrl command: {cmd}")
         res = subprocess.run(
             cmd,
             check=True,
