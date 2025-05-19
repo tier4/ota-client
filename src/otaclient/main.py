@@ -97,9 +97,6 @@ def _dynamic_client_shutdown() -> None:
         # in dynamic client environment, do not shutdown the dynamic client
         return
 
-    # umount paths related to dynamic client
-    subprocess_call(f"umount -R {cfg.DYNAMIC_CLIENT_MNT}", raise_exception=False)
-
     # kill the dynamic client process if it is running
     global _dynamic_client_p
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
@@ -109,6 +106,14 @@ def _dynamic_client_shutdown() -> None:
             print(f"failed to kill dynamic client process group: {e}")
         _dynamic_client_p.wait()
         _dynamic_client_p = None
+
+    # umount paths related to dynamic client
+    _mount_base = cfg.DYNAMIC_CLIENT_MNT
+    try:
+        if os.path.exists(_mount_base):
+            subprocess_call(f"umount -R {_mount_base}", raise_exception=False)
+    except Exception as e:
+        logger.warning(f"Failed to unmount {_mount_base}: {e}")
 
     logger.info("dynamic client shutdown completed.")
 
