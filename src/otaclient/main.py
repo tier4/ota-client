@@ -30,6 +30,8 @@ import threading
 import time
 from functools import partial
 
+import psutil
+
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
@@ -92,10 +94,27 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 
 
 def _dynamic_client_shutdown() -> None:
-    # umount paths related to dynamic client from the longest to the shortest
+    """Shutdown the dynamic client process."""
+    # kill the dynamic client process if it is running
+    global _dynamic_client_p
+    if _dynamic_client_p and _dynamic_client_p.poll() is None:
+        try:
+            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
+        except Exception as e:
+            print(f"failed to kill dynamic client process group: {e}")
+        _dynamic_client_p.wait()
+        _dynamic_client_p = None
+
     mnt_base = cfg.DYNAMIC_CLIENT_MNT
-    with open("/proc/mounts") as f:
-        mounts = [line.split()[1] for line in f]
+    _cmd = ["fuser", "-k", "-m", mnt_base]
+    try:
+        subprocess_call(_cmd, raise_exception=False)
+        time.sleep(1)  # Give processes time to exit
+    except Exception as e:
+        logger.warning(f"Failed to kill processes using mount: {e}")
+
+    # umount paths related to dynamic client from the longest to the shortest
+    mounts = [p.mountpoint for p in psutil.disk_partitions(all=True)]
     targets = sorted(
         [mnt for mnt in mounts if mnt.startswith(mnt_base)],
         key=len,
@@ -111,15 +130,6 @@ def _dynamic_client_shutdown() -> None:
         except Exception:
             subprocess_call(f"umount -l {mnt}", raise_exception=False)
 
-    # kill the dynamic client process if it is running
-    global _dynamic_client_p
-    if _dynamic_client_p and _dynamic_client_p.poll() is None:
-        try:
-            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-        except Exception as e:
-            print(f"failed to kill dynamic client process group: {e}")
-        _dynamic_client_p.wait()
-        _dynamic_client_p = None
     logger.info("dynamic client shutdown completed.")
 
 
