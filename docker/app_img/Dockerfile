@@ -29,7 +29,7 @@ RUN set -eux; \
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
     # cleanup
-    apt-get remove -y build-essential; \
+    apt-get remove -y build-essential python3-dev; \
     apt-get autoremove -y; \
     apt-get clean; \
     \
