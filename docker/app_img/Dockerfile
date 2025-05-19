@@ -13,7 +13,8 @@ RUN set -eux; \
     apt-get install --no-install-recommends -y \
         python3-venv \
         python3-pip \
-        build-essential; \
+        build-essential \
+        python3-dev; \
     # setup virtual env
     mkdir -p ${OTACLIENT_VENV}; \
     cd ${OTACLIENT_INSTALLATION}; \
