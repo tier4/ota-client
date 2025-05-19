@@ -28,8 +28,8 @@ RUN set -eux; \
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
     # cleanup
-    apt-get remove -y build-essential && \
-    apt-get autoremove -y && \
+    apt-get remove -y build-essential; \
+    apt-get autoremove -y; \
     apt-get clean; \
     \
     # NOTE: copy from docker official python3 dockerfile
