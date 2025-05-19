@@ -13,6 +13,7 @@ RUN set -eux; \
     apt-get install --no-install-recommends -y \
         python3-venv \
         python3-pip; \
+        build-essential \
     # setup virtual env
     mkdir -p ${OTACLIENT_VENV}; \
     cd ${OTACLIENT_INSTALLATION}; \
@@ -27,6 +28,8 @@ RUN set -eux; \
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
     # cleanup
+    apt-get remove -y build-essential && \
+    apt-get autoremove -y && \
     apt-get clean; \
     \
     # NOTE: copy from docker official python3 dockerfile
