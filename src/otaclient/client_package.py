@@ -306,6 +306,7 @@ class OTAClientPackage:
         # bind necessary directories
         RW_PATHS = [
             "/boot",
+            "/boot/firmware",
             "/dev",
             "/dev/shm",
             "/etc",
@@ -321,15 +322,8 @@ class OTAClientPackage:
             "/var",
         ]
 
-        RO_PATHS = [
-            "/usr/sbin/nvbootctrl",
-            "/usr/sbin/nv_update_engine",
-        ]
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
-        )
-        bind_paths(
-            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
         )
 
     def _rbind_mount_current_root(self, mount_base: StrOrPath) -> None:

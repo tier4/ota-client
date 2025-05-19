@@ -57,11 +57,6 @@ ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 # Add cache and original root point directory for OTA
 RUN mkdir -p /ota-cache /original_root
 
-# Create dummy files to be binded by the host
-RUN mkdir -p usr/sbin; \
-    touch /usr/sbin/nvbootctrl; \
-    touch /usr/sbin/nv_update_engine;
-
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
@@ -77,7 +72,6 @@ RUN set -eux; \
     # for flash-kernel
     # NOTE: this is only for arm architecture(raspberry pi)
     apt-get install --no-install-recommends -y flash-kernel || true; \
-    # NOTE: will bind nvbootctrl and nv_update_engine in runtime
     apt-get clean; \
     rm -rf \
         /root/.cache \

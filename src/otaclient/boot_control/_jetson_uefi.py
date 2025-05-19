@@ -164,7 +164,11 @@ class NVBootctrlJetsonUEFI(NVBootctrlCommon):
     def verify(cls) -> str | None:  # pragma: no cover
         """Verify the bootloader and rootfs boot."""
         try:
-            return cls._nvbootctrl("verify", check_output=True)
+            return cls._nvbootctrl(
+                "verify",
+                check_output=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except subprocess.CalledProcessError as e:
             logger.warning(f"nvbootctrl verify call failed: {e!r}")
             return
@@ -793,16 +797,12 @@ class _UEFIBootControl:
 
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
-            if _env.is_dynamic_client_running():
-                current_rootfs_devpath = cmdhelper.get_current_rootfs_dev(
+            self.curent_rootfs_devpath = current_rootfs_devpath = (
+                cmdhelper.get_current_rootfs_dev(
                     active_root=cfg.ACTIVE_ROOT,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
+                    chroot=_env.get_dynamic_client_chroot_path(),
                 )
-            else:
-                current_rootfs_devpath = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT
-                )
-            self.curent_rootfs_devpath = current_rootfs_devpath
+            )
             self.parent_devpath = parent_devpath = Path(
                 cmdhelper.get_parent_dev(current_rootfs_devpath)
             )
