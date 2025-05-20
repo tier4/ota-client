@@ -164,7 +164,6 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
-            should_load_state=_env.is_dynamic_client_running(),
         ),
         name="otaclient_api_server",
     )
