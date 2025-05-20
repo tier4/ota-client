@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import (
     ecu_info,
@@ -69,7 +68,7 @@ class OTAMetricsData:
     downloaded_bytes: int = 0
     downloaded_errors: int = 0
 
-    def __init__(self):
+    def __post_init__(self):
         # this variable will not be included in data fields
         self._already_published = False
 
