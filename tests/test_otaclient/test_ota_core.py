@@ -34,7 +34,7 @@ from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.errors import OTAErrorRecoverable
-from otaclient.metrics import OTAMetrics
+from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAClient, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -135,7 +135,7 @@ class TestOTAUpdater:
             ecu_status_flags=ecu_status_flags,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
-            metrics=OTAMetrics(),
+            metrics=OTAMetricsData(),
         )
         _updater._process_persistents = process_persists_handler = mocker.MagicMock()
 

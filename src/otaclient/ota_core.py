@@ -78,7 +78,7 @@ from otaclient.create_standby._delta_gen import (
     DeltaGenWithFileTable,
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
-from otaclient.metrics import OTAMetrics
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.download_info import DownloadInfo
@@ -175,7 +175,7 @@ class _OTAUpdateOperator:
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
-        metrics: OTAMetrics,
+        metrics: OTAMetricsData,
     ) -> None:
         self.update_version = version
         self.update_start_timestamp = int(time.time())
@@ -193,7 +193,7 @@ class _OTAUpdateOperator:
                 session_id=session_id,
             )
         )
-        self._metrics.update(initializing_start_timestamp=self.update_start_timestamp)
+        self._metrics.initializing_start_timestamp = self.update_start_timestamp
 
         status_report_queue.put_nowait(
             StatusReport(
@@ -203,7 +203,7 @@ class _OTAUpdateOperator:
                 session_id=session_id,
             )
         )
-        self._metrics.update(target_firmware_version=version)
+        self._metrics.target_firmware_version = version
 
         # ------ prepare runtime dirs ------ #
         # TODO: use a tmpfs mount with 320MB in size for session workdir
@@ -285,7 +285,7 @@ class _OTAUpdateOperator:
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(processing_metadata_start_timestamp=_current_time)
+        self._metrics.processing_metadata_start_timestamp = _current_time
 
         try:
             logger.info("verify and download OTA image metadata ...")
@@ -309,11 +309,15 @@ class _OTAUpdateOperator:
                     session_id=self.session_id,
                 )
             )
-            self._metrics.update(
-                ota_image_total_files_size=_metadata_jwt.total_regular_size,
-                ota_image_total_regulars_num=self._ota_metadata.total_regulars_num,
-                ota_image_total_directories_num=self._ota_metadata.total_dirs_num,
-                ota_image_total_symlinks_num=self._ota_metadata.total_symlinks_num,
+            self._metrics.ota_image_total_files_size = _metadata_jwt.total_regular_size
+            self._metrics.ota_image_total_regulars_num = (
+                self._ota_metadata.total_regulars_num
+            )
+            self._metrics.ota_image_total_directories_num = (
+                self._ota_metadata.total_dirs_num
+            )
+            self._metrics.ota_image_total_symlinks_num = (
+                self._ota_metadata.total_symlinks_num
             )
 
         except ota_errors.OTAError:
@@ -485,10 +489,8 @@ class _OTAUpdateOperator:
                 else:
                     _merged_payload.errors += 1
 
-                self._metrics.update(
-                    downloaded_bytes=_merged_payload.downloaded_bytes,
-                    downloaded_errors=_merged_payload.errors,
-                )
+                self._metrics.downloaded_bytes = _merged_payload.downloaded_bytes
+                self._metrics.downloaded_errors = _merged_payload.errors
 
                 if (
                     _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
@@ -600,7 +602,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(delta_calculation_start_timestamp=_current_time)
+        self._metrics.delta_calculation_start_timestamp = _current_time
 
         # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
         # NOTE: get the db via active_slot mount_point
@@ -655,7 +657,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(download_start_timestamp=_current_time)
+        self._metrics.download_start_timestamp = _current_time
 
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         resource_meta = ResourceMeta(
@@ -677,10 +679,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(
-            delta_download_files_num=resource_meta.resources_count,
-            delta_download_files_size=resource_meta.resources_size_sum,
-        )
+        self._metrics.delta_download_files_num = resource_meta.resources_count
+        self._metrics.delta_download_files_size = resource_meta.resources_size_sum
 
         logger.info("start to download resources ...")
         try:
@@ -709,7 +709,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(apply_update_start_timestamp=_current_time)
+        self._metrics.apply_update_start_timestamp = _current_time
 
         standby_slot_creator = self._create_standby_cls(
             ota_metadata=self._ota_metadata,
@@ -733,7 +733,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(post_update_start_timestamp=_current_time)
+        self._metrics.post_update_start_timestamp = _current_time
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
@@ -787,7 +787,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             )
         )
-        self._metrics.update(finalizing_update_start_timestamp=_current_time)
+        self._metrics.finalizing_update_start_timestamp = _current_time
         self._metrics.publish()
 
         if proxy_info.enable_local_ota_proxy:
@@ -857,8 +857,8 @@ class OTAClient:
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
-        self._metrics = OTAMetrics()
-        self._metrics.update(ecu_id=self.my_ecu_id)
+        self._metrics = OTAMetricsData()
+        self._metrics.ecu_id = self.my_ecu_id
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
@@ -904,7 +904,7 @@ class OTAClient:
                 ),
             )
         )
-        self._metrics.update(current_firmware_version=self.current_version)
+        self._metrics.current_firmware_version = self.current_version
 
         self.ca_chains_store = None
         try:
@@ -942,11 +942,9 @@ class OTAClient:
                     ),
                 )
             )
-            self._metrics.update(
-                failure_type=failure_type,
-                failure_reason=failure_reason,
-                failed_at_phase=ota_status,
-            )
+            self._metrics.failure_type = failure_type
+            self._metrics.failure_reason = failure_reason
+            self._metrics.failed_at_phase = ota_status
         finally:
             del exc  # prevent ref cycle
 
@@ -971,7 +969,7 @@ class OTAClient:
         """
         self._live_ota_status = OTAStatus.UPDATING
         new_session_id = request.session_id
-        self._metrics.update(session_id=new_session_id)
+        self._metrics.session_id = new_session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(

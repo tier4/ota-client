@@ -16,76 +16,32 @@
 from __future__ import annotations
 
 import json
-import logging
-import os
-import random
-import time
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
-from otaclient._types import FailureType
 from otaclient.configs.cfg import ecu_info
 
 MODULE = metrics.__name__
 
 
-class TestOTAMetrics:
-    """Test class for OTAMetrics functionality."""
+class TestOTAMetricsData:
+    """Test class for OTAMetricsData functionality."""
 
     def test_init(self):
-        """Test initialization of OTAMetrics."""
-        ota_metrics = metrics.OTAMetrics()
-        assert ota_metrics.data.otaclient_version == __version__
-        assert ota_metrics.data.ecu_id == ecu_info.ecu_id
+        """Test initialization of OTAMetricsData."""
+        ota_metrics = metrics.OTAMetricsData()
+        assert ota_metrics.otaclient_version == __version__
+        assert ota_metrics.ecu_id == ecu_info.ecu_id
         assert ota_metrics._already_published is False
-
-    def test_update(self):
-        """Test update method of OTAMetrics."""
-        ota_metrics = metrics.OTAMetrics()
-
-        # Test updating valid attributes
-        test_timestamp = int(time.time())
-        test_session_id = os.urandom(8).hex()
-        test_failure_type = random.choice(list(FailureType))
-        test_failure_reason = "Test failure reason"
-        test_firmware_version = "1.2.3"
-
-        ota_metrics.update(
-            download_start_timestamp=test_timestamp,
-            session_id=test_session_id,
-            failure_type=test_failure_type,
-            failure_reason=test_failure_reason,
-            target_firmware_version=test_firmware_version,
-            downloaded_bytes=1024,
-            downloaded_errors=2,
-        )
-
-        assert ota_metrics.data.download_start_timestamp == test_timestamp
-        assert ota_metrics.data.session_id == test_session_id
-        assert ota_metrics.data.failure_type == test_failure_type
-        assert ota_metrics.data.failure_reason == test_failure_reason
-        assert ota_metrics.data.target_firmware_version == test_firmware_version
-        assert ota_metrics.data.downloaded_bytes == 1024
-        assert ota_metrics.data.downloaded_errors == 2
-
-    def test_update_invalid_key(self, caplog):
-        """Test update method with invalid key."""
-        ota_metrics = metrics.OTAMetrics()
-
-        with caplog.at_level(logging.WARNING):
-            ota_metrics.update(invalid_key="some value")
-
-        assert "Key invalid_key is not found in metrics_data" in caplog.text
 
     @patch("otaclient.metrics.logger")
     def test_publish(self, mock_logger):
-        """Test publish method of OTAMetrics."""
-        ota_metrics = metrics.OTAMetrics()
+        """Test publish method of OTAMetricsData."""
+        ota_metrics = metrics.OTAMetricsData()
         test_session_id = "test_session_id"
-        ota_metrics.update(session_id=test_session_id)
+        ota_metrics.session_id = test_session_id
 
         ota_metrics.publish()
 
@@ -115,7 +71,7 @@ class TestOTAMetrics:
 
     def test_publish_multiple_times(self):
         """Test that publishing only happens once."""
-        ota_metrics = metrics.OTAMetrics()
+        ota_metrics = metrics.OTAMetricsData()
 
         with patch("otaclient.metrics.logger") as mock_logger:
             ota_metrics.publish()

@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import (
     ecu_info,
@@ -28,63 +27,50 @@ from otaclient.configs.cfg import (
 logger = logging.getLogger(__name__)
 
 
-class OTAMetrics:
-    @dataclass
-    class OTAMetricsData:
-        """
-        Dataclass for storing metrics data.
-        These data are collected during the OTA update process, converted to JSON, and expected to be used in subscription filters.
-        Thus, flatten structure is used for easy access.
-        """
+@dataclass
+class OTAMetricsData:
+    """
+    Dataclass for storing metrics data.
+    These data are collected during the OTA update process, converted to JSON, and expected to be used in subscription filters.
+    Thus, flatten structure is used for easy access.
+    """
 
-        # Date
-        initializing_start_timestamp: int = 0
-        processing_metadata_start_timestamp: int = 0
-        delta_calculation_start_timestamp: int = 0
-        download_start_timestamp: int = 0
-        apply_update_start_timestamp: int = 0
-        post_update_start_timestamp: int = 0
-        finalizing_update_start_timestamp: int = 0
+    # Date
+    initializing_start_timestamp: int = 0
+    processing_metadata_start_timestamp: int = 0
+    delta_calculation_start_timestamp: int = 0
+    download_start_timestamp: int = 0
+    apply_update_start_timestamp: int = 0
+    post_update_start_timestamp: int = 0
+    finalizing_update_start_timestamp: int = 0
 
-        # ECU and Firmware
-        ecu_id: str = ecu_info.ecu_id
-        session_id: str = ""
-        current_firmware_version: str = ""
-        target_firmware_version: str = ""
+    # ECU and Firmware
+    ecu_id: str = ecu_info.ecu_id
+    session_id: str = ""
+    current_firmware_version: str = ""
+    target_firmware_version: str = ""
 
-        # OTA Client
-        otaclient_version: str = __version__
+    # OTA Client
+    otaclient_version: str = __version__
 
-        # Status
-        failure_type: str = ""
-        failure_reason: str = ""
-        failed_at_phase: str = ""
+    # Status
+    failure_type: str = ""
+    failure_reason: str = ""
+    failed_at_phase: str = ""
 
-        # Metrics
-        ota_image_total_files_size: int = 0
-        ota_image_total_regulars_num: int = 0
-        ota_image_total_directories_num: int = 0
-        ota_image_total_symlinks_num: int = 0
-        delta_download_files_num: int = 0
-        delta_download_files_size: int = 0
-        downloaded_bytes: int = 0
-        downloaded_errors: int = 0
+    # Metrics
+    ota_image_total_files_size: int = 0
+    ota_image_total_regulars_num: int = 0
+    ota_image_total_directories_num: int = 0
+    ota_image_total_symlinks_num: int = 0
+    delta_download_files_num: int = 0
+    delta_download_files_size: int = 0
+    downloaded_bytes: int = 0
+    downloaded_errors: int = 0
 
     def __init__(self):
-        self.data = self.OTAMetricsData()
+        # this variable will not be included in data fields
         self._already_published = False
-
-    def update(self, **kwargs):
-        """
-        Updates the metrics data with the specified key-value pairs.
-
-        :param kwargs: Key-value pairs to update in metrics_data.
-        """
-        for key, value in kwargs.items():
-            if hasattr(self.data, key):
-                setattr(self.data, key, value)
-            else:
-                logger.warning(f"Key {key} is not found in metrics_data.")
 
     def publish(self):
         """
@@ -94,5 +80,5 @@ class OTAMetrics:
             # metrics data has already been published.
             return
 
-        logger.info(json.dumps(asdict(self.data)), extra={"log_type": LogType.METRICS})
+        logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
         self._already_published = True
