@@ -428,6 +428,8 @@ class OTAClientPackage:
         _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
 
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
+        if os.path.exists(_mount_base):
+            shutil.rmtree(_mount_base)
         os.makedirs(_mount_base, exist_ok=True)
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
@@ -530,5 +532,7 @@ def dynamic_client_shutdown() -> None:
             print(f"failed to kill dynamic client process group: {e}")
         _dynamic_client_p.wait()
         _dynamic_client_p = None
+
+    shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
 
     logger.info("dynamic client shutdown completed.")
