@@ -32,6 +32,7 @@ from functools import partial
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
+from otaclient.client_package import dynamic_client_shutdown
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient_common import _env
 
@@ -55,6 +56,9 @@ _shm: mp_shm.SharedMemory | None = None
 
 def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
     global _ota_core_p, _grpc_server_p, _shm
+
+    dynamic_client_shutdown()
+
     if _ota_core_p:
         _ota_core_p.terminate()
         _ota_core_p.join()
@@ -160,9 +164,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
-            should_load_state=bool(
-                os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)
-            ),
+            should_load_state=_env.is_dynamic_client_running(),
         ),
         name="otaclient_api_server",
     )
