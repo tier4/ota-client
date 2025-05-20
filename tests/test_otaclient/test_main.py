@@ -361,10 +361,6 @@ class TestMain:
             False,
             True,
         ]  # First check: no shutdown, second: shutdown
-        mock_client_update_flags.start_dynamic_client_event = mocker.MagicMock()
-        mock_client_update_flags.start_dynamic_client_event.is_set.return_value = (
-            True  # Dynamic client start is requested
-        )
 
         # Mock ClientUpdateControlFlags constructor
         mocker.patch(

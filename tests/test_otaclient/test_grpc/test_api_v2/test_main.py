@@ -112,7 +112,6 @@ class TestGrpcServerLauncher:
                 ecu_status_flags=MagicMock(),
                 client_update_control_flags=MagicMock(
                     request_shutdown_event=MagicMock(),
-                    start_dynamic_client_event=MagicMock(),
                     stop_server_event=stop_server_event,
                 ),
                 should_load_state=False,
@@ -162,7 +161,6 @@ class TestGrpcServerLauncher:
                 ecu_status_flags=MagicMock(),
                 client_update_control_flags=MagicMock(
                     request_shutdown_event=MagicMock(),
-                    start_dynamic_client_event=MagicMock(),
                     stop_server_event=stop_server_event,
                 ),
                 should_load_state=False,

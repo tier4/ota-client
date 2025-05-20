@@ -361,10 +361,6 @@ class TestOTAClientUpdater:
             client_updater.client_update_control_flags.request_shutdown_event
             == self.client_update_control_flags.request_shutdown_event
         )
-        assert (
-            client_updater.client_update_control_flags.start_dynamic_client_event
-            == self.client_update_control_flags.start_dynamic_client_event
-        )
         assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
 
     def test_download_client_package_resources(self, mocker: pytest_mock.MockerFixture):
@@ -445,9 +441,6 @@ class TestOTAClientUpdater:
         mock_mount_squashfs = mocker.patch.object(
             client_updater._ota_client_package, "mount_squashfs"
         )
-        mock_start_dynamic_client_event = mocker.patch.object(
-            client_updater.client_update_control_flags.start_dynamic_client_event, "set"
-        )
 
         # Call the method to test
         client_updater._perform_update()
@@ -455,7 +448,6 @@ class TestOTAClientUpdater:
         # Verify that the methods were called in the correct order
         mock_stop_grpc_server.assert_called_once()
         mock_mount_squashfs.assert_called_once()
-        mock_start_dynamic_client_event.assert_called_once()
 
     def test_execute_client_update_flow(self, mocker: pytest_mock.MockerFixture):
         """Test the full execution flow of _execute_client_update."""
