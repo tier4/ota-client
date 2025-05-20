@@ -22,7 +22,7 @@ RUN set -eux; \
     cp /usr/bin/python3 ${OTACLIENT_VENV}/bin/python3; \
     chmod +x ${OTACLIENT_VENV}/bin/python3; \
     # copy standard library
-    cp -r /usr/lib/python3.12 ${OTACLIENT_VENV}/lib/; \
+    cp -r /usr/lib/python3.10 ${OTACLIENT_VENV}/lib/; \
     # install otaclient
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
