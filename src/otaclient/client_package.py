@@ -466,7 +466,7 @@ class OTAClientPackage:
 
 def _dynamic_client_thread() -> None:
     """Thread to run the dynamic client process."""
-    atexit.register(_dynamic_client_shutdown)
+    atexit.register(dynamic_client_shutdown)
 
     try:
         _mount_point = cfg.DYNAMIC_CLIENT_MNT
@@ -475,9 +475,6 @@ def _dynamic_client_thread() -> None:
             raise FileNotFoundError(
                 f"mount dir {_mount_point} does not exist, aborting..."
             )
-
-        signal.signal(signal.SIGTERM, _signal_handler)
-        signal.signal(signal.SIGINT, _signal_handler)
 
         # Create a copy of the current environment
         env = os.environ.copy()
@@ -517,7 +514,7 @@ def _dynamic_client_thread() -> None:
         logger.exception(f"failed to start OTA client: {e}")
 
 
-def _dynamic_client_shutdown() -> None:
+def dynamic_client_shutdown() -> None:
     """Shutdown the dynamic client process."""
     global _dynamic_client_p, _shutdown_processing
 
@@ -537,8 +534,3 @@ def _dynamic_client_shutdown() -> None:
         _dynamic_client_p = None
 
     logger.info("dynamic client shutdown completed.")
-
-
-def _signal_handler(signal_value, _) -> None:  # pragma: no cover
-    print(f"otaclient receives {signal_value=}, shutting down ...")
-    _dynamic_client_shutdown()
