@@ -260,9 +260,7 @@ class OTAClientPackage:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
         unshare.unshare(unshare.CLONE_NEWNS)
-        logger.info(
-            f"Mount result: {subprocess_check_output('mount | grep {dev}').strip()}"
-        )
+        logger.info(f"Mount result: {subprocess_check_output('mount').strip()}")
 
     def _mount_squashfs_file(
         self,
@@ -427,7 +425,7 @@ class OTAClientPackage:
 
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
-            #            self._create_mount_namespaces()
+            self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
             self._rbind_mount_current_root(_mount_base)
