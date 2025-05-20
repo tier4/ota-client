@@ -36,7 +36,6 @@ from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
-    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -260,7 +259,8 @@ class OTAClientPackage:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
         unshare.unshare(unshare.CLONE_NEWNS)
-        logger.info(f"Mount result: {subprocess_check_output('mount').strip()}")
+        # Make all mounts private to prevent propagation
+        subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
 
     def _mount_squashfs_file(
         self,
