@@ -30,6 +30,8 @@ from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
 
+import unshare
+
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
@@ -263,7 +265,7 @@ class OTAClientPackage:
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
-        os.unshare(os.CLONE_NEWNS)
+        unshare.unshare(unshare.CLONE_NEWNS)
         # Make all mounts private to prevent propagation
         subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
 
@@ -518,11 +520,13 @@ def dynamic_client_shutdown() -> None:
     """Shutdown the dynamic client process."""
     global _dynamic_client_p, _shutdown_processing
 
-    _shutdown_processing.set()
-
+    if _shutdown_processing.is_set():
+        return
     if _env.is_dynamic_client_running():
         # in dynamic client environment, do not shutdown the dynamic client
         return
+
+    _shutdown_processing.set()
 
     # kill the dynamic client process if it is running
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
