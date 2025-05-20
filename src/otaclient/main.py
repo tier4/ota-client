@@ -30,14 +30,11 @@ import threading
 import time
 from functools import partial
 
-import psutil
-
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common import _env, cmdhelper
-from otaclient_common.common import subprocess_call
+from otaclient_common import _env
 from otaclient_common.linux import subprocess_popen_wrapper
 
 logger = logging.getLogger(__name__)
@@ -108,26 +105,6 @@ def _dynamic_client_shutdown() -> None:
             print(f"failed to kill dynamic client process group: {e}")
         _dynamic_client_p.wait()
         _dynamic_client_p = None
-
-    # umount paths related to dynamic client
-    _mount_base = cfg.DYNAMIC_CLIENT_MNT
-    _mounts = [p.mountpoint for p in psutil.disk_partitions(all=True)]
-    _targets = sorted(
-        [mnt for mnt in _mounts if mnt.startswith(_mount_base)],
-        key=len,
-        reverse=True,
-    )
-
-    for mnt in _targets:
-        try:
-            cmdhelper.ensure_umount(
-                mnt,
-                ignore_error=False,
-                max_retry=0,
-                retry_interval=0,
-            )
-        except Exception:
-            subprocess_call(f"umount -l {mnt}", raise_exception=False)
 
     logger.info("dynamic client shutdown completed.")
 
