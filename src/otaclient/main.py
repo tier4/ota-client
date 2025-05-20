@@ -96,6 +96,8 @@ def _dynamic_client_shutdown() -> None:
         # in dynamic client environment, do not shutdown the dynamic client
         return
 
+    return
+
     # kill the dynamic client process if it is running
     global _dynamic_client_p
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
