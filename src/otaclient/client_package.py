@@ -30,8 +30,6 @@ from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
 
-import unshare
-
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
@@ -265,7 +263,7 @@ class OTAClientPackage:
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
-        unshare.unshare(unshare.CLONE_NEWNS)
+        os.unshare(os.CLONE_NEWNS)
         # Make all mounts private to prevent propagation
         subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
 
