@@ -151,7 +151,7 @@ class NVUpdateEngine:
     NV_UPDATE_ENGINE = "nv_update_engine"
 
     @classmethod
-    def _nv_update_engine(cls, payload: Path | str, chroot: str | None = None):
+    def _nv_update_engine(cls, payload: Path | str, *, chroot: str | None = None):
         """nv_update_engine apply BUP, non unified_ab version."""
         # fmt: off
         cmd = [
@@ -172,7 +172,7 @@ class NVUpdateEngine:
 
     @classmethod
     def _nv_update_engine_unified_ab(
-        cls, payload: Path | str, chroot: str | None = None
+        cls, payload: Path | str, *, chroot: str | None = None
     ):
         """nv_update_engine apply BUP, unified_ab version."""
         # fmt: off
@@ -711,7 +711,7 @@ class JetsonCBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self, chroot: str | None = None) -> NoReturn:
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         try:
             cmdhelper.reboot(chroot=chroot)
         except Exception as e:

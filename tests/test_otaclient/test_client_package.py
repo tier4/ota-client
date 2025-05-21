@@ -21,13 +21,15 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
+import pytest_mock
 
 from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
+    _dynamic_client_thread,
+    dynamic_client_shutdown,
 )
-from otaclient.configs.cfg import cfg
 
 
 def helper_generate_package(
@@ -270,8 +272,8 @@ class TestClientPackage:
         with patch("platform.machine", return_value=machine), patch(
             "platform.processor", return_value=arch
         ), patch.object(Path, "is_file", return_value=is_squashfs_exists), patch(
-            "otaclient.client_package.subprocess.call",
-            return_value=0 if is_zstd_supported else 1,
+            "otaclient.client_package.shutil.which",
+            return_value="/fake/path/to/zstd" if is_zstd_supported else None,
         ):
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
@@ -370,24 +372,121 @@ class TestClientPackage:
                 ota_client_package.is_same_client_package_version() == expected_result
             )
 
-    def test_mount_squashfs(self, ota_client_package):
-        ota_client_package.get_target_squashfs_path = MagicMock(
-            return_value=Path("/tmp/session/.download/package.squashfs")
+    @patch("subprocess.Popen")
+    def test_dynamic_client_thread_success(
+        self, mock_popen, mocker: pytest_mock.MockerFixture
+    ):
+        """Test the _thread_dynamic_client function with successful path."""
+        # Setup mock for process
+        mock_process = MagicMock()
+        mock_process.pid = 12345
+        mock_popen.return_value = mock_process
+        # Mock process.wait to return None (simulate normal exit)
+        mock_process.wait.side_effect = [None, None, None]
+        # Mock os.path.exists to return True
+        mocker.patch("os.path.exists", return_value=True)
+        # Setup control flags with proper attributes
+        client_update_control_flags = MagicMock()
+        client_update_control_flags.request_shutdown_event = MagicMock()
+
+        _dynamic_client_thread()
+
+        # Verify process.wait was called
+        assert mock_process.wait.call_count == 3
+
+    @patch("subprocess.Popen")
+    def test_dynamic_client_thread_mount_not_exists(
+        self, mock_popen, mocker: pytest_mock.MockerFixture
+    ):
+        """Test the _thread_dynamic_client function when mount directory doesn't exist."""
+        # Mock os.path.exists to return False
+        mocker.patch("os.path.exists", return_value=False)
+
+        _dynamic_client_thread()
+
+        # Verify Popen was not called
+        mock_popen.assert_not_called()
+
+    @patch("subprocess.Popen")
+    def test_dynamic_client_thread_exception(
+        self, mock_popen, mocker: pytest_mock.MockerFixture
+    ):
+        """Test the _thread_dynamic_client function when an exception occurs during startup."""
+        # Mock Popen to raise an exception
+        mock_popen.side_effect = Exception("Test exception")
+        # Mock os.path.exists to return True
+        mocker.patch("os.path.exists", return_value=True)
+
+        _dynamic_client_thread()
+
+        # Verify Popen was called only once
+        mock_popen.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "is_dynamic_client_running, process_exists, process_running",
+        [
+            (False, True, True),  # Normal case: process exists and is running
+            (False, True, False),  # Process exists but already terminated
+            (False, False, False),  # No process exists
+            (True, True, True),  # Running in dynamic client environment
+        ],
+    )
+    def test_dynamic_client_shutdown(
+        self,
+        is_dynamic_client_running,
+        process_exists,
+        process_running,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Test the dynamic_client_shutdown function with various scenarios."""
+        # Setup mocks
+
+        mock_process = MagicMock()
+        mock_process.pid = 12345
+        mock_process.poll.return_value = None if process_running else 0
+
+        mock_shutdown_event = MagicMock()
+        mock_shutdown_event.is_set.return_value = False
+
+        mocker.patch(
+            "otaclient.client_package._shutdown_processing", mock_shutdown_event
+        )
+        mocker.patch(
+            "otaclient.client_package._dynamic_client_p",
+            mock_process if process_exists else None,
         )
 
-        with patch("os.makedirs") as mock_makedirs, patch("subprocess.run") as mock_run:
-            mock_makedirs.return_value = None
-            mock_run.return_value = None
+        mock_is_dynamic_client = mocker.patch(
+            "otaclient_common._env.is_dynamic_client_running"
+        )
+        mock_is_dynamic_client.return_value = is_dynamic_client_running
 
-            ota_client_package.mount_squashfs()
-            mock_makedirs.assert_called_once_with(cfg.DYNAMIC_CLIENT_MNT, exist_ok=True)
-            mock_run.assert_called_once_with(
-                [
-                    "mount",
-                    "-t",
-                    "squashfs",
-                    "/tmp/session/.download/package.squashfs",
-                    cfg.DYNAMIC_CLIENT_MNT,
-                ],
-                check=True,
-            )
+        mock_os_killpg = mocker.patch("os.killpg")
+        mock_getpgid = mocker.patch("os.getpgid", return_value=54321)
+        mock_rmtree = mocker.patch("shutil.rmtree")
+
+        dynamic_client_shutdown()
+
+        # Verify behavior
+        if is_dynamic_client_running:
+            # Should return early when in dynamic client environment
+            mock_shutdown_event.set.assert_not_called()
+            mock_os_killpg.assert_not_called()
+            mock_getpgid.assert_not_called()
+            mock_rmtree.assert_not_called()
+        else:
+            # Should set the shutdown processing flag
+            mock_shutdown_event.set.assert_called_once()
+
+            if process_exists and process_running:
+                # Should kill process group
+                mock_getpgid.assert_called_once_with(mock_process.pid)
+                mock_os_killpg.assert_called_once()
+                mock_process.wait.assert_called_once()
+            else:
+                mock_getpgid.assert_not_called()
+                mock_os_killpg.assert_not_called()
+                mock_process.wait.assert_not_called()
+
+            # Should clean up mount directory
+            mock_rmtree.assert_called_once()
