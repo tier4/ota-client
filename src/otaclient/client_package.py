@@ -24,13 +24,12 @@ import platform
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
-
-import unshare
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
@@ -265,9 +264,25 @@ class OTAClientPackage:
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
-        unshare.unshare(unshare.CLONE_NEWNS)
+        self._unshare_wrapper()
         # Make all mounts private to prevent propagation
         subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
+
+    def _unshare_wrapper(self) -> None:
+        if sys.version_info >= (3, 12):
+            # Python 3.12+ has native os.unshare support
+            os.unshare(os.CLONE_NEWNS)
+        else:
+            # For older versions, use system call directly
+            import ctypes
+
+            CLONE_NEWNS = 0x00020000  # From linux/sched.h
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            if libc.unshare(CLONE_NEWNS) != 0:
+                errno = ctypes.get_errno()
+                raise OSError(
+                    errno, f"Failed to unshare mount namespace: {os.strerror(errno)}"
+                )
 
     def _mount_squashfs_file(
         self,
