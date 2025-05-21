@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import (
     ecu_info,
@@ -71,15 +70,15 @@ class OTAMetricsData:
 
     def __post_init__(self):
         # this variable will not be included in data fields
-        self._already_published_session_ids = set()
+        self._already_published = False
 
     def publish(self):
         """
         Publishes the metrics data to the metrics server.
         """
-        if self.session_id in self._already_published_session_ids:
+        if self._already_published:
             # metrics data has already been published.
             return
 
         logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
-        self._already_published_session_ids.add(self.session_id)
+        self._already_published = True
