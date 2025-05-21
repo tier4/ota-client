@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 from concurrent.futures import Future
+from dataclasses import replace
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
@@ -969,7 +970,6 @@ class OTAClient:
         """
         self._live_ota_status = OTAStatus.UPDATING
         new_session_id = request.session_id
-        self._metrics.session_id = new_session_id
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -999,7 +999,7 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
-                metrics=self._metrics,
+                metrics=replace(self._metrics, session_id=new_session_id),
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
