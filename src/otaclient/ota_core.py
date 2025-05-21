@@ -1197,6 +1197,7 @@ class OTAClient:
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
+                metrics=self._metrics,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
