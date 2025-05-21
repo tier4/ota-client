@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import multiprocessing.shared_memory as mp_shm
 import signal
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -62,14 +61,10 @@ class TestMain:
         # Mock processes
         self.mock_ota_core_p = mocker.MagicMock()
         self.mock_grpc_server_p = mocker.MagicMock()
-        self.mock_dynamic_client_p = mocker.MagicMock()
 
         # Return values for is_alive checks
         self.mock_ota_core_p.is_alive.return_value = True
         self.mock_grpc_server_p.is_alive.return_value = True
-
-        # Return values for process.poll
-        self.mock_dynamic_client_p.poll.return_value = None
 
     def test_on_shutdown(self, mocker: pytest_mock.MockerFixture):
         """Test the _on_shutdown function."""
@@ -79,24 +74,12 @@ class TestMain:
         main._ota_core_p = self.mock_ota_core_p
         main._grpc_server_p = self.mock_grpc_server_p
         main._shm = self.mock_shm
-        main._dynamic_client_p = self.mock_dynamic_client_p
-
-        # dynamic_client_p.poll returns None (running)
-        self.mock_dynamic_client_p.poll.return_value = None
-        self.mock_dynamic_client_p.pid = 1234
 
         # Patch os.killpg and os.getpgid
-        killpg_mock = mocker.patch(f"{MAIN_MODULE}.os.killpg")
         getpgid_mock = mocker.patch(f"{MAIN_MODULE}.os.getpgid", return_value=4321)
 
         # Call with sys_exit=False
         main._on_shutdown(sys_exit=False)
-
-        # Verify os.killpg called
-        killpg_mock.assert_called_once_with(4321, signal.SIGTERM)
-
-        # Verify dynamic client process wait called
-        self.mock_dynamic_client_p.wait.assert_called()
 
         # Verify processes are terminated and joined
         self.mock_ota_core_p.terminate.assert_called_once()
@@ -115,15 +98,12 @@ class TestMain:
         self.mock_ota_core_p.reset_mock()
         self.mock_grpc_server_p.reset_mock()
         self.mock_shm.reset_mock()
-        self.mock_dynamic_client_p.reset_mock()
-        killpg_mock.reset_mock()
         getpgid_mock.reset_mock()
 
-        # Set up global variables again (no dynamic client)
+        # Set up global variables again
         main._ota_core_p = self.mock_ota_core_p
         main._grpc_server_p = self.mock_grpc_server_p
         main._shm = self.mock_shm
-        main._dynamic_client_p = None
 
         # Call with sys_exit=True
         main._on_shutdown(sys_exit=True)
@@ -150,81 +130,6 @@ class TestMain:
 
         # Verify _on_shutdown is called with sys_exit=True
         on_shutdown_mock.assert_called_once_with(sys_exit=True)
-
-    @patch("subprocess.Popen")
-    def test_thread_dynamic_client_success(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function with successful path."""
-        # Setup mock for process
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_popen.return_value = mock_process
-
-        # Mock process.wait to return None (simulate normal exit)
-        mock_process.wait.side_effect = [None, None, None]
-
-        # Mock os.path.exists to return True
-        mocker.patch("os.path.exists", return_value=True)
-
-        # Mock _shutdown_processing to ensure we don't early exit
-        mocker.patch("otaclient.main._shutdown_processing", False)
-
-        # Setup control flags with proper attributes
-        client_update_control_flags = MagicMock()
-        client_update_control_flags.request_shutdown_event = MagicMock()
-
-        main._thread_dynamic_client(client_update_control_flags)
-
-        # Verify process.wait was called
-        assert mock_process.wait.call_count == 3
-
-        # Verify the request_shutdown_event was set after retry max
-        client_update_control_flags.request_shutdown_event.set.assert_called_once()
-
-    @patch("subprocess.Popen")
-    def test_thread_dynamic_client_mount_not_exists(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function when mount directory doesn't exist."""
-        # Mock os.path.exists to return False
-        mocker.patch("os.path.exists", return_value=False)
-
-        # Setup control flags with proper attributes
-        client_update_control_flags = MagicMock()
-        client_update_control_flags.request_shutdown_event = MagicMock()
-
-        # Call the function and expect the request_shutdown_event to be set
-        main._thread_dynamic_client(client_update_control_flags)
-
-        # Verify Popen was not called
-        mock_popen.assert_not_called()
-
-        # Verify the request_shutdown_event was set due to failed startup
-        client_update_control_flags.request_shutdown_event.set.assert_called_once()
-
-    @patch("subprocess.Popen")
-    def test_thread_dynamic_client_exception(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function when an exception occurs during startup."""
-        # Mock Popen to raise an exception
-        mock_popen.side_effect = Exception("Test exception")
-
-        # Mock os.path.exists to return True
-        mocker.patch("os.path.exists", return_value=True)
-
-        # Mock _shutdown_processing to ensure we don't early exit
-        mocker.patch("otaclient.main._shutdown_processing", False)
-
-        # Setup control flags with proper attributes
-        client_update_control_flags = MagicMock()
-        client_update_control_flags.request_shutdown_event = MagicMock()
-
-        main._thread_dynamic_client(client_update_control_flags)
-
-        # Verify the request_shutdown_event was set due to exception
-        client_update_control_flags.request_shutdown_event.set.assert_called_once()
 
     @patch("otaclient._logging.configure_logging")
     def test_main_process_setup_and_health_check(
@@ -320,64 +225,3 @@ class TestMain:
 
         # Verify _on_shutdown was called because grpc server died
         mock_on_shutdown.assert_called_once()
-
-    @patch("otaclient._logging.configure_logging")
-    def test_main_start_dynamic_client(
-        self, mock_logging, mocker: pytest_mock.MockerFixture
-    ):
-        """Test main function when dynamic client start is requested."""
-        # Mock the modules and functions imported in main()
-        mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
-        mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
-        mocker.patch("otaclient.ota_core.ota_core_process")
-
-        # Mock multiprocessing context and processes
-        mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
-        mock_mp_ctx.Event.side_effect = [
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-        ]
-        mock_mp_ctx.Process.side_effect = [
-            self.mock_ota_core_p,
-            self.mock_grpc_server_p,
-        ]
-        mocker.patch(f"{MAIN_MODULE}.mp.get_context", return_value=mock_mp_ctx)
-
-        # Create mock thread
-        mock_dynamic_thread = mocker.MagicMock(spec=threading.Thread)
-
-        # Important: Patch the Thread constructor to return our mock thread
-        mocker.patch(f"{MAIN_MODULE}.Thread", return_value=mock_dynamic_thread)
-
-        # Set up control flags for health check loop
-        mock_client_update_flags = mocker.MagicMock()
-        mock_client_update_flags.request_shutdown_event = mocker.MagicMock()
-        mock_client_update_flags.request_shutdown_event.is_set.side_effect = [
-            False,
-            True,
-        ]  # First check: no shutdown, second: shutdown
-        mock_client_update_flags.start_dynamic_client_event = mocker.MagicMock()
-        mock_client_update_flags.start_dynamic_client_event.is_set.return_value = (
-            True  # Dynamic client start is requested
-        )
-
-        # Mock ClientUpdateControlFlags constructor
-        mocker.patch(
-            f"{MAIN_MODULE}.ClientUpdateControlFlags",
-            return_value=mock_client_update_flags,
-        )
-        mocker.patch(f"{MAIN_MODULE}.MultipleECUStatusFlags")
-
-        # Mock time.sleep to proceed quickly through the loop
-        mocker.patch(f"{MAIN_MODULE}.time.sleep")
-
-        # Execute main()
-        main.main()
-
-        # Verify thread was started
-        mock_dynamic_thread.start.assert_called_once()

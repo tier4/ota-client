@@ -127,15 +127,10 @@ class _RPIBootControl:
 
         try:
             # ------ detect active slot ------ #
-            if _env.is_dynamic_client_running():
-                active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT,
-                    chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT,
-                )
-            else:
-                active_slot_dev = cmdhelper.get_current_rootfs_dev(
-                    active_root=cfg.ACTIVE_ROOT
-                )
+            active_slot_dev = cmdhelper.get_current_rootfs_dev(
+                active_root=cfg.ACTIVE_ROOT,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             assert active_slot_dev
             self.active_slot_dev = active_slot_dev
         except Exception as e:
@@ -426,7 +421,7 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def reboot_tryboot(self, chroot: str | None = None):
+    def reboot_tryboot(self, *, chroot: str | None = None):
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
         try:
@@ -561,7 +556,7 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self, chroot: str | None = None) -> NoReturn:
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         try:
             self._rpiboot_control.reboot_tryboot(chroot=chroot)
         except Exception as e:

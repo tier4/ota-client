@@ -53,7 +53,7 @@ class Consts:
     STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
     # mount point for downloaded otaclient
     DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
-    # mount point for original root point from dynamic client
+    # mount point of original root in dynamic client
     DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT = "/original_root"
 
     OTA_TMP_STORE = "/.ota-tmp"

@@ -293,7 +293,7 @@ def mkfs_ext4(
 
 
 def reboot(
-    args: list[str] | None = None, chroot: str | None = None
+    args: list[str] | None = None, *, chroot: str | None = None
 ) -> NoReturn:  # pragma: no cover
     """Reboot the system, with optional args passed to reboot command.
 

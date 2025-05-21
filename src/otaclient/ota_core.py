@@ -781,7 +781,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 logger.warning(_err_msg)
 
     def _process_client_squashfs(self) -> None:
-        """Process the client squashfs file."""
+        """Copy the client squashfs file to the standby slot."""
         if not _env.is_dynamic_client_running():
             logger.info(
                 "dynamic client is not running, no need to copy client squashfs file"
@@ -822,12 +822,9 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
-        if _env.is_dynamic_client_running():
-            self._boot_controller.finalizing_update(
-                chroot=cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
-            )
-        else:
-            self._boot_controller.finalizing_update()
+        self._boot_controller.finalizing_update(
+            chroot=_env.get_dynamic_client_chroot_path()
+        )
 
     # API
 
@@ -882,10 +879,9 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._process_metadata()
             self._download_client_package_resources()
             self._wait_sub_ecus()
-            if self._is_same_client_package_version():
-                self._handle_same_version()
-            else:
+            if not self._is_same_client_package_version():
                 self._perform_update()
+            self._request_shutdown()
         except Exception as e:
             self._handle_update_failure(e)
 
@@ -939,23 +935,23 @@ class _OTAClientUpdater(_OTAUpdateOperator):
     def _is_same_client_package_version(self) -> bool:
         return self._ota_client_package.is_same_client_package_version()
 
-    def _handle_same_version(self):
-        """Handle the case where the client package version is the same."""
-        logger.info("same client version, no need to update")
-        self.client_update_control_flags.request_shutdown_event.set()
-
     def _perform_update(self):
         """Perform the actual update steps."""
         logger.info("stop gRPC server...")
         # let grpc process to stop the server
         self.client_update_control_flags.stop_server_event.set()
 
-        logger.info("mount squashfs...")
-        self._ota_client_package.mount_squashfs()
+        logger.info("copy and mount client package...")
+        self._ota_client_package.copy_client_package()
+        self._ota_client_package.mount_client_package()
 
-        logger.info("start to run client update...")
-        # let main process to start the new client
-        self.client_update_control_flags.start_dynamic_client_event.set()
+        logger.info("start to run client package...")
+        # this is blocking function until the client thread finish
+        self._ota_client_package.run_client_package()
+
+    def _request_shutdown(self):
+        """Request shutdown."""
+        self.client_update_control_flags.request_shutdown_event.set()
 
     def _handle_update_failure(self, error: Exception):
         """Handle failures during the update process."""
@@ -1201,6 +1197,7 @@ class OTAClient:
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
+                metrics=self._metrics,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE

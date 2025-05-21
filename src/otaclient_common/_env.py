@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from typing import Optional
 
 from otaclient.configs.cfg import cfg
 
@@ -20,3 +21,10 @@ from otaclient.configs.cfg import cfg
 def is_dynamic_client_running() -> bool:
     """Check if the dynamic client is running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
+
+
+def get_dynamic_client_chroot_path() -> Optional[str]:
+    """Get the chroot path."""
+    if is_dynamic_client_running():
+        return cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
+    return None

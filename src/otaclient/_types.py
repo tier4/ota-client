@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 
@@ -139,7 +138,6 @@ class ClientUpdateControlFlags:
 
     stop_server_event: mp_sync.Event  # for stopping gRPC server
     request_shutdown_event: mp_sync.Event  # for requesting to shutdown
-    start_dynamic_client_event: mp_sync.Event  # for starting downloaded dynamic client
 
 
 #

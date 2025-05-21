@@ -24,7 +24,6 @@ import multiprocessing.shared_memory as mp_shm
 import os
 import secrets
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -33,10 +32,9 @@ from functools import partial
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
+from otaclient.client_package import dynamic_client_shutdown
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient_common import _env, cmdhelper
-from otaclient_common.common import subprocess_call
-from otaclient_common.linux import subprocess_popen_wrapper
+from otaclient_common import _env
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +52,12 @@ SHM_HMAC_KEY_LEN = 64  # bytes
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
-_dynamic_client_p: subprocess.Popen | None = None
-_shutdown_processing = threading.Event()
 
 
 def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
-    global _shutdown_processing, _dynamic_client_p, _ota_core_p, _grpc_server_p, _shm
+    global _ota_core_p, _grpc_server_p, _shm
 
-    _shutdown_processing.set()
-
-    # kill the dynamic client process if it is running
-    _dynamic_client_shutdown()
+    dynamic_client_shutdown()
 
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -89,93 +82,6 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
     # NOTE: the daemon_process needs to exit also.
     _on_shutdown(sys_exit=True)
-
-
-def _dynamic_client_shutdown() -> None:
-    # umount paths related to dynamic client from the longest to the shortest
-    mnt_base = cfg.DYNAMIC_CLIENT_MNT
-    with open("/proc/mounts") as f:
-        mounts = [line.split()[1] for line in f]
-    targets = sorted(
-        [mnt for mnt in mounts if mnt.startswith(mnt_base)],
-        key=len,
-        reverse=True,
-    )
-    for mnt in targets:
-        try:
-            cmdhelper.ensure_umount(
-                mnt,
-                ignore_error=False,
-                max_retry=1,
-            )
-        except Exception:
-            subprocess_call(f"umount -l {mnt}", raise_exception=False)
-
-    # kill the dynamic client process if it is running
-    global _dynamic_client_p
-    if _dynamic_client_p and _dynamic_client_p.poll() is None:
-        try:
-            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-        except Exception as e:
-            print(f"failed to kill dynamic client process group: {e}")
-        _dynamic_client_p.wait()
-        _dynamic_client_p = None
-    logger.info("dynamic client shutdown completed.")
-
-
-def _dynamic_client_thread(
-    client_update_control_flags: ClientUpdateControlFlags,
-) -> None:
-    atexit.register(_dynamic_client_shutdown)
-
-    try:
-        _mount_point = cfg.DYNAMIC_CLIENT_MNT
-        if not os.path.exists(_mount_point):
-            logger.error(f"mount dir {_mount_point} does not exist, aborting...")
-            raise FileNotFoundError(
-                f"mount dir {_mount_point} does not exist, aborting..."
-            )
-
-        # Create a copy of the current environment
-        env = os.environ.copy()
-        # Add the RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
-        # downloaded OTA client
-        env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
-
-        # Run the OTA client
-        # retry to start the OTA client multiple times if it fails
-        logger.info(f"starting dynamic OTA client with mount dir: {_mount_point}")
-        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
-            global _shutdown_processing, _dynamic_client_p
-            if _shutdown_processing.is_set():
-                logger.info("shutdown has already been requested, exiting thread...")
-                return
-
-            _cmd = [
-                "/otaclient/venv/bin/python3",
-                "-m",
-                "otaclient",
-            ]
-            _dynamic_client_p = subprocess_popen_wrapper(
-                _cmd,
-                check_error=False,
-                check_output=False,
-                chroot=_mount_point,
-                env=env,
-                start_new_session=True,
-            )
-            _dynamic_client_p.wait()
-            logger.warning("OTA client exited with non-zero status, restarting...")
-
-        logger.warning(
-            "reached maximum number of retries to start OTA client, shutting down..."
-        )
-        # If the OTA client fails to start after multiple retries, set the shutdown event
-        client_update_control_flags.request_shutdown_event.set()
-    except Exception as e:
-        logger.exception(f"failed to start OTA client: {e}")
-    finally:
-        client_update_control_flags.request_shutdown_event.set()
 
 
 def main() -> None:  # pragma: no cover
@@ -230,7 +136,6 @@ def main() -> None:  # pragma: no cover
     client_update_control_flags = ClientUpdateControlFlags(
         stop_server_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
-        start_dynamic_client_event=mp_ctx.Event(),
     )
 
     _ota_core_p = mp_ctx.Process(
@@ -259,9 +164,6 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             client_update_control_flags=client_update_control_flags,
-            should_load_state=bool(
-                os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)
-            ),
         ),
         name="otaclient_api_server",
     )
@@ -282,7 +184,6 @@ def main() -> None:  # pragma: no cover
         )
         _otaproxy_control_t.start()
 
-    _otaclient_dynamic_client_t = None
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
@@ -302,29 +203,4 @@ def main() -> None:  # pragma: no cover
             return _on_shutdown()
 
         if client_update_control_flags.request_shutdown_event.is_set():
-            return _on_shutdown()
-
-        if (
-            _otaclient_dynamic_client_t is None
-            and client_update_control_flags.start_dynamic_client_event.is_set()
-        ):
-            logger.info("request to start a new client")
-            client_update_control_flags.start_dynamic_client_event.clear()
-
-            _otaclient_dynamic_client_t = threading.Thread(
-                target=partial(
-                    _dynamic_client_thread,
-                    client_update_control_flags,
-                ),
-                daemon=True,
-                name="otaclient_dynamic_client_t",
-            )
-            _otaclient_dynamic_client_t.start()
-            logger.info(
-                f"dynamic client thread started with PID: {_otaclient_dynamic_client_t.ident}"
-            )
-            # wait for the thread to finish
-            _otaclient_dynamic_client_t.join()
-            _otaclient_dynamic_client_t = None
-            logger.info("dynamic client thread exited")
             return _on_shutdown()

@@ -16,30 +16,38 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
 import platform
 import shutil
+import signal
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
+from otaclient_common.linux import subprocess_popen_wrapper
 from otaclient_manifest.schema import Manifest, ReleasePackage
 
 logger = logging.getLogger(__name__)
+
+_dynamic_client_p: subprocess.Popen | None = None
+_shutdown_processing = threading.Event()
 
 
 @dataclass
@@ -253,6 +261,29 @@ class OTAClientPackage:
         # directly use the downloaded squashfs
         return self.downloaded_package_path
 
+    def _create_mount_namespaces(self) -> None:
+        """Create mount namespaces for the current process."""
+        # create a new mount namespace
+        self._unshare_wrapper()
+        # Make all mounts private to prevent propagation
+        subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
+
+    def _unshare_wrapper(self) -> None:
+        if sys.version_info >= (3, 12):
+            # Python 3.12+ has native os.unshare support
+            os.unshare(os.CLONE_NEWNS)
+        else:
+            # For older versions, use system call directly
+            import ctypes
+
+            CLONE_NEWNS = 0x00020000  # From linux/sched.h
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            if libc.unshare(CLONE_NEWNS) != 0:
+                errno = ctypes.get_errno()
+                raise OSError(
+                    errno, f"Failed to unshare mount namespace: {os.strerror(errno)}"
+                )
+
     def _mount_squashfs_file(
         self,
         squashfs_file: StrOrPath,
@@ -306,26 +337,23 @@ class OTAClientPackage:
         # bind necessary directories
         RW_PATHS = [
             "/boot",
+            "/boot/firmware",
             "/dev",
             "/dev/shm",
             "/etc",
+            "/home",
+            "/opt",
             "/ota-cache",
+            "/proc",
+            "/root",
             "/run",
+            "/sys",
             "/tmp",
+            "/var",
         ]
 
-        RO_PATHS = [
-            "/opt",
-            "/proc",
-            "/sys",
-            "/usr/sbin/nvbootctrl",
-            "/usr/sbin/nv_update_engine",
-        ]
         bind_paths(
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
-        )
-        bind_paths(
-            paths=RO_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_ro
         )
 
     def _rbind_mount_current_root(self, mount_base: StrOrPath) -> None:
@@ -394,7 +422,6 @@ class OTAClientPackage:
             logger.exception(
                 f"failure during downloading and verifying OTA client package: {e!r}"
             )
-            raise
 
     def is_same_client_package_version(self) -> bool:
         """Check if the current OTA client package version is the same as the target version in manifest"""
@@ -406,26 +433,125 @@ class OTAClientPackage:
                 return True
         return False
 
-    def mount_squashfs(self):
-        """Copy and Mount the squashfs file."""
+    def copy_client_package(self) -> None:
+        """Copy the client package."""
         _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
         shutil.copy(self.get_target_squashfs_path(), _squashfs_file)
 
-        # Create a temporary directory to mount the squashfs
-        _mount_base = cfg.DYNAMIC_CLIENT_MNT
-        os.makedirs(_mount_base, exist_ok=True)
+    def mount_client_package(self) -> None:
+        """Mount the client package to the mount base."""
+        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
 
-        logger.info(f"mounting {_squashfs_file} squashfs to {_mount_base}")
+        _mount_base = cfg.DYNAMIC_CLIENT_MNT
+        if os.path.exists(_mount_base):
+            shutil.rmtree(_mount_base)
+        os.makedirs(_mount_base, exist_ok=True)
         try:
+            logger.info(f"mounting {_squashfs_file} to {_mount_base}")
+            self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
             self._rbind_mount_current_root(_mount_base)
-
             self._bind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
+
+    def run_client_package(self) -> None:
+        """Run the client package."""
+        _otaclient_dynamic_client_t = threading.Thread(
+            target=partial(
+                _dynamic_client_thread,
+            ),
+            daemon=True,
+            name="otaclient_dynamic_client_t",
+        )
+        _otaclient_dynamic_client_t.start()
+        logger.info(
+            f"dynamic client thread started with PID: {_otaclient_dynamic_client_t.ident}"
+        )
+        # wait for the thread to finish
+        _otaclient_dynamic_client_t.join()
+        _otaclient_dynamic_client_t = None
+        logger.info("dynamic client thread exited")
+        return
+
+
+def _dynamic_client_thread() -> None:
+    """Thread to run the dynamic client process."""
+    atexit.register(dynamic_client_shutdown)
+
+    try:
+        _mount_point = cfg.DYNAMIC_CLIENT_MNT
+        if not os.path.exists(_mount_point):
+            logger.error(f"mount dir {_mount_point} does not exist, aborting...")
+            raise FileNotFoundError(
+                f"mount dir {_mount_point} does not exist, aborting..."
+            )
+
+        # Create a copy of the current environment
+        env = os.environ.copy()
+        # Add the RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
+        # downloaded OTA client
+        env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
+
+        # Run the OTA client
+        # retry to start the OTA client multiple times if it fails
+        logger.info(f"starting dynamic OTA client with mount dir: {_mount_point}")
+        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
+            global _dynamic_client_p, _shutdown_processing
+            if _shutdown_processing.is_set():
+                logger.info("shutdown has already been requested, exiting thread...")
+                return
+
+            _cmd = [
+                "/otaclient/venv/bin/python3",
+                "-m",
+                "otaclient",
+            ]
+            _dynamic_client_p = subprocess_popen_wrapper(
+                _cmd,
+                check_error=False,
+                check_output=False,
+                chroot=_mount_point,
+                env=env,
+                start_new_session=True,
+            )
+            _dynamic_client_p.wait()
+            logger.warning("OTA client exited with non-zero status, restarting...")
+
+        logger.warning(
+            "reached maximum number of retries to start OTA client, shutting down..."
+        )
+    except Exception as e:
+        logger.exception(f"failed to start OTA client: {e}")
+
+
+def dynamic_client_shutdown() -> None:
+    """Shutdown the dynamic client process."""
+    global _dynamic_client_p, _shutdown_processing
+
+    if _shutdown_processing.is_set():
+        return
+    if _env.is_dynamic_client_running():
+        # in dynamic client environment, do not shutdown the dynamic client
+        return
+
+    _shutdown_processing.set()
+
+    # kill the dynamic client process if it is running
+    if _dynamic_client_p and _dynamic_client_p.poll() is None:
+        try:
+            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
+        except Exception as e:
+            print(f"failed to kill dynamic client process group: {e}")
+        _dynamic_client_p.wait()
+        _dynamic_client_p = None
+
+    shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
+
+    logger.info("dynamic client shutdown completed.")
