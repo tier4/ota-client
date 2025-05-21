@@ -820,7 +820,7 @@ class TestECUStatusStorage:
         tmp_file = "ecu_status.pkl"
         mocker.patch("otaclient.grpc.api_v2.ecu_status.cfg.DYNAMIC_CLIENT_MNT", tmp_dir)
         mocker.patch(
-            "otaclient.grpc.api_v2.ecu_status.cfg.OTA_TMP_STATUS_STORE", tmp_file
+            "otaclient.grpc.api_v2.ecu_status.cfg.OTACLIENT_STATUS_FILE", tmp_file
         )
         os.makedirs(tmp_dir, exist_ok=True)
 
