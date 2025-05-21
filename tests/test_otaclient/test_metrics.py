@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
-from _otaclient_version import __version__
+import pytest
 
+from _otaclient_version import __version__
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
@@ -35,7 +36,7 @@ class TestOTAMetricsData:
         ota_metrics = metrics.OTAMetricsData()
         assert ota_metrics.otaclient_version == __version__
         assert ota_metrics.ecu_id == ecu_info.ecu_id
-        assert ota_metrics._already_published is False
+        assert len(ota_metrics._already_published_session_ids) == 0
 
     @patch("otaclient.metrics.logger")
     def test_publish(self, mock_logger):
@@ -61,7 +62,7 @@ class TestOTAMetricsData:
         assert log_extra["log_type"] == LogType.METRICS
 
         # Verify already_published flag is set
-        assert ota_metrics._already_published is True
+        assert ota_metrics._already_published_session_ids == {test_session_id}
 
         # Reset the mock and call publish again
         mock_logger.reset_mock()
@@ -70,14 +71,25 @@ class TestOTAMetricsData:
         # Verify logger was not called again
         mock_logger.info.assert_not_called()
 
-    def test_publish_multiple_times(self):
-        """Test that publishing only happens once."""
+    @pytest.mark.parametrize(
+        "session_ids, expected_call_count",
+        [
+            (["session_1"], 1),
+            (["session_1", "session_1"], 1),
+            (["session_1", "session_2"], 2),
+            (["session_1", "session_2", "session_1"], 2),
+            ([], 0),
+        ],
+    )
+    def test_publish_multiple_times(self, session_ids, expected_call_count):
+        """Test that publishing only happens once per session ID."""
         ota_metrics = metrics.OTAMetricsData()
 
         with patch("otaclient.metrics.logger") as mock_logger:
-            ota_metrics.publish()
-            assert mock_logger.info.call_count == 1
+            for session_id in session_ids:
+                ota_metrics.session_id = session_id
+                ota_metrics.publish()
 
-            # Second publish should not call logger again
-            ota_metrics.publish()
-            assert mock_logger.info.call_count == 1
+        # Verify that publish was called the expected number of times
+        assert len(ota_metrics._already_published_session_ids) == expected_call_count
+        assert mock_logger.info.call_count == expected_call_count
