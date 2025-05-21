@@ -339,6 +339,7 @@ class TestOTAClientUpdater:
             session_id=self.SESSION_ID,
             client_update_control_flags=self.client_update_control_flags,
             upper_otaproxy=None,
+            metrics=OTAMetricsData(),
         )
 
         # Patch the _session_workdir attribute after instance creation
