@@ -931,7 +931,7 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self, chroot: str | None = None) -> NoReturn:
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         try:
             cmdhelper.reboot(chroot=chroot)
         except Exception as e:
