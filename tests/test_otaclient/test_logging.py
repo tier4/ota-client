@@ -84,7 +84,7 @@ class TestLogClient:
     OTA_CLIENT_LOGGING_SERVER_GRPC = "http://127.0.0.1:8084"
     ECU_ID = "testclient"
 
-    @pytest.fixture(autouse=True)
+    @pytest.fixture()
     async def initialize_queue(self):
         self.test_queue: Queue[DummyQueueData] = Queue()
         self.data_ready = asyncio.Event()
@@ -113,7 +113,7 @@ class TestLogClient:
         mocker.patch(f"{MODULE}.proxy_info", self._proxy_info)
 
     @pytest_asyncio.fixture
-    async def launch_grpc_server(self, scope="session"):
+    async def launch_grpc_server(self):
         server = grpc.aio.server()
         log_v1_grpc.add_OTAClientIoTLoggingServiceServicer_to_server(
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
@@ -126,10 +126,9 @@ class TestLogClient:
             yield
         finally:
             await server.stop(None)
-            await server.wait_for_termination()
 
     @pytest.fixture
-    def restore_logging(self, scope="session"):
+    def restore_logging(self):
         # confiure_logging() is called in the test, so we need to restore the original logging configuration
         # Save the current logging configuration
         original_handlers = logging.root.handlers[:]
@@ -166,6 +165,7 @@ class TestLogClient:
     )
     async def test_grpc_logging(
         self,
+        initialize_queue,
         launch_grpc_server,
         restore_logging,
         log_message,
@@ -178,7 +178,6 @@ class TestLogClient:
         ):
             configure_logging()
 
-        self.data_ready.clear()
         # send a test log message
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
