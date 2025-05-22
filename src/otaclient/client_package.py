@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import logging
 import os
@@ -552,27 +553,21 @@ def dynamic_client_shutdown() -> None:
 
     # kill the dynamic client process if it is running
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
-        try:
+        with contextlib.suppress(Exception):
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
             _dynamic_client_p.wait(timeout=5)
-        except Exception as e:
-            logger.warning(f"failed to kill dynamic client process group: {e}")
-            # ignore errors
-            pass
-        finally:
             _dynamic_client_p = None
 
+    # unmount the dynamic client mount point
     cmdhelper.ensure_umount(
         cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
     )
+    # remove the dynamic client mount point
     shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
-    try:
+    # remove the dynamic client squashfs file
+    with contextlib.suppress(Exception):
         # Change permissions to writable before deletion
         if os.path.exists(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE):
             os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
-    except OSError as e:
-        logger.warning(f"Failed to remove squashfs file: {e}")
-        # ignore errors
-        pass
 
     logger.info("dynamic client shutdown completed.")
