@@ -541,7 +541,7 @@ def mount_squashfs(
     cmd = [
         "mount",
         "--make-private", "--make-unbindable",
-        "-o", "loop",
+        "-o", "loop,ro",
         "-t", "squashfs",
         str(target),
         str(mount_point),
