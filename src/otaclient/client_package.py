@@ -571,7 +571,6 @@ def dynamic_client_shutdown() -> None:
         finally:
             _dynamic_client_p = None
 
-    # Use try-except blocks for each cleanup operation to ensure they all run
     try:
         # unmount the dynamic client mount point
         cmdhelper.ensure_umount(
