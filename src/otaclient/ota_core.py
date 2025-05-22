@@ -884,7 +884,6 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         except Exception as e:
             logger.warning(f"failed to run squashfs: {e!r}")
         finally:
-            shutil.rmtree(self._session_workdir, ignore_errors=True)
             self._request_shutdown()
 
     def _download_client_package_resources(self) -> None:
@@ -946,6 +945,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         logger.info("copy and mount client package...")
         self._ota_client_package.copy_client_package()
         self._ota_client_package.mount_client_package()
+        shutil.rmtree(self._session_workdir, ignore_errors=True)
 
         logger.info("start to run client package...")
         # this is blocking function until the client thread finish
