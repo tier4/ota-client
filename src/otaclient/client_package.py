@@ -39,6 +39,7 @@ from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
+    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -541,6 +542,28 @@ def _dynamic_client_thread() -> None:
 
 def dynamic_client_shutdown() -> None:
     """Shutdown the dynamic client process."""
+
+    def _get_loop_devices_using_file(file_path: Path) -> list[str]:
+        loop_devs = []
+        try:
+            losetup_output = subprocess_check_output(
+                ["losetup", "-a"], raise_exception=True
+            )
+            for line in losetup_output.strip().splitlines():
+                if str(file_path) in line:
+                    dev = line.split(":")[0]
+                    loop_devs.append(dev)
+        except Exception as e:
+            print(f"Error parsing losetup output: {e}")
+        return loop_devs
+
+    def _release_loop_devices(devices: list[str]):
+        for dev in devices:
+            try:
+                subprocess_call(["losetup", "-d", dev], raise_exception=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to release {dev}: {e}")
+
     global _dynamic_client_p, _shutdown_processing
 
     if _shutdown_processing.is_set():
@@ -578,6 +601,14 @@ def dynamic_client_shutdown() -> None:
         )
     except Exception as e:
         print(f"Error while unmounting dynamic client mount point: {e}")
+
+    try:
+        # release loop devices
+        _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        _loop_devs = _get_loop_devices_using_file(_squashfs_file)
+        _release_loop_devices(_loop_devs)
+    except Exception as e:
+        print(f"Error while releasing loop device: {e}")
 
     try:
         # remove the dynamic client mount point
