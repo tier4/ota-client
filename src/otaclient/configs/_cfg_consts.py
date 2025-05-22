@@ -49,13 +49,14 @@ class Consts:
     MOUNT_SPACE = "/run/otaclient/mnt"
     ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
     STANDBY_SLOT_MNT = "/run/otaclient/mnt/standby_slot"
+
     # mount point for downloaded otaclient
     DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
-    # downloaded squashfs location in local filesystem
-    # this path should not be mounted by squashfs
-    OTACLIENT_SQUASHFS_FILE = "/.ota-client.squashfs"
     # mount point of original root in dynamic client
     DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT = "/original_root"
+    # downloaded squashfs location in local filesystem
+    # this path should not be mounted by squashfs
+    DYNAMIC_CLIENT_SQUASHFS_FILE = "/.ota-client.squashfs"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""
