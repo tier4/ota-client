@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import atexit
-import contextlib
 import json
 import logging
 import os
@@ -27,6 +26,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -553,21 +553,44 @@ def dynamic_client_shutdown() -> None:
 
     # kill the dynamic client process if it is running
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
-        with contextlib.suppress(Exception):
+        try:
+            # Kill process group
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-            _dynamic_client_p.wait(timeout=5)
+
+            # Use a safer wait approach that won't cause issues during atexit
+            for _ in range(10):  # try for up to 5 seconds (0.5s * 10)
+                if _dynamic_client_p.poll() is not None:
+                    break
+                time.sleep(0.5)  # short sleep to avoid busy waiting
+
+            # Force kill if still running
+            if _dynamic_client_p.poll() is None:
+                os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
+        except Exception as e:
+            logger.warning(f"Error while terminating dynamic client process: {e}")
+        finally:
             _dynamic_client_p = None
 
-    # unmount the dynamic client mount point
-    cmdhelper.ensure_umount(
-        cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
-    )
-    # remove the dynamic client mount point
-    shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
-    # remove the dynamic client squashfs file
-    with contextlib.suppress(Exception):
-        # Change permissions to writable before deletion
+    # Use try-except blocks for each cleanup operation to ensure they all run
+    try:
+        # unmount the dynamic client mount point
+        cmdhelper.ensure_umount(
+            cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
+        )
+    except Exception as e:
+        logger.warning(f"Error while unmounting dynamic client mount point: {e}")
+
+    try:
+        # remove the dynamic client mount point
+        shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
+    except Exception as e:
+        logger.warning(f"Error while removing dynamic client mount point: {e}")
+
+    try:
+        # remove the dynamic client squashfs file
         if os.path.exists(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE):
             os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+    except Exception as e:
+        logger.warning(f"Error while removing dynamic client squashfs file: {e}")
 
     logger.info("dynamic client shutdown completed.")
