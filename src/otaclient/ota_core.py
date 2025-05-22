@@ -881,9 +881,11 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._wait_sub_ecus()
             if not self._is_same_client_package_version():
                 self._perform_update()
-            self._request_shutdown()
         except Exception as e:
-            self._handle_update_failure(e)
+            logger.warning(f"failed to run squashfs: {e!r}")
+        finally:
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
+            self._request_shutdown()
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
@@ -951,11 +953,6 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _request_shutdown(self):
         """Request shutdown."""
-        self.client_update_control_flags.request_shutdown_event.set()
-
-    def _handle_update_failure(self, error: Exception):
-        """Handle failures during the update process."""
-        logger.warning(f"failed to run squashfs: {error!r}")
         self.client_update_control_flags.request_shutdown_event.set()
 
     # API
