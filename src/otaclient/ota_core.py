@@ -1160,7 +1160,7 @@ class OTAClient:
             is available via status API.
         """
         if _env.is_dynamic_client_running():
-            raise NotImplementedError(
+            raise RecursionError(
                 "multiple dynamic clients downloading is not supported"
             )
 
