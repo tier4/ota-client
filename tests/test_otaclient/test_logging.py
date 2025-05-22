@@ -84,10 +84,11 @@ class TestLogClient:
     OTA_CLIENT_LOGGING_SERVER_GRPC = "http://127.0.0.1:8084"
     ECU_ID = "testclient"
 
-    @pytest.fixture()
+    @pytest.fixture(autouse=True)
     async def initialize_queue(self):
         self.test_queue: Queue[DummyQueueData] = Queue()
         self.data_ready = asyncio.Event()
+        self.data_ready.clear()
 
     @pytest.fixture(autouse=True)
     def mock_cfg(self, mocker: MockerFixture):
@@ -126,6 +127,7 @@ class TestLogClient:
             yield
         finally:
             await server.stop(None)
+            await server.wait_for_termination()
 
     @pytest.fixture
     def restore_logging(self):
@@ -165,7 +167,6 @@ class TestLogClient:
     )
     async def test_grpc_logging(
         self,
-        initialize_queue,
         launch_grpc_server,
         restore_logging,
         log_message,
@@ -173,6 +174,8 @@ class TestLogClient:
         expected_log_type,
         mocker: MockerFixture,
     ):
+        self.data_ready.clear()
+
         with mocker.patch.object(
             _LogTeeHandler, "_wait_for_log_server_up", return_value=None
         ):
@@ -181,7 +184,10 @@ class TestLogClient:
         # send a test log message
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
-        await self.data_ready.wait()
+        try:
+            await asyncio.wait_for(self.data_ready.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pytest.fail("Timed out waiting for log message")
 
         try:
             _response = self.test_queue.get_nowait()

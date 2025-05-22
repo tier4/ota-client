@@ -202,64 +202,70 @@ class OTAClientPackage:
             f"No suitable package found for architecture {_architecture} and version {_current_version}"
         )
 
-    def get_target_squashfs_path(self) -> Path:
+    def _get_target_squashfs_path(self) -> Path:
         """Get the target squashfs file path."""
         if self.package is None:
             raise ValueError("OTA client package is not downloaded yet, abort")
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
-            # apply patch to the existing squashfs
-            _architecture = self.package.architecture
-            # Validate architecture string to prevent injection
-            if _architecture not in (self.ARCHITECTURE_X86_64, self.ARCHITECTURE_ARM64):
-                raise ValueError(f"Invalid architecture: {_architecture}")
-
-            _patch_path = self.downloaded_package_path
-            _current_squashfs_path = self.current_squashfs_path
-            _target_version = self.package.version
-
-            # Validate version string to prevent injection
-            if (
-                not isinstance(_target_version, str)
-                or not _target_version.replace(".", "").isalnum()
-            ):
-                raise ValueError(f"Invalid version string: {_target_version}")
-
-            _target_squashfs_path = Path(
-                cfg.OTACLIENT_INSTALLATION_RELEASE
-                + f"/otaclient-{_architecture}_v{_target_version}.squashfs"
+            _target_squashfs_path = (
+                Path(self._session_dir) / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
             )
-
-            # Apply patch using subprocess with list arguments (safer)
-            # and validate all paths are actually Path objects
-            if not (
-                isinstance(_current_squashfs_path, Path)
-                and isinstance(_patch_path, Path)
-                and isinstance(_target_squashfs_path, Path)
-            ):
-                raise TypeError("All paths must be Path objects")
-
-            _cmd = [
-                "zstd",
-                "-d",
-                f"--patch-from={_current_squashfs_path}",
-                str(_patch_path),
-                "-o",
-                str(_target_squashfs_path),
-            ]
-            logger.info(f"Applying patch with command: {' '.join(_cmd)}")
-            try:
-                subprocess_call(
-                    _cmd,
-                    raise_exception=True,
-                )
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"failed to apply patch: {e!r}")
-                raise
+            if not _target_squashfs_path.is_file():
+                self._create_squashfs_from_patch(_target_squashfs_path)
             return _target_squashfs_path
 
         # directly use the downloaded squashfs
         return self.downloaded_package_path
+
+    def _create_squashfs_from_patch(self, target_squashfs_path: Path) -> None:
+        """Create a squashfs file from the patch file."""
+        if self.package is None:
+            raise ValueError("OTA client package is not downloaded yet, abort")
+
+        # apply patch to the existing squashfs
+        _architecture = self.package.architecture
+        # Validate architecture string to prevent injection
+        if _architecture not in (self.ARCHITECTURE_X86_64, self.ARCHITECTURE_ARM64):
+            raise ValueError(f"Invalid architecture: {_architecture}")
+
+        _patch_path = self.downloaded_package_path
+        _current_squashfs_path = self.current_squashfs_path
+        _target_version = self.package.version
+
+        # Validate version string to prevent injection
+        if (
+            not isinstance(_target_version, str)
+            or not _target_version.replace(".", "").isalnum()
+        ):
+            raise ValueError(f"Invalid version string: {_target_version}")
+
+        # Apply patch using subprocess with list arguments (safer)
+        # and validate all paths are actually Path objects
+        if not (
+            isinstance(_current_squashfs_path, Path)
+            and isinstance(_patch_path, Path)
+            and isinstance(target_squashfs_path, Path)
+        ):
+            raise TypeError("All paths must be Path objects")
+
+        _cmd = [
+            "zstd",
+            "-d",
+            f"--patch-from={_current_squashfs_path}",
+            str(_patch_path),
+            "-o",
+            str(target_squashfs_path),
+        ]
+        logger.info(f"Applying patch with command: {' '.join(_cmd)}")
+        try:
+            subprocess_call(
+                _cmd,
+                raise_exception=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"failed to apply patch: {e!r}")
+            raise
 
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
@@ -436,9 +442,12 @@ class OTAClientPackage:
     def copy_client_package(self) -> None:
         """Copy the client package."""
         _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        if os.path.exists(_squashfs_file):
+            os.remove(_squashfs_file)
+
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
-        shutil.copy(self.get_target_squashfs_path(), _squashfs_file)
+        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
 
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
