@@ -26,7 +26,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -314,22 +313,12 @@ class OTAClientPackage:
             ignore_error=False,
         )
 
-        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
-            try:
-                cmdhelper.ensure_mount(
-                    target=squashfs_file,
-                    mnt_point=mount_base,
-                    mount_func=cmdhelper.mount_squashfs,
-                    raise_exception=True,
-                    max_retry=0,
-                )
-                break
-            except subprocess.CalledProcessError:
-                # when the squashfs file is not valid, it will raise an error
-                # in this case, copy the squashfs file again and retry
-                if _ == cfg.CLIENT_WAKEUP_RETRY_MAX - 1:
-                    raise
-                self.copy_client_package()
+        cmdhelper.ensure_mount(
+            target=squashfs_file,
+            mnt_point=mount_base,
+            mount_func=cmdhelper.mount_squashfs,
+            raise_exception=True,
+        )
 
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
         """Bind mount the host directories to the mount base."""
@@ -590,16 +579,6 @@ def dynamic_client_shutdown() -> None:
         try:
             # Kill process group
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-
-            # Use a safer wait approach that won't cause issues during atexit
-            for _ in range(10):  # try for up to 5 seconds (0.5s * 10)
-                if _dynamic_client_p.poll() is not None:
-                    break
-                time.sleep(0.5)  # short sleep to avoid busy waiting
-
-            # Force kill if still running
-            if _dynamic_client_p.poll() is None:
-                os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
         except Exception as e:
             print(f"Error while terminating dynamic client process: {e}")
         finally:
