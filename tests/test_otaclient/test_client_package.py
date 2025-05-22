@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 from pathlib import Path
 from typing import Optional
@@ -302,8 +303,6 @@ class TestClientPackage:
         assert target_path == Path(expected_path)
 
     def test_create_squashfs_from_patch(self, ota_client_package):
-        import shutil
-
         if not shutil.which("zstd"):
             pytest.skip("zstd is not available, skipping patch test")
 
