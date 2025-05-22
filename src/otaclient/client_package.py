@@ -554,10 +554,13 @@ def dynamic_client_shutdown() -> None:
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
         try:
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
+            _dynamic_client_p.wait(timeout=5)
         except Exception as e:
-            print(f"failed to kill dynamic client process group: {e}")
-        _dynamic_client_p.wait()
-        _dynamic_client_p = None
+            logger.warning(f"failed to kill dynamic client process group: {e}")
+            # ignore errors
+            pass
+        finally:
+            _dynamic_client_p = None
 
     cmdhelper.ensure_umount(
         cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
@@ -569,5 +572,7 @@ def dynamic_client_shutdown() -> None:
             os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
     except OSError as e:
         logger.warning(f"Failed to remove squashfs file: {e}")
+        # ignore errors
+        pass
 
     logger.info("dynamic client shutdown completed.")
