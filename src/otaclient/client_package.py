@@ -549,7 +549,7 @@ def dynamic_client_shutdown() -> None:
             losetup_output = subprocess_check_output(
                 ["losetup", "-a"], raise_exception=True
             )
-            for line in losetup_output.strip().splitlines():
+            for line in losetup_output.splitlines():
                 if str(file_path) in line:
                     dev = line.split(":")[0]
                     loop_devs.append(dev)
