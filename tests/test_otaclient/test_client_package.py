@@ -22,14 +22,15 @@ from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
 import pytest_mock
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
     _dynamic_client_thread,
     dynamic_client_shutdown,
 )
+from tests.conftest import TEST_DIR
 
 
 def helper_generate_package(
@@ -278,15 +279,51 @@ class TestClientPackage:
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
 
-    def test_get_target_squashfs_path(self, ota_client_package):
+    @pytest.mark.parametrize(
+        "package_type, expected_path",
+        [
+            ("squashfs", "/tmp/session/.download/package.squashfs"),
+            ("patch", "/tmp/session/otaclient.squashfs"),
+        ],
+    )
+    def test_get_target_squashfs_path(
+        self, ota_client_package, package_type, expected_path
+    ):
         ota_client_package.package = MagicMock()
-        ota_client_package.package.type = "squashfs"
-        ota_client_package.downloaded_package_path = Path(
-            "/tmp/session/.download/package.squashfs"
+        ota_client_package.package.type = package_type
+        ota_client_package._session_dir = Path("/tmp/session")
+        ota_client_package.downloaded_package_path = (
+            ota_client_package._session_dir / ".download/package.squashfs"
         )
+        ota_client_package._create_squashfs_from_patch = MagicMock()
 
-        target_path = ota_client_package.get_target_squashfs_path()
-        assert target_path == Path("/tmp/session/.download/package.squashfs")
+        target_path = ota_client_package._get_target_squashfs_path()
+
+        assert target_path == Path(expected_path)
+
+    def test_create_squashfs_from_patch(self, ota_client_package):
+        TEST_DATA_DIR = TEST_DIR / "data" / "client_package"
+
+        ota_client_package.package = MagicMock()
+        ota_client_package.package.architecture = "x86_64"
+        ota_client_package.package.type = "patch"
+        ota_client_package.package.version = "1.2.3"
+        ota_client_package._session_dir = Path("/tmp/session")
+        ota_client_package.downloaded_package_path = TEST_DATA_DIR / "v1_v2.patch"
+        ota_client_package.current_squashfs_path = TEST_DATA_DIR / "v1.squashfs"
+
+        target_squashfs_path = Path("tmp.squashfs")
+        try:
+            # verify the target squashfs file doesn't exist
+            assert not target_squashfs_path.exists()
+            # call the target method and apply the patch to the input squashfs
+            ota_client_package._create_squashfs_from_patch(target_squashfs_path)
+            # verify the target squashfs file is created
+            assert target_squashfs_path.exists()
+        finally:
+            # Clean up the file regardless of test result
+            if target_squashfs_path.exists():
+                target_squashfs_path.unlink()
 
     @pytest.mark.parametrize(
         "is_same_package_version, expected_download_info_length",
