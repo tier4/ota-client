@@ -222,6 +222,8 @@ class OTAClientPackage:
         """Create a squashfs file from the patch file."""
         if self.package is None:
             raise ValueError("OTA client package is not downloaded yet, abort")
+        if shutil.which("zstd") is None:
+            raise ValueError("zstd is not installed, abort")
 
         # apply patch to the existing squashfs
         _architecture = self.package.architecture
