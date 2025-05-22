@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 from pathlib import Path
 from typing import Optional
@@ -22,8 +23,8 @@ from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
 import pytest_mock
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
@@ -302,6 +303,9 @@ class TestClientPackage:
         assert target_path == Path(expected_path)
 
     def test_create_squashfs_from_patch(self, ota_client_package):
+        if not shutil.which("zstd"):
+            pytest.skip("zstd is not available, skipping patch test")
+
         TEST_DATA_DIR = TEST_DIR / "data" / "client_package"
 
         ota_client_package.package = MagicMock()

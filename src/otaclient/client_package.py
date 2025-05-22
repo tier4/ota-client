@@ -222,6 +222,8 @@ class OTAClientPackage:
         """Create a squashfs file from the patch file."""
         if self.package is None:
             raise ValueError("OTA client package is not downloaded yet, abort")
+        if shutil.which("zstd") is None:
+            raise ValueError("zstd is not installed, abort")
 
         # apply patch to the existing squashfs
         _architecture = self.package.architecture
@@ -442,6 +444,9 @@ class OTAClientPackage:
     def copy_client_package(self) -> None:
         """Copy the client package."""
         _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        if os.path.exists(_squashfs_file):
+            os.remove(_squashfs_file)
+
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
         shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
