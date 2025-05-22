@@ -447,8 +447,6 @@ class OTAClientPackage:
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
         shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
-        # set the file permission to read-only
-        os.chmod(_squashfs_file, 0o444)
 
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
@@ -561,11 +559,13 @@ def dynamic_client_shutdown() -> None:
         _dynamic_client_p.wait()
         _dynamic_client_p = None
 
+    cmdhelper.ensure_umount(
+        cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
+    )
     shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
     try:
         # Change permissions to writable before deletion
         if os.path.exists(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE):
-            os.chmod(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE, 0o644)  # Make it writable
             os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
     except OSError as e:
         logger.warning(f"Failed to remove squashfs file: {e}")
