@@ -444,9 +444,6 @@ class OTAClientPackage:
     def copy_client_package(self) -> None:
         """Copy the client package."""
         _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
-        if os.path.exists(_squashfs_file):
-            os.remove(_squashfs_file)
-
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
         shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
