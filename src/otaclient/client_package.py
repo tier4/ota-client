@@ -313,12 +313,23 @@ class OTAClientPackage:
             mount_base,
             ignore_error=False,
         )
-        cmdhelper.ensure_mount(
-            target=squashfs_file,
-            mnt_point=mount_base,
-            mount_func=cmdhelper.mount_squashfs,
-            raise_exception=True,
-        )
+
+        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
+            try:
+                cmdhelper.ensure_mount(
+                    target=squashfs_file,
+                    mnt_point=mount_base,
+                    mount_func=cmdhelper.mount_squashfs,
+                    raise_exception=True,
+                    max_retry=0,
+                )
+                break
+            except subprocess.CalledProcessError:
+                # when the squashfs file is not valid, it will raise an error
+                # in this case, copy the squashfs file again and retry
+                if _ == cfg.CLIENT_WAKEUP_RETRY_MAX - 1:
+                    raise
+                self.copy_client_package()
 
     def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
         """Bind mount the host directories to the mount base."""
@@ -594,17 +605,18 @@ def dynamic_client_shutdown() -> None:
         finally:
             _dynamic_client_p = None
 
+    _mount_point = cfg.DYNAMIC_CLIENT_MNT
+    _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
     try:
         # unmount the dynamic client mount point
         cmdhelper.ensure_umount(
-            cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
+            _mount_point, ignore_error=True, max_retry=0, retry_interval=0
         )
     except Exception as e:
         print(f"Error while unmounting dynamic client mount point: {e}")
 
     try:
         # release loop devices
-        _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
         _loop_devs = _get_loop_devices_using_file(_squashfs_file)
         _release_loop_devices(_loop_devs)
     except Exception as e:
@@ -612,13 +624,13 @@ def dynamic_client_shutdown() -> None:
 
     try:
         # remove the dynamic client mount point
-        shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
+        shutil.rmtree(_mount_point, ignore_errors=True)
     except Exception as e:
         print(f"Error while removing dynamic client mount point: {e}")
 
     try:
         # remove the dynamic client squashfs file
-        if os.path.exists(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE):
-            os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        if os.path.exists(_squashfs_file):
+            os.remove(_squashfs_file)
     except Exception as e:
         print(f"Error while removing dynamic client squashfs file: {e}")
