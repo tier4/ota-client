@@ -171,7 +171,7 @@ class OTAClientPackage:
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = (
             Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
-            / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
+            / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
@@ -209,7 +209,7 @@ class OTAClientPackage:
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
             _target_squashfs_path = (
-                Path(self._session_dir) / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
+                Path(self._session_dir) / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
             )
             if not _target_squashfs_path.is_file():
                 self._create_squashfs_from_patch(_target_squashfs_path)
@@ -443,14 +443,14 @@ class OTAClientPackage:
 
     def copy_client_package(self) -> None:
         """Copy the client package."""
-        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
         # copy the squashfs file
         os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
         shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
 
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
-        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
 
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
         if os.path.exists(_mount_base):
@@ -560,5 +560,6 @@ def dynamic_client_shutdown() -> None:
         _dynamic_client_p = None
 
     shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
+    os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
 
     logger.info("dynamic client shutdown completed.")
