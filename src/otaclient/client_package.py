@@ -567,7 +567,7 @@ def dynamic_client_shutdown() -> None:
             if _dynamic_client_p.poll() is None:
                 os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
         except Exception as e:
-            logger.warning(f"Error while terminating dynamic client process: {e}")
+            print(f"Error while terminating dynamic client process: {e}")
         finally:
             _dynamic_client_p = None
 
@@ -577,19 +577,17 @@ def dynamic_client_shutdown() -> None:
             cfg.DYNAMIC_CLIENT_MNT, ignore_error=True, max_retry=0, retry_interval=0
         )
     except Exception as e:
-        logger.warning(f"Error while unmounting dynamic client mount point: {e}")
+        print(f"Error while unmounting dynamic client mount point: {e}")
 
     try:
         # remove the dynamic client mount point
         shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
     except Exception as e:
-        logger.warning(f"Error while removing dynamic client mount point: {e}")
+        print(f"Error while removing dynamic client mount point: {e}")
 
     try:
         # remove the dynamic client squashfs file
         if os.path.exists(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE):
             os.remove(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
     except Exception as e:
-        logger.warning(f"Error while removing dynamic client squashfs file: {e}")
-
-    logger.info("dynamic client shutdown completed.")
+        print(f"Error while removing dynamic client squashfs file: {e}")
