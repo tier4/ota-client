@@ -176,10 +176,10 @@ class TestLogClient:
     ):
         self.data_ready.clear()
 
-        with mocker.patch.object(
+        mocker.patch.object(
             _LogTeeHandler, "_wait_for_log_server_up", return_value=None
-        ):
-            configure_logging()
+        )
+        configure_logging()
 
         # send a test log message
         logger.error(log_message, extra=extra)
