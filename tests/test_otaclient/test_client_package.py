@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -308,26 +309,33 @@ class TestClientPackage:
 
         TEST_DATA_DIR = TEST_DIR / "data" / "client_package"
 
-        ota_client_package.package = MagicMock()
-        ota_client_package.package.architecture = "x86_64"
-        ota_client_package.package.type = "patch"
-        ota_client_package.package.version = "1.2.3"
-        ota_client_package._session_dir = Path("/tmp/session")
-        ota_client_package.downloaded_package_path = TEST_DATA_DIR / "v1_v2.patch"
-        ota_client_package.current_squashfs_path = TEST_DATA_DIR / "v1.squashfs"
+        # Create temporary paths for testing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
+            # Copy the test files to the temp directory to ensure path consistency
+            test_squashfs = temp_dir_path / "v1.squashfs"
+            test_patch = temp_dir_path / "v1_v2.patch"
+            shutil.copy(TEST_DATA_DIR / "v1.squashfs", test_squashfs)
+            shutil.copy(TEST_DATA_DIR / "v1_v2.patch", test_patch)
 
-        target_squashfs_path = Path("tmp.squashfs")
-        try:
+            ota_client_package.package = MagicMock()
+            ota_client_package.package.architecture = "x86_64"
+            ota_client_package.package.type = "patch"
+            ota_client_package.package.version = "1.2.3"
+            ota_client_package._session_dir = temp_dir_path
+            ota_client_package.downloaded_package_path = test_patch
+            ota_client_package.current_squashfs_path = test_squashfs
+
+            target_squashfs_path = temp_dir_path / "tmp.squashfs"
+
             # verify the target squashfs file doesn't exist
             assert not target_squashfs_path.exists()
+
             # call the target method and apply the patch to the input squashfs
             ota_client_package._create_squashfs_from_patch(target_squashfs_path)
+
             # verify the target squashfs file is created
             assert target_squashfs_path.exists()
-        finally:
-            # Clean up the file regardless of test result
-            if target_squashfs_path.exists():
-                target_squashfs_path.unlink()
 
     @pytest.mark.parametrize(
         "is_same_package_version, expected_download_info_length",

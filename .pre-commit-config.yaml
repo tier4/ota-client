@@ -7,6 +7,11 @@ repos:
         args: ["--allow-multiple-documents"]
       - id: check-toml
       - id: end-of-file-fixer
+        exclude: |
+          (?x)(
+            .*\.squashfs$|
+            .*\.patch$
+          )
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.8
