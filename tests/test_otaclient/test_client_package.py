@@ -302,6 +302,11 @@ class TestClientPackage:
         assert target_path == Path(expected_path)
 
     def test_create_squashfs_from_patch(self, ota_client_package):
+        import shutil
+
+        if not shutil.which("zstd"):
+            pytest.skip("zstd is not available, skipping patch test")
+
         TEST_DATA_DIR = TEST_DIR / "data" / "client_package"
 
         ota_client_package.package = MagicMock()
