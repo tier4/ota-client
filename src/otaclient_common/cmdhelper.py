@@ -526,7 +526,7 @@ def mount_squashfs(
     """Mount the <target> sqiashfs to <mount_point>.
 
     This is implemented by calling:
-        mount -t squashfs --make-private --make-unbindable <target> <mount_point>
+        mount --make-private --make-unbindable -o ro $LOOPDEV -t squashfs <target> <mount_point>
 
     NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
             mount events propagation to/from this mount point.
@@ -537,17 +537,35 @@ def mount_squashfs(
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
     """
+    # Setup loop device for the squashfs file
+    loop_cmd = ["losetup", "--show", "-f", "-r", str(target)]
+    loop_dev = subprocess_check_output(
+        loop_cmd, raise_exception=raise_exception
+    ).strip()
+
+    if not loop_dev:
+        error_msg = f"Failed to setup loop device for {target}"
+        logger.error(error_msg)
+        if raise_exception:
+            raise RuntimeError(error_msg)
+        return
+
     # fmt: off
     cmd = [
         "mount",
         "--make-private", "--make-unbindable",
-        "-o", "loop,ro",
+        "-o", "ro",
         "-t", "squashfs",
-        str(target),
+        loop_dev,
         str(mount_point),
     ]
     # fmt: on
-    subprocess_call(cmd, raise_exception=raise_exception)
+    try:
+        subprocess_call(cmd, raise_exception=True)
+    except Exception:
+        subprocess_call(["losetup", "-d", loop_dev], raise_exception=False)
+        if raise_exception:
+            raise
 
 
 def umount(
