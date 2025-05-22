@@ -489,7 +489,6 @@ class OTAClientPackage:
         _otaclient_dynamic_client_t.join()
         _otaclient_dynamic_client_t = None
         logger.info("dynamic client thread exited")
-        return
 
 
 def _dynamic_client_thread() -> None:
