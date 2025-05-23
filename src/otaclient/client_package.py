@@ -38,6 +38,7 @@ from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
+    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -171,7 +172,7 @@ class OTAClientPackage:
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = (
             Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
-            / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
+            / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
@@ -209,7 +210,7 @@ class OTAClientPackage:
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
             _target_squashfs_path = (
-                Path(self._session_dir) / Path(cfg.OTACLIENT_SQUASHFS_FILE).name
+                Path(self._session_dir) / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
             )
             if not _target_squashfs_path.is_file():
                 self._create_squashfs_from_patch(_target_squashfs_path)
@@ -269,6 +270,68 @@ class OTAClientPackage:
             logger.warning(f"failed to apply patch: {e!r}")
             raise
 
+    def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
+        """Cleanup the mount point."""
+
+        def _get_loop_devices_using_file(file_path: Path) -> list[str]:
+            loop_devs = []
+            try:
+                losetup_output = subprocess_check_output(
+                    ["losetup", "-a"], raise_exception=True
+                )
+                for line in losetup_output.splitlines():
+                    if str(file_path) in line:
+                        dev = line.split(":")[0]
+                        loop_devs.append(dev)
+            except Exception as e:
+                print(f"Error parsing losetup output: {e}")
+            return loop_devs
+
+        def _release_loop_devices(devices: list[str]):
+            for dev in devices:
+                try:
+                    subprocess_call(["losetup", "-d", dev], raise_exception=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"Failed to release {dev}: {e}")
+
+        _mount_point = cfg.DYNAMIC_CLIENT_MNT
+        _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        try:
+            # unmount the dynamic client mount point
+            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
+            cmdhelper.ensure_umount(
+                _mount_point, ignore_error=False, max_retry=0, retry_interval=0
+            )
+        except Exception as e:
+            logger.warning(f"error while unmounting dynamic client mount point: {e}")
+
+        try:
+            # release loop devices
+            _loop_devs = _get_loop_devices_using_file(_squashfs_file)
+            _release_loop_devices(_loop_devs)
+        except Exception as e:
+            logger.warning(f"error while releasing loop device: {e}")
+
+        try:
+            # remove the dynamic client mount point
+            shutil.rmtree(_mount_point, ignore_errors=False)
+        except Exception as e:
+            logger.warning(f"error while removing dynamic client mount point: {e}")
+
+        try:
+            # remove the dynamic client squashfs file
+            if os.path.exists(_squashfs_file):
+                os.remove(_squashfs_file)
+        except Exception as e:
+            logger.warning(f"error while removing dynamic client squashfs file: {e}")
+
+    def _copy_client_package(self) -> None:
+        """Copy the client package."""
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
+        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
+
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
@@ -302,15 +365,12 @@ class OTAClientPackage:
         if not os.path.exists(squashfs_file):
             raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
 
-        # check if the mount base exists
-        if not os.path.exists(mount_base):
-            raise ValueError(f"Mount base does not exist: {mount_base}")
-
         # mount the squashfs file
         cmdhelper.ensure_mointpoint(
             mount_base,
             ignore_error=False,
         )
+
         cmdhelper.ensure_mount(
             target=squashfs_file,
             mnt_point=mount_base,
@@ -441,26 +501,16 @@ class OTAClientPackage:
                 return True
         return False
 
-    def copy_client_package(self) -> None:
-        """Copy the client package."""
-        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
-        if os.path.exists(_squashfs_file):
-            os.remove(_squashfs_file)
-
-        # copy the squashfs file
-        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
-        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
-
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
-        _squashfs_file = cfg.OTACLIENT_SQUASHFS_FILE
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
 
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
-        if os.path.exists(_mount_base):
-            shutil.rmtree(_mount_base)
         os.makedirs(_mount_base, exist_ok=True)
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
+            self._cleanup_mount_point(_mount_base)
+            self._copy_client_package()
             self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
@@ -489,7 +539,6 @@ class OTAClientPackage:
         _otaclient_dynamic_client_t.join()
         _otaclient_dynamic_client_t = None
         logger.info("dynamic client thread exited")
-        return
 
 
 def _dynamic_client_thread() -> None:
@@ -557,12 +606,11 @@ def dynamic_client_shutdown() -> None:
     # kill the dynamic client process if it is running
     if _dynamic_client_p and _dynamic_client_p.poll() is None:
         try:
+            # Kill process group
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-        except Exception as e:
-            print(f"failed to kill dynamic client process group: {e}")
-        _dynamic_client_p.wait()
-        _dynamic_client_p = None
-
-    shutil.rmtree(cfg.DYNAMIC_CLIENT_MNT, ignore_errors=True)
-
-    logger.info("dynamic client shutdown completed.")
+            _dynamic_client_p.wait(timeout=5)
+        except Exception:
+            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
+            _dynamic_client_p.wait(timeout=2)
+        finally:
+            _dynamic_client_p = None
