@@ -788,13 +788,16 @@ class _OTAUpdater(_OTAUpdateOperator):
             )
             return
 
-        _src = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
         _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
             cfg.OTACLIENT_INSTALLATION_RELEASE
         ).relative_to("/")
         logger.info(f"copy client squashfs file from {_src} to {_dst}...")
-        os.makedirs(_dst, exist_ok=True)
-        shutil.copy2(_src, _dst, follow_symlinks=False)
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            shutil.copy2(_src, _dst, follow_symlinks=False)
+        except FileNotFoundError as e:
+            logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
