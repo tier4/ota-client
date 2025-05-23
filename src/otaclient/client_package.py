@@ -365,10 +365,6 @@ class OTAClientPackage:
         if not os.path.exists(squashfs_file):
             raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
 
-        # check if the mount base exists
-        if not os.path.exists(mount_base):
-            raise ValueError(f"Mount base does not exist: {mount_base}")
-
         # mount the squashfs file
         cmdhelper.ensure_mointpoint(
             mount_base,
@@ -510,8 +506,6 @@ class OTAClientPackage:
         _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
 
         _mount_base = cfg.DYNAMIC_CLIENT_MNT
-        if os.path.exists(_mount_base):
-            shutil.rmtree(_mount_base)
         os.makedirs(_mount_base, exist_ok=True)
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
