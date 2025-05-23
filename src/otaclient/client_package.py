@@ -270,6 +270,60 @@ class OTAClientPackage:
             logger.warning(f"failed to apply patch: {e!r}")
             raise
 
+    def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
+        """Cleanup the mount point."""
+
+        def _get_loop_devices_using_file(file_path: Path) -> list[str]:
+            loop_devs = []
+            try:
+                losetup_output = subprocess_check_output(
+                    ["losetup", "-a"], raise_exception=True
+                )
+                for line in losetup_output.splitlines():
+                    if str(file_path) in line:
+                        dev = line.split(":")[0]
+                        loop_devs.append(dev)
+            except Exception as e:
+                print(f"Error parsing losetup output: {e}")
+            return loop_devs
+
+        def _release_loop_devices(devices: list[str]):
+            for dev in devices:
+                try:
+                    subprocess_call(["losetup", "-d", dev], raise_exception=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"Failed to release {dev}: {e}")
+
+        _mount_point = cfg.DYNAMIC_CLIENT_MNT
+        _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        try:
+            # unmount the dynamic client mount point
+            cmdhelper.ensure_umount(
+                _mount_point, ignore_error=True, max_retry=0, retry_interval=0
+            )
+        except Exception as e:
+            logger.warning(f"error while unmounting dynamic client mount point: {e}")
+
+        try:
+            # release loop devices
+            _loop_devs = _get_loop_devices_using_file(_squashfs_file)
+            _release_loop_devices(_loop_devs)
+        except Exception as e:
+            logger.warning(f"error while releasing loop device: {e}")
+
+        try:
+            # remove the dynamic client mount point
+            shutil.rmtree(_mount_point, ignore_errors=True)
+        except Exception as e:
+            logger.warning(f"error while removing dynamic client mount point: {e}")
+
+        try:
+            # remove the dynamic client squashfs file
+            if os.path.exists(_squashfs_file):
+                os.remove(_squashfs_file)
+        except Exception as e:
+            logger.warning(f"error while removing dynamic client squashfs file: {e}")
+
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
@@ -460,6 +514,7 @@ class OTAClientPackage:
         os.makedirs(_mount_base, exist_ok=True)
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
+            self._cleanup_mount_point(_mount_base)
             self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
@@ -542,28 +597,6 @@ def _dynamic_client_thread() -> None:
 
 def dynamic_client_shutdown() -> None:
     """Shutdown the dynamic client process."""
-
-    def _get_loop_devices_using_file(file_path: Path) -> list[str]:
-        loop_devs = []
-        try:
-            losetup_output = subprocess_check_output(
-                ["losetup", "-a"], raise_exception=True
-            )
-            for line in losetup_output.splitlines():
-                if str(file_path) in line:
-                    dev = line.split(":")[0]
-                    loop_devs.append(dev)
-        except Exception as e:
-            print(f"Error parsing losetup output: {e}")
-        return loop_devs
-
-    def _release_loop_devices(devices: list[str]):
-        for dev in devices:
-            try:
-                subprocess_call(["losetup", "-d", dev], raise_exception=True)
-            except subprocess.CalledProcessError as e:
-                print(f"Failed to release {dev}: {e}")
-
     global _dynamic_client_p, _shutdown_processing
 
     if _shutdown_processing.is_set():
@@ -585,33 +618,3 @@ def dynamic_client_shutdown() -> None:
             _dynamic_client_p.wait(timeout=2)
         finally:
             _dynamic_client_p = None
-
-    _mount_point = cfg.DYNAMIC_CLIENT_MNT
-    _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
-    try:
-        # unmount the dynamic client mount point
-        cmdhelper.ensure_umount(
-            _mount_point, ignore_error=True, max_retry=0, retry_interval=0
-        )
-    except Exception as e:
-        print(f"Error while unmounting dynamic client mount point: {e}")
-
-    try:
-        # release loop devices
-        _loop_devs = _get_loop_devices_using_file(_squashfs_file)
-        _release_loop_devices(_loop_devs)
-    except Exception as e:
-        print(f"Error while releasing loop device: {e}")
-
-    try:
-        # remove the dynamic client mount point
-        shutil.rmtree(_mount_point, ignore_errors=True)
-    except Exception as e:
-        print(f"Error while removing dynamic client mount point: {e}")
-
-    try:
-        # remove the dynamic client squashfs file
-        if os.path.exists(_squashfs_file):
-            os.remove(_squashfs_file)
-    except Exception as e:
-        print(f"Error while removing dynamic client squashfs file: {e}")
