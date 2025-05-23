@@ -41,7 +41,7 @@ def test_wait_and_log(caplog: pytest.LogCaptureFixture):
     _flag = _TickingFlag(trigger_in=trigger_in)
     _msg = "ticking flag"
 
-    wait_and_log(
+    result = wait_and_log(
         _flag.is_set,
         _msg,
         check_for=True,
@@ -50,7 +50,29 @@ def test_wait_and_log(caplog: pytest.LogCaptureFixture):
         log_func=logger.warning,
     )
 
+    assert result is True
     assert len(caplog.records) == 5
     assert caplog.records[0].levelno == logging.WARNING
     assert caplog.records[0].msg == f"wait for {_msg}: 2s passed ..."
     assert time.time() < expected_trigger_time
+
+
+def test_wait_and_log_timeout(caplog: pytest.LogCaptureFixture):
+    # Create a flag that will never be set (trigger time is very far in the future)
+    _flag = _TickingFlag(trigger_in=3600)  # 1 hour in the future
+    _msg = "condition that will timeout"
+    timeout = 5  # timeout after 5 seconds
+
+    # Test that wait_and_log returns False when it times out
+    result = wait_and_log(
+        _flag.is_set,
+        _msg,
+        check_for=True,
+        check_interval=1,
+        log_interval=2,
+        log_func=logger.warning,
+        timeout=timeout,
+    )
+
+    # Verify the function returned False (condition wasn't met)
+    assert result is False
