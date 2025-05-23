@@ -470,10 +470,6 @@ class TestOTAClientUpdater:
         )
         mock_perform_update = mocker.patch.object(client_updater, "_perform_update")
         mock_request_shutdown = mocker.patch.object(client_updater, "_request_shutdown")
-        mock_handle_failure = mocker.patch.object(
-            client_updater, "_handle_update_failure"
-        )
-
         # Execute the client update
         client_updater._execute_client_update()
 
@@ -485,7 +481,6 @@ class TestOTAClientUpdater:
         mock_is_same_version.assert_called_once()
         mock_perform_update.assert_called_once()
         mock_request_shutdown.assert_called_once()
-        mock_handle_failure.assert_not_called()  # No exception, so failure handler should not be called
 
     def test_execute_client_update_same_version(
         self, mocker: pytest_mock.MockerFixture
@@ -527,8 +522,8 @@ class TestOTAClientUpdater:
         mock_perform_update = mocker.patch.object(
             client_updater, "_perform_update", side_effect=Exception("Test exception")
         )
-        mock_handle_failure = mocker.patch.object(
-            client_updater, "_handle_update_failure"
+        mock_request_shutdown = mocker.patch.object(
+            client_updater, "_request_shutdown", return_value=False
         )
 
         # Execute the client update
@@ -536,9 +531,7 @@ class TestOTAClientUpdater:
 
         # Verify the flow of method calls
         mock_perform_update.assert_called_once()
-        mock_handle_failure.assert_called_once_with(
-            mocker.ANY
-        )  # Ensure failure handler is called
+        mock_request_shutdown.assert_called_once()
 
     def test_execute_success(self, mocker: pytest_mock.MockerFixture):
         # Test successful execution
