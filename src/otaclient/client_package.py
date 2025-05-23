@@ -325,6 +325,13 @@ class OTAClientPackage:
         except Exception as e:
             logger.warning(f"error while removing dynamic client squashfs file: {e}")
 
+    def _copy_client_package(self) -> None:
+        """Copy the client package."""
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
+        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
+
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
@@ -498,13 +505,6 @@ class OTAClientPackage:
                 return True
         return False
 
-    def copy_client_package(self) -> None:
-        """Copy the client package."""
-        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
-        # copy the squashfs file
-        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
-        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
-
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
         _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
@@ -516,6 +516,7 @@ class OTAClientPackage:
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
             self._cleanup_mount_point(_mount_base)
+            self._copy_client_package()
             self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
