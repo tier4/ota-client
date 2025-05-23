@@ -409,6 +409,7 @@ class OTAClientPackage:
             "/dev/shm",
             "/etc",
             "/home",
+            "/mnt",
             "/opt",
             "/ota-cache",
             "/proc",
