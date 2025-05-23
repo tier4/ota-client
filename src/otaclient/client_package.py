@@ -579,8 +579,10 @@ def dynamic_client_shutdown() -> None:
         try:
             # Kill process group
             os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-        except Exception as e:
-            print(f"Error while terminating dynamic client process: {e}")
+            _dynamic_client_p.wait(timeout=5)
+        except Exception:
+            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
+            _dynamic_client_p.wait(timeout=2)
         finally:
             _dynamic_client_p = None
 
