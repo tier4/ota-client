@@ -742,7 +742,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
-        self._process_client_squashfs()
+        self._preserve_client_squashfs()
         self._boot_controller.post_update()
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
@@ -780,7 +780,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
-    def _process_client_squashfs(self) -> None:
+    def _preserve_client_squashfs(self) -> None:
         """Copy the client squashfs file to the standby slot."""
         if not _env.is_dynamic_client_running():
             logger.info(
