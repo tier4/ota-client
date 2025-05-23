@@ -942,8 +942,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         # let grpc process to stop the server
         self.client_update_control_flags.stop_server_event.set()
 
-        logger.info("copy and mount client package...")
-        self._ota_client_package.copy_client_package()
+        logger.info("mount client package...")
         self._ota_client_package.mount_client_package()
         shutil.rmtree(self._session_workdir, ignore_errors=True)
 
