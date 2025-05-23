@@ -298,8 +298,9 @@ class OTAClientPackage:
         _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
         try:
             # unmount the dynamic client mount point
+            cmdhelper.ensure_mointpoint(_mount_point, ignore_error=True)
             cmdhelper.ensure_umount(
-                _mount_point, ignore_error=True, max_retry=0, retry_interval=0
+                _mount_point, ignore_error=False, max_retry=0, retry_interval=0
             )
         except Exception as e:
             logger.warning(f"error while unmounting dynamic client mount point: {e}")
@@ -313,7 +314,7 @@ class OTAClientPackage:
 
         try:
             # remove the dynamic client mount point
-            shutil.rmtree(_mount_point, ignore_errors=True)
+            shutil.rmtree(_mount_point, ignore_errors=False)
         except Exception as e:
             logger.warning(f"error while removing dynamic client mount point: {e}")
 
