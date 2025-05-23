@@ -402,6 +402,7 @@ class OTAClientPackage:
                 )
 
         # bind necessary directories
+        # should not include /bin, /lib, /usr, /sbin because they are included in the squashfs
         RW_PATHS = [
             "/boot",
             "/boot/firmware",
