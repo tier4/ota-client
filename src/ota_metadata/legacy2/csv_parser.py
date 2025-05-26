@@ -39,7 +39,7 @@ from .rs_table import ResourceTable, ResourceTableORM
 
 logger = logging.getLogger(__name__)
 
-ENTRIES_PROCESS_BATCH_SIZE = 2048
+ENTRIES_PROCESS_BATCH_SIZE = 8192
 
 
 def de_escape(s: str) -> str:

@@ -625,7 +625,6 @@ class InplaceMode:
             for _t in _workers:
                 _t.join()
 
-
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
         for entry in self._ota_metadata.iter_dir_entries():
