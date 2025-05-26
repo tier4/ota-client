@@ -419,7 +419,7 @@ class OTAMetadata:
                 _row_factory=_row_factory,
                 # fmt: off
                 _stmt = gen_sql_stmt(
-                    "SELECT", "path,uid,gid,mode",
+                    "SELECT", "path,uid,gid,mode,meta",
                     "FROM", FT_NON_REGULAR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
                 )
@@ -430,7 +430,7 @@ class OTAMetadata:
         with FileTableRegularORM(self.connect_fstable()) as orm:
             # fmt: off
             _stmt = gen_sql_stmt(
-                "SELECT", "inode_id,uid,gid,mode,links_count,xattrs,digest,size",
+                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
                 "FROM", FT_REGULAR_TABLE_NAME,
                 "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
                 "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
