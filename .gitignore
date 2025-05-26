@@ -160,8 +160,10 @@ cython_debug/
 #.idea/
 
 # local vscode configs
-.devcontainer
 .vscode
 
 # local test artifacts
 test_result/
+
+# local test scripts & temporary files
+.tests
