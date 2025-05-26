@@ -30,10 +30,7 @@
 				"ms-python.vscode-pylance",
 				"ms-python.debugpy",
 				"charliermarsh.ruff",
-				"redhat.vscode-yaml",
-				// use black formatter for now, replace it with ruff
-				// in the future.
-				"ms-python.black-formatter"
+				"redhat.vscode-yaml"
 			]
 		}
 	},
