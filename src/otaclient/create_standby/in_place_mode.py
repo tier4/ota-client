@@ -74,6 +74,8 @@ class DeltaGenerator:
     """
 
     CLEANUP_ENTRY = {"/lost+found", "/tmp", "/run"}
+    # NOTE: OTA_TMP_STORE holds resources we need to use later.
+    KEEP_PATHS = {cfg.OTA_TMP_STORE}
 
     def __init__(
         self,
@@ -356,6 +358,10 @@ class DeltaGenFullDiskScan(DeltaGenerator):
     def _cleanup_base(self):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
         for _canon_dir in self._dirs_to_remove.iter_paths():
+            # remember NOT to remove the OTA source dir!
+            if _canon_dir in self.KEEP_PATHS:
+                continue
+
             _delta_src_dir = replace_root(
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
             )
@@ -455,6 +461,9 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                     _canonical_root,
                 )
             )
+            # NOTE: DO NOT CLEANUP the OTA resource folder!
+            if str(canonical_curdir_path) in self.KEEP_PATHS:
+                continue
 
             if not (
                 canonical_curdir_path == _canonical_root
