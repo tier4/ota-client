@@ -41,7 +41,6 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256, replace_root
 from otaclient_common._logging import BurstSuppressFilter
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = logging.getLogger(f"{__name__}.process_file_error")
@@ -214,9 +213,6 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         while _input := self._que.get():
             fpath, canonical_fpath, fully_scan = _input
             try:
-                if not fpath.is_file() or fpath.stat().st_size == 0:
-                    continue  # skip empty file
-
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -245,7 +241,8 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                         )
                     )
             except BaseException as e:  # NOSONAR
-                burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
+                burst_suppressed_logger.debug(
+                    f"failed to process {fpath}: {e!r}")
             finally:
                 # after the resource is collected, remove the original file
                 fpath.unlink(missing_ok=True)
@@ -255,7 +252,8 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         self._que.put_nowait(None)
 
     def _calculate_delta(self) -> None:
-        logger.debug("process delta src, generate delta and prepare local copy...")
+        logger.debug(
+            "process delta src, generate delta and prepare local copy...")
         _canonical_root = Path(CANONICAL_ROOT)
 
         # scan old slot and generate delta based on path,
@@ -297,11 +295,13 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be cleaned up unconditionally"
                 )
-                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
+                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER:]:
                     (delta_src_curdir_path / _fname).unlink(missing_ok=True)
 
             for fname in filenames:
                 delta_src_fpath = delta_src_curdir_path / fname
+                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
+                    continue  # skip empty file
 
                 # ignore non-file file(include symlink)
                 # NOTE: for in-place update, we will recreate all the symlinks,
@@ -405,7 +405,8 @@ class DeltaWithBaseFileTable(DeltaGenerator):
             self._max_pending_tasks.release()
 
     def _calculate_delta(self, base_fst: str) -> None:
-        logger.debug("process delta src, generate delta and prepare local copy...")
+        logger.debug(
+            "process delta src, generate delta and prepare local copy...")
         thread_local = threading.local()
         with ThreadPoolExecutor(
             max_workers=cfg.MAX_PROCESS_FILE_THREAD,
@@ -488,7 +489,8 @@ class InplaceMode:
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
         self.session_id = session_id
-        self._que: Queue[tuple[bytes, list[RegularFileTypedDict]] | None] = Queue()
+        self._que: Queue[tuple[bytes,
+                               list[RegularFileTypedDict]] | None] = Queue()
 
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
@@ -575,7 +577,8 @@ class InplaceMode:
                         operation=UpdateProgressReport.Type.APPLY_DELTA
                     )
             except BaseException as e:  # NOSONAR
-                burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
+                burst_suppressed_logger.exception(
+                    f"failed to process {_input}: {e!r}")
 
         # commit left-over items that cannot fill the batch
         self._status_report_queue.put_nowait(
@@ -631,7 +634,8 @@ class InplaceMode:
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
+                burst_suppressed_logger.exception(
+                    f"failed to process {entry=}: {e!r}")
                 raise
 
     def _process_non_regular_files(self) -> None:
@@ -640,7 +644,8 @@ class InplaceMode:
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
+                burst_suppressed_logger.exception(
+                    f"failed to process {entry=}: {e!r}")
                 raise
 
     # API
