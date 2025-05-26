@@ -8,7 +8,10 @@ requires = [
 [project]
 name = "otaclient"
 readme = "README.md"
-license = { text = "LICENSE.md" }
+license = "Apache-2.0"
+license-files = [
+  "LICENSE",
+]
 requires-python = ">=3.8"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
@@ -26,8 +29,8 @@ dynamic = [
 dependencies = [
   "anyio>=4.5.1,<5",
   "aiohttp>=3.10.11,<3.12",
-  "cryptography>=43.0.1,<45",
-  "grpcio>=1.53.2,<1.69",
+  "cryptography==44.0.2",
+  "grpcio==1.70.0",
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
   "protobuf>=4.21.12,<5.29",
@@ -41,16 +44,18 @@ dependencies = [
   "uvicorn[standard]>=0.30,<0.35",
   "zstandard<0.24,>=0.22",
 ]
-optional-dependencies.dev = [
+urls.Source = "https://github.com/tier4/ota-client"
+
+[dependency-groups]
+dev = [
   "black",
   "coverage",
-  "pytest==8.3.4",
+  "pytest==8.3.5",
   "pytest-asyncio==0.23.8",
   "pytest-mock==3.14",
   "requests-mock",
   "ruff",
 ]
-urls.Source = "https://github.com/tier4/ota-client"
 
 [tool.hatch.version]
 source = "vcs"
@@ -79,12 +84,6 @@ sources = [
   "src",
 ]
 
-[tool.hatch.envs.dev]
-type = "virtual"
-features = [
-  "dev",
-]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 log_auto_indent = true
@@ -94,18 +93,6 @@ log_cli_level = "INFO"
 testpaths = [
   "./tests",
 ]
-
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-  'py39',
-  'py310',
-  'py311',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
 
 [tool.coverage.run]
 concurrency = [
@@ -121,6 +108,7 @@ source = [
   "otaclient_common",
   "ota_metadata",
   "ota_proxy",
+  "otaclient_manifest",
 ]
 
 [tool.coverage.report]
@@ -141,15 +129,21 @@ skip_covered = true
 [tool.pyright]
 exclude = [
   "**/__pycache__",
+  ".ruff_cache",
+  ".venv",
+  "venv",
+  ".tests",
 ]
 ignore = [
   "proto/**",
   "**/*_pb2.py*",
   "**/*_pb2_grpc.py*",
 ]
+typeCheckingMode = "standard"
 pythonVersion = "3.8"
 
 [tool.ruff]
+line-length = 88
 target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
@@ -180,3 +174,6 @@ ignore = [
   "E701", # (multiple statements on one line)
   "S101", # (use of assert): mostly we use assert for typing
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
