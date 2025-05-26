@@ -8,7 +8,10 @@ requires = [
 [project]
 name = "otaclient"
 readme = "README.md"
-license = { text = "LICENSE.md" }
+license = "Apache-2.0"
+license-files = [
+  "LICENSE",
+]
 requires-python = ">=3.8"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
@@ -42,7 +45,10 @@ dependencies = [
   "uvicorn[standard]>=0.30,<0.35",
   "zstandard<0.24,>=0.22",
 ]
-optional-dependencies.dev = [
+urls.Source = "https://github.com/tier4/ota-client"
+
+[dependency-groups]
+dev = [
   "black",
   "coverage",
   "pytest==8.3.5",
@@ -51,7 +57,6 @@ optional-dependencies.dev = [
   "requests-mock",
   "ruff",
 ]
-urls.Source = "https://github.com/tier4/ota-client"
 
 [tool.hatch.version]
 source = "vcs"
@@ -78,12 +83,6 @@ only-include = [
 ]
 sources = [
   "src",
-]
-
-[tool.hatch.envs.dev]
-type = "virtual"
-features = [
-  "dev",
 ]
 
 [tool.pytest.ini_options]
@@ -122,7 +121,7 @@ source = [
   "otaclient_common",
   "ota_metadata",
   "ota_proxy",
-  "otaclient_manifest"
+  "otaclient_manifest",
 ]
 
 [tool.coverage.report]
