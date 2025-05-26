@@ -313,7 +313,11 @@ class DeltaGenFullDiskScan(DeltaGenerator):
 
                 self._max_pending_tasks.acquire()
                 self._que.put_nowait(
-                    (delta_src_fpath, canonical_curdir_path / fname, _dir_should_fully_scan)
+                    (
+                        delta_src_fpath,
+                        canonical_curdir_path / fname,
+                        _dir_should_fully_scan,
+                    )
                 )
 
         # heals the hole of the ft_rs table
@@ -351,6 +355,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             self._ft_dir_orm.orm_con.close()
 
 
+# TODO: apply the optimization like fulldiskscan mode
 class DeltaWithBaseFileTable(DeltaGenerator):
 
     def _process_file(
@@ -483,81 +488,103 @@ class InplaceMode:
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
         self.session_id = session_id
+        self._que: Queue[tuple[bytes, list[RegularFileTypedDict]] | None] = Queue()
 
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-    def _preprocess_regular_file_entries(
-        self,
-    ) -> Generator[tuple[bytes, list[RegularFileTypedDict]]]:
+    def _process_regular_file_entries(self) -> None:
         """Yield a group of regular file entries which have the same digest each time.
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
-        cur_digest_group: list[RegularFileTypedDict] = []
-        cur_digest: bytes = b""
-        for _entry in self._ota_metadata.iter_regular_entries():
-            _this_digest = _entry["digest"]
-            if not cur_digest:
-                cur_digest = _this_digest
-                cur_digest_group.append(_entry)
-                continue
-
-            if _this_digest != cur_digest:
-                yield cur_digest, cur_digest_group
-
-                cur_digest = _this_digest
-                cur_digest_group = [_entry]
-            else:
-                cur_digest_group.append(_entry)
-
-        # NOTE: remember to yield the last group
-        yield cur_digest, cur_digest_group
-
-    def _process_one_regular_files_group(
-        self, _input: tuple[bytes, list[RegularFileTypedDict]]
-    ) -> tuple[int, int]:
-        """Process a group of regular_files with the same digest.
-
-        Returns:
-            A tuple of int, first is the processed files number, second is the sume of
-                processed files' size.
-        """
-        digest, entries = _input
-        # NOTE: the very first entry in the group must be prepared by local copy or
-        #   download from remote, which both cases are recorded previously, so we minus one
-        #   entry when calculating the processed_files_num and processed_files_size.
-        processed_files_num = len(entries) - 1
-        processed_files_size = processed_files_num * (entries[0]["size"] or 0)
-
-        resource_file = self._resource_dir / digest.hex()
-        hardlinked: dict[int, str] = {}
+        _workers: list[threading.Thread] = []
+        for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
+            _t = threading.Thread(target=self._process_file_groups_worker)
+            _t.start()
+            _workers.append(_t)
 
         try:
-            first_entry = entries.pop()
-            prepare_regular(
-                first_entry,
-                _rs=resource_file,
-                target_mnt=self._standby_slot_mp,
-                prepare_method="hardlink",
-            )
-            if first_entry["links_count"] is not None:
-                hardlinked[first_entry["inode_id"]] = first_entry["path"]
+            cur_digest_group: list[RegularFileTypedDict] = []
+            cur_digest: bytes = b""
+            for _entry in self._ota_metadata.iter_regular_entries():
+                _this_digest = _entry["digest"]
+                if not cur_digest:
+                    cur_digest = _this_digest
+                    cur_digest_group.append(_entry)
+                    continue
 
-            for entry in entries:
-                if entry["links_count"] is not None:
-                    _inode_id = entry["inode_id"]
-                    if _first_hardlinked_canon := hardlinked.get(_inode_id):
-                        prepare_regular(
-                            entry,
-                            _rs=replace_root(
-                                _first_hardlinked_canon,
-                                cfg.CANONICAL_ROOT,
-                                self._standby_slot_mp,
-                            ),
-                            target_mnt=self._standby_slot_mp,
-                            prepare_method="hardlink",
-                        )
+                if _this_digest != cur_digest:
+                    self._que.put_nowait((cur_digest, cur_digest_group))
+
+                    cur_digest = _this_digest
+                    cur_digest_group = [_entry]
+                else:
+                    cur_digest_group.append(_entry)
+            # NOTE: remember to yield the last group
+            self._que.put_nowait((cur_digest, cur_digest_group))
+        finally:
+            self._que.put_nowait(None)
+            for _t in _workers:
+                _t.join()
+
+    # TODO: maintain a flag to global breakout when process
+    def _process_file_groups_worker(self):
+        """files group process worker."""
+        _next_commit_before, _batch_cnt = 0, 0
+        _merged_payload = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.APPLY_DELTA
+        )
+
+        _total_cnt = 0
+        while _input := self._que.get():
+            digest, entries = _input
+            # NOTE: the very first entry in the group must be prepared by local copy or
+            #   download from remote, which both cases are recorded previously, so we minus one
+            #   entry when calculating the processed_files_num and processed_files_size.
+            _total_cnt += 1
+            processed_files_num = len(entries) - 1
+            _merged_payload.processed_file_num += processed_files_num
+            _merged_payload.processed_file_size += processed_files_num * (
+                entries[0]["size"] or 0
+            )
+
+            resource_file = self._resource_dir / digest.hex()
+            hardlinked: dict[int, str] = {}
+
+            try:
+                first_entry = entries.pop()
+                prepare_regular(
+                    first_entry,
+                    _rs=resource_file,
+                    target_mnt=self._standby_slot_mp,
+                    prepare_method="hardlink",
+                )
+                if first_entry["links_count"] is not None:
+                    hardlinked[first_entry["inode_id"]] = first_entry["path"]
+
+                for entry in entries:
+                    if entry["links_count"] is not None:
+                        _inode_id = entry["inode_id"]
+                        if _first_hardlinked_canon := hardlinked.get(_inode_id):
+                            prepare_regular(
+                                entry,
+                                _rs=replace_root(
+                                    _first_hardlinked_canon,
+                                    cfg.CANONICAL_ROOT,
+                                    self._standby_slot_mp,
+                                ),
+                                target_mnt=self._standby_slot_mp,
+                                prepare_method="hardlink",
+                            )
+                        else:
+                            prepare_regular(
+                                entry,
+                                resource_file,
+                                target_mnt=self._standby_slot_mp,
+                                prepare_method="copy",
+                            )
+                            hardlinked[_inode_id] = entry["path"]
                     else:
                         prepare_regular(
                             entry,
@@ -565,76 +592,37 @@ class InplaceMode:
                             target_mnt=self._standby_slot_mp,
                             prepare_method="copy",
                         )
-                        hardlinked[_inode_id] = entry["path"]
-                else:
-                    prepare_regular(
-                        entry,
-                        resource_file,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="copy",
+            except BaseException as e:  # NOSONAR
+                burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
+
+            _now = int(time.time())
+            if (
+                _this_batch := _total_cnt // PROCESS_FILES_REPORT_BATCH
+            ) > _batch_cnt or _now > _next_commit_before:
+                _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
+                _batch_cnt = _this_batch
+
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
                     )
-            return processed_files_num, processed_files_size
-        except Exception as e:
-            burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
-            raise
+                )
+                _merged_payload = UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.APPLY_DELTA
+                )
+
+        # commit left-over items that cannot fill the batch
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=_merged_payload,
+                session_id=self.session_id,
+            )
+        )
+        # wait up other threads
+        self._que.put_nowait(None)
 
     # main entries for processing each type of files.
-
-    def _process_regular_files(
-        self,
-        *,
-        batch_concurrency: int = PROCESS_FILES_CONCURRENCY,
-        num_of_workers: int = PROCESS_FILES_WORKER,
-    ) -> None:
-        logger.info("star to process regular entries ...")
-        _next_commit_before, _batch_cnt = 0, 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.APPLY_DELTA
-        )
-
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=batch_concurrency,
-            max_total_retry=cfg.CREATE_STANDBY_RETRY_MAX,
-            max_workers=num_of_workers,
-        ) as _mapper:
-            for _done_count, _done in enumerate(
-                _mapper.ensure_tasks(
-                    func=self._process_one_regular_files_group,
-                    iterable=self._preprocess_regular_file_entries(),
-                )
-            ):
-                _now = int(time.time())
-                if _done.exception():
-                    # NOTE: failure logging is handled by logging_wrapper
-                    continue
-
-                _processed_files_num, _processed_files_size = _done.result()
-                _merged_payload.processed_file_num += _processed_files_num
-                _merged_payload.processed_file_size += _processed_files_size
-
-                if (
-                    _this_batch := _done_count // PROCESS_FILES_REPORT_BATCH
-                ) > _batch_cnt or _now > _next_commit_before:
-                    _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
-                    _batch_cnt = _this_batch
-
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload,
-                            session_id=self.session_id,
-                        )
-                    )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.APPLY_DELTA
-                    )
-
-            # commit left-over items that cannot fill the batch
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=_merged_payload,
-                    session_id=self.session_id,
-                )
-            )
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
@@ -659,7 +647,7 @@ class InplaceMode:
     def update_slot(self) -> None:
         self._process_dir_entries()
         self._process_non_regular_files()
-        self._process_regular_files()
+        self._process_regular_file_entries()
 
         # finally, cleanup the resource dir
         shutil.rmtree(self._resource_dir)
