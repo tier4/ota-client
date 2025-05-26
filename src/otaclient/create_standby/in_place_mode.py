@@ -359,7 +359,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
         for _canon_dir in self._dirs_to_remove.iter_paths():
             # remember NOT to remove the OTA source dir!
-            if _canon_dir in self.KEEP_PATHS:
+            if str(_canon_dir) in self.KEEP_PATHS:
                 continue
 
             _delta_src_dir = replace_root(
