@@ -142,12 +142,17 @@ skip_covered = true
 [tool.pyright]
 exclude = [
   "**/__pycache__",
+  ".ruff_cache",
+  ".venv",
+  "venv",
+  ".tests",
 ]
 ignore = [
   "proto/**",
   "**/*_pb2.py*",
   "**/*_pb2_grpc.py*",
 ]
+typeCheckingMode = "standard"
 pythonVersion = "3.8"
 
 [tool.ruff]
