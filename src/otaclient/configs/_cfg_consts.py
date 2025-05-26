@@ -56,7 +56,7 @@ class Consts:
     DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT = "/original_root"
     # downloaded squashfs location in local filesystem
     # this path should not be mounted by squashfs
-    DYNAMIC_CLIENT_SQUASHFS_FILE = "/.ota-client.squashfs"
+    DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """tmp store for local copy, located at standby slot."""

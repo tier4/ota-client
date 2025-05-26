@@ -742,7 +742,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
-        self._process_client_squashfs()
+        self._preserve_client_squashfs()
         self._boot_controller.post_update()
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
@@ -780,7 +780,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
-    def _process_client_squashfs(self) -> None:
+    def _preserve_client_squashfs(self) -> None:
         """Copy the client squashfs file to the standby slot."""
         if not _env.is_dynamic_client_running():
             logger.info(
@@ -788,13 +788,18 @@ class _OTAUpdater(_OTAUpdateOperator):
             )
             return
 
-        _src = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
+            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        ).relative_to("/")
         _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
             cfg.OTACLIENT_INSTALLATION_RELEASE
         ).relative_to("/")
         logger.info(f"copy client squashfs file from {_src} to {_dst}...")
-        os.makedirs(_dst, exist_ok=True)
-        shutil.copy2(_src, _dst, follow_symlinks=False)
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            shutil.copy(_src, _dst, follow_symlinks=False)
+        except FileNotFoundError as e:
+            logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
