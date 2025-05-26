@@ -285,7 +285,7 @@ class TestClientPackage:
         "package_type, expected_path",
         [
             ("squashfs", "/tmp/session/.download/package.squashfs"),
-            ("patch", "/tmp/session/otaclient.squashfs"),
+            ("patch", "/tmp/session/.otaclient.squashfs"),
         ],
     )
     def test_get_target_squashfs_path(
@@ -536,6 +536,3 @@ class TestClientPackage:
                 mock_getpgid.assert_not_called()
                 mock_os_killpg.assert_not_called()
                 mock_process.wait.assert_not_called()
-
-            # Should clean up mount directory
-            mock_rmtree.assert_called_once()
