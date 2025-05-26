@@ -930,7 +930,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         result = wait_and_log(
             check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
             check_for=False,
-            message="permit reboot flag",
+            message="client updating in sub ecus",
             log_func=logger.info,
             timeout=cfg.CLIENT_UPDATE_TIMEOUT,
         )
