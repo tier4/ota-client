@@ -534,7 +534,8 @@ class _OTAUpdater:
         self._boot_controller.pre_update(
             self.update_version,
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
-            erase_standby=True,  # NOTE: as of now, we only have rebuild mode, so always erase_standby
+            # TODO: for in-place mode test
+            erase_standby=False,  # NOTE: as of now, we only have rebuild mode, so always erase_standby
         )
 
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
