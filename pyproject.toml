@@ -47,7 +47,7 @@ optional-dependencies.dev = [
   "coverage",
   "pytest==8.3.5",
   "pytest-asyncio==0.23.8",
-  "pytest-mock==3.14",
+  "pytest-mock==3.14.1",
   "requests-mock",
   "ruff",
 ]
