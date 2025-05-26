@@ -493,41 +493,6 @@ class InplaceMode:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-    def _process_regular_file_entries(self) -> None:
-        """Yield a group of regular file entries which have the same digest each time.
-
-        NOTE: it depends on the regular file table is sorted by digest!
-        """
-        _workers: list[threading.Thread] = []
-        for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
-            _t = threading.Thread(target=self._process_file_groups_worker)
-            _t.start()
-            _workers.append(_t)
-
-        try:
-            cur_digest_group: list[RegularFileTypedDict] = []
-            cur_digest: bytes = b""
-            for _entry in self._ota_metadata.iter_regular_entries():
-                _this_digest = _entry["digest"]
-                if not cur_digest:
-                    cur_digest = _this_digest
-                    cur_digest_group.append(_entry)
-                    continue
-
-                if _this_digest != cur_digest:
-                    self._que.put_nowait((cur_digest, cur_digest_group))
-
-                    cur_digest = _this_digest
-                    cur_digest_group = [_entry]
-                else:
-                    cur_digest_group.append(_entry)
-            # NOTE: remember to yield the last group
-            self._que.put_nowait((cur_digest, cur_digest_group))
-        finally:
-            self._que.put_nowait(None)
-            for _t in _workers:
-                _t.join()
-
     # TODO: maintain a flag to global breakout when process
     def _process_file_groups_worker(self):
         """files group process worker."""
@@ -592,25 +557,25 @@ class InplaceMode:
                             target_mnt=self._standby_slot_mp,
                             prepare_method="copy",
                         )
+
+                _now = int(time.time())
+                if (
+                    _this_batch := _total_cnt // PROCESS_FILES_REPORT_BATCH
+                ) > _batch_cnt or _now > _next_commit_before:
+                    _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
+                    _batch_cnt = _this_batch
+
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=_merged_payload,
+                            session_id=self.session_id,
+                        )
+                    )
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.APPLY_DELTA
+                    )
             except BaseException as e:  # NOSONAR
                 burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
-
-            _now = int(time.time())
-            if (
-                _this_batch := _total_cnt // PROCESS_FILES_REPORT_BATCH
-            ) > _batch_cnt or _now > _next_commit_before:
-                _next_commit_before = _now + PROCESS_FILES_REPORT_INTERVAL
-                _batch_cnt = _this_batch
-
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
-                _merged_payload = UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.APPLY_DELTA
-                )
 
         # commit left-over items that cannot fill the batch
         self._status_report_queue.put_nowait(
@@ -622,7 +587,44 @@ class InplaceMode:
         # wait up other threads
         self._que.put_nowait(None)
 
-    # main entries for processing each type of files.
+    def _process_regular_file_entries(self) -> None:
+        """Yield a group of regular file entries which have the same digest each time.
+
+        NOTE: it depends on the regular file table is sorted by digest!
+        """
+        _workers: list[threading.Thread] = []
+        for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
+            _t = threading.Thread(target=self._process_file_groups_worker)
+            _t.start()
+            _workers.append(_t)
+
+        try:
+            cur_digest_group: list[RegularFileTypedDict] = []
+            cur_digest: bytes = b""
+            for _entry in self._ota_metadata.iter_regular_entries():
+                _this_digest = _entry["digest"]
+                if not cur_digest:
+                    cur_digest = _this_digest
+                    cur_digest_group.append(_entry)
+                    continue
+
+                if _this_digest != cur_digest:
+                    self._que.put_nowait((cur_digest, cur_digest_group))
+
+                    cur_digest = _this_digest
+                    cur_digest_group = [_entry]
+                else:
+                    cur_digest_group.append(_entry)
+            # NOTE: remember to yield the last group
+            self._que.put_nowait((cur_digest, cur_digest_group))
+        except Exception as e:
+            logger.exception(f"failed during itering regular entries: {e!r}")
+            raise
+        finally:
+            self._que.put_nowait(None)
+            for _t in _workers:
+                _t.join()
+
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
