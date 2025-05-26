@@ -97,18 +97,6 @@ testpaths = [
   "./tests",
 ]
 
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-  'py39',
-  'py310',
-  'py311',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
-
 [tool.coverage.run]
 concurrency = [
   "multiprocessing",
@@ -123,6 +111,7 @@ source = [
   "otaclient_common",
   "ota_metadata",
   "ota_proxy",
+  "otaclient_manifest",
 ]
 
 [tool.coverage.report]
