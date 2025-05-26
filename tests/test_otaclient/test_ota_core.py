@@ -427,8 +427,6 @@ class TestOTAClientUpdater:
         client_updater._wait_sub_ecus()
         # Verify wait_and_log was called
         mock_wait_and_log.assert_called_once()
-        # Verify that request_shutdown_event was set (timeout/failure case)
-        self.client_update_control_flags.request_shutdown_event.set.assert_called_once()
 
     def test_perform_update(self, mocker: pytest_mock.MockerFixture):
         """Test the _perform_update method."""

@@ -925,7 +925,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         )
 
     def _wait_sub_ecus(self) -> None:
-        logger.info("wait for all sub-ECU to finish client update...")
+        logger.info("wait for all sub-ECU to finish...")
         # wait for all sub-ECU to finish OTA update
         result = wait_and_log(
             check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
@@ -935,8 +935,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             timeout=cfg.CLIENT_UPDATE_TIMEOUT,
         )
         if result is False:
-            logger.warning("sub-ECU client update was aborted, shutdown client")
-            self.client_update_control_flags.request_shutdown_event.set()
+            logger.warning("sub-ECU client was aborted, skip waiting for sub-ecus")
 
     def _is_same_client_package_version(self) -> bool:
         return self._ota_client_package.is_same_client_package_version()
