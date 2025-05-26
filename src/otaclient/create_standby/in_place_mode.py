@@ -101,6 +101,7 @@ class DeltaGenerator:
             con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
         )
 
+        self._que: Queue[tuple[Path, Path, bool] | None] = Queue()
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
         )
@@ -166,24 +167,13 @@ class DeltaGenFullDiskScan(DeltaGenerator):
     MAX_FOLDER_DEEPTH = 23
     MAX_FILENUM_PER_FOLDER = 8192
 
-    def _dir_should_full_scan_or_excluded(
-        self, canonical_curdir_path: Path
-    ) -> tuple[bool, bool]:
-        """
-        Returns:
-            <should_be_fully_scan, should_be_excluded>
-        """
-        for parent in reversed(canonical_curdir_path.parents):
-            _cur_parent = str(parent)
-            if _cur_parent in self.FULL_SCAN_PATHS:
-                return True, False
-            if _cur_parent in self.EXCLUDE_PATHS:
-                return False, True
-        return False, False
-
     def _check_if_need_to_process_dir(
         self, canonical_curdir_path: Path
     ) -> tuple[bool, bool]:
+        """
+        Returns: dir_should_be_processed, dir_should_be_fully_scanned
+        """
+
         # ------ check dir search deepth ------ #
         if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
             logger.warning(
@@ -191,12 +181,16 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             )
             return False, False
 
-        dir_should_fully_scan, dir_is_excluded = self._dir_should_full_scan_or_excluded(
-            canonical_curdir_path
-        )
         # ------ check dir should be skipped ------ #
-        if dir_is_excluded:
-            return False, False
+        dir_should_fully_scan = False
+        for parent in reversed(canonical_curdir_path.parents):
+            _cur_parent = str(parent)
+            if _cur_parent in self.FULL_SCAN_PATHS:
+                dir_should_fully_scan = True
+                break
+
+            if _cur_parent in self.EXCLUDE_PATHS:
+                return False, False
 
         # If current dir is not:
         #   1. the root folder
@@ -212,144 +206,114 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             return False, dir_should_fully_scan
         return True, dir_should_fully_scan
 
-    def _process_dir(
-        self,
-        filenames: list[str],
-        dir_should_fully_scan: bool,
-        *,
-        delta_src_curdir_path: Path,
-        canonical_curdir_path: Path,
-        pool: ThreadPoolExecutor,
-        thread_local,
-    ) -> None:
-        for fname in filenames:
-            delta_src_fpath = delta_src_curdir_path / fname
+    def _process_file_worker(self) -> None:
+        """Thread worker to scan files."""
+        hash_buffer = bytearray(cfg.CHUNK_SIZE)
+        hash_bufferview = memoryview(hash_buffer)
 
-            # ignore non-file file(include symlink)
-            # NOTE: for in-place update, we will recreate all the symlinks,
-            #       so we first remove all the symlinks
-            # NOTE: is_file also return True on symlink points to regular file!
-            if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
-                delta_src_fpath.unlink(missing_ok=True)
-                continue
+        while _input := self._que.get():
+            fpath, canonical_fpath, fully_scan = _input
+            try:
+                if not fpath.is_file() or fpath.stat().st_size == 0:
+                    continue  # skip empty file
 
-            self._max_pending_tasks.acquire()
-            pool.submit(
-                self._process_file,
-                delta_src_fpath,
-                # NOTE: ALWAYS use canonical_fpath in db search!
-                canonical_curdir_path / fname,
-                fully_scan=dir_should_fully_scan,
-                thread_local=thread_local,
-            )
+                # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
+                #   just directly remove it.
+                if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
+                    path=str(canonical_fpath)
+                ):
+                    continue
 
-    def _process_file(
-        self,
-        fpath: Path,
-        canonical_fpath: Path,
-        *,
-        fully_scan: bool,
-        thread_local,
-    ) -> None:
-        try:
-            if not fpath.is_file() or fpath.stat().st_size == 0:
-                return  # skip empty file
+                hash_f = sha256()
+                with open(fpath, "rb") as src:
+                    while read_size := src.readinto(hash_buffer):
+                        hash_f.update(hash_bufferview[:read_size])
+                dst_f = self._copy_dst / hash_f.hexdigest()
 
-            # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
-            #   just directly remove it.
-            if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
-                path=str(canonical_fpath)
-            ):
-                return
-
-            hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
-            hash_f = sha256()
-            with open(fpath, "rb") as src:
-                while read_size := src.readinto(hash_buffer):
-                    hash_f.update(hash_bufferview[:read_size])
-            dst_f = self._copy_dst / hash_f.hexdigest()
-
-            # If the resource we scan here is listed in the resouce table, copy it
-            #   to the copy_dir at standby slot for later use.
-            if self._rst_orm.orm_delete_entries(digest=hash_f.digest()) == 1:
-                os.link(fpath, dst_f, follow_symlinks=False)
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_size=fpath.stat().st_size,
-                            processed_file_num=1,
-                        ),
-                        session_id=self.session_id,
+                # If the resource we scan here is listed in the resouce table, copy it
+                #   to the copy_dir at standby slot for later use.
+                if self._rst_orm.orm_delete_entries(digest=hash_f.digest()) == 1:
+                    os.link(fpath, dst_f, follow_symlinks=False)
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                processed_file_size=fpath.stat().st_size,
+                                processed_file_num=1,
+                            ),
+                            session_id=self.session_id,
+                        )
                     )
-                )
-        except Exception as e:
-            burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
-        finally:
-            # after the resource is collected, remove the original file
-            fpath.unlink(missing_ok=True)
-            self._max_pending_tasks.release()  # always release se first
+            except BaseException as e:  # NOSONAR
+                burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
+            finally:
+                # after the resource is collected, remove the original file
+                fpath.unlink(missing_ok=True)
+                self._max_pending_tasks.release()  # always release se first
+
+        # wake up other threads
+        self._que.put_nowait(None)
 
     def _calculate_delta(self) -> None:
         logger.debug("process delta src, generate delta and prepare local copy...")
         _canonical_root = Path(CANONICAL_ROOT)
 
-        thread_local = threading.local()
-
-        with ThreadPoolExecutor(
-            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
-            thread_name_prefix="scan_slot",
-            initializer=partial(self._thread_worker_initializer, thread_local),
-        ) as pool:
-            # scan old slot and generate delta based on path,
-            # group files into many hash group,
-            # each hash group is a set contains RegularInf(s) with path as key.
-            #
-            # if the scanned file's hash existed in _new,
-            # collect this file to the recycle folder if not yet being collected.
-            for curdir, dirnames, filenames in os.walk(
-                self._delta_src_mount_point, topdown=True, followlinks=False
-            ):
-                delta_src_curdir_path = Path(curdir)
-                canonical_curdir_path = Path(
-                    replace_root(
-                        delta_src_curdir_path,
-                        self._delta_src_mount_point,
-                        _canonical_root,
-                    )
+        # scan old slot and generate delta based on path,
+        # group files into many hash group,
+        # each hash group is a set contains RegularInf(s) with path as key.
+        #
+        # if the scanned file's hash existed in _new,
+        # collect this file to the recycle folder if not yet being collected.
+        for curdir, dirnames, filenames in os.walk(
+            self._delta_src_mount_point, topdown=True, followlinks=False
+        ):
+            delta_src_curdir_path = Path(curdir)
+            canonical_curdir_path = Path(
+                replace_root(
+                    delta_src_curdir_path,
+                    self._delta_src_mount_point,
+                    _canonical_root,
                 )
+            )
 
-                _dir_should_process, _dir_should_fully_scan = (
-                    self._check_if_need_to_process_dir(canonical_curdir_path)
+            _dir_should_process, _dir_should_fully_scan = (
+                self._check_if_need_to_process_dir(canonical_curdir_path)
+            )
+            if not _dir_should_process:
+                dirnames.clear()
+                self._dirs_to_remove.add_path(canonical_curdir_path)
+                continue
+
+            # remove any symlinks of directory under current dir
+            for _dname in dirnames:
+                _dir = delta_src_curdir_path / _dname
+                if _dir.is_symlink():
+                    _dir.unlink(missing_ok=True)
+
+            # skip files that over the max_filenum_per_folder,
+            # and add these files to remove list
+            if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
+                logger.warning(
+                    f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
+                    "exceeded files will be cleaned up unconditionally"
                 )
-                if not _dir_should_process:
-                    dirnames.clear()
-                    self._dirs_to_remove.add_path(canonical_curdir_path)
+                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
+                    (delta_src_curdir_path / _fname).unlink(missing_ok=True)
+
+            for fname in filenames:
+                delta_src_fpath = delta_src_curdir_path / fname
+
+                # ignore non-file file(include symlink)
+                # NOTE: for in-place update, we will recreate all the symlinks,
+                #       so we first remove all the symlinks
+                # NOTE: is_file also return True on symlink points to regular file!
+                if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                    delta_src_fpath.unlink(missing_ok=True)
                     continue
 
-                # remove any symlinks of directory under current dir
-                for _dname in dirnames:
-                    _dir = delta_src_curdir_path / _dname
-                    if _dir.is_symlink():
-                        _dir.unlink(missing_ok=True)
-
-                # skip files that over the max_filenum_per_folder,
-                # and add these files to remove list
-                if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
-                    logger.warning(
-                        f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
-                        "exceeded files will be cleaned up unconditionally"
-                    )
-                    for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
-                        (delta_src_curdir_path / _fname).unlink(missing_ok=True)
-
-                self._process_dir(
-                    filenames[: self.MAX_FILENUM_PER_FOLDER],
-                    _dir_should_fully_scan,
-                    delta_src_curdir_path=delta_src_curdir_path,
-                    canonical_curdir_path=canonical_curdir_path,
-                    pool=pool,
-                    thread_local=thread_local,
+                self._max_pending_tasks.acquire()
+                self._que.put_nowait(
+                    (delta_src_fpath, canonical_curdir_path / fname, _dir_should_fully_scan)
                 )
 
         # heals the hole of the ft_rs table
@@ -368,10 +332,20 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             shutil.rmtree(_delta_src_dir)
 
     def process_slot(self):
+        _workers: list[threading.Thread] = []
+        for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
+            _t = threading.Thread(target=self._process_file_worker)
+            _t.start()
+            _workers.append(_t)
+
         try:
             self._calculate_delta()
             self._cleanup_base()
         finally:
+            self._que.put_nowait(None)
+            for _t in _workers:
+                _t.join()
+
             self._rst_orm.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
