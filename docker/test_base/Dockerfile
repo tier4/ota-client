@@ -26,13 +26,11 @@ RUN set -eux; \
     rm -rf \
         /tmp/* \
         /var/lib/apt/lists/* \
-        /var/tmp/* \
+        /var/tmp/*
 
 #
 # ------ stage 2: prepare test environment ------ #
 #
-ARG UBUNTU_BASE
-
 FROM ${UBUNTU_BASE}
 
 SHELL ["/bin/bash", "-c"]
@@ -59,9 +57,9 @@ RUN set -eux; \
         wget; \
     apt-get install -y -qq linux-image-generic; \
     apt-get clean; \
-    # install hatch
+    # install uv
     python3 -m pip install --no-cache-dir -q -U pip; \
-    python3 -m pip install --no-cache-dir -U hatch
+    python3 -m pip install --no-cache-dir uv
 
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 
