@@ -127,9 +127,6 @@ def otaproxy_control_thread(
             logger.info("shutting down otaproxy as client update requested ...")
             # kill the otaproxy process immediately
             _shutdown_otaproxy()
-            while True:
-                # keep alive the thread without otaproxy running
-                time.sleep(1)
 
         if not _otaproxy_should_run and not _otaproxy_running:
             if (
