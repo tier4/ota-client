@@ -195,7 +195,10 @@ def main() -> None:  # pragma: no cover
             time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
             return _on_shutdown()
 
-        if not _grpc_server_p.is_alive():
+        if (
+            not client_update_control_flags.stop_server_event.is_set()
+            and not _grpc_server_p.is_alive()
+        ):
             logger.error(
                 f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}seconds ..."
             )
