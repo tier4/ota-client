@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 
@@ -131,6 +130,14 @@ class MultipleECUStatusFlags:
     any_child_ecu_in_update: mp_sync.Event
     any_requires_network: mp_sync.Event
     all_success: mp_sync.Event
+
+
+@dataclass
+class ClientUpdateControlFlags:
+    """Flags for controlling the client update process."""
+
+    stop_server_event: mp_sync.Event  # for stopping gRPC server
+    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
 
 
 #

@@ -77,7 +77,7 @@ class GrubFSM:
         else:
             return self._current_slot_dev_uuid
 
-    def switch_boot(self):
+    def switch_boot(self, *args, **kwags):
         self._current_slot, self._standby_slot = self._standby_slot, self._current_slot
         self._current_slot_mp, self._standby_slot_mp = (
             self._standby_slot_mp,

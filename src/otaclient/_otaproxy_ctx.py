@@ -32,7 +32,7 @@ from pathlib import Path
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
 from ota_proxy.config import config as otaproxy_cfg
-from otaclient._types import MultipleECUStatusFlags
+from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common.common import ensure_otaproxy_start
 
@@ -103,6 +103,7 @@ def otaproxy_process(*, init_cache: bool) -> None:
 
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
+    client_update_control_flags: ClientUpdateControlFlags,
 ) -> None:  # pragma: no cover
     atexit.register(_on_global_shutdown)
 
@@ -110,6 +111,7 @@ def otaproxy_control_thread(
 
     ota_cache_dir = Path(otaproxy_cfg.BASE_DIR)
     next_ota_cache_dir_checkpoint = 0
+    otaproxy_min_alive_until = 0
 
     global _otaproxy_p
     while not _global_shutdown:
@@ -119,6 +121,15 @@ def otaproxy_control_thread(
         _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
         _otaproxy_should_run = ecu_status_flags.any_requires_network.is_set()
         _all_success = ecu_status_flags.all_success.is_set()
+        _stop_server_event = client_update_control_flags.stop_server_event.is_set()
+
+        if _stop_server_event:
+            logger.info("shutting down otaproxy as client update requested ...")
+            # kill the otaproxy process immediately
+            _shutdown_otaproxy()
+            while True:
+                # keep alive the thread without otaproxy running
+                time.sleep(1)
 
         if not _otaproxy_should_run and not _otaproxy_running:
             if (
@@ -140,9 +151,11 @@ def otaproxy_control_thread(
                 name="otaproxy",
             )
             _otaproxy_p.start()
-            next_ota_cache_dir_checkpoint = _now + OTAPROXY_MIN_STARTUP_TIME
-            time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
+            next_ota_cache_dir_checkpoint = otaproxy_min_alive_until = (
+                _now + OTAPROXY_MIN_STARTUP_TIME
+            )
 
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
-            logger.info("shutting down otaproxy as not needed now ...")
-            _shutdown_otaproxy()
+            if _now > otaproxy_min_alive_until:  # to prevent pre-mature shutdown
+                logger.info("shutting down otaproxy as not needed now ...")
+                _shutdown_otaproxy()

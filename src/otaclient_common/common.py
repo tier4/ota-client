@@ -56,6 +56,7 @@ def subprocess_check_output(
     raise_exception: bool = False,
     default: str = "",
     timeout: Optional[float] = None,
+    chroot: Optional[str] = None,
 ) -> str:
     """Run the <cmd> and return UTF-8 decoded stripped stdout.
 
@@ -65,11 +66,14 @@ def subprocess_check_output(
         default (str, optional): if <raise_exception> is False, return <default> on underlying
             subprocess call failed. Defaults to "".
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
+        chroot (Optional[str], optional): chroot path. Defaults to None.
 
     Returns:
         str: UTF-8 decoded stripped stdout.
     """
     try:
+        if chroot:
+            cmd = ["chroot", str(chroot)] + (cmd if isinstance(cmd, list) else [cmd])
         res = subprocess_run_wrapper(
             cmd, check=True, check_output=True, timeout=timeout
         )
@@ -91,6 +95,7 @@ def subprocess_call(
     *,
     raise_exception: bool = False,
     timeout: Optional[float] = None,
+    chroot: Optional[str] = None,
 ) -> None:
     """Run the <cmd>.
 
@@ -98,8 +103,11 @@ def subprocess_call(
         cmd (str | list[str]): command to be executed.
         raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
+        chroot (Optional[str], optional): chroot path. Defaults to None.
     """
     try:
+        if chroot:
+            cmd = ["chroot", str(chroot)] + (cmd if isinstance(cmd, list) else [cmd])
         subprocess_run_wrapper(cmd, check=True, check_output=False, timeout=timeout)
     except subprocess.CalledProcessError as e:
         _err_msg = (

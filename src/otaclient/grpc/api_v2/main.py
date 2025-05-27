@@ -19,11 +19,17 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
 
-from otaclient._types import IPCRequest, IPCResponse, MultipleECUStatusFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    IPCRequest,
+    IPCResponse,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import SharedOTAClientStatusReader
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,7 @@ def grpc_server_process(
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
+    client_update_control_flags: ClientUpdateControlFlags,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -53,6 +60,11 @@ def grpc_server_process(
         from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
         from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
         from otaclient_api.v2.api_stub import OtaClientServiceV2
+
+        async def monitor_stop_event() -> None:
+            while not client_update_control_flags.stop_server_event.is_set():
+                await asyncio.sleep(1)
+            logger.info("grpc API server stop event detected")
 
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
         ecu_tracker = ECUTracker(ecu_status_storage, shm_reader)
@@ -79,9 +91,20 @@ def grpc_server_process(
         logger.info(f"launch grpc API server at {_address_info}")
         await server.start()
         try:
-            await server.wait_for_termination()
+            # Wait for the stop event without busy polling
+            await monitor_stop_event()
+            # Save the ECU status to a file
+            ecu_status_storage.save_state()
         finally:
+            # Ensure server gets stopped properly on exceptions
+            logger.info("stopping grpc API server...")
             await server.stop(1)
             thread_pool.shutdown(wait=True)
+            logger.info("grpc API server stopped")
 
     asyncio.run(_grpc_server_launcher())
+
+    # Keep the process alive even after the gRPC server stops by stop_server_event
+    logger.info("gRPC server has stopped, but keeping the process alive")
+    while client_update_control_flags.stop_server_event.is_set():
+        time.sleep(1)

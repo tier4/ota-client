@@ -26,6 +26,7 @@ from threading import Thread
 from typing import Literal, Union, cast
 
 from otaclient._types import (
+    ClientUpdateControlFlags,
     FailureType,
     OTAClientStatus,
     OTAStatus,
@@ -247,6 +248,7 @@ class OTAClientStatusCollector:
         min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
         max_traceback_size: int,
+        client_update_control_flags: ClientUpdateControlFlags,
     ) -> None:
         self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
@@ -258,6 +260,8 @@ class OTAClientStatusCollector:
 
         self._status = None
         self._shm_status = shm_status
+
+        self.client_update_control_flags = client_update_control_flags
 
         atexit.register(shm_status.atexit)
 
@@ -308,7 +312,8 @@ class OTAClientStatusCollector:
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
-        while True:
+        # NOTE: status collector will stop after gRPC server is stopped
+        while not self.client_update_control_flags.stop_server_event.is_set():
             _now = time.time()
             try:
                 report = self._input_queue.get_nowait()
