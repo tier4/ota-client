@@ -418,6 +418,7 @@ class OTAClientPackage:
             "/run",
             "/sys",
             "/tmp",
+            "/usr/share/ca-certificates",
             "/var",
         ]
 
