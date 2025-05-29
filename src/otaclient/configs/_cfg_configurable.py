@@ -76,6 +76,7 @@ class _OTAClientSettings(BaseModel):
     # ------ IO settings ------ #
     #
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
+    READ_CHUNK_SIZE: int = 8 * 1024 * 1024  # 8MiB
 
 
 class _MultipleECUSettings(BaseModel):
