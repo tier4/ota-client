@@ -21,8 +21,6 @@ import os
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
@@ -100,7 +98,7 @@ class DeltaGenerator:
             con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
         )
 
-        self._que: Queue[tuple[Path, Path, bool] | None] = Queue()
+        self._que = Queue()
         self._max_pending_tasks = threading.Semaphore(
             cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS
         )
@@ -136,6 +134,9 @@ class TopDownCommonShortestPath:
 
 
 class DeltaGenFullDiskScan(DeltaGenerator):
+
+    _que: Queue[tuple[Path, Path, bool] | None]
+
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
     FULL_SCAN_PATHS = {
@@ -237,6 +238,8 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                             session_id=self.session_id,
                         )
                     )
+            except BaseException:
+                continue
             finally:
                 # after the resource is collected, remove the original file
                 fpath.unlink(missing_ok=True)
@@ -323,7 +326,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             )
             shutil.rmtree(_delta_src_dir)
 
-    def process_slot(self):
+    def process_slot(self) -> None:
         _workers: list[threading.Thread] = []
         for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
             _t = threading.Thread(target=self._process_file_thread_worker)
@@ -343,74 +346,60 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             self._ft_dir_orm.orm_con.close()
 
 
-# TODO: apply the optimization like fulldiskscan mode
 class DeltaWithBaseFileTable(DeltaGenerator):
 
-    def _process_file(
-        self, fpath: Path, expected_digest: bytes, *, thread_local
-    ) -> bool:
-        try:
-            hash_buffer, hash_bufferview = thread_local.buffer, thread_local.view
-            hash_f = sha256()
-            with open(fpath, "rb") as src:
-                while read_size := src.readinto(hash_buffer):
-                    hash_f.update(hash_bufferview[:read_size])
-            dst_f = self._copy_dst / hash_f.hexdigest()
-            cal_digest = hash_f.digest()
+    _que: Queue[tuple[bytes, list[Path]] | None]
 
-            if cal_digest != expected_digest:
-                return False
+    def _process_file_thread_worker(self) -> None:
+        """Thread worker to scan files."""
+        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
+        hash_bufferview = memoryview(hash_buffer)
 
-            # If the resource we scan here is listed in the resouce table, copy it
-            #   to the copy_dir at standby slot for later use.
-            if self._rst_orm.orm_delete_entries(digest=cal_digest) == 1:
-                os.link(fpath, dst_f)
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_size=fpath.stat().st_size,
-                            processed_file_num=1,
-                        ),
-                        session_id=self.session_id,
-                    )
-                )
-            return True
-        except Exception:
-            return False
+        while _input := self._que.get():
+            expected_digest, fpaths = _input
+            dst_f = self._copy_dst / expected_digest.hex()
 
-    def _process_files_with_same_digest(
-        self, fpaths: list[Path], expected_digest: bytes, *, thread_local
-    ) -> None:
-        try:
-            for fpath in fpaths:
-                if self._process_file(
-                    fpath, expected_digest, thread_local=thread_local
-                ):
-                    return
-        finally:
-            self._max_pending_tasks.release()
+            try:
+                for fpath in fpaths:
+                    hash_f = sha256()
+                    try:
+                        with open(fpath, "rb") as src:
+                            while read_size := src.readinto(hash_buffer):
+                                hash_f.update(hash_bufferview[:read_size])
+                    except BaseException:
+                        continue
+
+                    if hash_f.digest() == expected_digest:
+                        if self._rst_orm.orm_delete_entries(digest=expected_digest) == 1:
+                            os.link(fpath, dst_f)
+                            self._status_report_queue.put_nowait(
+                                StatusReport(
+                                    payload=UpdateProgressReport(
+                                        operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                        processed_file_size=fpath.stat().st_size,
+                                        processed_file_num=1,
+                                    ),
+                                    session_id=self.session_id,
+                                )
+                            )
+                        # directly break out once we found a valid resource, no matter
+                        #   we finally need it or not.
+                        break
+            except BaseException:
+                continue
+            finally:
+                # after the resource is collected, remove the original file
+                for _f in fpaths:
+                    _f.unlink(missing_ok=True)
+                self._max_pending_tasks.release()  # always release se first
 
     def _calculate_delta(self, base_fst: str) -> None:
         logger.debug(
-            "process delta src, generate delta and prepare local copy...")
-        thread_local = threading.local()
-        with ThreadPoolExecutor(
-            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
-            thread_name_prefix="scan_slot",
-            initializer=partial(self._thread_worker_initializer, thread_local),
-        ) as pool:
-            for (
-                digest,
-                fpaths,
-            ) in self._ota_metadata.iter_common_regular_entries_by_digest(base_fst):
-                self._max_pending_tasks.acquire()
-                pool.submit(
-                    self._process_files_with_same_digest,
-                    fpaths,
-                    digest,
-                    thread_local=thread_local,
-                )
+            "process delta src and generate delta...")
+
+        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(base_fst):
+            self._max_pending_tasks.acquire()
+            self._que.put_nowait(_input)
 
         # heals the hole of the ft_rs table
         self._rst_orm.orm_execute("VACUUM;")
@@ -429,7 +418,7 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 )
             )
             # NOTE: DO NOT CLEANUP the OTA resource folder!
-            if str(canonical_curdir_path) in self.OTA_WORK_PATHS:
+            if canonical_curdir_path in self.OTA_WORK_PATHS:
                 continue
 
             if not (
@@ -452,11 +441,21 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 _fpath = delta_src_curdir_path / _fname
                 _fpath.unlink(missing_ok=True)
 
-    def process_slot(self, base_file_table_db: str):
+    def process_slot(self, base_file_table_db: str) -> None:
+        _workers: list[threading.Thread] = []
+        for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
+            _t = threading.Thread(target=self._process_file_thread_worker)
+            _t.start()
+            _workers.append(_t)
+
         try:
             self._calculate_delta(base_file_table_db)
             self._cleanup_base()
         finally:
+            self._que.put_nowait(None)
+            for _t in _workers:
+                _t.join()
+
             self._rst_orm.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
