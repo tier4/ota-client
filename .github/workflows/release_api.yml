@@ -43,12 +43,10 @@ jobs:
     needs: [build_python_packages]
     steps:
       - name: calculate checksum
-        run: |
-          for FILE in dist/*.{whl,squashfs,patch,json}; do
-            if [ -s ${FILE} ]; then
-              sha256sum ${FILE} | sed -E "s@(\w+)\s+.*@sha256:\1@" > ${FILE}.checksum
-            fi
-          done
+        uses: ./.github/actions/calculate_checksum
+        with:
+          file_patterns: '*.{whl}'
+          directory: 'dist'
 
       - name: publish release artifacts
         if: ${{ github.event_name == 'release' }}

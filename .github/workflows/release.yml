@@ -120,12 +120,10 @@ jobs:
           output_manifest: dist/manifest.json
 
       - name: calculate checksum
-        run: |
-          for FILE in dist/*.{whl,squashfs,patch,json}; do
-            if [ -s ${FILE} ]; then
-              sha256sum ${FILE} | sed -E "s@(\w+)\s+.*@sha256:\1@" > ${FILE}.checksum
-            fi
-          done
+        uses: ./.github/actions/calculate_checksum
+        with:
+          file_patterns: '*.{whl,squashfs,patch,json}'
+          directory: 'dist'
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
