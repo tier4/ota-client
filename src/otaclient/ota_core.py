@@ -73,9 +73,14 @@ from otaclient._types import (
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.create_standby import get_standby_slot_creator
-from otaclient.create_standby.common import can_use_inplace_mode
-from otaclient.create_standby.in_place_mode import DeltaGenFullDiskScan, InplaceMode
+from otaclient.create_standby import (
+    InPlaceDeltaGenFullDiskScan,
+    InPlaceDeltaWithBaseFileTable,
+    RebuildDeltaGenFullDiskScan,
+    RebuildDeltaWithBaseFileTable,
+    UpdateStandbySlot,
+    can_use_in_place_mode,
+)
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -169,7 +174,6 @@ class _OTAUpdater:
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
-        create_standby_cls,
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -227,7 +231,6 @@ class _OTAUpdater:
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
         self._boot_controller = boot_controller
-        self._create_standby_cls = create_standby_cls
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -534,7 +537,7 @@ class _OTAUpdater:
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
 
-        use_inplace_mode = can_use_inplace_mode()
+        use_inplace_mode = can_use_in_place_mode()
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
@@ -588,57 +591,54 @@ class _OTAUpdater:
             logger.info(f"use {verified_base_db} to speed up standby slot scanning")
 
         try:
-            if use_inplace_mode:
-                logger.info("use in-place mode to process standby slot ...")
-                DeltaGenFullDiskScan(
+            if use_inplace_mode and verified_base_db:
+                logger.info(
+                    "use in-place mode with base file table assist to process standby slot ..."
+                )
+                InPlaceDeltaWithBaseFileTable(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                ).process_slot(str(verified_base_db))
+            elif use_inplace_mode:
+                logger.info(
+                    "use in-place mode with base file table assist to process standby slot ..."
+                )
+                InPlaceDeltaGenFullDiskScan(
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 ).process_slot()
+            elif verified_base_db:
+                logger.info(
+                    "use rebuild mode with base file table assist to process standby slot ..."
+                )
+                RebuildDeltaWithBaseFileTable(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                ).process_slot(str(verified_base_db))
             else:
-                # TODO: rebuild mode
                 logger.info("use rebuild mode to process standby slot ...")
-                pass
+                RebuildDeltaGenFullDiskScan(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                ).process_slot()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
-
-            # try:
-            #     if _verified_db := check_base_filetable(_base_ft_db):
-            #         logger.info(
-            #             f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
-            #         )
-            #         delta_calculator = DeltaGenWithFileTable(
-            #             ota_metadata=self._ota_metadata,
-            #             delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-            #             copy_dst=self._resource_dir_on_standby,
-            #             status_report_queue=self._status_report_queue,
-            #             session_id=self.session_id,
-            #         )
-            #         delta_calculator.calculate_delta(base_file_table=_verified_db)
-            #     else:
-            #         logger.info(
-            #             f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
-            #         )
-            #         delta_calculator = DeltaGenFullDiskScan(
-            #             ota_metadata=self._ota_metadata,
-            #             delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-            #             copy_dst=self._resource_dir_on_standby,
-            #             status_report_queue=self._status_report_queue,
-            #             session_id=self.session_id,
-            #         )
-            #         delta_calculator.calculate_delta()
-            # except Exception as e:
-            #     _err_msg = f"failed to generate delta: {e!r}"
-            #     logger.exception(_err_msg)
-            #     raise ota_errors.UpdateDeltaGenerationFailed(
-            #         _err_msg, module=__name__
-            #     ) from e
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
@@ -697,8 +697,8 @@ class _OTAUpdater:
             )
         )
 
-        if use_inplace_mode:
-            standby_slot_creator = InplaceMode(
+        try:
+            standby_slot_creator = UpdateStandbySlot(
                 ota_metadata=self._ota_metadata,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 status_report_queue=self._status_report_queue,
@@ -706,9 +706,10 @@ class _OTAUpdater:
                 resource_dir=self._resource_dir_on_standby,
             )
             standby_slot_creator.update_slot()
-        else:
-            # TODO: rebuild mode
-            pass
+        except Exception as e:
+            raise ota_errors.ApplyOTAUpdateFailed(
+                f"failed to apply update to standby slot: {e!r}", module=__name__
+            ) from e
 
         # ------ post-update ------ #
         logger.info("enter post update phase...")
@@ -818,15 +819,12 @@ class OTAClient:
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
-            self.create_standby_cls = get_standby_slot_creator(
-                cfg.CREATE_STANDBY_METHOD
-            )
         except Exception as e:
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
                 failure_type=FailureType.UNRECOVERABLE,
-                failure_reason=f"failed to determine boot controller or create_standby mode: {e!r}",
+                failure_reason=f"failed to determine boot controller: {e!r}",
             )
             return
 
@@ -941,7 +939,6 @@ class OTAClient:
                 cookies_json=request.cookies_json,
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
-                create_standby_cls=self.create_standby_cls,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
