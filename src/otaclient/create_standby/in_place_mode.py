@@ -13,7 +13,6 @@
 # limitations under the License.
 """Generate delta from delta_src comparing to new OTA image."""
 
-
 from __future__ import annotations
 
 import logging
@@ -61,8 +60,7 @@ PROCESS_FILES_REPORT_BATCH = 256
 PROCESS_FILES_REPORT_INTERVAL = 1  # second
 
 
-class UpdateStandbySlotFailed(Exception):
-    ...
+class UpdateStandbySlotFailed(Exception): ...
 
 
 class DeltaGenerator:
@@ -134,7 +132,6 @@ class TopDownCommonShortestPath:
 
 
 class DeltaGenFullDiskScan(DeltaGenerator):
-
     _que: Queue[tuple[Path, Path, bool] | None]
 
     # entry under the following folders will be scanned
@@ -249,8 +246,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         self._que.put_nowait(None)
 
     def _calculate_delta(self) -> None:
-        logger.debug(
-            "process delta src and generate delta...")
+        logger.debug("process delta src and generate delta...")
 
         for curdir, dirnames, filenames in os.walk(
             self._delta_src_mount_point, topdown=True, followlinks=False
@@ -287,7 +283,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be cleaned up unconditionally"
                 )
-                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER:]:
+                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
                     (delta_src_curdir_path / _fname).unlink(missing_ok=True)
 
             for fname in filenames:
@@ -347,7 +343,6 @@ class DeltaGenFullDiskScan(DeltaGenerator):
 
 
 class DeltaWithBaseFileTable(DeltaGenerator):
-
     _que: Queue[tuple[bytes, list[Path]] | None]
 
     def _process_file_thread_worker(self) -> None:
@@ -370,7 +365,10 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                         continue
 
                     if hash_f.digest() == expected_digest:
-                        if self._rst_orm.orm_delete_entries(digest=expected_digest) == 1:
+                        if (
+                            self._rst_orm.orm_delete_entries(digest=expected_digest)
+                            == 1
+                        ):
                             os.link(fpath, dst_f)
                             self._status_report_queue.put_nowait(
                                 StatusReport(
@@ -394,10 +392,11 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 self._max_pending_tasks.release()  # always release se first
 
     def _calculate_delta(self, base_fst: str) -> None:
-        logger.debug(
-            "process delta src and generate delta...")
+        logger.debug("process delta src and generate delta...")
 
-        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(base_fst):
+        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
+            base_fst
+        ):
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
@@ -462,7 +461,6 @@ class DeltaWithBaseFileTable(DeltaGenerator):
 
 
 class InplaceMode:
-
     def __init__(
         self,
         *,
@@ -471,13 +469,12 @@ class InplaceMode:
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
-        file_process_max_failure: int = cfg.CREATE_STANDBY_RETRY_MAX
+        file_process_max_failure: int = cfg.CREATE_STANDBY_RETRY_MAX,
     ) -> None:
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
         self.session_id = session_id
-        self._que: Queue[tuple[bytes,
-                               list[RegularFileTypedDict]] | None] = Queue()
+        self._que: Queue[tuple[bytes, list[RegularFileTypedDict]] | None] = Queue()
 
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
@@ -572,8 +569,7 @@ class InplaceMode:
                 _failure_count = 0
             except BaseException as e:  # NOSONAR
                 _failure_count += 1
-                burst_suppressed_logger.exception(
-                    f"failed to process {_input}: {e!r}")
+                burst_suppressed_logger.exception(f"failed to process {_input}: {e!r}")
 
                 if _failure_count > self.file_process_max_failure:
                     logger.error(
@@ -605,8 +601,7 @@ class InplaceMode:
         logger.info("start to process regular file entries ...")
         _workers: list[threading.Thread] = []
         for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
-            _t = threading.Thread(
-                target=self._process_file_groups_thread_worker)
+            _t = threading.Thread(target=self._process_file_groups_thread_worker)
             _t.start()
             _workers.append(_t)
 
@@ -635,7 +630,8 @@ class InplaceMode:
         except Exception as e:
             logger.exception(f"itering file table database failed: {e!r}")
             raise UpdateStandbySlotFailed(
-                f"itering file table database failed: {e!r}") from e
+                f"itering file table database failed: {e!r}"
+            ) from e
         finally:
             self._que.put_nowait(None)
             for _t in _workers:
@@ -645,7 +641,8 @@ class InplaceMode:
             if self._file_process_interrupted.is_set():
                 logger.error("not all workers finish work successfully")
                 raise UpdateStandbySlotFailed(
-                    "not all workers finish work successfully")
+                    "not all workers finish work successfully"
+                )
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
@@ -653,10 +650,10 @@ class InplaceMode:
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(
-                    f"failed to process {entry=}: {e!r}")
+                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
                 raise UpdateStandbySlotFailed(
-                    f"failed to process {entry=}: {e!r}") from e
+                    f"failed to process {entry=}: {e!r}"
+                ) from e
 
     def _process_non_regular_files(self) -> None:
         logger.info("start to process non-regular entries ...")
@@ -664,10 +661,10 @@ class InplaceMode:
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(
-                    f"failed to process {entry=}: {e!r}")
+                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
                 raise UpdateStandbySlotFailed(
-                    f"failed to process {entry=}: {e!r}") from e
+                    f"failed to process {entry=}: {e!r}"
+                ) from e
 
     # API
 
