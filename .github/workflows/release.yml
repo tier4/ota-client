@@ -40,13 +40,6 @@ jobs:
           echo OTACLIENT_WHL=${OTACLIENT_WHL} >> $GITHUB_OUTPUT
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
-      - name: build otaclient service API python package
-        run: |
-          pushd proto
-          hatch build -t wheel
-          popd
-          cp proto/dist/*.whl dist
-
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
