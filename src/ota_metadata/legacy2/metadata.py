@@ -23,7 +23,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import contextlib
@@ -154,6 +153,7 @@ class OTAMetadata:
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
+        self._total_regulars_size = 0
 
     @property
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
@@ -163,6 +163,10 @@ class OTAMetadata:
     @property
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
+
+    @property
+    def total_regulars_size(self) -> int:
+        return self._total_regulars_size
 
     def _prepare_metadata(
         self,
@@ -215,6 +219,7 @@ class OTAMetadata:
         _parser.verify_metadata_signature(cert_bytes)
 
         # only after the verification, assign the jwt to self
+        self._total_regulars_size = _metadata_jwt.total_regular_size
         self._metadata_jwt = _metadata_jwt
         _cert_fpath.unlink(missing_ok=True)
 
@@ -399,32 +404,32 @@ class OTAMetadata:
     def iter_dir_entries(self) -> Generator[DirTypedDict]:
         with FileTableDirORM(self.connect_fstable()) as orm:
             _row_factory = typing.cast(Callable[..., DirTypedDict], sqlite3.Row)
+            # fmt: off
             yield from orm.orm_select_entries(
                 _row_factory=_row_factory,
-                # fmt: off
                 _stmt = gen_sql_stmt(
                     "SELECT", "path,uid,gid,mode",
                     "FROM", FT_DIR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
                 )
-                # fmt: on
             )
+            # fmt: on
 
     def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
             _row_factory = typing.cast(
                 Callable[..., NonRegularFileTypedDict], sqlite3.Row
             )
+            # fmt: off
             yield from orm.orm_select_entries(
                 _row_factory=_row_factory,
-                # fmt: off
                 _stmt = gen_sql_stmt(
                     "SELECT", "path,uid,gid,mode,meta",
                     "FROM", FT_NON_REGULAR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
                 )
-                # fmt: on
             )
+            # fmt: on
 
     def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
         with FileTableRegularORM(self.connect_fstable()) as orm:
@@ -498,7 +503,6 @@ class OTAMetadata:
 
 
 class ResourceMeta:
-
     def __init__(
         self,
         *,
