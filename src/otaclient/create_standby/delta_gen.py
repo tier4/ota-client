@@ -101,11 +101,6 @@ class _DeltaGeneratorBase:
         # put the empty file into copy_dst
         (copy_dst / EMPTY_FILE_SHA256).touch()
 
-    @staticmethod
-    def _thread_worker_initializer(thread_local) -> None:
-        thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
-        thread_local.view = memoryview(buffer)
-
 
 class TopDownCommonShortestPath:
     """Assume that the disk scan is top-down style."""
@@ -130,7 +125,7 @@ class TopDownCommonShortestPath:
 #
 
 
-class _DeltaGenFullDiskScan(_DeltaGeneratorBase):
+class DeltaGenFullDiskScan(_DeltaGeneratorBase):
     _que: Queue[tuple[Path, Path, bool] | None]
 
     # entry under the following folders will be scanned
@@ -231,7 +226,7 @@ class _DeltaGenFullDiskScan(_DeltaGeneratorBase):
             self._ft_dir_orm.orm_con.close()
 
 
-class InPlaceDeltaGenFullDiskScan(_DeltaGenFullDiskScan):
+class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
         hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
@@ -355,7 +350,7 @@ class InPlaceDeltaGenFullDiskScan(_DeltaGenFullDiskScan):
             shutil.rmtree(_delta_src_dir)
 
 
-class RebuildDeltaGenFullDiskScan(_DeltaGenFullDiskScan):
+class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
     """
     In rebuild mode, base will be the active slot, which we should not modify.
     """
@@ -467,7 +462,7 @@ class RebuildDeltaGenFullDiskScan(_DeltaGenFullDiskScan):
 #
 
 
-class _DeltaWithBaseFileTable(_DeltaGeneratorBase):
+class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     _que: Queue[tuple[bytes, list[Path]] | None]
 
     @abstractmethod
@@ -502,7 +497,7 @@ class _DeltaWithBaseFileTable(_DeltaGeneratorBase):
             self._ft_dir_orm.orm_con.close()
 
 
-class InPlaceDeltaWithBaseFileTable(_DeltaWithBaseFileTable):
+class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
         hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
@@ -599,7 +594,7 @@ class InPlaceDeltaWithBaseFileTable(_DeltaWithBaseFileTable):
                 _fpath.unlink(missing_ok=True)
 
 
-class RebuildDeltaWithBaseFileTable(_DeltaWithBaseFileTable):
+class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
     """
     In rebuild mode, base will be the active slot, which we should not modify.
     """
