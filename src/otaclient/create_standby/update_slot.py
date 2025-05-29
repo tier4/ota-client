@@ -31,7 +31,7 @@ from ota_metadata.file_table.utils import (
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
-from otaclient.create_standby.common import (
+from otaclient.create_standby.delta_gen import (
     PROCESS_FILES_REPORT_BATCH,
     PROCESS_FILES_REPORT_INTERVAL,
     UpdateStandbySlotFailed,
@@ -52,7 +52,7 @@ burst_suppressed_logger.addFilter(
 )
 
 
-class InplaceMode:
+class UpdateStandbySlot:
     def __init__(
         self,
         *,
