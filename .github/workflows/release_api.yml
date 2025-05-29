@@ -35,6 +35,7 @@ jobs:
           pushd proto
           hatch build -t wheel
           popd
+          mkdir -p dist
           cp proto/dist/*.whl dist
 
       - name: upload artifacts
