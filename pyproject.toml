@@ -146,7 +146,6 @@ typeCheckingMode = "standard"
 pythonVersion = "3.8"
 
 [tool.ruff]
-line-length = 88
 target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
