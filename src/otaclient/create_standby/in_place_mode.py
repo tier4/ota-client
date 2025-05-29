@@ -55,6 +55,7 @@ burst_suppressed_logger.addFilter(
 )
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
+CANONICAL_ROOT_P = Path(CANONICAL_ROOT)
 
 SHA256HEXSTRINGLEN = 256 // 8 * 2
 DELETE_BATCH_SIZE = 512
@@ -67,14 +68,18 @@ PROCESS_FILES_CONCURRENCY = 64
 PROCESS_FILES_WORKER = cfg.MAX_PROCESS_FILE_THREAD  # 6
 
 
+class UpdateStandbySlotFailed(Exception):
+    ...
+
+
 class DeltaGenerator:
     """
     NOTE: the instance of this class cannot be re-used after delta is generated.
     """
 
-    CLEANUP_ENTRY = {"/lost+found", "/tmp", "/run"}
+    CLEANUP_ENTRY = {Path("/lost+found"), Path("/tmp"), Path("/run")}
     # NOTE: OTA_TMP_STORE holds resources we need to use later.
-    KEEP_PATHS = {cfg.OTA_TMP_STORE}
+    OTA_WORK_PATHS = {Path(cfg.OTA_TMP_STORE), Path(cfg.OTA_TMP_META_STORE)}
 
     def __init__(
         self,
@@ -139,24 +144,24 @@ class DeltaGenFullDiskScan(DeltaGenerator):
     # entry under the following folders will be scanned
     # no matter it is existed in new image or not
     FULL_SCAN_PATHS = {
-        "/lib",
-        "/var/lib",
-        "/usr",
-        "/opt/nvidia",
-        "/home/autoware/autoware.proj",
+        Path("/lib"),
+        Path("/var/lib"),
+        Path("/usr"),
+        Path("/opt/nvidia"),
+        Path("/home/autoware/autoware.proj"),
     }
 
     # entries start with the following paths will be ignored
     EXCLUDE_PATHS = {
-        "/tmp",
-        "/dev",
-        "/proc",
-        "/sys",
-        "/lost+found",
-        "/media",
-        "/mnt",
-        "/run",
-        "/srv",
+        Path("/tmp"),
+        Path("/dev"),
+        Path("/proc"),
+        Path("/sys"),
+        Path("/lost+found"),
+        Path("/media"),
+        Path("/mnt"),
+        Path("/run"),
+        Path("/srv"),
     }
 
     # introduce limitations here to prevent unexpected
@@ -172,7 +177,6 @@ class DeltaGenFullDiskScan(DeltaGenerator):
         """
         Returns: dir_should_be_processed, dir_should_be_fully_scanned
         """
-
         # ------ check dir search deepth ------ #
         if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
             logger.warning(
@@ -182,12 +186,10 @@ class DeltaGenFullDiskScan(DeltaGenerator):
 
         # ------ check dir should be skipped ------ #
         dir_should_fully_scan = False
-        for parent in reversed(canonical_curdir_path.parents):
-            _cur_parent = str(parent)
+        for _cur_parent in reversed(canonical_curdir_path.parents):
             if _cur_parent in self.FULL_SCAN_PATHS:
                 dir_should_fully_scan = True
                 break
-
             if _cur_parent in self.EXCLUDE_PATHS:
                 return False, False
 
@@ -205,9 +207,9 @@ class DeltaGenFullDiskScan(DeltaGenerator):
             return False, dir_should_fully_scan
         return True, dir_should_fully_scan
 
-    def _process_file_worker(self) -> None:
+    def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
-        hash_buffer = bytearray(cfg.CHUNK_SIZE)
+        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
@@ -224,12 +226,12 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                 with open(fpath, "rb") as src:
                     while read_size := src.readinto(hash_buffer):
                         hash_f.update(hash_bufferview[:read_size])
-                dst_f = self._copy_dst / hash_f.hexdigest()
+                resource_save_dst = self._copy_dst / hash_f.hexdigest()
 
                 # If the resource we scan here is listed in the resouce table, copy it
                 #   to the copy_dir at standby slot for later use.
                 if self._rst_orm.orm_delete_entries(digest=hash_f.digest()) == 1:
-                    os.link(fpath, dst_f, follow_symlinks=False)
+                    os.link(fpath, resource_save_dst, follow_symlinks=False)
                     self._status_report_queue.put_nowait(
                         StatusReport(
                             payload=UpdateProgressReport(
@@ -240,9 +242,6 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                             session_id=self.session_id,
                         )
                     )
-            except BaseException as e:  # NOSONAR
-                burst_suppressed_logger.debug(
-                    f"failed to process {fpath}: {e!r}")
             finally:
                 # after the resource is collected, remove the original file
                 fpath.unlink(missing_ok=True)
@@ -253,15 +252,8 @@ class DeltaGenFullDiskScan(DeltaGenerator):
 
     def _calculate_delta(self) -> None:
         logger.debug(
-            "process delta src, generate delta and prepare local copy...")
-        _canonical_root = Path(CANONICAL_ROOT)
+            "process delta src and generate delta...")
 
-        # scan old slot and generate delta based on path,
-        # group files into many hash group,
-        # each hash group is a set contains RegularInf(s) with path as key.
-        #
-        # if the scanned file's hash existed in _new,
-        # collect this file to the recycle folder if not yet being collected.
         for curdir, dirnames, filenames in os.walk(
             self._delta_src_mount_point, topdown=True, followlinks=False
         ):
@@ -270,9 +262,11 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                 replace_root(
                     delta_src_curdir_path,
                     self._delta_src_mount_point,
-                    _canonical_root,
+                    CANONICAL_ROOT_P,
                 )
             )
+            if canonical_curdir_path in self.OTA_WORK_PATHS:
+                continue  # skip scanning OTA work paths
 
             _dir_should_process, _dir_should_fully_scan = (
                 self._check_if_need_to_process_dir(canonical_curdir_path)
@@ -320,15 +314,14 @@ class DeltaGenFullDiskScan(DeltaGenerator):
                     )
                 )
 
-        # heals the hole of the ft_rs table
+        # heals the hole of the rst table
         self._rst_orm.orm_execute("VACUUM;")
 
     def _cleanup_base(self):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
         for _canon_dir in self._dirs_to_remove.iter_paths():
-            # remember NOT to remove the OTA source dir!
-            if str(_canon_dir) in self.KEEP_PATHS:
-                continue
+            if _canon_dir in self.OTA_WORK_PATHS:
+                continue  # NOTE: DO NOT cleanup OTA work paths!
 
             _delta_src_dir = replace_root(
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
@@ -338,7 +331,7 @@ class DeltaGenFullDiskScan(DeltaGenerator):
     def process_slot(self):
         _workers: list[threading.Thread] = []
         for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
-            _t = threading.Thread(target=self._process_file_worker)
+            _t = threading.Thread(target=self._process_file_thread_worker)
             _t.start()
             _workers.append(_t)
 
@@ -388,8 +381,7 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                     )
                 )
             return True
-        except Exception as e:
-            burst_suppressed_logger.debug(f"failed to process {fpath}: {e!r}")
+        except Exception:
             return False
 
     def _process_files_with_same_digest(
@@ -442,7 +434,7 @@ class DeltaWithBaseFileTable(DeltaGenerator):
                 )
             )
             # NOTE: DO NOT CLEANUP the OTA resource folder!
-            if str(canonical_curdir_path) in self.KEEP_PATHS:
+            if str(canonical_curdir_path) in self.OTA_WORK_PATHS:
                 continue
 
             if not (
@@ -485,6 +477,7 @@ class InplaceMode:
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
+        file_process_max_failure: int = cfg.CREATE_STANDBY_RETRY_MAX
     ) -> None:
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
@@ -495,9 +488,13 @@ class InplaceMode:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-    # TODO: maintain a flag to global breakout when process
-    def _process_file_groups_worker(self):
+        self._file_process_interrupted = threading.Event()
+        self.file_process_max_failure = file_process_max_failure
+
+    def _process_file_groups_thread_worker(self):
         """files group process worker."""
+        _failure_count = 0
+
         _next_commit_before, _batch_cnt = 0, 0
         _merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.APPLY_DELTA
@@ -576,9 +573,25 @@ class InplaceMode:
                     _merged_payload = UpdateProgressReport(
                         operation=UpdateProgressReport.Type.APPLY_DELTA
                     )
+
+                # reset failure count at success process
+                _failure_count = 0
             except BaseException as e:  # NOSONAR
+                _failure_count += 1
                 burst_suppressed_logger.exception(
                     f"failed to process {_input}: {e!r}")
+
+                if _failure_count > self.file_process_max_failure:
+                    logger.error(
+                        f"file process worker reaches maximum failure count({self.file_process_max_failure})!"
+                        f"last failure: {e!r}"
+                    )
+                    self._file_process_interrupted.set()
+                    self._que.put_nowait(None)  # stop other workers
+                    return  # and then directly exit
+
+                time.sleep(0.1)  # put the failure item back to que
+                self._que.put_nowait(_input)
 
         # commit left-over items that cannot fill the batch
         self._status_report_queue.put_nowait(
@@ -595,9 +608,11 @@ class InplaceMode:
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
+        logger.info("start to process regular file entries ...")
         _workers: list[threading.Thread] = []
         for _ in range(cfg.MAX_PROCESS_FILE_THREAD):
-            _t = threading.Thread(target=self._process_file_groups_worker)
+            _t = threading.Thread(
+                target=self._process_file_groups_thread_worker)
             _t.start()
             _workers.append(_t)
 
@@ -605,6 +620,9 @@ class InplaceMode:
             cur_digest_group: list[RegularFileTypedDict] = []
             cur_digest: bytes = b""
             for _entry in self._ota_metadata.iter_regular_entries():
+                if self._file_process_interrupted.is_set():
+                    return
+
                 _this_digest = _entry["digest"]
                 if not cur_digest:
                     cur_digest = _this_digest
@@ -621,12 +639,19 @@ class InplaceMode:
             # NOTE: remember to yield the last group
             self._que.put_nowait((cur_digest, cur_digest_group))
         except Exception as e:
-            logger.exception(f"failed during itering regular entries: {e!r}")
-            raise
+            logger.exception(f"itering file table database failed: {e!r}")
+            raise UpdateStandbySlotFailed(
+                f"itering file table database failed: {e!r}") from e
         finally:
             self._que.put_nowait(None)
             for _t in _workers:
                 _t.join()
+
+            # finally, check if any workers exit
+            if self._file_process_interrupted.is_set():
+                logger.error("not all workers finish work successfully")
+                raise UpdateStandbySlotFailed(
+                    "not all workers finish work successfully")
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
@@ -636,7 +661,8 @@ class InplaceMode:
             except Exception as e:
                 burst_suppressed_logger.exception(
                     f"failed to process {entry=}: {e!r}")
-                raise
+                raise UpdateStandbySlotFailed(
+                    f"failed to process {entry=}: {e!r}") from e
 
     def _process_non_regular_files(self) -> None:
         logger.info("start to process non-regular entries ...")
@@ -646,11 +672,16 @@ class InplaceMode:
             except Exception as e:
                 burst_suppressed_logger.exception(
                     f"failed to process {entry=}: {e!r}")
-                raise
+                raise UpdateStandbySlotFailed(
+                    f"failed to process {entry=}: {e!r}") from e
 
     # API
 
     def update_slot(self) -> None:
+        """
+        Raises:
+            UpdateStandbySlotFailed: if any error occurs during the process.
+        """
         self._process_dir_entries()
         self._process_non_regular_files()
         self._process_regular_file_entries()
