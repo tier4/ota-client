@@ -1,5 +1,10 @@
 name: test CI
 
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
 on:
   pull_request:
     branches:

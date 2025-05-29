@@ -1,0 +1,73 @@
+name: Release API(Protocol Buffer) CI
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+on:
+  release:
+    types: [published]
+  # allow manually triggering the build
+  workflow_dispatch:
+
+jobs:
+  build_python_packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          # use the minimum py ver we support to generate the wheel
+          python-version: 3.8
+
+      - name: install build deps
+        run: |
+          python -m pip install -U pip
+          python -m pip install -U hatch
+
+      - name: build otaclient service API python package
+        run: |
+          pushd proto
+          hatch build -t wheel
+          popd
+          cp proto/dist/*.whl dist
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-python-packages
+          path: dist/*.whl
+
+  post_build:
+    runs-on: ubuntu-latest
+    needs: [build_python_packages]
+    permissions:
+      contents: write
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+
+    - name: download python packages artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: artifacts-python-packages
+        path: dist
+
+    - name: calculate checksum
+      uses: ./.github/actions/calculate_checksum
+      with:
+        file_patterns: '*.{whl}'
+        directory: 'dist'
+
+    - name: publish release artifacts
+      if: ${{ github.event_name == 'release' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/*.whl
+          dist/*.checksum
