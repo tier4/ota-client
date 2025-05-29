@@ -11,3 +11,22 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+from otaclient.create_standby.delta_gen import (
+    InPlaceDeltaGenFullDiskScan,
+    InPlaceDeltaWithBaseFileTable,
+    RebuildDeltaGenFullDiskScan,
+    RebuildDeltaWithBaseFileTable,
+)
+from otaclient.create_standby.update_slot import UpdateStandbySlot
+from otaclient.create_standby.utils import can_use_in_place_mode
+
+__all__ = [
+    "can_use_in_place_mode",
+    "UpdateStandbySlot",
+    "InPlaceDeltaGenFullDiskScan",
+    "InPlaceDeltaWithBaseFileTable",
+    "RebuildDeltaGenFullDiskScan",
+    "RebuildDeltaWithBaseFileTable",
+]
