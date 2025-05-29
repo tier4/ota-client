@@ -106,6 +106,8 @@ OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
+STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
+
 
 class OTAClientError(Exception): ...
 
@@ -537,7 +539,14 @@ class _OTAUpdater:
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
 
-        use_inplace_mode = can_use_in_place_mode()
+        use_inplace_mode = can_use_in_place_mode(
+            dev=self._boot_controller.standby_slot_dev,
+            mnt_point=self._boot_controller.get_standby_slot_path(),
+            threshold_in_bytes=int(
+                self._ota_metadata.total_regulars_size
+                * STANDBY_SLOT_USED_SIZE_THRESHOLD
+            ),
+        )
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
