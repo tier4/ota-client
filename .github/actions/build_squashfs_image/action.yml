@@ -71,6 +71,8 @@ runs:
         DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
         SQUASHFS: ${{ inputs.output_squashfs }}
       shell: bash
+      # zstd is supported after ubuntu 22.04.
+      # so we need to use gzip for compression.
       run: |
         docker create --name ${DOCKER_CONTAINER} ${DOCKER_IMAGE}
         docker export ${DOCKER_CONTAINER} | mksquashfs - ${SQUASHFS} \
@@ -80,5 +82,13 @@ runs:
             -no-xattrs \
             -all-root \
             -progress \
-            -comp zstd \
-            -Xcompression-level 22
+            -comp gzip
+
+    - name: cleanup
+      env:
+        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+        DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
+      shell: bash
+      run: |
+        docker rm ${DOCKER_CONTAINER}
+        docker rmi ${DOCKER_IMAGE}

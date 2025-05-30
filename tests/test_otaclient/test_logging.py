@@ -88,6 +88,7 @@ class TestLogClient:
     async def initialize_queue(self):
         self.test_queue: Queue[DummyQueueData] = Queue()
         self.data_ready = asyncio.Event()
+        self.data_ready.clear()
 
     @pytest.fixture(autouse=True)
     def mock_cfg(self, mocker: MockerFixture):
@@ -113,7 +114,7 @@ class TestLogClient:
         mocker.patch(f"{MODULE}.proxy_info", self._proxy_info)
 
     @pytest_asyncio.fixture
-    async def launch_grpc_server(self, scope="session"):
+    async def launch_grpc_server(self):
         server = grpc.aio.server()
         log_v1_grpc.add_OTAClientIoTLoggingServiceServicer_to_server(
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
@@ -129,7 +130,7 @@ class TestLogClient:
             await server.wait_for_termination()
 
     @pytest.fixture
-    def restore_logging(self, scope="session"):
+    def restore_logging(self):
         # confiure_logging() is called in the test, so we need to restore the original logging configuration
         # Save the current logging configuration
         original_handlers = logging.root.handlers[:]
@@ -173,16 +174,20 @@ class TestLogClient:
         expected_log_type,
         mocker: MockerFixture,
     ):
-        with mocker.patch.object(
-            _LogTeeHandler, "_wait_for_log_server_up", return_value=None
-        ):
-            configure_logging()
-
         self.data_ready.clear()
+
+        mocker.patch.object(
+            _LogTeeHandler, "_wait_for_log_server_up", return_value=None
+        )
+        configure_logging()
+
         # send a test log message
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
-        await self.data_ready.wait()
+        try:
+            await asyncio.wait_for(self.data_ready.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pytest.fail("Timed out waiting for log message")
 
         try:
             _response = self.test_queue.get_nowait()

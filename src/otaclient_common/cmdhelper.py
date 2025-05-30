@@ -87,7 +87,7 @@ def get_dev_by_token(
 
 
 def get_current_rootfs_dev(
-    active_root: StrOrPath, *, raise_exception: bool = True
+    active_root: StrOrPath, *, raise_exception: bool = True, chroot: str | None = None
 ) -> str:  # pragma: no cover
     """Get the devpath of current rootfs dev.
 
@@ -95,14 +95,17 @@ def get_current_rootfs_dev(
         findmnt -nfc -o SOURCE <ACTIVE_ROOTFS_PATH>
 
     Args:
+        active_root (StrOrPath): the active rootfs path to check against.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
+            If not None, this function will use chroot to run the command.
 
     Returns:
         str: the devpath of current rootfs device.
     """
     cmd = ["findmnt", "-nfco", "SOURCE", active_root]
-    return subprocess_check_output(cmd, raise_exception=raise_exception)
+    return subprocess_check_output(cmd, raise_exception=raise_exception, chroot=chroot)
 
 
 def get_mount_point_by_dev(
@@ -287,7 +290,9 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
+def reboot(
+    args: list[str] | None = None, *, chroot: str | None = None
+) -> NoReturn:  # pragma: no cover
     """Reboot the system, with optional args passed to reboot command.
 
     This is implemented by calling:
@@ -299,6 +304,7 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
     Args:
         args (Optional[list[str]], optional): args passed to reboot command.
             Defaults to None, not passing any args.
+        chroot (str | None, optional): the chroot path to use. Defaults to None.
 
     Raises:
         CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
@@ -309,7 +315,7 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
         cmd.extend(args)
 
     logger.warning("system will reboot now!")
-    subprocess_call(cmd, raise_exception=True)
+    subprocess_call(cmd, raise_exception=True, chroot=chroot)
     sys.exit(0)
 
 
@@ -362,6 +368,32 @@ def mount(
     if params:
         cmd.extend(params)
     cmd = [*cmd, str(target), str(mount_point)]
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def bind_mount_rw(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Bind mount the <target> to <mount_point> read-write.
+
+    This is implemented by calling:
+        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "-o", "bind,rw",
+        "--make-private", "--make-unbindable",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
@@ -420,6 +452,32 @@ def bind_mount_ro(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
+def rbind_mount_ro(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Rbind mount the <target> to <mount_point> read-only.
+
+    This is implemented by calling:
+        mount -o bind,ro --make-private <target> <mount_point>
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "--rbind",
+        "--make-private",
+        str(target),
+        str(mount_point)
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
+
+
 def mount_ro(
     target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
 ) -> None:  # pragma: no cover
@@ -456,6 +514,36 @@ def mount_ro(
         ]
         # fmt: on
         subprocess_call(cmd, raise_exception=raise_exception)
+
+
+def mount_squashfs(
+    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+) -> None:  # pragma: no cover
+    """Mount the <target> sqiashfs to <mount_point>.
+
+    This is implemented by calling:
+        mount --make-private --make-unbindable -o ro -t squashfs <target> <mount_point>
+
+    NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
+            mount events propagation to/from this mount point.
+
+    Args:
+        target (StrOrPath): target to be mounted.
+        mount_point (StrOrPath): mount point to mount to.
+        raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+    """
+    # fmt: off
+    cmd = [
+        "mount",
+        "--make-private", "--make-unbindable",
+        "-o", "ro",
+        "-t", "squashfs",
+        str(target),
+        str(mount_point),
+    ]
+    # fmt: on
+    subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def umount(

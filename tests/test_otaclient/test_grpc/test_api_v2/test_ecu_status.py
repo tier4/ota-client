@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -29,6 +31,7 @@ from otaclient import _types as _internal_types
 from otaclient._types import MultipleECUStatusFlags
 from otaclient.configs import DefaultOTAClientConfigs
 from otaclient.configs._ecu_info import ECUInfo
+from otaclient.grpc.api_v2.ecu_status import ECUStatusState
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from tests.utils import compare_message
@@ -679,10 +682,6 @@ class TestECUStatusStorage:
 
     def test_ecu_status_state_pickle_serialization(self, mocker):
         """Test serializing and deserializing ECUStatusState using pickle."""
-        import time
-
-        from otaclient.grpc.api_v2.ecu_status import ECUStatusState
-
         # Create an original state with some test data
         original_state = ECUStatusState(ecu_status_flags=self.ecu_status_flags)
         original_state.storage_last_updated_timestamp = int(time.time())
@@ -812,3 +811,43 @@ class TestECUStatusStorage:
                 new_state.all_ecus_status_v1[key].status.version
                 == original_state.all_ecus_status_v1[key].status.version
             )
+
+    @pytest.mark.asyncio
+    async def test_save_and_load_state_minimal(self, mocker):
+        """Minimal test for ECUStatusStorage.save_state/load_state."""
+        # Patch the config to use a temp directory
+        tmp_dir = "/tmp/test-ecu-status-minimal"
+        tmp_file = "ecu_status.pkl"
+        mocker.patch("otaclient.grpc.api_v2.ecu_status.cfg.DYNAMIC_CLIENT_MNT", tmp_dir)
+        mocker.patch(
+            "otaclient.grpc.api_v2.ecu_status.cfg.OTACLIENT_STATUS_FILE", tmp_file
+        )
+        os.makedirs(tmp_dir, exist_ok=True)
+
+        # Set up a simple state
+        original_state = ECUStatusState(ecu_status_flags=self.ecu_status_flags)
+        original_state.storage_last_updated_timestamp = int(time.time())
+        original_state.available_ecu_ids = {"autoware": None}
+        original_state.lost_ecus_id = {"p2"}
+        self.ecu_storage._state = original_state
+
+        # Save the state
+        self.ecu_storage.save_state()
+
+        # Reset the state
+        self.ecu_storage._state = ECUStatusState(ecu_status_flags=self.ecu_status_flags)
+        self.ecu_storage._state.available_ecu_ids = {}
+        self.ecu_storage._state.lost_ecus_id = set()
+
+        # Load the state
+        loaded = self.ecu_storage.load_state()
+        assert loaded is True
+
+        # Check that the loaded state matches the original
+        loaded_state = self.ecu_storage._state
+        assert loaded_state.available_ecu_ids == original_state.available_ecu_ids
+        assert loaded_state.lost_ecus_id == original_state.lost_ecus_id
+        assert (
+            loaded_state.storage_last_updated_timestamp
+            == original_state.storage_last_updated_timestamp
+        )
