@@ -72,10 +72,8 @@ def subprocess_check_output(
         str: UTF-8 decoded stripped stdout.
     """
     try:
-        if chroot:
-            cmd = ["chroot", str(chroot)] + (cmd if isinstance(cmd, list) else [cmd])
         res = subprocess_run_wrapper(
-            cmd, check=True, check_output=True, timeout=timeout
+            cmd, check=True, check_output=True, timeout=timeout, chroot=chroot
         )
         return res.stdout.decode().strip()
     except subprocess.CalledProcessError as e:
@@ -106,9 +104,9 @@ def subprocess_call(
         chroot (Optional[str], optional): chroot path. Defaults to None.
     """
     try:
-        if chroot:
-            cmd = ["chroot", str(chroot)] + (cmd if isinstance(cmd, list) else [cmd])
-        subprocess_run_wrapper(cmd, check=True, check_output=False, timeout=timeout)
+        subprocess_run_wrapper(
+            cmd, check=True, check_output=False, timeout=timeout, chroot=chroot
+        )
     except subprocess.CalledProcessError as e:
         _err_msg = (
             f"command({cmd=}) failed(retcode={e.returncode}: \n"

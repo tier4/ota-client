@@ -24,12 +24,12 @@ from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
 import pytest_mock
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackage,
-    _dynamic_client_thread,
+    _dynamic_otaclient_p_monitor_thread,
     dynamic_client_shutdown,
 )
 from tests.conftest import TEST_DIR
@@ -422,7 +422,7 @@ class TestClientPackage:
             )
 
     @patch("subprocess.Popen")
-    def test_dynamic_client_thread_success(
+    def test_dynamic_otaclient_p_monitor_thread_success(
         self, mock_popen, mocker: pytest_mock.MockerFixture
     ):
         """Test the _thread_dynamic_client function with successful path."""
@@ -438,26 +438,26 @@ class TestClientPackage:
         client_update_control_flags = MagicMock()
         client_update_control_flags.request_shutdown_event = MagicMock()
 
-        _dynamic_client_thread()
+        _dynamic_otaclient_p_monitor_thread()
 
         # Verify process.wait was called
         assert mock_process.wait.call_count == 3
 
     @patch("subprocess.Popen")
-    def test_dynamic_client_thread_mount_not_exists(
+    def test_dynamic_otaclient_p_monitor_thread_mount_not_exists(
         self, mock_popen, mocker: pytest_mock.MockerFixture
     ):
         """Test the _thread_dynamic_client function when mount directory doesn't exist."""
         # Mock os.path.exists to return False
         mocker.patch("os.path.exists", return_value=False)
 
-        _dynamic_client_thread()
+        _dynamic_otaclient_p_monitor_thread()
 
         # Verify Popen was not called
         mock_popen.assert_not_called()
 
     @patch("subprocess.Popen")
-    def test_dynamic_client_thread_exception(
+    def test_dynamic_otaclient_p_monitor_thread_exception(
         self, mock_popen, mocker: pytest_mock.MockerFixture
     ):
         """Test the _thread_dynamic_client function when an exception occurs during startup."""
@@ -466,7 +466,7 @@ class TestClientPackage:
         # Mock os.path.exists to return True
         mocker.patch("os.path.exists", return_value=True)
 
-        _dynamic_client_thread()
+        _dynamic_otaclient_p_monitor_thread()
 
         # Verify Popen was called only once
         mock_popen.assert_called_once()
