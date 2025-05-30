@@ -38,7 +38,6 @@ from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
-    subprocess_check_output,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -272,28 +271,6 @@ class OTAClientPackage:
 
     def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
         """Cleanup the mount point."""
-
-        def _get_loop_devices_using_file(file_path: Path) -> list[str]:
-            loop_devs = []
-            try:
-                losetup_output = subprocess_check_output(
-                    ["losetup", "-a"], raise_exception=True
-                )
-                for line in losetup_output.splitlines():
-                    if str(file_path) in line:
-                        dev = line.split(":")[0]
-                        loop_devs.append(dev)
-            except Exception as e:
-                print(f"Error parsing losetup output: {e}")
-            return loop_devs
-
-        def _release_loop_devices(devices: list[str]):
-            for dev in devices:
-                try:
-                    subprocess_call(["losetup", "-d", dev], raise_exception=True)
-                except subprocess.CalledProcessError as e:
-                    print(f"Failed to release {dev}: {e}")
-
         _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
         try:
             # unmount the dynamic client mount point
@@ -303,13 +280,6 @@ class OTAClientPackage:
             )
         except Exception as e:
             logger.warning(f"error while unmounting dynamic client mount point: {e}")
-
-        try:
-            # release loop devices
-            _loop_devs = _get_loop_devices_using_file(_squashfs_file)
-            _release_loop_devices(_loop_devs)
-        except Exception as e:
-            logger.warning(f"error while releasing loop device: {e}")
 
         try:
             # remove the dynamic client mount point
@@ -339,6 +309,8 @@ class OTAClientPackage:
         subprocess_call(["mount", "--make-rprivate", "/"], raise_exception=True)
 
     def _unshare_wrapper(self) -> None:
+        """Unshare the mount namespace."""
+        logger.info("migrating to a new mount namespace by unsharing")
         if sys.version_info >= (3, 12):
             # Python 3.12+ has native os.unshare support
             os.unshare(os.CLONE_NEWNS)
@@ -426,30 +398,7 @@ class OTAClientPackage:
             paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
         )
 
-    def _rbind_mount_current_root(self, mount_base: StrOrPath) -> None:
-        """Mount the active slot to the mount base."""
-        # After chroot, the active slot root is not accessible from the chroot environment.
-        # So we need to bind mount the active slot before chroot.
-
-        # check if the mount base exists
-        if not os.path.exists(mount_base):
-            raise ValueError(f"Mount base does not exist: {mount_base}")
-
-        _mount_point = f"{mount_base}{cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT}"
-        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {_mount_point}")
-        cmdhelper.ensure_mointpoint(
-            _mount_point,
-            ignore_error=True,
-        )
-
-        cmdhelper.ensure_mount(
-            target=cfg.ACTIVE_ROOT,
-            mnt_point=_mount_point,
-            mount_func=cmdhelper.rbind_mount_ro,
-            raise_exception=True,
-        )
-
-    def _bind_mount_active_slot(self, mount_base: StrOrPath) -> None:
+    def _rbind_mount_active_slot(self, mount_base: StrOrPath) -> None:
         """Mount the active slot to the mount base."""
         # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
@@ -468,7 +417,7 @@ class OTAClientPackage:
         cmdhelper.ensure_mount(
             target=cfg.ACTIVE_ROOT,
             mnt_point=_mount_point,
-            mount_func=cmdhelper.bind_mount_ro,
+            mount_func=cmdhelper.rbind_mount_ro,
             raise_exception=True,
         )
 
@@ -516,8 +465,7 @@ class OTAClientPackage:
             self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
-            self._rbind_mount_current_root(_mount_base)
-            self._bind_mount_active_slot(_mount_base)
+            self._rbind_mount_active_slot(_mount_base)
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
@@ -528,7 +476,7 @@ class OTAClientPackage:
         """Run the client package."""
         _otaclient_dynamic_client_t = threading.Thread(
             target=partial(
-                _dynamic_client_thread,
+                _dynamic_otaclient_p_monitor_thread,
             ),
             daemon=True,
             name="otaclient_dynamic_client_t",
@@ -543,7 +491,7 @@ class OTAClientPackage:
         logger.info("dynamic client thread exited")
 
 
-def _dynamic_client_thread() -> None:
+def _dynamic_otaclient_p_monitor_thread() -> None:
     """Thread to run the dynamic client process."""
     atexit.register(dynamic_client_shutdown)
 
