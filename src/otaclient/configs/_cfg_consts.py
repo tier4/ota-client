@@ -52,8 +52,6 @@ class Consts:
 
     # mount point for downloaded otaclient
     DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
-    # mount point of original root in dynamic client
-    DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT = "/original_root"
     # downloaded squashfs location in local filesystem
     # this path should not be mounted by squashfs
     DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"

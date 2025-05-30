@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import os
 from typing import Optional
 
@@ -23,8 +24,9 @@ def is_dynamic_client_running() -> bool:
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
+@functools.cache
 def get_dynamic_client_chroot_path() -> Optional[str]:
     """Get the chroot path."""
     if is_dynamic_client_running():
-        return cfg.DYNAMIC_CLIENT_MNT_ORIGINAL_ROOT
+        return cfg.ACTIVE_SLOT_MNT
     return None
