@@ -138,7 +138,7 @@ def otaproxy_control_thread(
                     "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
                 )
                 next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
-                shutil.rmtree(ota_cache_dir, ignore_errors=True)
+                shutil.rmtree(ota_cache_dir, ignore_errors=False)
 
         elif _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
