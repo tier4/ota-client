@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import atexit
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
@@ -104,4 +105,6 @@ def grpc_server_process(
     asyncio.run(_grpc_server_launcher())
 
     # Keep the process alive even after the gRPC server stops by stop_server_event
-    logger.info("gRPC server has stopped")
+    logger.info("gRPC server has stopped, but keeping the process alive")
+    while client_update_control_flags.stop_server_event.is_set():
+        time.sleep(1)
