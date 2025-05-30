@@ -458,7 +458,7 @@ def rbind_mount_ro(
     """Rbind mount the <target> to <mount_point> read-only.
 
     This is implemented by calling:
-        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
+        mount -o bind,ro --make-private <target> <mount_point>
 
     Args:
         target (StrOrPath): target to be mounted.
@@ -470,7 +470,7 @@ def rbind_mount_ro(
     cmd = [
         "mount",
         "--rbind",
-        "--make-private", "--make-unbindable",
+        "--make-private",
         str(target),
         str(mount_point)
     ]
