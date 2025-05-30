@@ -171,6 +171,7 @@ def subprocess_run_wrapper(
     chroot: Optional[StrOrPath] = None,
     env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
+    capture_output: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     """A wrapper for subprocess.run method.
 
@@ -206,6 +207,7 @@ def subprocess_run_wrapper(
         timeout=timeout,
         preexec_fn=preexec_fn,
         env=env,
+        capture_output=capture_output,
     )
 
 
