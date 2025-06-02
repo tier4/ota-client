@@ -24,7 +24,7 @@ def is_dynamic_client_running() -> bool:
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None)
 def get_dynamic_client_chroot_path() -> Optional[str]:
     """Get the chroot path."""
     if is_dynamic_client_running():
