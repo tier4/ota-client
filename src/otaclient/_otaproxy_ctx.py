@@ -144,6 +144,7 @@ def otaproxy_control_thread(
                 try:
                     shutil.rmtree(ota_cache_dir, ignore_errors=False)
                 except PermissionError:
+                    # in dynamic client, we can't remove /ota-cache because the root directory is RO.
                     # only cleanup the contents
                     with contextlib.suppress(Exception):
                         for item in ota_cache_dir.iterdir():
