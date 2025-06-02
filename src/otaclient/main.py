@@ -105,7 +105,7 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
-    if _env.is_preparing_dynamic_client_running():
+    if _env.is_dynamic_client_preparing() and not _env.is_dynamic_client_running():
         try:
             OTAClientPackagePrepareter().mount_client_package()
 
