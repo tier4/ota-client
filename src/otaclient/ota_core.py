@@ -1367,3 +1367,8 @@ def ota_core_process(
         client_update_control_flags=client_update_control_flags,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
+
+
+def ota_core_disable_signal_handler() -> None:
+    """Disable the signal handler for ota_core process."""
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
