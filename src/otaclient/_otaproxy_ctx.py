@@ -144,7 +144,7 @@ def otaproxy_control_thread(
                 try:
                     shutil.rmtree(ota_cache_dir, ignore_errors=False)
                 except PermissionError:
-                    # only cleanup the contensts
+                    # only cleanup the contents
                     with contextlib.suppress(Exception):
                         for item in ota_cache_dir.iterdir():
                             if item.is_file() or item.is_symlink():
