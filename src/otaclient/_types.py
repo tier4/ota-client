@@ -136,9 +136,7 @@ class MultipleECUStatusFlags:
 class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
-    notify_data_ready_event: (
-        mp_sync.Event
-    )  # for notifying the data is ready to be processed
+    notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
     request_shutdown_event: mp_sync.Event  # for requesting to shutdown
 
 
