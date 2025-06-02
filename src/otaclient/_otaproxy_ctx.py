@@ -142,8 +142,8 @@ def otaproxy_control_thread(
                 )
                 next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
                 try:
-                    shutil.rmtree(ota_cache_dir, ignore_errors=True)
-                except Exception:
+                    shutil.rmtree(ota_cache_dir, ignore_errors=False)
+                except PermissionError:
                     # only cleanup the contensts
                     with contextlib.suppress(Exception):
                         for item in ota_cache_dir.iterdir():
@@ -151,6 +151,9 @@ def otaproxy_control_thread(
                                 item.unlink(missing_ok=True)
                             elif item.is_dir():
                                 shutil.rmtree(item, ignore_errors=True)
+                except Exception:
+                    # ignore other exceptions
+                    pass
 
         elif _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
