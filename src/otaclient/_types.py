@@ -136,7 +136,9 @@ class MultipleECUStatusFlags:
 class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
-    stop_server_event: mp_sync.Event  # for stopping gRPC server
+    notify_data_ready_event: (
+        mp_sync.Event
+    )  # for notifying the data is ready to be processed
     request_shutdown_event: mp_sync.Event  # for requesting to shutdown
 
 

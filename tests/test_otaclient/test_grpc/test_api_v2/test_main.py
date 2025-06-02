@@ -80,10 +80,10 @@ class TestGrpcServerLauncher:
     def test_grpc_server_start(self, setup_mocks):
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
-        stop_server_event = MagicMock()
+        notify_data_ready_event = MagicMock()
         # Configure the stop event to return False, True for the main loop
         # and False for the final check in the while loop
-        stop_server_event.is_set.side_effect = [False, True, False]
+        notify_data_ready_event.is_set.side_effect = [False, True, False]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -112,7 +112,7 @@ class TestGrpcServerLauncher:
                 ecu_status_flags=MagicMock(),
                 client_update_control_flags=MagicMock(
                     request_shutdown_event=MagicMock(),
-                    stop_server_event=stop_server_event,
+                    notify_data_ready_event=notify_data_ready_event,
                 ),
             )
 
@@ -123,7 +123,7 @@ class TestGrpcServerLauncher:
         assert mock_server.add_insecure_port_called is True
 
         # Verify the stop event was checked
-        assert stop_server_event.is_set.call_count == 3
+        assert notify_data_ready_event.is_set.call_count == 3
 
     def test_grpc_stop_server_event(self, setup_mocks):
         mocks = setup_mocks
