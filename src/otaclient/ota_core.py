@@ -1371,4 +1371,5 @@ def ota_core_process(
 
 def ota_core_disable_signal_handler() -> None:
     """Disable the signal handler for ota_core process."""
+    logger.info("Disabling signal handlers for ota_core process.")
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
