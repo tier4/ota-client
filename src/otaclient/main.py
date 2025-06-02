@@ -80,7 +80,10 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 
 def main() -> None:  # pragma: no cover
     from otaclient._logging import configure_logging
-    from otaclient._otaproxy_ctx import otaproxy_control_thread
+    from otaclient._otaproxy_ctx import (
+        otaproxy_control_thread,
+        otaproxy_on_global_shutdown,
+    )
     from otaclient._utils import check_other_otaclient, create_otaclient_rundir
     from otaclient.client_package import OTAClientPackagePrepareter
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -102,7 +105,7 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
-    if _env.is_preparing_dynamic_client_running():
+    if _env.is_dynamic_client_preparing() and not _env.is_dynamic_client_running():
         try:
             OTAClientPackagePrepareter().mount_client_package()
 
@@ -216,10 +219,13 @@ def main() -> None:  # pragma: no cover
             # kill ota proxy thread if it is running
             if _otaproxy_control_t and _otaproxy_control_t.is_alive():
                 logger.info("killing otaproxy control thread ...")
+                otaproxy_on_global_shutdown()
                 _otaproxy_control_t.join()
             # kill other resources except main process
+            logger.info("on main shutdown...")
             _on_shutdown()
 
+            logger.info("execve for dynamic client preparation ...")
             # Create a copy of the current environment and modify it
             preparing_env = os.environ.copy()
             preparing_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"

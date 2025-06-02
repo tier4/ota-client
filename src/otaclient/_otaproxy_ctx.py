@@ -44,7 +44,7 @@ _global_shutdown: bool = False
 _global_shutdown_lock = threading.Lock()
 
 
-def _on_global_shutdown() -> None:
+def otaproxy_on_global_shutdown() -> None:
     global _global_shutdown
     _global_shutdown = True
     _shutdown_otaproxy()
@@ -105,7 +105,7 @@ def otaproxy_process(*, init_cache: bool) -> None:
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
 ) -> None:  # pragma: no cover
-    atexit.register(_on_global_shutdown)
+    atexit.register(otaproxy_on_global_shutdown)
 
     _mp_ctx = mp.get_context("spawn")
 
