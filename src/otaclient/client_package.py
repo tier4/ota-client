@@ -384,6 +384,7 @@ class OTAClientPackage:
             "/home",
             "/mnt",
             "/opt",
+            "/ota-cache",
             "/proc",
             "/root",
             "/run",
