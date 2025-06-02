@@ -1,5 +1,10 @@
 name: gen requirements.txt on pyproject.toml file changed
 
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
 on:
   pull_request:
     branches:
@@ -12,6 +17,8 @@ on:
 jobs:
   gen-requirements-txt:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 1
 
     steps:

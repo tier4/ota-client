@@ -28,7 +28,7 @@ import pytest_mock
 from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
-    OTAClientPackage,
+    OTAClientPackageDownloader,
     _dynamic_otaclient_p_monitor_thread,
     dynamic_client_shutdown,
 )
@@ -55,7 +55,7 @@ def helper_generate_package(
 
 
 class TestClientPackage:
-    """Test class for OTAClientPackage"""
+    """Test class for OTAClientPackageDownloader"""
 
     DUMMY_URL = "http://example.com"
     DUMMY_SESSION_DIR = "/tmp/session"
@@ -78,7 +78,7 @@ class TestClientPackage:
         # Configure the mock to return our structure when metadata_jwt is accessed
         type(mock_metadata).metadata_jwt = PropertyMock(return_value=mock_metadata_jwt)
 
-        ota_client_package = OTAClientPackage(
+        ota_client_package = OTAClientPackageDownloader(
             base_url=self.DUMMY_URL,
             ota_metadata=mock_metadata,
             session_dir=self.DUMMY_SESSION_DIR,

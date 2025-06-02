@@ -305,10 +305,10 @@ class TestOTAClientUpdater:
         self.session_workdir = tmp_path / "test_client_update"
         self.session_workdir.mkdir(parents=True, exist_ok=True)
 
-        # Mock OTAClientPackage
+        # Mock OTAClientPackageDownloader
         self.mock_ota_client_package = mocker.MagicMock()
         self.patcher_client_package = mocker.patch(
-            f"{OTA_CORE_MODULE}.OTAClientPackage",
+            f"{OTA_CORE_MODULE}.OTAClientPackageDownloader",
             return_value=self.mock_ota_client_package,
         )
 
@@ -355,8 +355,8 @@ class TestOTAClientUpdater:
 
         # Assert initialization parameters
         assert (
-            client_updater.client_update_control_flags.stop_server_event
-            == self.client_update_control_flags.stop_server_event
+            client_updater.client_update_control_flags.notify_data_ready_event
+            == self.client_update_control_flags.notify_data_ready_event
         )
         assert (
             client_updater.client_update_control_flags.request_shutdown_event
@@ -435,7 +435,7 @@ class TestOTAClientUpdater:
 
         # Mock the methods called within _perform_update
         mock_stop_grpc_server = mocker.patch.object(
-            client_updater.client_update_control_flags.stop_server_event, "set"
+            client_updater.client_update_control_flags.notify_data_ready_event, "set"
         )
         mock_mount_client_package = mocker.patch.object(
             client_updater._ota_client_package, "mount_client_package"
