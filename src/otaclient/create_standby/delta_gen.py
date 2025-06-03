@@ -236,8 +236,10 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
-            fpath, canonical_fpath, fully_scan = _input
+            fpath = None
             try:
+                fpath, canonical_fpath, fully_scan = _input
+
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -269,7 +271,8 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 continue
             finally:
                 # after the resource is collected, remove the original file
-                fpath.unlink(missing_ok=True)
+                if fpath:
+                    fpath.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
 
         # wake up other threads
@@ -364,8 +367,9 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
-            fpath, canonical_fpath, fully_scan = _input
             try:
+                fpath, canonical_fpath, fully_scan = _input
+
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly skip it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -508,10 +512,11 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
-            expected_digest, fpaths = _input
-            dst_f = self._copy_dst / expected_digest.hex()
-
+            fpaths = None
             try:
+                expected_digest, fpaths = _input
+                dst_f = self._copy_dst / expected_digest.hex()
+
                 for fpath in fpaths:
                     hash_f = sha256()
                     try:
@@ -544,9 +549,13 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 continue
             finally:
                 # after the resource is collected, remove the original file
-                for _f in fpaths:
-                    _f.unlink(missing_ok=True)
+                if fpaths:
+                    for _f in fpaths:
+                        _f.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
+
+        # wake up other threads
+        self._que.put_nowait(None)
 
     def _calculate_delta(self, base_fst: str) -> None:
         logger.debug("process delta src and generate delta...")
@@ -609,10 +618,10 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
-            expected_digest, fpaths = _input
-            dst_f = self._copy_dst / expected_digest.hex()
-
             try:
+                expected_digest, fpaths = _input
+                dst_f = self._copy_dst / expected_digest.hex()
+
                 for fpath in fpaths:
                     hash_f = sha256()
                     try:
