@@ -91,9 +91,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -123,7 +123,11 @@ def prepare_regular(
     *,
     target_mnt: StrOrPath,
     prepare_method: Literal["move", "hardlink", "copy"],
-) -> None:
+) -> Path:
+    """
+    Returns:
+        The path to the prepared file on target mount point.
+    """
     _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
 
     # NOTE(20241213): chown will reset the sticky bit of the file!!!
@@ -133,7 +137,7 @@ def prepare_regular(
             shutil.copy(_rs, _target_on_mnt)
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
-            return
+            return _target_on_mnt
 
         if prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
@@ -143,12 +147,13 @@ def prepare_regular(
             #   do it everytime.
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
-            return
+            return _target_on_mnt
 
         if prepare_method == "move":
             shutil.move(str(_rs), _target_on_mnt)
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
+            return _target_on_mnt
     except Exception as e:
         burst_suppressed_logger.exception(
             f"failed on preparing {entry!r}, {_rs=}: {e!r}"
