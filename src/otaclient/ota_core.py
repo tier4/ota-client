@@ -205,9 +205,21 @@ class _OTAUpdater:
         )
 
         # ------ prepare runtime dirs ------ #
-        self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
+        self._resource_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                "/",
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+        self._ota_tmp_meta_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_META_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+
         # TODO: use a tmpfs mount with 320MB in size for session workdir
         self._session_workdir = session_wd = (
             Path(cfg.RUN_DIR) / f"update_session-{session_id}"
@@ -558,24 +570,18 @@ class _OTAUpdater:
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
-
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._resource_dir_on_standby.mkdir(exist_ok=True)
+        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
 
         # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
-        ota_metadata_tmp_save_dst = replace_root(
-            cfg.OTA_TMP_META_STORE,
-            cfg.CANONICAL_ROOT,
-            self._boot_controller.get_standby_slot_path(),
-        )
-        Path(ota_metadata_tmp_save_dst).mkdir(exist_ok=True, parents=True)
         try:
-            self._ota_metadata.save_fstable(dst=ota_metadata_tmp_save_dst)
+            self._ota_metadata.save_fstable(self._ota_tmp_meta_on_standby)
         except Exception as e:
             logger.error(
-                f"failed to save OTA image file_table to {ota_metadata_tmp_save_dst}: {e!r}"
+                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
         # ------ in-update: calculate delta ------ #
@@ -589,20 +595,22 @@ class _OTAUpdater:
                 new_root=Path(cfg.ACTIVE_SLOT_MNT),
             )
         )
-        _base_ft_db_at_standby = Path(
-            replace_root(
-                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                old_root="/",
-                new_root=Path(cfg.STANDBY_SLOT_MNT),
+
+        _base_ft_db_at_standby = None
+        ota_tmp_meta_base_store = self._ota_tmp_meta_on_standby / "base"
+        # prepare the db file to OTA tmp metadata storage
+        if (
+            _base_ft_db_at_standby := Path(
+                replace_root(
+                    Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+                    old_root="/",
+                    new_root=Path(cfg.STANDBY_SLOT_MNT),
+                )
             )
-        )
-        if not _base_ft_db_at_standby.is_file():
-            _base_ft_db_at_standby = None
-        else:  # move the db file to OTA tmp metadata storage
-            _ota_tmp_metadata_store = Path(cfg.OTA_TMP_META_STORE) / "base"
-            _ota_tmp_metadata_store.mkdir(exist_ok=True, parents=True)
-            shutil.move(_base_ft_db_at_standby, _ota_tmp_metadata_store)
-            _base_ft_db_at_standby = _ota_tmp_metadata_store / OTAMetadata.FSTABLE_DB
+        ).is_file():
+            ota_tmp_meta_base_store.mkdir(exist_ok=True, parents=True)
+            shutil.copy(_base_ft_db_at_standby, ota_tmp_meta_base_store)
+            _base_ft_db_at_standby = ota_tmp_meta_base_store / OTAMetadata.FSTABLE_DB
 
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -659,6 +667,10 @@ class _OTAUpdater:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+        finally:
+            # we don't need the copy of base file table after delta calculation
+            if ota_tmp_meta_base_store.is_dir():
+                shutil.rmtree(ota_tmp_meta_base_store)
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
@@ -754,9 +766,9 @@ class _OTAUpdater:
                 self._boot_controller.get_standby_slot_path(),
             )
         )
-        ota_metadata_save_dst.parent.mkdir(exist_ok=True, parents=True)
-        shutil.rmtree(ota_metadata_tmp_save_dst)
-        shutil.move(ota_metadata_tmp_save_dst, ota_metadata_save_dst)
+        ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
+        shutil.rmtree(ota_metadata_save_dst)
+        shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
         self._boot_controller.post_update()
 
