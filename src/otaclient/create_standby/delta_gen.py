@@ -515,12 +515,22 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         hash_bufferview = memoryview(hash_buffer)
 
         while _input := self._que.get():
-            fpaths = None
+            delta_src_fpaths = None
             try:
                 expected_digest, fpaths = _input
                 dst_f = self._copy_dst / expected_digest.hex()
+                delta_src_fpaths = [
+                    Path(
+                        replace_root(
+                            _fpath,
+                            "/",
+                            self._delta_src_mount_point,
+                        )
+                    )
+                    for _fpath in fpaths
+                ]
 
-                for fpath in fpaths:
+                for fpath in delta_src_fpaths:
                     hash_f = sha256()
                     try:
                         with open(fpath, "rb") as src:
@@ -552,8 +562,8 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 continue
             finally:
                 # after the resource is collected, remove the original file
-                if fpaths:
-                    for _f in fpaths:
+                if delta_src_fpaths:
+                    for _f in delta_src_fpaths:
                         _f.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
 
