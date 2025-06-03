@@ -110,7 +110,9 @@ def main() -> None:  # pragma: no cover
     if _env.is_dynamic_client_preparing():
         logger.info("preparing downloaded dynamic ota client ...")
         try:
-            OTAClientPackagePrepareter().mount_client_package()
+            client_package_prepareter = OTAClientPackagePrepareter()
+            client_package_prepareter.mount_client_package()
+            client_package_prepareter.chroot_mount_base()
 
             running_env = os.environ.copy()
             del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
