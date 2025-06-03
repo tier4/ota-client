@@ -464,17 +464,3 @@ class OTAClientPackagePrepareter:
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
-
-    def chroot_mount_base(self) -> None:
-        """Chroot to the mount base."""
-        _mount_base = cfg.DYNAMIC_CLIENT_MNT
-        if not os.path.exists(_mount_base):
-            raise ValueError(f"Mount base does not exist: {_mount_base}")
-
-        # chroot to the mount base
-        logger.info(f"chrooting to {_mount_base}")
-        try:
-            subprocess_call(["chroot", _mount_base], raise_exception=True)
-        except subprocess.CalledProcessError as e:
-            logger.exception(f"failed to chroot: {e!r}")
-            raise

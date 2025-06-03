@@ -110,10 +110,15 @@ def main() -> None:  # pragma: no cover
     if _env.is_dynamic_client_preparing():
         logger.info("preparing downloaded dynamic ota client ...")
         try:
+            logger.info("mounting dynamic client squashfs ...")
             client_package_prepareter = OTAClientPackagePrepareter()
             client_package_prepareter.mount_client_package()
-            client_package_prepareter.chroot_mount_base()
 
+            logger.info(f"changing root to {cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}")
+            os.chroot(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+            os.chdir("/")
+
+            logger.info("execve for dynamic client runnning ...")
             running_env = os.environ.copy()
             del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
             running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
