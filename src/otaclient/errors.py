@@ -41,6 +41,7 @@ class OTAErrorCode(int, Enum):
     E_INVALID_STATUS_FOR_OTAROLLBACK = 202
     E_OTA_IMAGE_INVALID = 203
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
+    E_DUPLICATED_CLIENT_UPDATE_REQUEST = 205
 
     #
     # ------ unrecoverable errors ------
@@ -60,7 +61,6 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 312
     E_APPLY_OTAUPDATE_FAILED = 313
     E_OTACLIENT_STARTUP_FAILED = 314
-    E_DUPLICATED_CLIENT_UPDATE_REQUEST = 315
 
     def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
@@ -168,6 +168,11 @@ class OTAImageInvalid(OTAErrorRecoverable):
 class UpdateRequestCookieInvalid(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATE_REQUEST_COOKIE_INVALID
     failure_description: str = "failed to complete OTA as cookie is invalid"
+
+
+class DuplicatedClientUpdateRequest(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_DUPLICATED_CLIENT_UPDATE_REQUEST
+    failure_description: str = "duplicated client update request is not supported"
 
 
 #
@@ -281,8 +286,3 @@ class OTAClientStartupFailed(OTAErrorUnrecoverable):
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start otaclient instance"
     )
-
-
-class DuplicatedClientUpdateRequest(OTAErrorUnrecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_DUPLICATED_CLIENT_UPDATE_REQUEST
-    failure_description: str = "duplicated client update request is not supported"
