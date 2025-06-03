@@ -21,17 +21,18 @@ import os
 import sys
 import time
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+
 logger = logging.getLogger(__name__)
 
 HEALTH_CHECK_INTERVAL = 2  # seconds
 
 
 def main() -> None:  # pragma: no cover
-    from otaclient._logging import configure_logging
-
-    # configure logging before any code being executed
-    configure_logging()
-
     logger.info("started")
     logger.info(f"env.preparing_downloaded_dynamic_ota_client: {os.getenv('hoge')}")
 
@@ -55,3 +56,7 @@ def main() -> None:  # pragma: no cover
             )
         except Exception as e:
             logger.exception(f"Failed during dynamic client preparation: {e}")
+
+
+if __name__ == "__main__":
+    main()
