@@ -31,6 +31,7 @@ from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Empty, Queue
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
@@ -551,14 +552,16 @@ class _OTAUpdater:
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
 
-        use_inplace_mode = can_use_in_place_mode(
-            dev=self._boot_controller.standby_slot_dev,
-            mnt_point=self._boot_controller.get_standby_slot_path(),
-            threshold_in_bytes=int(
-                self._ota_metadata.total_regulars_size
-                * STANDBY_SLOT_USED_SIZE_THRESHOLD
-            ),
-        )
+        with TemporaryDirectory() as _tmp_dir:
+            use_inplace_mode = can_use_in_place_mode(
+                dev=self._boot_controller.standby_slot_dev,
+                mnt_point=_tmp_dir,
+                threshold_in_bytes=int(
+                    self._ota_metadata.total_regulars_size
+                    * STANDBY_SLOT_USED_SIZE_THRESHOLD
+                ),
+            )
+
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
