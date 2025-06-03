@@ -345,9 +345,6 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                     )
                 )
 
-        # heals the hole of the rst table
-        self._rst_orm.orm_execute("VACUUM;")
-
     def _cleanup_base(self):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
         for _canon_dir in self._dirs_to_remove.iter_paths():
@@ -460,9 +457,6 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                         _dir_should_fully_scan,
                     )
                 )
-
-        # heals the hole of the rst table
-        self._rst_orm.orm_execute("VACUUM;")
 
     def _cleanup_base(self) -> None:
         # NOTE: for rebuild mode, we will not cleanup the base.
@@ -581,9 +575,6 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
-        # heals the hole of the ft_rs table
-        self._rst_orm.orm_execute("VACUUM;")
-
     def _cleanup_base(self):
         _canonical_root = Path(CANONICAL_ROOT)
         for curdir, dirnames, filenames in os.walk(
@@ -681,9 +672,6 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         ):
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
-
-        # heals the hole of the ft_rs table
-        self._rst_orm.orm_execute("VACUUM;")
 
     def _cleanup_base(self):
         # NOTE: in rebuild mode, we do not cleanup base
