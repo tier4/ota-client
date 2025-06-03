@@ -217,13 +217,15 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
             _workers.append(_t)
 
         try:
-            self._calculate_delta()
+            try:
+                self._calculate_delta()
+            finally:
+                self._que.put_nowait(None)
+                for _t in _workers:
+                    _t.join()
+
             self._cleanup_base()
         finally:
-            self._que.put_nowait(None)
-            for _t in _workers:
-                _t.join()
-
             self._rst_orm.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
@@ -495,17 +497,17 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
             _workers.append(_t)
 
         try:
-            self._calculate_delta(base_file_table_db)
+            try:
+                self._calculate_delta(base_file_table_db)
+            finally:
+                self._que.put_nowait(None)
+                for _t in _workers:
+                    _t.join()
+            self._cleanup_base()
         finally:
-            self._que.put_nowait(None)
-            for _t in _workers:
-                _t.join()
-
             self._rst_orm.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
-
-        self._cleanup_base()
 
 
 class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
