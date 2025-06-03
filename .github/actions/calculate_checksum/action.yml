@@ -1,0 +1,24 @@
+name: "Calculate Checksum"
+description: "Calculates SHA256 checksums for specified file patterns"
+inputs:
+  file_patterns:
+    description: "File patterns to calculate checksums in the specified directory. Only single glob pattern is supported."
+    required: true
+    default: "*.{whl,squashfs,patch,json}"
+  directory:
+    description: "Directory containing the files. Only single directory is supported."
+    required: true
+    default: "dist"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Calculate checksum
+      shell: bash
+      run: |
+        for FILE in ${{ inputs.directory }}/${{ inputs.file_patterns }}; do
+          if [ -s "${FILE}" ]; then
+            sha256sum "${FILE}" | awk '{print "sha256:"$1}' > "${FILE}.checksum"
+            echo "Generated checksum for \"${FILE}\""
+          fi
+        done
