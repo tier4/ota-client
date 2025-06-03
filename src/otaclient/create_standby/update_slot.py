@@ -91,6 +91,8 @@ class UpdateStandbySlot:
                 _is_hardlinked = _entry["links_count"] is not None
 
                 # we always prepare the first copy by moving
+                # NOTE that first copy will not be counted in report, as the first copy
+                #   is either prepared by download, or by local, both are already recorded.
                 if _this_digest != cur_digest:
                     cur_digest = _this_digest
                     hardlink_group.clear()
@@ -103,10 +105,11 @@ class UpdateStandbySlot:
 
                     if _is_hardlinked:
                         hardlink_group[_inode_id] = cur_resource
-                    continue
-
                 # not the first copy in this digest group
-                if _is_hardlinked:
+                elif _is_hardlinked:
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += _entry["size"] or 0
+
                     if _inode_id in hardlink_group:
                         prepare_regular(
                             _entry,
@@ -121,7 +124,11 @@ class UpdateStandbySlot:
                             target_mnt=self._standby_slot_mp,
                             prepare_method="copy",
                         )
+                # normal multi copies
                 else:
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += _entry["size"] or 0
+
                     prepare_regular(
                         _entry,
                         cur_resource,
