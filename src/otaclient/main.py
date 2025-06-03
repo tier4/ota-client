@@ -116,9 +116,10 @@ def main() -> None:  # pragma: no cover
             del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
             running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
             # the process should finish after this execve call
+            DYNAMIC_CLIENT_PYTHON_PATH = "/otaclient/venv/bin/python3"
             os.execve(
-                path=sys.executable,
-                argv=[sys.executable, "-m", "otaclient"],
+                path=DYNAMIC_CLIENT_PYTHON_PATH,
+                argv=[DYNAMIC_CLIENT_PYTHON_PATH, "-m", "otaclient"],
                 env=running_env,
             )
         except Exception as e:
