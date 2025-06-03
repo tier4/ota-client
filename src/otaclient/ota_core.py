@@ -185,6 +185,10 @@ class _OTAUpdater:
         self.session_id = session_id
         self._status_report_queue = status_report_queue
 
+        # ------ init updater implementation ------ #
+        self.ecu_status_flags = ecu_status_flags
+        self._boot_controller = boot_controller
+
         # ------ report INITIALIZING status ------ #
         status_report_queue.put_nowait(
             StatusReport(
@@ -241,10 +245,6 @@ class _OTAUpdater:
         # ------ parse upper proxy ------ #
         logger.debug("configure proxy setting...")
         self._upper_proxy = upper_otaproxy
-
-        # ------ init updater implementation ------ #
-        self.ecu_status_flags = ecu_status_flags
-        self._boot_controller = boot_controller
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
