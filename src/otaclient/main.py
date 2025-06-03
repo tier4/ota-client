@@ -114,8 +114,9 @@ def main() -> None:  # pragma: no cover
             client_package_prepareter = OTAClientPackagePrepareter()
             client_package_prepareter.mount_client_package()
 
-            logger.info(f"changing root to {cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}")
-            os.chroot(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
+            _mount_base = cfg.DYNAMIC_CLIENT_MNT
+            logger.info(f"changing root to {_mount_base}")
+            os.chroot(_mount_base)
             os.chdir("/")
 
             logger.info("execve for dynamic client runnning ...")
