@@ -88,13 +88,15 @@ def main() -> None:  # pragma: no cover
     from otaclient.client_package import OTAClientPackagePrepareter
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
-    from otaclient.ota_core import ota_core_disable_signal_handler, ota_core_process
+    from otaclient.ota_core import ota_core_process
     from otaclient_common import _env
 
     # configure logging before any code being executed
     configure_logging()
 
     logger.info("started")
+    logger.info(f"otaclient started with {sys.executable=}, {sys.argv=}")
+    logger.info(f"pid: {os.getpid()}")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
@@ -114,7 +116,7 @@ def main() -> None:  # pragma: no cover
             running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
             os.execve(
                 path=sys.executable,
-                argv=[sys.executable, __file__],
+                argv=[sys.executable, "-m", "otaclient"],
                 env=running_env,
             )
         except Exception as e:
@@ -206,14 +208,14 @@ def main() -> None:  # pragma: no cover
                 f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT}seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
-            return _on_shutdown()
+            return _on_shutdown(sys_exit=True)
 
         if not _grpc_server_p.is_alive():
             logger.error(
                 f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
-            return _on_shutdown()
+            return _on_shutdown(sys_exit=True)
 
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
@@ -225,8 +227,7 @@ def main() -> None:  # pragma: no cover
                     _otaproxy_control_t.join()
                 # kill other resources except main process
                 logger.info("on main shutdown...")
-                ota_core_disable_signal_handler()
-                _on_shutdown()
+                _on_shutdown(sys_exit=False)
 
                 logger.info("execve for dynamic client preparation ...")
                 # Create a copy of the current environment and modify it
@@ -235,7 +236,7 @@ def main() -> None:  # pragma: no cover
                 # Execute with the modified environment
                 os.execve(
                     path=sys.executable,
-                    argv=[sys.executable, __file__],
+                    argv=[sys.executable, "-m", "otaclient"],
                     env=preparing_env,
                 )
             except Exception as e:
@@ -244,4 +245,4 @@ def main() -> None:  # pragma: no cover
 
         # shutdown request
         if client_update_control_flags.request_shutdown_event.is_set():
-            return _on_shutdown()
+            return _on_shutdown(sys_exit=True)
