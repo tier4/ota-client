@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -23,14 +24,11 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-import pytest_mock
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
-    OTAClientPackage,
-    _dynamic_otaclient_p_monitor_thread,
-    dynamic_client_shutdown,
+    OTAClientPackageDownloader,
 )
 from tests.conftest import TEST_DIR
 
@@ -54,8 +52,8 @@ def helper_generate_package(
     return package
 
 
-class TestClientPackage:
-    """Test class for OTAClientPackage"""
+class TestClientPackageDownloader:
+    """Test class for OTAClientPackageDownloader"""
 
     DUMMY_URL = "http://example.com"
     DUMMY_SESSION_DIR = "/tmp/session"
@@ -78,7 +76,7 @@ class TestClientPackage:
         # Configure the mock to return our structure when metadata_jwt is accessed
         type(mock_metadata).metadata_jwt = PropertyMock(return_value=mock_metadata_jwt)
 
-        ota_client_package = OTAClientPackage(
+        ota_client_package = OTAClientPackageDownloader(
             base_url=self.DUMMY_URL,
             ota_metadata=mock_metadata,
             session_dir=self.DUMMY_SESSION_DIR,
@@ -421,118 +419,71 @@ class TestClientPackage:
                 ota_client_package.is_same_client_package_version() == expected_result
             )
 
-    @patch("subprocess.Popen")
-    def test_dynamic_otaclient_p_monitor_thread_success(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function with successful path."""
-        # Setup mock for process
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_popen.return_value = mock_process
-        # Mock process.wait to return None (simulate normal exit)
-        mock_process.wait.side_effect = [None, None, None]
-        # Mock os.path.exists to return True
-        mocker.patch("os.path.exists", return_value=True)
-        # Setup control flags with proper attributes
-        client_update_control_flags = MagicMock()
-        client_update_control_flags.request_shutdown_event = MagicMock()
 
-        _dynamic_otaclient_p_monitor_thread()
+class TestClientPackagePrepareter:
+    """Test class for OTAClientPackagePrepareter"""
 
-        # Verify process.wait was called
-        assert mock_process.wait.call_count == 3
+    @pytest.fixture
+    def package_prepareter(self):
+        from otaclient.client_package import OTAClientPackagePrepareter
 
-    @patch("subprocess.Popen")
-    def test_dynamic_otaclient_p_monitor_thread_mount_not_exists(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function when mount directory doesn't exist."""
-        # Mock os.path.exists to return False
-        mocker.patch("os.path.exists", return_value=False)
+        return OTAClientPackagePrepareter()
 
-        _dynamic_otaclient_p_monitor_thread()
-
-        # Verify Popen was not called
-        mock_popen.assert_not_called()
-
-    @patch("subprocess.Popen")
-    def test_dynamic_otaclient_p_monitor_thread_exception(
-        self, mock_popen, mocker: pytest_mock.MockerFixture
-    ):
-        """Test the _thread_dynamic_client function when an exception occurs during startup."""
-        # Mock Popen to raise an exception
-        mock_popen.side_effect = Exception("Test exception")
-        # Mock os.path.exists to return True
-        mocker.patch("os.path.exists", return_value=True)
-
-        _dynamic_otaclient_p_monitor_thread()
-
-        # Verify Popen was called only once
-        mock_popen.assert_called_once()
-
-    @pytest.mark.parametrize(
-        "is_dynamic_client_running, process_exists, process_running",
-        [
-            (False, True, True),  # Normal case: process exists and is running
-            (False, True, False),  # Process exists but already terminated
-            (False, False, False),  # No process exists
-            (True, True, True),  # Running in dynamic client environment
-        ],
-    )
-    def test_dynamic_client_shutdown(
+    @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")
+    @patch("otaclient.client_package.cmdhelper.ensure_umount")
+    @patch("shutil.rmtree")
+    def test_cleanup_mount_point(
         self,
-        is_dynamic_client_running,
-        process_exists,
-        process_running,
-        mocker: pytest_mock.MockerFixture,
+        mock_rmtree,
+        mock_ensure_umount,
+        mock_ensure_mointpoint,
+        package_prepareter,
     ):
-        """Test the dynamic_client_shutdown function with various scenarios."""
-        # Setup mocks
+        mount_base = "/tmp/test_mount_point"
+        package_prepareter._cleanup_mount_point(mount_base)
 
-        mock_process = MagicMock()
-        mock_process.pid = 12345
-        mock_process.poll.return_value = None if process_running else 0
-
-        mock_shutdown_event = MagicMock()
-        mock_shutdown_event.is_set.return_value = False
-
-        mocker.patch(
-            "otaclient.client_package._shutdown_processing", mock_shutdown_event
+        mock_ensure_mointpoint.assert_called_once_with(mount_base, ignore_error=True)
+        mock_ensure_umount.assert_called_once_with(
+            mount_base, ignore_error=False, max_retry=0, retry_interval=0
         )
-        mocker.patch(
-            "otaclient.client_package._dynamic_client_p",
-            mock_process if process_exists else None,
+        mock_rmtree.assert_called_once_with(mount_base, ignore_errors=False)
+
+    @patch("otaclient.client_package.subprocess_call")
+    @patch("otaclient.client_package.OTAClientPackagePrepareter._unshare_wrapper")
+    def test_create_mount_namespaces(
+        self, mock_unshare_wrapper, mock_subprocess_call, package_prepareter
+    ):
+        package_prepareter._create_mount_namespaces()
+
+        mock_unshare_wrapper.assert_called_once()
+        mock_subprocess_call.assert_called_once_with(
+            ["mount", "--make-rprivate", "/"], raise_exception=True
         )
 
-        mock_is_dynamic_client = mocker.patch(
-            "otaclient_common._env.is_dynamic_client_running"
-        )
-        mock_is_dynamic_client.return_value = is_dynamic_client_running
+    @patch("ctypes.CDLL", create=True)
+    def test_unshare_wrapper_python_3_11(self, mock_cdll, package_prepareter):
+        if sys.version_info >= (3, 12):
+            pytest.skip("This test is for Python 3.11 and below only.")
 
-        mock_os_killpg = mocker.patch("os.killpg")
-        mock_getpgid = mocker.patch("os.getpgid", return_value=54321)
-        mock_rmtree = mocker.patch("shutil.rmtree")
+        # Setup the mock correctly
+        mock_libc = MagicMock()
+        mock_cdll.return_value = mock_libc
+        mock_libc.unshare.return_value = 0  # Success case
 
-        dynamic_client_shutdown()
+        # Call the function
+        package_prepareter._unshare_wrapper()
 
-        # Verify behavior
-        if is_dynamic_client_running:
-            # Should return early when in dynamic client environment
-            mock_shutdown_event.set.assert_not_called()
-            mock_os_killpg.assert_not_called()
-            mock_getpgid.assert_not_called()
-            mock_rmtree.assert_not_called()
-        else:
-            # Should set the shutdown processing flag
-            mock_shutdown_event.set.assert_called_once()
+        # Verify the mocks were called correctly
+        mock_cdll.assert_called_once_with("libc.so.6", use_errno=True)
+        mock_libc.unshare.assert_called_once()
 
-            if process_exists and process_running:
-                # Should kill process group
-                mock_getpgid.assert_called_once_with(mock_process.pid)
-                mock_os_killpg.assert_called_once()
-                mock_process.wait.assert_called_once()
-            else:
-                mock_getpgid.assert_not_called()
-                mock_os_killpg.assert_not_called()
-                mock_process.wait.assert_not_called()
+    @patch("os.unshare", create=True)
+    def test_unshare_wrapper_python_3_12(self, mock_unshare, package_prepareter):
+        if sys.version_info < (3, 12):
+            pytest.skip("This test is for Python 3.12 and above only.")
+
+        # Call the function
+        package_prepareter._unshare_wrapper()
+
+        # Verify the mock was called correctly
+        mock_unshare.assert_called_once()

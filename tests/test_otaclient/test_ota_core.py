@@ -305,10 +305,10 @@ class TestOTAClientUpdater:
         self.session_workdir = tmp_path / "test_client_update"
         self.session_workdir.mkdir(parents=True, exist_ok=True)
 
-        # Mock OTAClientPackage
+        # Mock OTAClientPackageDownloader
         self.mock_ota_client_package = mocker.MagicMock()
         self.patcher_client_package = mocker.patch(
-            f"{OTA_CORE_MODULE}.OTAClientPackage",
+            f"{OTA_CORE_MODULE}.OTAClientPackageDownloader",
             return_value=self.mock_ota_client_package,
         )
 
@@ -428,30 +428,6 @@ class TestOTAClientUpdater:
         # Verify wait_and_log was called
         mock_wait_and_log.assert_called_once()
 
-    def test_perform_update(self, mocker: pytest_mock.MockerFixture):
-        """Test the _perform_update method."""
-        # Setup the client updater instance
-        client_updater = self.setup_client_updater(mocker)
-
-        # Mock the methods called within _perform_update
-        mock_stop_grpc_server = mocker.patch.object(
-            client_updater.client_update_control_flags.stop_server_event, "set"
-        )
-        mock_mount_client_package = mocker.patch.object(
-            client_updater._ota_client_package, "mount_client_package"
-        )
-        mock_run_client_package = mocker.patch.object(
-            client_updater._ota_client_package, "run_client_package"
-        )
-
-        # Call the method to test
-        client_updater._perform_update()
-
-        # Verify that the methods were called in the correct order
-        mock_stop_grpc_server.assert_called_once()
-        mock_mount_client_package.assert_called_once()
-        mock_run_client_package.assert_called_once()
-
     def test_execute_client_update_flow(self, mocker: pytest_mock.MockerFixture):
         """Test the full execution flow of _execute_client_update."""
         client_updater = self.setup_client_updater(mocker)
@@ -466,8 +442,12 @@ class TestOTAClientUpdater:
         mock_is_same_version = mocker.patch.object(
             client_updater, "_is_same_client_package_version", return_value=False
         )
-        mock_perform_update = mocker.patch.object(client_updater, "_perform_update")
-        mock_request_shutdown = mocker.patch.object(client_updater, "_request_shutdown")
+        mock_copy_client_package = mocker.patch.object(
+            client_updater, "_copy_client_package"
+        )
+        mock_notify_data_ready = mocker.patch.object(
+            client_updater, "_notify_data_ready"
+        )
         # Execute the client update
         client_updater._execute_client_update()
 
@@ -477,8 +457,8 @@ class TestOTAClientUpdater:
         mock_download_resources.assert_called_once()
         mock_wait_sub_ecus.assert_called_once()
         mock_is_same_version.assert_called_once()
-        mock_perform_update.assert_called_once()
-        mock_request_shutdown.assert_called_once()
+        mock_copy_client_package.assert_called_once()
+        mock_notify_data_ready.assert_called_once()
 
     def test_execute_client_update_same_version(
         self, mocker: pytest_mock.MockerFixture
@@ -494,7 +474,9 @@ class TestOTAClientUpdater:
         mock_is_same_version = mocker.patch.object(
             client_updater, "_is_same_client_package_version", return_value=True
         )
-        mock_perform_update = mocker.patch.object(client_updater, "_perform_update")
+        mock_notify_data_ready = mocker.patch.object(
+            client_updater, "_notify_data_ready"
+        )
         mock_request_shutdown = mocker.patch.object(client_updater, "_request_shutdown")
 
         # Execute the client update
@@ -502,7 +484,7 @@ class TestOTAClientUpdater:
 
         # Verify the flow of method calls
         mock_is_same_version.assert_called_once()
-        mock_perform_update.assert_not_called()  # Should not be called for the same version
+        mock_notify_data_ready.assert_not_called()  # Should not be called for the same version
         mock_request_shutdown.assert_called_once()
 
     def test_execute_client_update_failure(self, mocker: pytest_mock.MockerFixture):
@@ -517,8 +499,10 @@ class TestOTAClientUpdater:
         mocker.patch.object(
             client_updater, "_is_same_client_package_version", return_value=False
         )
-        mock_perform_update = mocker.patch.object(
-            client_updater, "_perform_update", side_effect=Exception("Test exception")
+        mock_copy_client_package = mocker.patch.object(
+            client_updater,
+            "_copy_client_package",
+            side_effect=Exception("Test exception"),
         )
         mock_request_shutdown = mocker.patch.object(
             client_updater, "_request_shutdown", return_value=False
@@ -528,7 +512,7 @@ class TestOTAClientUpdater:
         client_updater._execute_client_update()
 
         # Verify the flow of method calls
-        mock_perform_update.assert_called_once()
+        mock_copy_client_package.assert_called_once()
         mock_request_shutdown.assert_called_once()
 
     def test_execute_success(self, mocker: pytest_mock.MockerFixture):

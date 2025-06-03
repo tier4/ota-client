@@ -19,6 +19,7 @@ class TestGrpcServerLauncher:
                 self.add_insecure_port_args = None
                 self.add_generic_rpc_handlers_called = False
                 self.add_generic_rpc_handlers_args = None
+                self.wait_for_termination_called = False
 
             async def start(self):
                 self.start_called = True
@@ -37,6 +38,10 @@ class TestGrpcServerLauncher:
             def add_generic_rpc_handlers(self, handlers):
                 self.add_generic_rpc_handlers_called = True
                 self.add_generic_rpc_handlers_args = handlers
+                return None
+
+            async def wait_for_termination(self):
+                self.wait_for_termination_called = True
                 return None
 
         mock_server = AsyncServerMock()
@@ -80,10 +85,6 @@ class TestGrpcServerLauncher:
     def test_grpc_server_start(self, setup_mocks):
         mocks = setup_mocks
         mock_server = mocks["mock_server"]
-        stop_server_event = MagicMock()
-        # Configure the stop event to return False, True for the main loop
-        # and False for the final check in the while loop
-        stop_server_event.is_set.side_effect = [False, True, False]
 
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
@@ -110,10 +111,6 @@ class TestGrpcServerLauncher:
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
-                client_update_control_flags=MagicMock(
-                    request_shutdown_event=MagicMock(),
-                    stop_server_event=stop_server_event,
-                ),
             )
 
         # Verify server methods were called
@@ -121,51 +118,3 @@ class TestGrpcServerLauncher:
         assert mock_server.stop_called is True
         assert mock_server.stop_args == 1
         assert mock_server.add_insecure_port_called is True
-
-        # Verify the stop event was checked
-        assert stop_server_event.is_set.call_count == 3
-
-    def test_grpc_stop_server_event(self, setup_mocks):
-        mocks = setup_mocks
-        mock_server = mocks["mock_server"]
-        stop_server_event = MagicMock()
-        # Configure the stop event to return False twice then True
-        # Add False at the end to handle the check in the final loop
-        stop_server_event.is_set.side_effect = [False, False, True, False]
-
-        def mock_shm_reader_factory():
-            mock_shm_reader = MagicMock()
-            mock_shm_reader.atexit = MagicMock()
-            return mock_shm_reader
-
-        # Run the server process function with patched asyncio.run
-        with patch("asyncio.run") as mock_run, patch(
-            "time.sleep"
-        ):  # Add patch for time.sleep
-
-            def run_and_execute_coroutine(coro):
-                # Actually run the coroutine function
-                loop = asyncio.new_event_loop()
-                try:
-                    return loop.run_until_complete(coro)
-                finally:
-                    loop.close()
-
-            mock_run.side_effect = run_and_execute_coroutine
-
-            grpc_server_process(
-                shm_reader_factory=mock_shm_reader_factory,
-                op_queue=MagicMock(),
-                resp_queue=MagicMock(),
-                ecu_status_flags=MagicMock(),
-                client_update_control_flags=MagicMock(
-                    request_shutdown_event=MagicMock(),
-                    stop_server_event=stop_server_event,
-                ),
-            )
-
-        # Check that is_set was called the expected number of times
-        assert stop_server_event.is_set.call_count == 4
-        # Check that the server was started and stopped
-        assert mock_server.start_called is True
-        assert mock_server.stop_called is True

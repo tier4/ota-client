@@ -23,8 +23,9 @@ import pytest
 import pytest_mock
 
 from otaclient import main
+from otaclient.configs.cfg import cfg
 
-MAIN_MODULE = main.__name__
+MAIN_MODULE = "otaclient.main"
 
 
 class TestMain:
@@ -43,10 +44,11 @@ class TestMain:
         mocker.patch(f"{MAIN_MODULE}.mp_shm.SharedMemory", return_value=self.mock_shm)
 
         # Mock proxy_info to avoid validation errors
+        # Instead of trying to mock it at module level, we'll mock it where it's imported
         mock_proxy_info = mocker.MagicMock()
         mock_proxy_info.enable_local_ota_proxy = False
         mock_proxy_info.local_ota_proxy = {}
-        mocker.patch(f"{MAIN_MODULE}.proxy_info", mock_proxy_info)
+        mocker.patch("otaclient.configs.cfg.proxy_info", mock_proxy_info)
 
         # Mock common functions to prevent side effects
         mocker.patch(f"{MAIN_MODULE}.secrets.token_bytes", return_value=b"mock_key")
@@ -146,6 +148,26 @@ class TestMain:
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
 
+        # Mock os.execve to prevent process replacement
+        mocker.patch(f"{MAIN_MODULE}.os.execve")
+
+        # Mock _env.is_dynamic_client_preparing and running to control flow
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_preparing", return_value=False
+        )
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_running", return_value=False
+        )
+
+        # Mock ClientUpdateControlFlags
+        mock_client_update_flags = mocker.MagicMock()
+        mock_client_update_flags.notify_data_ready_event.is_set.return_value = False
+        mock_client_update_flags.request_shutdown_event.is_set.return_value = False
+        mocker.patch(
+            f"{MAIN_MODULE}.ClientUpdateControlFlags",
+            return_value=mock_client_update_flags,
+        )
+
         # Create mock for otaproxy thread
         mock_thread = mocker.MagicMock()
         mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_thread)
@@ -192,6 +214,26 @@ class TestMain:
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
 
+        # Mock os.execve to prevent process replacement
+        mocker.patch(f"{MAIN_MODULE}.os.execve")
+
+        # Mock _env.is_dynamic_client_preparing and running to control flow
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_preparing", return_value=False
+        )
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_running", return_value=False
+        )
+
+        # Mock ClientUpdateControlFlags
+        mock_client_update_flags = mocker.MagicMock()
+        mock_client_update_flags.notify_data_ready_event.is_set.return_value = False
+        mock_client_update_flags.request_shutdown_event.is_set.return_value = False
+        mocker.patch(
+            f"{MAIN_MODULE}.ClientUpdateControlFlags",
+            return_value=mock_client_update_flags,
+        )
+
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
@@ -225,3 +267,70 @@ class TestMain:
 
         # Verify _on_shutdown was called because grpc server died
         mock_on_shutdown.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "is_preparing, is_running",
+        [
+            (True, False),  # Only preparing
+            (False, True),  # Only running
+            (True, True),  # Both preparing and running (unexpected state)
+        ],
+    )
+    @patch("otaclient._logging.configure_logging")
+    def test_main_dynamic_client_flags(
+        self, mock_logging, is_preparing, is_running, mocker: pytest_mock.MockerFixture
+    ):
+        """Test main function with different dynamic client flag combinations."""
+        # Mock is_dynamic_client_preparing and is_dynamic_client_running
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_preparing",
+            return_value=is_preparing,
+        )
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_running", return_value=is_running
+        )
+
+        # Mock the OTAClientPackagePrepareter to prevent actual mounting
+        mock_prepareter = mocker.MagicMock()
+        mocker.patch(
+            "otaclient.client_package.OTAClientPackagePrepareter",
+            return_value=mock_prepareter,
+        )
+
+        # Mock os functions to prevent actual system changes
+        mock_chroot = mocker.patch(f"{MAIN_MODULE}.os.chroot")
+        mock_chdir = mocker.patch(f"{MAIN_MODULE}.os.chdir")
+
+        # Mock execve to prevent actual process replacement
+        mock_execve = mocker.patch(f"{MAIN_MODULE}.os.execve")
+
+        mock_environ = {"PATH": "/usr/bin"}
+        if is_preparing:
+            mock_environ[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
+
+        mocker.patch(f"{MAIN_MODULE}.os.environ.copy", return_value=mock_environ)
+        # Mock _on_shutdown to prevent SystemExit
+        mocker.patch(f"{MAIN_MODULE}._on_shutdown")
+        # Patch check_other_otaclient at the module level where it's imported
+        mock_check_other_otaclient = mocker.patch(
+            "otaclient._utils.check_other_otaclient"
+        )
+
+        # Execute main()
+        main.main()
+
+        # Verify behavior based on flag values
+        if is_preparing:
+            # Check preparation path is taken when is_preparing=True
+            mock_prepareter.mount_client_package.assert_called_once()
+            mock_chroot.assert_called_once_with(cfg.DYNAMIC_CLIENT_MNT)
+            mock_chdir.assert_called_once_with("/")
+            mock_execve.assert_called_once()
+            mock_check_other_otaclient.assert_not_called()
+        elif is_running:
+            # Check preparation path is not taken when is_preparing=False
+            mock_prepareter.mount_client_package.assert_not_called()
+            mock_chroot.assert_not_called()
+            mock_chdir.assert_not_called()
+            mock_execve.assert_not_called()
+            mock_check_other_otaclient.assert_not_called()

@@ -133,7 +133,7 @@ def main() -> None:  # pragma: no cover
             )
         except Exception as e:
             logger.exception(f"Failed during dynamic client preparation: {e}")
-            return _on_shutdown(sys_exit=True)
+        return _on_shutdown(sys_exit=True)
 
     if not _env.is_dynamic_client_running():
         # in dynamic client, the pid file has already been created
