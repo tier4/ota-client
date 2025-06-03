@@ -53,7 +53,7 @@ class Consts:
     # mount point for downloaded otaclient
     DYNAMIC_CLIENT_MNT = "/run/otaclient/mnt/dynamic_otaclient"
     # downloaded squashfs location in local filesystem
-    # this path should not be mounted by squashfs
+    # this path should not be included in the mounted rootfs
     DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
 
     OTA_TMP_STORE = "/.ota-tmp"
@@ -93,6 +93,7 @@ class Consts:
     #
     # ------ env vars ------ #
     #
+    PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
     RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:

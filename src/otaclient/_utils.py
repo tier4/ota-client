@@ -74,19 +74,12 @@ def wait_and_log(
     return False
 
 
-def check_other_otaclient(
-    pid_fpath: StrOrPath, is_skip: bool
-) -> None:  # pragma: no cover
+def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
     """Check if there is another otaclient instance running, and then
     create a pid lock file for this otaclient instance.
 
     NOTE that otaclient should not run inside a PID namespace.
     """
-    # Skip check if the condition is met
-    if is_skip:
-        logger.info("skipping otaclient multiple instances check")
-        return
-
     pid_fpath = Path(pid_fpath)
     if pid := read_str_from_file(pid_fpath, _default=""):
         # running process will have a folder under /proc

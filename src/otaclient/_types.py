@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 
@@ -137,7 +136,7 @@ class MultipleECUStatusFlags:
 class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
-    stop_server_event: mp_sync.Event  # for stopping gRPC server
+    notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
     request_shutdown_event: mp_sync.Event  # for requesting to shutdown
 
 

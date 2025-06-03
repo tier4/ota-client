@@ -21,8 +21,6 @@ import logging
 import multiprocessing.queues as mp_queue
 import os
 import shutil
-import signal
-import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -75,7 +73,7 @@ from otaclient._types import (
 )
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
-from otaclient.client_package import OTAClientPackage
+from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
 from otaclient.create_standby._delta_gen import (
@@ -869,7 +867,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         self.client_update_control_flags = client_update_control_flags
 
         # ------ setup OTA client package parser ------ #
-        self._ota_client_package = OTAClientPackage(
+        self._ota_client_package = OTAClientPackageDownloader(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
             session_dir=self._session_workdir,
@@ -884,11 +882,14 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._process_metadata()
             self._download_client_package_resources()
             self._wait_sub_ecus()
-            if not self._is_same_client_package_version():
-                self._perform_update()
+            if self._is_same_client_package_version():
+                # to notify the status report after reboot
+                self._request_shutdown()
+            else:
+                self._copy_client_package()
+                self._notify_data_ready()
         except Exception as e:
             logger.warning(f"failed to run squashfs: {e!r}")
-        finally:
             self._request_shutdown()
 
     def _download_client_package_resources(self) -> None:
@@ -940,19 +941,13 @@ class _OTAClientUpdater(_OTAUpdateOperator):
     def _is_same_client_package_version(self) -> bool:
         return self._ota_client_package.is_same_client_package_version()
 
-    def _perform_update(self):
-        """Perform the actual update steps."""
-        logger.info("stop gRPC server...")
-        # let grpc process to stop the server
-        self.client_update_control_flags.stop_server_event.set()
+    def _copy_client_package(self) -> None:
+        self._ota_client_package.copy_client_package()
 
-        logger.info("mount client package...")
-        self._ota_client_package.mount_client_package()
-        shutil.rmtree(self._session_workdir, ignore_errors=True)
-
-        logger.info("start to run client package...")
-        # this is blocking function until the client thread finish
-        self._ota_client_package.run_client_package()
+    def _notify_data_ready(self):
+        """Notify the main process that the client package is ready."""
+        logger.info("notify main process that the client package is ready..")
+        self.client_update_control_flags.notify_data_ready_event.set()
 
     def _request_shutdown(self):
         """Request shutdown."""
@@ -1331,11 +1326,6 @@ class OTAClient:
                 )
 
 
-def _sign_handler(signal_value, frame) -> NoReturn:
-    print(f"ota_core process receives {signal_value=}, exits ...")
-    sys.exit(1)
-
-
 def ota_core_process(
     *,
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
@@ -1349,7 +1339,6 @@ def ota_core_process(
     from otaclient.configs.cfg import proxy_info
     from otaclient.ota_core import OTAClient
 
-    signal.signal(signal.SIGTERM, _sign_handler)
     configure_logging()
 
     shm_writer = shm_writer_factory()
@@ -1359,7 +1348,6 @@ def ota_core_process(
         msg_queue=_local_status_report_queue,
         shm_status=shm_writer,
         max_traceback_size=max_traceback_size,
-        client_update_control_flags=client_update_control_flags,
     )
     _status_monitor.start()
     _status_monitor.start_log_thread()

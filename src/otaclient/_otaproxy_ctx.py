@@ -33,7 +33,7 @@ from pathlib import Path
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
 from ota_proxy.config import config as otaproxy_cfg
-from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
+from otaclient._types import MultipleECUStatusFlags
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common.common import ensure_otaproxy_start
 
@@ -44,7 +44,7 @@ _global_shutdown: bool = False
 _global_shutdown_lock = threading.Lock()
 
 
-def _on_global_shutdown() -> None:
+def otaproxy_on_global_shutdown() -> None:
     global _global_shutdown
     _global_shutdown = True
     _shutdown_otaproxy()
@@ -104,9 +104,8 @@ def otaproxy_process(*, init_cache: bool) -> None:
 
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
-    client_update_control_flags: ClientUpdateControlFlags,
 ) -> None:  # pragma: no cover
-    atexit.register(_on_global_shutdown)
+    atexit.register(otaproxy_on_global_shutdown)
 
     _mp_ctx = mp.get_context("spawn")
 
@@ -122,13 +121,6 @@ def otaproxy_control_thread(
         _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
         _otaproxy_should_run = ecu_status_flags.any_requires_network.is_set()
         _all_success = ecu_status_flags.all_success.is_set()
-        _stop_server_event = client_update_control_flags.stop_server_event.is_set()
-
-        if _stop_server_event:
-            logger.info("shutting down otaproxy as client update requested ...")
-            # kill the otaproxy process immediately
-            _shutdown_otaproxy()
-            return
 
         if not _otaproxy_should_run and not _otaproxy_running:
             if (

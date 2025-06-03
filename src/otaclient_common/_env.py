@@ -19,6 +19,11 @@ from typing import Optional
 from otaclient.configs.cfg import cfg
 
 
+def is_dynamic_client_preparing() -> bool:
+    """Check if the preparing dynamic client is running."""
+    return bool(os.getenv(cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
+
+
 def is_dynamic_client_running() -> bool:
     """Check if the dynamic client is running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))

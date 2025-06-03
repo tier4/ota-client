@@ -16,38 +16,31 @@
 
 from __future__ import annotations
 
-import atexit
 import json
 import logging
 import os
 import platform
 import shutil
-import signal
 import subprocess
 import sys
 import threading
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Generator, Optional
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, cmdhelper
+from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
     subprocess_call,
     urljoin_ensure_base,
 )
 from otaclient_common.download_info import DownloadInfo
-from otaclient_common.linux import subprocess_popen_wrapper
 from otaclient_manifest.schema import Manifest, ReleasePackage
 
 logger = logging.getLogger(__name__)
-
-_dynamic_client_p: subprocess.Popen | None = None
-_shutdown_processing = threading.Event()
 
 
 @dataclass
@@ -59,7 +52,7 @@ class OTAClientPackageDownloadInfo:
     checksum: Optional[str] = None
 
 
-class OTAClientPackage:
+class OTAClientPackageDownloader:
     """
     OTA session_dir layout:
     session_<session_id> /
@@ -269,6 +262,47 @@ class OTAClientPackage:
             logger.warning(f"failed to apply patch: {e!r}")
             raise
 
+    # APIs
+
+    def download_client_package(
+        self,
+        condition: threading.Condition,
+    ) -> Generator[list[DownloadInfo]]:
+        """Guide the caller to download ota client package by yielding the DownloadInfo instances.
+        1. download and parse manifest.json
+        2. download the target OTA client package.
+        """
+        try:
+            yield from self._prepare_manifest(condition)
+            if not self.is_same_client_package_version():
+                yield from self._prepare_client_package(condition)
+            else:
+                logger.info("Skipping client package download as version is unchanged")
+        except Exception as e:
+            logger.exception(
+                f"failure during downloading and verifying OTA client package: {e!r}"
+            )
+
+    def is_same_client_package_version(self) -> bool:
+        """Check if the current OTA client package version is the same as the target version in manifest"""
+        if self._manifest is None:
+            return False
+
+        for package in self._manifest.packages:
+            if package.version == __version__:
+                return True
+        return False
+
+    def copy_client_package(self) -> None:
+        """Copy the client package."""
+        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        # copy the squashfs file
+        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
+        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
+
+
+class OTAClientPackagePrepareter:
+
     def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
         """Cleanup the mount point."""
         _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
@@ -286,20 +320,6 @@ class OTAClientPackage:
             shutil.rmtree(mount_base, ignore_errors=False)
         except Exception as e:
             logger.warning(f"error while removing dynamic client mount point: {e}")
-
-        try:
-            # remove the dynamic client squashfs file
-            if os.path.exists(_squashfs_file):
-                os.remove(_squashfs_file)
-        except Exception as e:
-            logger.warning(f"error while removing dynamic client squashfs file: {e}")
-
-    def _copy_client_package(self) -> None:
-        """Copy the client package."""
-        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
-        # copy the squashfs file
-        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
-        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
 
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
@@ -423,35 +443,6 @@ class OTAClientPackage:
 
     # APIs
 
-    def download_client_package(
-        self,
-        condition: threading.Condition,
-    ) -> Generator[list[DownloadInfo]]:
-        """Guide the caller to download ota client package by yielding the DownloadInfo instances.
-        1. download and parse manifest.json
-        2. download the target OTA client package.
-        """
-        try:
-            yield from self._prepare_manifest(condition)
-            if not self.is_same_client_package_version():
-                yield from self._prepare_client_package(condition)
-            else:
-                logger.info("Skipping client package download as version is unchanged")
-        except Exception as e:
-            logger.exception(
-                f"failure during downloading and verifying OTA client package: {e!r}"
-            )
-
-    def is_same_client_package_version(self) -> bool:
-        """Check if the current OTA client package version is the same as the target version in manifest"""
-        if self._manifest is None:
-            return False
-
-        for package in self._manifest.packages:
-            if package.version == __version__:
-                return True
-        return False
-
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
         _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
@@ -461,7 +452,6 @@ class OTAClientPackage:
         try:
             logger.info(f"mounting {_squashfs_file} to {_mount_base}")
             self._cleanup_mount_point(_mount_base)
-            self._copy_client_package()
             self._create_mount_namespaces()
             self._mount_squashfs_file(_squashfs_file, _mount_base)
             self._bind_mount_host_dirs(_mount_base)
@@ -471,96 +461,3 @@ class OTAClientPackage:
         except subprocess.CalledProcessError as e:
             logger.exception(f"failed to mount squashfs: {e!r}")
             raise
-
-    def run_client_package(self) -> None:
-        """Run the client package."""
-        _otaclient_dynamic_client_t = threading.Thread(
-            target=partial(
-                _dynamic_otaclient_p_monitor_thread,
-            ),
-            daemon=True,
-            name="otaclient_dynamic_client_t",
-        )
-        _otaclient_dynamic_client_t.start()
-        logger.info(
-            f"dynamic client thread started with PID: {_otaclient_dynamic_client_t.ident}"
-        )
-        # wait for the thread to finish
-        _otaclient_dynamic_client_t.join()
-        _otaclient_dynamic_client_t = None
-        logger.info("dynamic client thread exited")
-
-
-def _dynamic_otaclient_p_monitor_thread() -> None:
-    """Thread to run the dynamic client process."""
-    atexit.register(dynamic_client_shutdown)
-
-    try:
-        _mount_point = cfg.DYNAMIC_CLIENT_MNT
-        if not os.path.exists(_mount_point):
-            logger.error(f"mount dir {_mount_point} does not exist, aborting...")
-            raise FileNotFoundError(
-                f"mount dir {_mount_point} does not exist, aborting..."
-            )
-
-        # Create a copy of the current environment
-        env = os.environ.copy()
-        # Add the RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT environment variable to hand over to the
-        # downloaded OTA client
-        env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "true"
-
-        # Run the OTA client
-        # retry to start the OTA client multiple times if it fails
-        logger.info(f"starting dynamic OTA client with mount dir: {_mount_point}")
-        for _ in range(cfg.CLIENT_WAKEUP_RETRY_MAX):
-            global _dynamic_client_p, _shutdown_processing
-            if _shutdown_processing.is_set():
-                logger.info("shutdown has already been requested, exiting thread...")
-                return
-
-            _cmd = [
-                "/otaclient/venv/bin/python3",
-                "-m",
-                "otaclient",
-            ]
-            _dynamic_client_p = subprocess_popen_wrapper(
-                _cmd,
-                check_error=False,
-                check_output=False,
-                chroot=_mount_point,
-                env=env,
-                start_new_session=True,
-            )
-            _dynamic_client_p.wait()
-            logger.warning("OTA client exited with non-zero status, restarting...")
-
-        logger.warning(
-            "reached maximum number of retries to start OTA client, shutting down..."
-        )
-    except Exception as e:
-        logger.exception(f"failed to start OTA client: {e}")
-
-
-def dynamic_client_shutdown() -> None:
-    """Shutdown the dynamic client process."""
-    global _dynamic_client_p, _shutdown_processing
-
-    if _shutdown_processing.is_set():
-        return
-    if _env.is_dynamic_client_running():
-        # in dynamic client environment, do not shutdown the dynamic client
-        return
-
-    _shutdown_processing.set()
-
-    # kill the dynamic client process if it is running
-    if _dynamic_client_p and _dynamic_client_p.poll() is None:
-        try:
-            # Kill process group
-            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGTERM)
-            _dynamic_client_p.wait(timeout=5)
-        except Exception:
-            os.killpg(os.getpgid(_dynamic_client_p.pid), signal.SIGKILL)
-            _dynamic_client_p.wait(timeout=2)
-        finally:
-            _dynamic_client_p = None
