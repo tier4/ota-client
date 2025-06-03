@@ -20,7 +20,12 @@ import os
 
 from otaclient_common import human_readable_size
 from otaclient_common._typing import StrOrPath
-from otaclient_common.cmdhelper import ensure_umount, get_attrs_by_dev, mount_ro
+from otaclient_common.cmdhelper import (
+    ensure_mount,
+    ensure_umount,
+    get_attrs_by_dev,
+    mount_ro,
+)
 from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
@@ -50,7 +55,7 @@ def _check_fs_used_size_reach_threshold(
     dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int
 ) -> bool:
     try:
-        mount_ro(dev, mnt_point)
+        ensure_mount(dev, mnt_point, mount_func=mount_ro, raise_exception=True)
         return _get_fs_used_size(mnt_point) >= threshold_in_bytes
     except Exception as e:
         logger.warning(f"failed to mount standby slot ({dev=}: {e!r}")
