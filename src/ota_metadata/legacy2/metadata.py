@@ -471,7 +471,8 @@ class OTAMetadata:
                 _stmt=_stmt,
                 _row_factory=sqlite3.Row,
             ):
-                _this_digest, _this_path = entry["digest"], Path(entry["path"])
+                _this_digest: bytes = entry["digest"]
+                _this_path: Path = Path(entry["path"])
                 if _this_digest == _hash:
                     # When there are too many entries for this digest, just pick the first
                     #   <max_num_of_entries_per_digest> of them.
@@ -479,7 +480,7 @@ class OTAMetadata:
                         _cur.append(_this_path)
                 else:
                     if _cur:
-                        yield _hash, _this_digest
+                        yield _hash, _cur
                     _hash, _cur = _this_digest, [_this_path]
 
             if _cur:
