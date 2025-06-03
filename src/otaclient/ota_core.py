@@ -647,7 +647,7 @@ class _OTAUpdater:
                     logger.info("use rebuild mode with base file table assist ...")
                     RebuildDeltaWithBaseFileTable(
                         ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                        delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                         copy_dst=self._resource_dir_on_standby,
                         status_report_queue=self._status_report_queue,
                         session_id=self.session_id,
@@ -656,7 +656,7 @@ class _OTAUpdater:
                     logger.info("use rebuild mode with full scanning ...")
                     RebuildDeltaGenFullDiskScan(
                         ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                        delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                         copy_dst=self._resource_dir_on_standby,
                         status_report_queue=self._status_report_queue,
                         session_id=self.session_id,
