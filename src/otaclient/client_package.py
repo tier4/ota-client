@@ -42,9 +42,6 @@ from otaclient_manifest.schema import Manifest, ReleasePackage
 
 logger = logging.getLogger(__name__)
 
-_dynamic_client_p: subprocess.Popen | None = None
-_shutdown_processing = threading.Event()
-
 
 @dataclass
 class OTAClientPackageDownloadInfo:
