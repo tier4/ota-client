@@ -164,6 +164,9 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
         """
         Returns: dir_should_be_processed, dir_should_be_fully_scanned
         """
+        if canonical_curdir_path == CANONICAL_ROOT_P:
+            return True, False
+
         # ------ check dir search deepth ------ #
         if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
             logger.warning(
