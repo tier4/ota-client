@@ -1158,9 +1158,15 @@ class OTAClient:
             is available via status API.
         """
         if _env.is_dynamic_client_running():
-            raise RecursionError(
-                "multiple dynamic clients downloading is not supported"
+            self._live_ota_status = OTAStatus.FAILURE
+            e = ota_errors.DuplicatedClientUpdateRequest(module=__name__)
+            self._on_failure(
+                e,
+                ota_status=OTAStatus.FAILURE,
+                failure_reason=e.get_failure_reason(),
+                failure_type=e.failure_type,
             )
+            return
 
         self._live_ota_status = OTAStatus.CLIENT_UPDATING
         new_session_id = request.session_id

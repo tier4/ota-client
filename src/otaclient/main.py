@@ -20,6 +20,7 @@ import atexit
 import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
+import multiprocessing.resource_tracker as mp_resource_tracker
 import multiprocessing.shared_memory as mp_shm
 import os
 import secrets
@@ -241,6 +242,19 @@ def main() -> None:  # pragma: no cover
                 # kill other resources except main process
                 logger.info("on main shutdown...")
                 _on_shutdown(sys_exit=False)
+
+                logger.info("cleaning up resources ...")
+                # this is a python bug(https://github.com/python/cpython/issues/88887),
+                # and it is fixed since python3.12 (https://github.com/python/cpython/pull/131530).
+                if sys.version_info < (3, 12):
+                    _resource_tracker = getattr(
+                        mp_resource_tracker, "_resource_tracker", None
+                    )
+                    if _resource_tracker and hasattr(_resource_tracker, "_stop"):
+                        try:
+                            _resource_tracker._stop()
+                        except Exception as e:
+                            logger.error(f"failed to stop the resource tracker: {e!r}")
 
                 logger.info("execve for dynamic client preparation ...")
                 # Create a copy of the current environment and modify it
