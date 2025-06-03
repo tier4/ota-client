@@ -582,16 +582,27 @@ class _OTAUpdater:
         logger.info("start to calculate delta ...")
         # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
         # NOTE: get the db via active_slot mount_point
-        _base_ft_db = replace_root(
-            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-            old_root="/",
-            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        _base_ft_db = Path(
+            replace_root(
+                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+                old_root="/",
+                new_root=Path(cfg.ACTIVE_SLOT_MNT),
+            )
         )
-        _base_ft_db_at_standby = replace_root(
-            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-            old_root="/",
-            new_root=Path(cfg.STANDBY_SLOT_MNT),
+        _base_ft_db_at_standby = Path(
+            replace_root(
+                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
+                old_root="/",
+                new_root=Path(cfg.STANDBY_SLOT_MNT),
+            )
         )
+        if not _base_ft_db_at_standby.is_file():
+            _base_ft_db_at_standby = None
+        else:  # move the db file to OTA tmp metadata storage
+            _ota_tmp_metadata_store = Path(cfg.OTA_TMP_META_STORE) / "base"
+            _ota_tmp_metadata_store.mkdir(exist_ok=True, parents=True)
+            shutil.move(_base_ft_db_at_standby, _ota_tmp_metadata_store)
+            _base_ft_db_at_standby = _ota_tmp_metadata_store / OTAMetadata.FSTABLE_DB
 
         self._status_report_queue.put_nowait(
             StatusReport(
