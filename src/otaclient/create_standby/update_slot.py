@@ -27,9 +27,10 @@ from ota_metadata.file_table.utils import (
     prepare_regular,
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
-from otaclient._status_monitor import StatusReport
+from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import (
+    PROCESS_FILES_REPORT_BATCH,
     UpdateStandbySlotFailed,
 )
 from otaclient_common._logging import BurstSuppressFilter
@@ -76,8 +77,15 @@ class UpdateStandbySlot:
         cur_digest: bytes = b""
         cur_resource: Path = Path()
 
+        _batch_cnt = 0
+        _merged_payload = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.APPLY_DELTA
+        )
+
         try:
-            for _entry in self._ota_metadata.iter_regular_entries():
+            for _total_cnt, _entry in enumerate(
+                self._ota_metadata.iter_regular_entries(), start=1
+            ):
                 _this_digest = _entry["digest"]
                 _inode_id = _entry["inode_id"]
                 _is_hardlinked = _entry["links_count"] is not None
@@ -121,6 +129,27 @@ class UpdateStandbySlot:
                         prepare_method="copy",
                     )
 
+                if (
+                    _this_batch := _total_cnt // PROCESS_FILES_REPORT_BATCH
+                ) > _batch_cnt:
+                    _batch_cnt = _this_batch
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=_merged_payload,
+                            session_id=self.session_id,
+                        )
+                    )
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.APPLY_DELTA
+                    )
+
+            # commit left-over items that cannot fill the batch
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
+            )
         except Exception as e:
             logger.exception(f"failed to update standby slot: {e!r}")
             raise UpdateStandbySlotFailed(
