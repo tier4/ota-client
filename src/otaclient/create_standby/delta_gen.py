@@ -321,8 +321,6 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
             for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                 delta_src_fpath = delta_src_curdir_path / fname
-                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
-                    continue  # skip empty file
 
                 # cleanup non-file file(include symlink)
                 # NOTE: we will recreate all the symlinks,
@@ -331,6 +329,10 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
                     delta_src_fpath.unlink(missing_ok=True)
                     continue
+
+                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
+                    delta_src_fpath.unlink(missing_ok=True)
+                    continue  # skip empty file
 
                 self._max_pending_tasks.acquire()
                 self._que.put_nowait(
@@ -439,13 +441,14 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
             for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
                 delta_src_fpath = delta_src_curdir_path / fname
-                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
-                    continue  # skip empty file
 
                 # ignore non-file file(include symlink)
                 # NOTE: is_file also return True on symlink points to regular file!
                 if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
                     continue
+
+                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
+                    continue  # skip empty file
 
                 self._max_pending_tasks.acquire()
                 self._que.put_nowait(
