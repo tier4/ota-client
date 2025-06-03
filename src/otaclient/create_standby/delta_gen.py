@@ -489,7 +489,6 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
 
         try:
             self._calculate_delta(base_file_table_db)
-            self._cleanup_base()
         finally:
             self._que.put_nowait(None)
             for _t in _workers:
@@ -498,6 +497,8 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
             self._rst_orm.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
+
+        self._cleanup_base()
 
 
 class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
@@ -644,6 +645,9 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 continue
             finally:
                 self._max_pending_tasks.release()  # always release se first
+
+        # wake up other threads
+        self._que.put_nowait(None)
 
     def _calculate_delta(self, base_fst: str) -> None:
         logger.debug("process delta src and generate delta...")
