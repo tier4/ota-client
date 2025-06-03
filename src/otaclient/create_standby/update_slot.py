@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -30,7 +31,7 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import (
-    PROCESS_FILES_REPORT_BATCH,
+    PROCESS_FILES_REPORT_INTERVAL,
     UpdateStandbySlotFailed,
 )
 from otaclient_common._logging import BurstSuppressFilter
@@ -77,7 +78,7 @@ class UpdateStandbySlot:
         cur_digest: bytes = b""
         cur_resource: Path = Path()
 
-        _batch_cnt = 0
+        _next_report = 0
         _merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.APPLY_DELTA
         )
@@ -136,10 +137,8 @@ class UpdateStandbySlot:
                         prepare_method="copy",
                     )
 
-                if (
-                    _this_batch := _total_cnt // PROCESS_FILES_REPORT_BATCH
-                ) > _batch_cnt:
-                    _batch_cnt = _this_batch
+                if (_now := time.time()) > _next_report:
+                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
                     self._status_report_queue.put_nowait(
                         StatusReport(
                             payload=_merged_payload,
