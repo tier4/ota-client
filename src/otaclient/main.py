@@ -95,6 +95,8 @@ def main() -> None:  # pragma: no cover
     configure_logging()
 
     logger.info("started")
+    logger.info(f"otaclient started with {sys.executable=}, {sys.argv=}")
+    logger.info(f"pid: {os.getpid()}")
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
@@ -114,7 +116,7 @@ def main() -> None:  # pragma: no cover
             running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
             os.execve(
                 path=sys.executable,
-                argv=[sys.executable, __file__],
+                argv=[sys.executable, "-m", "otaclient"],
                 env=running_env,
             )
         except Exception as e:
@@ -234,7 +236,7 @@ def main() -> None:  # pragma: no cover
                 # Execute with the modified environment
                 os.execve(
                     path=sys.executable,
-                    argv=[sys.executable, __file__],
+                    argv=[sys.executable, "-m", "otaclient"],
                     env=preparing_env,
                 )
             except Exception as e:
