@@ -462,7 +462,7 @@ class OTAMetadata:
             f"FROM base.{FT_REGULAR_TABLE_NAME}",
             f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
             f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
-            f"ORDERY BY base.{FT_RESOURCE_TABLE_NAME}.digest"
+            f"ORDER BY base.{FT_RESOURCE_TABLE_NAME}.digest"
         )
         # fmt: on
         with FileTableRegularORM(self.connect_fstable()) as orm:
