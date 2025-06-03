@@ -107,13 +107,15 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
 
-    if _env.is_dynamic_client_preparing() and not _env.is_dynamic_client_running():
+    if _env.is_dynamic_client_preparing():
+        logger.info("preparing downloaded dynamic ota client ...")
         try:
             OTAClientPackagePrepareter().mount_client_package()
 
             running_env = os.environ.copy()
             del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
             running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
+            # the process should finish after this execve call
             os.execve(
                 path=sys.executable,
                 argv=[sys.executable, "-m", "otaclient"],
@@ -123,7 +125,9 @@ def main() -> None:  # pragma: no cover
             logger.exception(f"Failed during dynamic client preparation: {e}")
             return _on_shutdown(sys_exit=True)
 
-    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
+    if not _env.is_dynamic_client_running():
+        # in dynamic client, the pid file has already been created
+        check_other_otaclient(cfg.OTACLIENT_PID_FILE)
     create_otaclient_rundir(cfg.RUN_DIR)
 
     #
