@@ -212,15 +212,22 @@ class _LogTeeHandler(logging.Handler):
                         timeout=LOG_TRANSMITTER_TIMEOUT_SEC,
                     )
 
-        log_upload_thread = Thread(target=_thread_main, daemon=True)
-        log_upload_thread.start()
+        self.log_upload_thread = Thread(target=_thread_main, daemon=True)
+        self.log_upload_thread.start()
 
-        def _thread_exit():
-            stop_logging_upload.set()
-            log_queue.put_nowait(None)
-            log_upload_thread.join(6)
+        atexit.register(self.stop_upload_thread)
 
-        atexit.register(_thread_exit)
+    def stop_upload_thread(self) -> None:
+        """Stop the logging upload thread."""
+        self._queue.put_nowait(None)
+        self.log_upload_thread.join(6)
+
+
+def test_print() -> None:
+    """Test function to print the current logging configuration."""
+    print(f"ECU ID: {ecu_info.ecu_id}")
+    print(f"ECU Info: {ecu_info}")
+    print(f"Proxy Info: {proxy_info}")
 
 
 def configure_logging() -> None:
@@ -253,3 +260,15 @@ def configure_logging() -> None:
         _logger.setLevel(loglevel)
         if log_upload_handler:
             _logger.addHandler(log_upload_handler)
+
+
+def close_all_logging_handlers() -> None:
+    """Close logging handlers."""
+    for logger_name in cfg.LOG_LEVEL_TABLE.keys():
+        _logger = logging.getLogger(logger_name)
+        for handler in _logger.handlers:
+            if isinstance(handler, _LogTeeHandler):
+                print(f"Stopping log upload thread for logger: {logger_name}")
+                handler.stop_upload_thread()
+            _logger.removeHandler(handler)
+            handler.close()
