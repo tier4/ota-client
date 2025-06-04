@@ -16,13 +16,8 @@ RUN set -eux; \
     # setup virtual env
     mkdir -p ${OTACLIENT_VENV}; \
     cd ${OTACLIENT_INSTALLATION}; \
-    python3 -m venv --copies ${OTACLIENT_VENV}; \
+    python3 -m venv ${OTACLIENT_VENV}; \
     . ${OTACLIENT_VENV}/bin/activate; \
-    # copy whole python3 to venv
-    cp /usr/bin/python3 ${OTACLIENT_VENV}/bin/python3; \
-    chmod +x ${OTACLIENT_VENV}/bin/python3; \
-    # copy standard library
-    cp -r /usr/lib/python3.10 ${OTACLIENT_VENV}/lib/; \
     # install otaclient
     python3 -m pip install -U pip; \
     python3 -m pip install /tmp/${OTACLIENT_WHL}; \
