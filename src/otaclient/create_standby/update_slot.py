@@ -29,24 +29,12 @@ from ota_metadata.file_table.utils import (
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
-from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import (
     PROCESS_FILES_REPORT_INTERVAL,
     UpdateStandbySlotFailed,
 )
-from otaclient_common._logging import BurstSuppressFilter
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = logging.getLogger(f"{__name__}.process_file_error")
-# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
-burst_suppressed_logger.addFilter(
-    BurstSuppressFilter(
-        f"{__name__}.process_file_error",
-        upper_logger_name=__name__,
-        burst_round_length=30,
-        burst_max=6,
-    )
-)
 
 
 class UpdateStandbySlot:
@@ -58,7 +46,6 @@ class UpdateStandbySlot:
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
-        file_process_max_failure: int = cfg.CREATE_STANDBY_RETRY_MAX,
     ) -> None:
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
@@ -84,17 +71,13 @@ class UpdateStandbySlot:
         )
 
         try:
-            for _total_cnt, _entry in enumerate(
-                self._ota_metadata.iter_regular_entries(), start=1
-            ):
-                _this_digest = _entry["digest"]
-                _inode_id = _entry["inode_id"]
+            for _entry in self._ota_metadata.iter_regular_entries():
+                _this_digest, _inode_id = _entry["digest"], _entry["inode_id"]
                 _is_hardlinked = _entry["links_count"] is not None
 
-                # we always prepare the first copy by moving
                 # NOTE that first copy will not be counted in report, as the first copy
                 #   is either prepared by download, or by local, both are already recorded.
-                if _this_digest != cur_digest:
+                if _this_digest != cur_digest:  # first copy
                     cur_digest = _this_digest
                     hardlink_group.clear()
                     cur_resource = prepare_regular(
@@ -168,7 +151,7 @@ class UpdateStandbySlot:
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
+                logger.exception(f"failed to process {entry=}: {e!r}")
                 raise UpdateStandbySlotFailed(
                     f"failed to process {entry=}: {e!r}"
                 ) from e
@@ -179,7 +162,7 @@ class UpdateStandbySlot:
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                burst_suppressed_logger.exception(f"failed to process {entry=}: {e!r}")
+                logger.exception(f"failed to process {entry=}: {e!r}")
                 raise UpdateStandbySlotFailed(
                     f"failed to process {entry=}: {e!r}"
                 ) from e
