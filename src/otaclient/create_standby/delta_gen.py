@@ -24,13 +24,14 @@ from abc import abstractmethod
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import Generator, Generic, TypeVar
+from typing import Generic, TypedDict, TypeVar
 
 from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
+from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import EMPTY_FILE_SHA256, replace_root
 from otaclient_common._typing import StrOrPath
 
@@ -47,6 +48,14 @@ PROCESS_FILES_REPORT_INTERVAL = cfg.PROCESS_FILES_REPORT_INTERVAL
 
 
 class UpdateStandbySlotFailed(Exception): ...
+
+
+class DeltaGenParams(TypedDict):
+    ota_metadata: OTAMetadata
+    delta_src: Path
+    copy_dst: Path
+    status_report_queue: Queue[StatusReport]
+    session_id: str
 
 
 class _DeltaGeneratorBase:
@@ -93,24 +102,6 @@ class _DeltaGeneratorBase:
 
         # put the empty file into copy_dst
         (copy_dst / EMPTY_FILE_SHA256).touch()
-
-
-class TopDownCommonShortestPath:
-    """Assume that the disk scan is top-down style."""
-
-    def __init__(self) -> None:
-        self._store: set[Path] = set()
-
-    def add_path(self, _path: Path):
-        _path = Path(_path).resolve()
-        for _parent in _path.parents:
-            # this path is covered by a shorter common prefix
-            if _parent in self._store:
-                return
-        self._store.add(_path)
-
-    def iter_paths(self) -> Generator[Path]:
-        yield from self._store
 
 
 class ProcessFileHelper(Generic[T]):
