@@ -75,7 +75,9 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ IO settings ------ #
     #
+    PROCESS_FILES_REPORT_INTERVAL: int = 3  # seconds
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
+    READ_CHUNK_SIZE: int = 8 * 1024 * 1024  # 8MiB
 
 
 class _MultipleECUSettings(BaseModel):
