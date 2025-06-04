@@ -13,7 +13,6 @@
 # limitations under the License.
 """Boot control support for Raspberry pi 4 Model B."""
 
-
 from __future__ import annotations
 
 import contextlib
@@ -482,6 +481,10 @@ class RPIBootController(BootControllerProtocol):
             raise _RPIBootControllerError(_err_msg) from e
 
     # APIs
+
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
 
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
