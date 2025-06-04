@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# TODO:(20250604) integration.
 """Generate delta from delta_src comparing to new OTA image."""
 
 from __future__ import annotations
@@ -506,6 +507,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     def _calculate_delta(self, base_fst: str):
         logger.debug("process delta src and generate delta...")
 
+        # TODO:(20250604): OTAMetadata
         for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
             base_fst
         ):
