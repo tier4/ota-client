@@ -82,6 +82,7 @@ from otaclient.create_standby import (
     UpdateStandbySlot,
     can_use_in_place_mode,
 )
+from otaclient.create_standby.delta_gen import DeltaGenParams
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
@@ -627,43 +628,39 @@ class _OTAUpdater:
 
         try:
             if use_inplace_mode:
+                _inplace_mode_params = DeltaGenParams(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+
                 if verified_base_db := check_base_filetable(_base_ft_db_at_standby):
                     logger.info("use in-place mode with base file table assist ...")
-                    InPlaceDeltaWithBaseFileTable(
-                        ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.STANDBY_SLOT_MNT),
-                        copy_dst=self._resource_dir_on_standby,
-                        status_report_queue=self._status_report_queue,
-                        session_id=self.session_id,
-                    ).process_slot(str(verified_base_db))
+                    InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
                 else:
                     logger.info("use in-place mode with full scanning ...")
-                    InPlaceDeltaGenFullDiskScan(
-                        ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.STANDBY_SLOT_MNT),
-                        copy_dst=self._resource_dir_on_standby,
-                        status_report_queue=self._status_report_queue,
-                        session_id=self.session_id,
-                    ).process_slot()
+                    InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
+                _rebuild_mode_params = DeltaGenParams(
+                    ota_metadata=self._ota_metadata,
+                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    copy_dst=self._resource_dir_on_standby,
+                    status_report_queue=self._status_report_queue,
+                    session_id=self.session_id,
+                )
+
                 if verified_base_db := check_base_filetable(_base_ft_db):
                     logger.info("use rebuild mode with base file table assist ...")
-                    RebuildDeltaWithBaseFileTable(
-                        ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                        copy_dst=self._resource_dir_on_standby,
-                        status_report_queue=self._status_report_queue,
-                        session_id=self.session_id,
-                    ).process_slot(str(verified_base_db))
+                    RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
                 else:
                     logger.info("use rebuild mode with full scanning ...")
-                    RebuildDeltaGenFullDiskScan(
-                        ota_metadata=self._ota_metadata,
-                        delta_src=Path(cfg.ACTIVE_SLOT_MNT),
-                        copy_dst=self._resource_dir_on_standby,
-                        status_report_queue=self._status_report_queue,
-                        session_id=self.session_id,
-                    ).process_slot()
+                    RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
