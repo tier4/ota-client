@@ -142,11 +142,13 @@ class ProcessFileHelper(Generic[T]):
                 hash_f.update(self._hash_bufferview[:read_size])
         return hash_f.digest(), file_size
 
-    def report_one_file(self, file_size: int) -> None:
-        self._merged_payload.processed_file_size += file_size
-        self._merged_payload.processed_file_num += 1
+    def report_one_file(self, *file_size: int, force_report: bool = False) -> None:
+        for _fsize in file_size:
+            self._merged_payload.processed_file_size += _fsize
+            self._merged_payload.processed_file_num += 1
 
-        if (_now := time.time()) > self._next_report:
+        _now = time.time()
+        if force_report or _now > self._next_report:
             self._next_report = _now + self.report_interval
             self._status_report_queue.put_nowait(
                 StatusReport(payload=self._merged_payload, session_id=self.session_id)
@@ -290,11 +292,11 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                     continue
 
                 calculated_digest, file_size = worker_helper.process_one_file(fpath)
-                resource_save_dst = self._copy_dst / calculated_digest.hex()
 
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
                 if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
+                    resource_save_dst = self._copy_dst / calculated_digest.hex()
                     os.link(fpath, resource_save_dst, follow_symlinks=False)
                     worker_helper.report_one_file(file_size)
             except BaseException:
@@ -306,7 +308,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 self._max_pending_tasks.release()  # always release se first
 
         # commit the final batch
-        worker_helper.report_one_file(0)
+        worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
 
@@ -394,27 +396,14 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
-        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        hash_bufferview = memoryview(hash_buffer)
-
-        _next_report = 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        worker_helper = ProcessFileHelper(
+            self._que,
+            session_id=self.session_id,
+            report_que=self._status_report_queue,
         )
 
         while _input := self._que.get():
             try:
-                if (_now := time.time()) > _next_report:
-                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload, session_id=self.session_id
-                        )
-                    )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
-                    )
-
                 fpath, canonical_fpath, fully_scan = _input
 
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
@@ -424,29 +413,21 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                hash_f = sha256()
-                file_size = 0
-                with open(fpath, "rb") as src:
-                    while read_size := src.readinto(hash_buffer):
-                        file_size += read_size
-                        hash_f.update(hash_bufferview[:read_size])
-                resource_save_dst = self._copy_dst / hash_f.hexdigest()
+                calculated_digest, file_size = worker_helper.process_one_file(fpath)
 
                 # If the resource we scan here is listed in the resouce table, COPY it
                 #   to the copy_dir at standby slot for later use.
-                if self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest()) == 1:
+                if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
+                    resource_save_dst = self._copy_dst / calculated_digest.hex()
                     shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.processed_file_num += 1
+                    worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
                 self._max_pending_tasks.release()  # always release se first
 
         # commit the final batch
-        self._status_report_queue.put_nowait(
-            StatusReport(payload=_merged_payload, session_id=self.session_id)
-        )
+        worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
 
@@ -555,30 +536,16 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
 class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
-        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        hash_bufferview = memoryview(hash_buffer)
-
-        _next_report = 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        worker_helper = ProcessFileHelper(
+            self._que,
+            session_id=self.session_id,
+            report_que=self._status_report_queue,
         )
 
+        delta_src_fpaths = None
         while _input := self._que.get():
-            delta_src_fpaths = None
             try:
-                if (_now := time.time()) > _next_report:
-                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload, session_id=self.session_id
-                        )
-                    )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
-                    )
-
                 expected_digest, fpaths = _input
-                dst_f = self._copy_dst / expected_digest.hex()
                 delta_src_fpaths = [
                     Path(
                         replace_root(
@@ -591,26 +558,24 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 ]
 
                 for fpath in delta_src_fpaths:
-                    hash_f = sha256()
-                    file_size = 0
                     try:
-                        with open(fpath, "rb") as src:
-                            while read_size := src.readinto(hash_buffer):
-                                file_size += read_size
-                                hash_f.update(hash_bufferview[:read_size])
+                        calculated_digest, file_size = worker_helper.process_one_file(
+                            fpath
+                        )
                     except BaseException:
                         continue
 
-                    if hash_f.digest() == expected_digest:
+                    if calculated_digest == expected_digest:
                         if (
                             self._rst_orm_pool.orm_delete_entries(
                                 digest=expected_digest
                             )
                             == 1
                         ):
-                            os.link(fpath, dst_f, follow_symlinks=False)
-                            _merged_payload.processed_file_size += file_size
-                            _merged_payload.processed_file_num += 1
+                            resource_save_dst = self._copy_dst / expected_digest.hex()
+
+                            os.link(fpath, resource_save_dst, follow_symlinks=False)
+                            worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
                         break
@@ -624,9 +589,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 self._max_pending_tasks.release()  # always release se first
 
         # commit the final batch
-        self._status_report_queue.put_nowait(
-            StatusReport(payload=_merged_payload, session_id=self.session_id)
-        )
+        worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
 
@@ -684,51 +647,34 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
-        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        hash_bufferview = memoryview(hash_buffer)
-
-        _next_report = 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        worker_helper = ProcessFileHelper(
+            self._que,
+            session_id=self.session_id,
+            report_que=self._status_report_queue,
         )
 
         while _input := self._que.get():
             try:
-                if (_now := time.time()) > _next_report:
-                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload, session_id=self.session_id
-                        )
-                    )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
-                    )
-
                 expected_digest, fpaths = _input
-                dst_f = self._copy_dst / expected_digest.hex()
 
                 for fpath in fpaths:
-                    hash_f = sha256()
-                    file_size = 0
                     try:
-                        with open(fpath, "rb") as src:
-                            while read_size := src.readinto(hash_buffer):
-                                file_size += read_size
-                                hash_f.update(hash_bufferview[:read_size])
+                        calculated_digest, file_size = worker_helper.process_one_file(
+                            fpath
+                        )
                     except BaseException:
                         continue
 
-                    if hash_f.digest() == expected_digest:
+                    if calculated_digest == expected_digest:
                         if (
                             self._rst_orm_pool.orm_delete_entries(
                                 digest=expected_digest
                             )
                             == 1
                         ):
-                            shutil.copy(fpath, dst_f, follow_symlinks=False)
-                            _merged_payload.processed_file_size += file_size
-                            _merged_payload.processed_file_num += 1
+                            resource_save_dst = self._copy_dst / expected_digest.hex()
+                            shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
+                            worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
                         break
@@ -738,9 +684,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 self._max_pending_tasks.release()  # always release se first
 
         # commit the final batch
-        self._status_report_queue.put_nowait(
-            StatusReport(payload=_merged_payload, session_id=self.session_id)
-        )
+        worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
 
