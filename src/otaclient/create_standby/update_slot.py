@@ -94,14 +94,16 @@ class UpdateStandbySlot:
                     _merged_payload.processed_file_num += 1
                     _merged_payload.processed_file_size += _entry["size"] or 0
 
+                    # hardlinked entry shared the same inode, thus same permissions
                     if _inode_id in hardlink_group:
                         prepare_regular(
                             _entry,
                             _rs=hardlink_group[_inode_id],
                             target_mnt=self._standby_slot_mp,
                             prepare_method="hardlink",
+                            hardlink_skip_apply_permission=True,
                         )
-                    else:
+                    else:  # first entry in a hardlink group
                         hardlink_group[_inode_id] = prepare_regular(
                             _entry,
                             _rs=cur_resource,
