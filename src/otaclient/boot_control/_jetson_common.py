@@ -185,7 +185,9 @@ class NVBootctrlCommon:
         cmd.append(_cmd)
         if _slot_id:
             cmd.append(str(_slot_id))
-        # TODO(airkei): should use subprocess_run_wrapper instead of subprocess.run
+        # TODO(airkei): current subprocess_run_wrapper doesn't support capture_output.
+        # And capture_output parameter changes the stdout and stderr behavior regardless of check_output parameter
+        # In terms of code quality, in the following part, should use subprocess_run_wrapper instead of subprocess.run by fixing this part and subprocess_run_wrapper
         if chroot:
             cmd = ["chroot", str(chroot)] + cmd
 
