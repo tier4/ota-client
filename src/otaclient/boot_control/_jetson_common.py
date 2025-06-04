@@ -32,7 +32,7 @@ from typing_extensions import Annotated, Literal, Self
 from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import copytree_identical, subprocess_run_wrapper
+from otaclient_common.common import copytree_identical
 
 from .configs import jetson_common_cfg
 
@@ -185,13 +185,13 @@ class NVBootctrlCommon:
         cmd.append(_cmd)
         if _slot_id:
             cmd.append(str(_slot_id))
+        # TODO(airkei): should use subprocess_run_wrapper instead of subprocess.run
+        if chroot:
+            cmd = ["chroot", str(chroot)] + cmd
 
-        logger.warning(f"nvbootctrl command: {cmd}")
-        res = subprocess_run_wrapper(
+        res = subprocess.run(
             cmd,
             check=True,
-            check_output=check_output,
-            chroot=chroot,
             capture_output=True,
         )
         if check_output:

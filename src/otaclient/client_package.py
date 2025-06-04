@@ -305,7 +305,6 @@ class OTAClientPackagePrepareter:
 
     def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
         """Cleanup the mount point."""
-        _squashfs_file = Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE)
         try:
             # unmount the dynamic client mount point
             cmdhelper.ensure_mointpoint(mount_base, ignore_error=True)
