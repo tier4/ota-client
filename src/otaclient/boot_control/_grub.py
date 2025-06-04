@@ -30,7 +30,6 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
     still expecting new mechanism to fundamentally resolve this issue.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -853,6 +852,10 @@ class GrubController(BootControllerProtocol):
                 shutil.copy(f, standby_ota_partition_dir)
 
     # API
+
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
 
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point

@@ -13,7 +13,6 @@
 # limitations under the License.
 """Helper for mounting/umount slots during OTA."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -117,14 +116,12 @@ class SlotMountHelper:  # pragma: no cover
         erase_standby: bool = False,
         fslabel: str | None = None,
     ) -> None:
-        cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=True)
+        _target_dev = self.standby_slot_dev
+        cmdhelper.ensure_umount(_target_dev, ignore_error=True)
         if erase_standby:
-            return cmdhelper.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
-
-        # TODO: in the future if in-place update mode is implemented, do a
-        #   fschck over the standby slot file system.
+            return cmdhelper.mkfs_ext4(_target_dev, fslabel=fslabel)
         if fslabel:
-            cmdhelper.set_ext4_fslabel(self.standby_slot_dev, fslabel=fslabel)
+            cmdhelper.set_ext4_fslabel(_target_dev, fslabel=fslabel)
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
