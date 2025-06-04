@@ -123,6 +123,7 @@ def prepare_regular(
     *,
     target_mnt: StrOrPath,
     prepare_method: Literal["move", "hardlink", "copy"],
+    hardlink_skip_apply_permission: bool = False,
 ) -> Path:
     """
     Returns:
@@ -142,11 +143,10 @@ def prepare_regular(
         if prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
             os.link(_rs, _target_on_mnt)
-            # NOTE: although we actually don't need to set_perm and set_xattr everytime
-            #   to file paths point to the same inode, for simplicity here we just
-            #   do it everytime.
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
+
+            if not hardlink_skip_apply_permission:
+                os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+                os.chmod(_target_on_mnt, mode=entry["mode"])
             return _target_on_mnt
 
         if prepare_method == "move":
