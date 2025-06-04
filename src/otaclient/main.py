@@ -234,9 +234,9 @@ def main() -> None:  # pragma: no cover
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
             try:
-                # shutdown ota proxy thread if it is running
+                # exit ota proxy thread if it is running
                 if _otaproxy_control_t and _otaproxy_control_t.is_alive():
-                    logger.info("shutdown otaproxy control thread ...")
+                    logger.info("exit otaproxy control thread ...")
                     otaproxy_on_global_shutdown()
                     _otaproxy_control_t.join()
                 # kill other resources except main process
