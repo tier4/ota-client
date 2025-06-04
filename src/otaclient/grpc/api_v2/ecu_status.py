@@ -477,6 +477,8 @@ class ECUStatusStorage:
 
     def save_state(self) -> None:
         """Save the current state of the ECU status storage to a file."""
+        # TODO: should protect the pickled status with encryption key
+        # can be passed down to os.execve launched otaclient via env)
         _pickle = self._state.to_pickle()
         _path = Path(cfg.OTACLIENT_STATUS_FILE)
         with open(_path, "wb") as f:

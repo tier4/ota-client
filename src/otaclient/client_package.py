@@ -301,7 +301,7 @@ class OTAClientPackageDownloader:
         shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
 
 
-class OTAClientPackagePrepareter:
+class OTAClientPackagePreparer:
 
     def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
         """Cleanup the mount point."""
@@ -421,6 +421,12 @@ class OTAClientPackagePrepareter:
         """Mount the active slot to the mount base."""
         # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
+
+        # TODO: currently, this mount point is used for both host chroot and OTA update
+        # These should be split into two mount points: one for the host chroot and one for OTA updates.
+        # The reason is that in rebuild mode with full disk scanning,
+        # we don't want the otaclient to scan inside the mounted directories.
+        # Therefore, the active slot mount point used as a delta source should not use the rbind flag.
 
         # check if the mount base exists
         if not os.path.exists(mount_base):

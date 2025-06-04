@@ -20,7 +20,6 @@ The API exposed by this module is meant to be controlled by otaproxy managing th
 from __future__ import annotations
 
 import atexit
-import contextlib
 import logging
 import multiprocessing as mp
 import multiprocessing.context as mp_ctx
@@ -133,20 +132,7 @@ def otaproxy_control_thread(
                     "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
                 )
                 next_ota_cache_dir_checkpoint = _now + OTA_CACHE_DIR_CHECK_INTERVAL
-                try:
-                    shutil.rmtree(ota_cache_dir, ignore_errors=False)
-                except PermissionError:
-                    # in dynamic client, we can't remove /ota-cache because the root directory is RO.
-                    # only cleanup the contents
-                    with contextlib.suppress(Exception):
-                        for item in ota_cache_dir.iterdir():
-                            if item.is_file() or item.is_symlink():
-                                item.unlink(missing_ok=True)
-                            elif item.is_dir():
-                                shutil.rmtree(item, ignore_errors=True)
-                except Exception:
-                    # ignore other exceptions
-                    pass
+                shutil.rmtree(ota_cache_dir, ignore_errors=True)
 
         elif _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy

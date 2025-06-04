@@ -63,17 +63,10 @@ RUN set -eux; \
         python3 \
         # for e2label, mkfs.ext4
         e2fsprogs \
-        # for  grub-mkconfig, grub-reboot
-        grub-common \
-        # for reboot
-        systemd \
         # for lsblk, mount, umount, findmnt, blkid
         util-linux \
         # for ca-certificates
         ca-certificates; \
-    # for flash-kernel
-    # NOTE: this is only for arm architecture(raspberry pi)
-    apt-get install --no-install-recommends -y flash-kernel || true; \
     apt-get clean; \
     rm -rf \
         /root/.cache \
