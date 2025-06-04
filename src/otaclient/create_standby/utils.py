@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
+from typing import Generator
 
 from otaclient_common import human_readable_size
 from otaclient_common._typing import StrOrPath
@@ -29,6 +31,24 @@ from otaclient_common.cmdhelper import (
 from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
+
+
+class TopDownCommonShortestPath:
+    """Assume that the disk scan is top-down style."""
+
+    def __init__(self) -> None:
+        self._store: set[Path] = set()
+
+    def add_path(self, _path: Path):
+        _path = Path(_path).resolve()
+        for _parent in _path.parents:
+            # this path is covered by a shorter common prefix
+            if _parent in self._store:
+                return
+        self._store.add(_path)
+
+    def iter_paths(self) -> Generator[Path]:
+        yield from self._store
 
 
 def _check_if_ext4(dev: StrOrPath) -> bool:
