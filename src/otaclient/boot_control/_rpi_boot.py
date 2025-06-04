@@ -477,6 +477,10 @@ class RPIBootController(BootControllerProtocol):
 
     # APIs
 
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
+
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 

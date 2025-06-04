@@ -506,9 +506,9 @@ class UEFIFirmwareUpdater:
 
             try:
                 _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                assert (
-                    _digest == capsule_digest_value
-                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                assert _digest == capsule_digest_value, (
+                    f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(
                     src=capsule_fpath,
@@ -560,9 +560,9 @@ class UEFIFirmwareUpdater:
                 _digest = cal_file_digest(
                     ota_image_bootaa64, algorithm=payload_digest_alg
                 )
-                assert (
-                    _digest == payload_digest_value
-                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                assert _digest == payload_digest_value, (
+                    f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
@@ -957,6 +957,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         return firmware_updater.firmware_update()
 
     # APIs
+
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
 
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
