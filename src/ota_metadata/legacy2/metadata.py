@@ -477,8 +477,6 @@ class OTAMetadata:
             ):
                 _this_digest: bytes = entry["digest"]
                 _this_path: Path = Path(entry["path"])
-                if _this_digest == EMPTY_FILE_SHA256_BYTE:
-                    continue
 
                 if _this_digest == _hash:
                     # When there are too many entries for this digest, just pick the first
