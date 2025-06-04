@@ -102,7 +102,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_STATUS_QUERY_INTERVAL = 1
 WAIT_BEFORE_REBOOT = 6
 DOWNLOAD_STATS_REPORT_BATCH = 300
-DOWNLOAD_REPORT_INTERVAL = 1  # second
+DOWNLOAD_REPORT_INTERVAL = 3  # second
 
 OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
@@ -340,20 +340,17 @@ class _OTAUpdater:
             ),
         )
         try:
-            _next_commit_before, _report_batch_cnt = 0, 0
+            _next_commit_before = 0
             _merged_payload = UpdateProgressReport(
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
-            for _done_count, _fut in enumerate(
-                _mapper.ensure_tasks(
-                    self._download_file,
-                    resource_meta.iter_resources(
-                        batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
-                    ),
+            for _fut in _mapper.ensure_tasks(
+                self._download_file,
+                resource_meta.iter_resources(
+                    batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
                 ),
-                start=1,
             ):
-                _now = time.time()
+                _now = time.perf_counter()
 
                 if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
@@ -365,12 +362,8 @@ class _OTAUpdater:
                 else:
                     _merged_payload.errors += 1
 
-                if (
-                    _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
-                ) > _report_batch_cnt or _now > _next_commit_before:
+                if _now > _next_commit_before:
                     _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
-                    _report_batch_cnt = _this_batch
-
                     self._status_report_queue.put_nowait(
                         StatusReport(
                             payload=_merged_payload,
