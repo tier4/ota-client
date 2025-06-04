@@ -18,18 +18,25 @@ from typing import Optional
 
 from otaclient.configs.cfg import cfg
 
+try:
+    cache = functools.cache  # type: ignore[attr-defined]
+except AttributeError:
+    cache = functools.lru_cache(maxsize=None)
 
+
+@cache
 def is_dynamic_client_preparing() -> bool:
     """Check if the preparing dynamic client is running."""
     return bool(os.getenv(cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
+@cache
 def is_dynamic_client_running() -> bool:
     """Check if the dynamic client is running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
-@functools.lru_cache(maxsize=None)
+@cache
 def get_dynamic_client_chroot_path() -> Optional[str]:
     """Get the chroot path."""
     if is_dynamic_client_running():
