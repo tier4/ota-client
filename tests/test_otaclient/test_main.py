@@ -290,10 +290,10 @@ class TestMain:
             "otaclient_common._env.is_dynamic_client_running", return_value=is_running
         )
 
-        # Mock the OTAClientPackagePrepareter to prevent actual mounting
+        # Mock the OTAClientPackagePreparer to prevent actual mounting
         mock_prepareter = mocker.MagicMock()
         mocker.patch(
-            "otaclient.client_package.OTAClientPackagePrepareter",
+            "otaclient.client_package.OTAClientPackagePreparer",
             return_value=mock_prepareter,
         )
 

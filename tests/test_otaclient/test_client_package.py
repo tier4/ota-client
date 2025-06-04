@@ -24,8 +24,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -421,13 +421,13 @@ class TestClientPackageDownloader:
 
 
 class TestClientPackagePrepareter:
-    """Test class for OTAClientPackagePrepareter"""
+    """Test class for OTAClientPackagePreparer"""
 
     @pytest.fixture
     def package_prepareter(self):
-        from otaclient.client_package import OTAClientPackagePrepareter
+        from otaclient.client_package import OTAClientPackagePreparer
 
-        return OTAClientPackagePrepareter()
+        return OTAClientPackagePreparer()
 
     @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")
     @patch("otaclient.client_package.cmdhelper.ensure_umount")
@@ -449,7 +449,7 @@ class TestClientPackagePrepareter:
         mock_rmtree.assert_called_once_with(mount_base, ignore_errors=False)
 
     @patch("otaclient.client_package.subprocess_call")
-    @patch("otaclient.client_package.OTAClientPackagePrepareter._unshare_wrapper")
+    @patch("otaclient.client_package.OTAClientPackagePreparer._unshare_wrapper")
     def test_create_mount_namespaces(
         self, mock_unshare_wrapper, mock_subprocess_call, package_prepareter
     ):

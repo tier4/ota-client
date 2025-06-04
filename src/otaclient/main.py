@@ -86,7 +86,7 @@ def main() -> None:  # pragma: no cover
         otaproxy_on_global_shutdown,
     )
     from otaclient._utils import check_other_otaclient, create_otaclient_rundir
-    from otaclient.client_package import OTAClientPackagePrepareter
+    from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
@@ -112,7 +112,7 @@ def main() -> None:  # pragma: no cover
         logger.info("preparing downloaded dynamic ota client ...")
         try:
             logger.info("mounting dynamic client squashfs ...")
-            client_package_prepareter = OTAClientPackagePrepareter()
+            client_package_prepareter = OTAClientPackagePreparer()
             client_package_prepareter.mount_client_package()
 
             _mount_base = cfg.DYNAMIC_CLIENT_MNT
@@ -133,7 +133,7 @@ def main() -> None:  # pragma: no cover
             )
         except Exception as e:
             logger.exception(f"Failed during dynamic client preparation: {e}")
-        return _on_shutdown(sys_exit=True)
+        return sys.exit(1)
 
     if not _env.is_dynamic_client_running():
         # in dynamic client, the pid file has already been created
@@ -234,9 +234,9 @@ def main() -> None:  # pragma: no cover
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
             try:
-                # kill ota proxy thread if it is running
+                # exit ota proxy thread if it is running
                 if _otaproxy_control_t and _otaproxy_control_t.is_alive():
-                    logger.info("killing otaproxy control thread ...")
+                    logger.info("exit otaproxy control thread ...")
                     otaproxy_on_global_shutdown()
                     _otaproxy_control_t.join()
                 # kill other resources except main process
@@ -244,6 +244,13 @@ def main() -> None:  # pragma: no cover
                 _on_shutdown(sys_exit=False)
 
                 logger.info("cleaning up resources ...")
+                if _shm:
+                    del _shm
+                if local_otaclient_op_queue:
+                    del local_otaclient_op_queue
+                if local_otaclient_resp_queue:
+                    del local_otaclient_resp_queue
+
                 # this is a python bug(https://github.com/python/cpython/issues/88887),
                 # and it is fixed since python3.12 (https://github.com/python/cpython/pull/131530).
                 if sys.version_info < (3, 12):
