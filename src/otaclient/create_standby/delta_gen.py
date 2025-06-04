@@ -32,7 +32,7 @@ from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
-from otaclient_common import EMPTY_FILE_SHA256, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -100,8 +100,18 @@ class _DeltaGeneratorBase:
         for _p in self.CLEANUP_ENTRY:
             dtr.add_path(Path(_p))
 
-        # put the empty file into copy_dst
+        # put the empty file into copy_dst, remember to commit a record for preparing the empty file
         (copy_dst / EMPTY_FILE_SHA256).touch()
+        self._rst_orm_pool.orm_delete_entries(digest=EMPTY_FILE_SHA256_BYTE)
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                    processed_file_num=1,
+                ),
+                session_id=self.session_id,
+            )
+        )
 
 
 class ProcessFileHelper(Generic[T]):
@@ -491,9 +501,14 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     def _process_file_thread_worker(self):
         raise NotImplementedError
 
-    @abstractmethod
     def _calculate_delta(self, base_fst: str):
-        raise NotImplementedError
+        logger.debug("process delta src and generate delta...")
+
+        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
+            base_fst
+        ):
+            self._max_pending_tasks.acquire()
+            self._que.put_nowait(_input)
 
     @abstractmethod
     def _cleanup_base(self):
@@ -564,7 +579,6 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-
                             os.link(fpath, resource_save_dst, follow_symlinks=False)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
@@ -583,15 +597,6 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
-
-    def _calculate_delta(self, base_fst: str) -> None:
-        logger.debug("process delta src and generate delta...")
-
-        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
-            base_fst
-        ):
-            self._max_pending_tasks.acquire()
-            self._que.put_nowait(_input)
 
     def _cleanup_base(self):
         _canonical_root = Path(CANONICAL_ROOT)
@@ -678,15 +683,6 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         worker_helper.report_one_file(force_report=True)
         # wake up other threads
         self._que.put_nowait(None)
-
-    def _calculate_delta(self, base_fst: str) -> None:
-        logger.debug("process delta src and generate delta...")
-
-        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
-            base_fst
-        ):
-            self._max_pending_tasks.acquire()
-            self._que.put_nowait(_input)
 
     def _cleanup_base(self):
         # NOTE: in rebuild mode, we do not cleanup base
