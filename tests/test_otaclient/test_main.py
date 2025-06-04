@@ -303,6 +303,7 @@ class TestMain:
 
         # Mock execve to prevent actual process replacement
         mock_execve = mocker.patch(f"{MAIN_MODULE}.os.execve")
+        mocker.patch(f"{MAIN_MODULE}.sys.exit")
 
         mock_environ = {"PATH": "/usr/bin"}
         if is_preparing:
