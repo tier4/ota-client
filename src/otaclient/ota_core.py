@@ -354,11 +354,12 @@ class _OTAUpdater:
 
                 if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
-
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.errors += err_count
-                    _merged_payload.downloaded_bytes += downloaded_bytes
+                    # NOTE(20250604): filter out empty file
+                    if file_size > 0:
+                        _merged_payload.processed_file_num += 1
+                        _merged_payload.processed_file_size += file_size
+                        _merged_payload.errors += err_count
+                        _merged_payload.downloaded_bytes += downloaded_bytes
                 else:
                     _merged_payload.errors += 1
 
@@ -370,17 +371,13 @@ class _OTAUpdater:
                             session_id=self.session_id,
                         )
                     )
-
                     _merged_payload = UpdateProgressReport(
                         operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
                     )
 
             # for left-over items that cannot fill up the batch
             self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=_merged_payload,
-                    session_id=self.session_id,
-                )
+                StatusReport(payload=_merged_payload, session_id=self.session_id)
             )
         finally:
             _mapper.shutdown(wait=True)
