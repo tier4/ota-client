@@ -264,6 +264,8 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
+            # heals the hole of the rs table
+            self._rst_orm_pool.orm_execute("VACUUM;")
             self._cleanup_base()
         finally:
             self._rst_orm_pool.orm_pool_shutdown()
@@ -532,6 +534,8 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
+            # heals the hole of the rs table
+            self._rst_orm_pool.orm_execute("VACUUM;")
             self._cleanup_base()
         finally:
             self._rst_orm_pool.orm_pool_shutdown()
