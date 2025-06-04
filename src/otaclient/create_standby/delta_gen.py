@@ -138,7 +138,7 @@ class ProcessFileHelper(Generic[T]):
             self._merged_payload.processed_file_size += _fsize
             self._merged_payload.processed_file_num += 1
 
-        _now = time.time()
+        _now = time.perf_counter()
         if force_report or _now > self._next_report:
             self._next_report = _now + self.report_interval
             self._status_report_queue.put_nowait(

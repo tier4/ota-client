@@ -122,7 +122,7 @@ class UpdateStandbySlot:
                         prepare_method="copy",
                     )
 
-                if (_now := time.time()) > _next_report:
+                if (_now := time.perf_counter()) > _next_report:
                     _next_report = _now + self.status_report_interval
                     self._status_report_queue.put_nowait(
                         StatusReport(
