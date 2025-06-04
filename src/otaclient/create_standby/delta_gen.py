@@ -541,7 +541,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                     Path(
                         replace_root(
                             _fpath,
-                            "/",
+                            CANONICAL_ROOT,
                             self._delta_src_mount_point,
                         )
                     )
