@@ -86,7 +86,7 @@ def main() -> None:  # pragma: no cover
         otaproxy_on_global_shutdown,
     )
     from otaclient._utils import check_other_otaclient, create_otaclient_rundir
-    from otaclient.client_package import OTAClientPackagePrepareter
+    from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
@@ -112,7 +112,7 @@ def main() -> None:  # pragma: no cover
         logger.info("preparing downloaded dynamic ota client ...")
         try:
             logger.info("mounting dynamic client squashfs ...")
-            client_package_prepareter = OTAClientPackagePrepareter()
+            client_package_prepareter = OTAClientPackagePreparer()
             client_package_prepareter.mount_client_package()
 
             _mount_base = cfg.DYNAMIC_CLIENT_MNT
