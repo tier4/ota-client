@@ -29,10 +29,8 @@ from ota_metadata.file_table.utils import (
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
-from otaclient.create_standby.delta_gen import (
-    PROCESS_FILES_REPORT_INTERVAL,
-    UpdateStandbySlotFailed,
-)
+from otaclient.configs.cfg import cfg
+from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +44,9 @@ class UpdateStandbySlot:
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
+        status_report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
     ) -> None:
+        self.status_report_interval = status_report_interval
         self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
         self.session_id = session_id
@@ -123,7 +123,7 @@ class UpdateStandbySlot:
                     )
 
                 if (_now := time.time()) > _next_report:
-                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
+                    _next_report = _now + self.status_report_interval
                     self._status_report_queue.put_nowait(
                         StatusReport(
                             payload=_merged_payload,
