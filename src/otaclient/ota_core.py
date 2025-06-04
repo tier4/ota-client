@@ -214,7 +214,7 @@ class _OTAUpdater:
         self._resource_dir_on_standby = Path(
             replace_root(
                 cfg.OTA_TMP_STORE,
-                "/",
+                cfg.CANONICAL_ROOT,
                 self._boot_controller.get_standby_slot_path(),
             )
         )
@@ -595,7 +595,7 @@ class _OTAUpdater:
         _base_ft_db = Path(
             replace_root(
                 Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                old_root="/",
+                old_root=cfg.CANONICAL_ROOT,
                 new_root=Path(cfg.ACTIVE_SLOT_MNT),
             )
         )
@@ -607,7 +607,7 @@ class _OTAUpdater:
             _base_ft_db_at_standby := Path(
                 replace_root(
                     Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                    old_root="/",
+                    old_root=cfg.CANONICAL_ROOT,
                     new_root=Path(cfg.STANDBY_SLOT_MNT),
                 )
             )
