@@ -42,6 +42,7 @@ from simple_sqlite3_orm.utils import (
     check_db_integrity,
     enable_tmp_store_at_memory,
     enable_wal_mode,
+    wrap_value,
 )
 
 from ota_metadata.file_table.db import (
@@ -63,6 +64,7 @@ from ota_metadata.file_table.utils import (
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
+from otaclient_common import EMPTY_FILE_SHA256_BYTE
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 
@@ -456,12 +458,14 @@ class OTAMetadata:
         _hash = b""
         _cur: list[Path] = []
 
+        # NOTE(20250604): filter out the empty file
         # fmt: off
         _stmt = gen_sql_stmt(
             f"SELECT base.{FT_REGULAR_TABLE_NAME}.path, base.{FT_RESOURCE_TABLE_NAME}.digest",
             f"FROM base.{FT_REGULAR_TABLE_NAME}",
             f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
             f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
+            f"WHERE base.{FT_REGULAR_TABLE_NAME}.digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}"
             f"ORDER BY base.{FT_RESOURCE_TABLE_NAME}.digest"
         )
         # fmt: on
@@ -473,6 +477,9 @@ class OTAMetadata:
             ):
                 _this_digest: bytes = entry["digest"]
                 _this_path: Path = Path(entry["path"])
+                if _this_digest == EMPTY_FILE_SHA256_BYTE:
+                    continue
+
                 if _this_digest == _hash:
                     # When there are too many entries for this digest, just pick the first
                     #   <max_num_of_entries_per_digest> of them.
