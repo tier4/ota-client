@@ -24,7 +24,7 @@ from abc import abstractmethod
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import Generator
+from typing import Generator, Generic, TypeVar
 
 from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
 from ota_metadata.legacy2.metadata import OTAMetadata
@@ -32,8 +32,11 @@ from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256, replace_root
+from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 CANONICAL_ROOT = cfg.CANONICAL_ROOT
 CANONICAL_ROOT_P = Path(CANONICAL_ROOT)
@@ -108,6 +111,49 @@ class TopDownCommonShortestPath:
 
     def iter_paths(self) -> Generator[Path]:
         yield from self._store
+
+
+class ProcessFileHelper(Generic[T]):
+    def __init__(
+        self,
+        _que: Queue[T],
+        *,
+        session_id: str,
+        report_que: Queue[StatusReport],
+        report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
+    ) -> None:
+        self._que = _que
+        self._status_report_queue = report_que
+        self.session_id = session_id
+        self.report_interval = report_interval
+
+        self._hash_buffer = hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
+        self._hash_bufferview = memoryview(hash_buffer)
+        self._next_report = 0
+        self._merged_payload = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        )
+
+    def process_one_file(self, fpath: StrOrPath) -> tuple[bytes, int]:
+        hash_f, file_size = sha256(), 0
+        with open(fpath, "rb") as src:
+            while read_size := src.readinto(self._hash_buffer):
+                file_size += read_size
+                hash_f.update(self._hash_bufferview[:read_size])
+        return hash_f.digest(), file_size
+
+    def report_one_file(self, file_size: int) -> None:
+        self._merged_payload.processed_file_size += file_size
+        self._merged_payload.processed_file_num += 1
+
+        if (_now := time.time()) > self._next_report:
+            self._next_report = _now + self.report_interval
+            self._status_report_queue.put_nowait(
+                StatusReport(payload=self._merged_payload, session_id=self.session_id)
+            )
+            self._merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+            )
 
 
 #
@@ -225,28 +271,15 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
 class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
-        hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        hash_bufferview = memoryview(hash_buffer)
-
-        _next_report = 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        worker_helper = ProcessFileHelper(
+            self._que,
+            session_id=self.session_id,
+            report_que=self._status_report_queue,
         )
 
+        fpath = None
         while _input := self._que.get():
-            fpath = None
             try:
-                if (_now := time.time()) > _next_report:
-                    _next_report = _now + PROCESS_FILES_REPORT_INTERVAL
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload, session_id=self.session_id
-                        )
-                    )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
-                    )
-
                 fpath, canonical_fpath, fully_scan = _input
 
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
@@ -256,32 +289,24 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                hash_f = sha256()
-                file_size = 0
-                with open(fpath, "rb") as src:
-                    while read_size := src.readinto(hash_buffer):
-                        file_size += read_size
-                        hash_f.update(hash_bufferview[:read_size])
-                resource_save_dst = self._copy_dst / hash_f.hexdigest()
+                calculated_digest, file_size = worker_helper.process_one_file(fpath)
+                resource_save_dst = self._copy_dst / calculated_digest.hex()
 
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
-                if self._rst_orm_pool.orm_delete_entries(digest=hash_f.digest()) == 1:
+                if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
                     os.link(fpath, resource_save_dst, follow_symlinks=False)
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.processed_file_num += 1
+                    worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
-                # after the resource is collected, remove the original file
+                # remove the original file as we will recreate file entries later
                 if fpath:
                     fpath.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
 
         # commit the final batch
-        self._status_report_queue.put_nowait(
-            StatusReport(payload=_merged_payload, session_id=self.session_id)
-        )
+        worker_helper.report_one_file(0)
         # wake up other threads
         self._que.put_nowait(None)
 
