@@ -210,7 +210,7 @@ class _OTAUpdater:
             )
         )
 
-        # ------ prepare runtime dirs ------ #
+        # ------ define runtime dirs ------ #
         self._resource_dir_on_standby = Path(
             replace_root(
                 cfg.OTA_TMP_STORE,
@@ -562,7 +562,6 @@ class _OTAUpdater:
                     * STANDBY_SLOT_USED_SIZE_THRESHOLD
                 ),
             )
-
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
@@ -570,7 +569,8 @@ class _OTAUpdater:
         self._boot_controller.pre_update(
             self.update_version,
             # NOTE: this option is deprecated and not used by bootcontroller
-            # NOTE(20250602): will use this arg again for in-place mode.
+            # NOTE(20250602): will use this arg again for in-place mode in the future.
+            # TODO:(20250604): when standby_as_ref is set, skip mounting active slot.
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
