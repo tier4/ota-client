@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# TODO:(20250604) integration.
 """Generate delta from delta_src comparing to new OTA image."""
 
 from __future__ import annotations
@@ -72,7 +71,6 @@ class UpdateStandbySlot:
         )
 
         try:
-            # TODO:(20250604): OTAMetadata
             for _entry in self._ota_metadata.iter_regular_entries():
                 _this_digest, _inode_id = _entry["digest"], _entry["inode_id"]
                 _is_hardlinked = _entry["links_count"] is not None
@@ -151,7 +149,6 @@ class UpdateStandbySlot:
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
-        # TODO:(20250604): OTAMetadata
         for entry in self._ota_metadata.iter_dir_entries():
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
@@ -163,7 +160,6 @@ class UpdateStandbySlot:
 
     def _process_non_regular_files(self) -> None:
         logger.info("start to process non-regular entries ...")
-        # TODO:(20250604): OTAMetadata
         for entry in self._ota_metadata.iter_non_regular_entries():
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
