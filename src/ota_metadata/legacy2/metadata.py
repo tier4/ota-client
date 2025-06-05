@@ -23,7 +23,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import contextlib
@@ -32,30 +31,40 @@ import os.path
 import shutil
 import sqlite3
 import threading
+import typing
 from contextlib import closing
 from pathlib import Path
-from typing import Generator
+from typing import Callable, Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm import utils
+from simple_sqlite3_orm import gen_sql_stmt
 from simple_sqlite3_orm.utils import (
+    check_db_integrity,
     enable_tmp_store_at_memory,
     enable_wal_mode,
-    sort_and_replace,
+    wrap_value,
 )
 
-from ota_metadata.file_table import (
-    FileTableDirectories,
-    FileTableNonRegularFiles,
-    FileTableRegularFiles,
-)
-from ota_metadata.file_table._orm import (
+from ota_metadata.file_table.db import (
+    FT_DIR_TABLE_NAME,
+    FT_INODE_TABLE_NAME,
+    FT_NON_REGULAR_TABLE_NAME,
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
     FileTableDirORM,
+    FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
+    FileTableResourceORM,
+)
+from ota_metadata.file_table.utils import (
+    DirTypedDict,
+    NonRegularFileTypedDict,
+    RegularFileTypedDict,
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
+from otaclient_common import EMPTY_FILE_SHA256_BYTE
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 
@@ -88,11 +97,23 @@ def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
     with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
-        if utils.check_db_integrity(
-            con,
-            table_name=FileTableRegularORM.orm_bootstrap_table_name,
+        if not (
+            check_db_integrity(
+                con,
+                table_name=FileTableRegularORM.orm_bootstrap_table_name,
+            )
+            and check_db_integrity(
+                con,
+                table_name=FileTableResourceORM.orm_bootstrap_table_name,
+            )
         ):
+            return
+    try:
+        with contextlib.closing(sqlite3.connect(":memory:")) as con:
+            con.execute(f"ATTACH '{db_f}' AS attach_test;")
             return db_f
+    except Exception as e:
+        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
 
 
 class OTAMetadata:
@@ -134,6 +155,7 @@ class OTAMetadata:
 
         self._metadata_jwt = None
         self._total_regulars_num = 0
+        self._total_regulars_size = 0
 
     @property
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
@@ -143,6 +165,10 @@ class OTAMetadata:
     @property
     def total_regulars_num(self) -> int:
         return self._total_regulars_num
+
+    @property
+    def total_regulars_size(self) -> int:
+        return self._total_regulars_size
 
     def _prepare_metadata(
         self,
@@ -195,6 +221,7 @@ class OTAMetadata:
         _parser.verify_metadata_signature(cert_bytes)
 
         # only after the verification, assign the jwt to self
+        self._total_regulars_size = _metadata_jwt.total_regular_size
         self._metadata_jwt = _metadata_jwt
         _cert_fpath.unlink(missing_ok=True)
 
@@ -214,13 +241,19 @@ class OTAMetadata:
         with closing(self.connect_fstable()) as fst_conn, closing(
             self.connect_rstable()
         ) as rst_conn:
+            # ------ bootstrap each tables in the file_table database ------ #
             ft_regular_orm = FileTableRegularORM(fst_conn)
             ft_regular_orm.orm_bootstrap_db()
             ft_dir_orm = FileTableDirORM(fst_conn)
             ft_dir_orm.orm_bootstrap_db()
             ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
             ft_non_regular_orm.orm_bootstrap_db()
+            ft_resource_orm = FileTableResourceORM(fst_conn)
+            ft_resource_orm.orm_bootstrap_db()
+            ft_inode_orm = FileTableInodeORM(fst_conn)
+            ft_inode_orm.orm_bootstrap_db()
 
+            # ------ bootstrap table in the resource table database ------ #
             rs_orm = ResourceTableORM(rst_conn)
             rs_orm.orm_bootstrap_db()
 
@@ -265,19 +298,33 @@ class OTAMetadata:
                 yield _download_list
                 condition.wait()  # wait for download finished
 
+            inode_start = 1
             # ------ parse metafiles ------ #
-            self._total_regulars_num = regulars_num = parse_regulars_from_csv_file(
-                _fpath=regular_save_fpath,
-                _orm=ft_regular_orm,
-                _orm_rs=rs_orm,
+            self._total_regulars_num, inode_start = regulars_num = (
+                parse_regulars_from_csv_file(
+                    _fpath=regular_save_fpath,
+                    _orm=ft_regular_orm,
+                    _orm_ft_resource=ft_resource_orm,
+                    _orm_rs=rs_orm,
+                    _orm_inode=ft_inode_orm,
+                    inode_start=inode_start,
+                )
             )
             regular_save_fpath.unlink(missing_ok=True)
 
-            dirs_num = parse_dirs_from_csv_file(dir_save_fpath, ft_dir_orm)
+            dirs_num, inode_start = parse_dirs_from_csv_file(
+                dir_save_fpath,
+                ft_dir_orm,
+                _inode_orm=ft_inode_orm,
+                inode_start=inode_start,
+            )
             dir_save_fpath.unlink(missing_ok=True)
 
-            symlinks_num = parse_symlinks_from_csv_file(
-                symlink_save_fpath, ft_non_regular_orm
+            symlinks_num, _ = parse_symlinks_from_csv_file(
+                symlink_save_fpath,
+                ft_non_regular_orm,
+                _inode_orm=ft_inode_orm,
+                inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
 
@@ -345,19 +392,9 @@ class OTAMetadata:
                 _fs_conn.backup(conn)
 
             with _dst_conn as conn:
-                conn.execute("VACUUM;")
                 # change the journal_mode back to DELETE to make db file on read-only mount work.
                 # see https://www.sqlite.org/wal.html#read_only_databases for more details.
                 conn.execute("PRAGMA journal_mode=DELETE;")
-
-    def prepare_fstable(self) -> None:
-        """Optimize the file_table to be ready for delta generation use."""
-        _orm = FileTableRegularORM(self.connect_fstable)
-        sort_and_replace(
-            _orm,
-            table_name=_orm.orm_table_name,
-            order_by_col="digest",
-        )
 
     # helper methods
 
@@ -366,48 +403,93 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(self, *, batch_size: int) -> Generator[FileTableDirectories]:
+    def iter_dir_entries(self) -> Generator[DirTypedDict]:
         with FileTableDirORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+            _row_factory = typing.cast(Callable[..., DirTypedDict], sqlite3.Row)
+            # fmt: off
+            yield from orm.orm_select_entries(
+                _row_factory=_row_factory,
+                _stmt = gen_sql_stmt(
+                    "SELECT", "path,uid,gid,mode",
+                    "FROM", FT_DIR_TABLE_NAME,
+                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                )
+            )
+            # fmt: on
 
-    def iter_non_regular_entries(
-        self, *, batch_size: int
-    ) -> Generator[FileTableNonRegularFiles]:
-        """Yield entries from base file_table which digest presented in OTA image's file_table.
-
-        This is for assisting faster delta_calculation without full disk scan.
-        """
+    def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
+            _row_factory = typing.cast(
+                Callable[..., NonRegularFileTypedDict], sqlite3.Row
+            )
+            # fmt: off
+            yield from orm.orm_select_entries(
+                _row_factory=_row_factory,
+                _stmt = gen_sql_stmt(
+                    "SELECT", "path,uid,gid,mode,meta",
+                    "FROM", FT_NON_REGULAR_TABLE_NAME,
+                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                )
+            )
+            # fmt: on
+
+    def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            # fmt: off
+            _stmt = gen_sql_stmt(
+                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
+                "FROM", FT_REGULAR_TABLE_NAME,
+                "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
+                "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
+                "ORDER BY", "digest"
+            )
+            # fmt: on
+            yield from orm.orm_select_entries(
+                _stmt=_stmt,
+                _row_factory=sqlite3.Row,
+            )  # type: ignore
 
     def iter_common_regular_entries_by_digest(
         self,
         base_file_table: StrOrPath,
         *,
         max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
-    ) -> Generator[tuple[bytes, list[FileTableRegularFiles]]]:
-        _hash, _cur = b"", []
+    ) -> Generator[tuple[bytes, list[Path]]]:
+        _hash = b""
+        _cur: list[Path] = []
+
+        # NOTE(20250604): filter out the empty file
+        # fmt: off
+        _stmt = gen_sql_stmt(
+            f"SELECT base.{FT_REGULAR_TABLE_NAME}.path, base.{FT_RESOURCE_TABLE_NAME}.digest",
+            f"FROM base.{FT_REGULAR_TABLE_NAME}",
+            f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
+            f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
+            f"WHERE base.{FT_RESOURCE_TABLE_NAME}.digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}"
+            f"ORDER BY base.{FT_RESOURCE_TABLE_NAME}.digest"
+        )
+        # fmt: on
         with FileTableRegularORM(self.connect_fstable()) as orm:
-            for entry in orm.iter_common_by_digest(str(base_file_table)):
-                if entry.digest == _hash:
+            orm.orm_con.execute(f"ATTACH DATABASE '{base_file_table}' AS base;")
+            for entry in orm.orm_select_entries(
+                _stmt=_stmt,
+                _row_factory=sqlite3.Row,
+            ):
+                _this_digest: bytes = entry["digest"]
+                _this_path: Path = Path(entry["path"])
+
+                if _this_digest == _hash:
                     # When there are too many entries for this digest, just pick the first
                     #   <max_num_of_entries_per_digest> of them.
                     if len(_cur) <= max_num_of_entries_per_digest:
-                        _cur.append(entry)
+                        _cur.append(_this_path)
                 else:
                     if _cur:
                         yield _hash, _cur
-                    _hash, _cur = entry.digest, [entry]
+                    _hash, _cur = _this_digest, [_this_path]
 
             if _cur:
                 yield _hash, _cur
-
-    def iter_regular_entries(
-        self, *, batch_size: int
-    ) -> Generator[FileTableRegularFiles]:
-        # NOTE: do the dispatch at a thread
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            yield from orm.orm_select_all_with_pagination(batch_size=batch_size)
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
@@ -427,7 +509,6 @@ class OTAMetadata:
 
 
 class ResourceMeta:
-
     def __init__(
         self,
         *,
@@ -460,7 +541,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
@@ -484,7 +565,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
