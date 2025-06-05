@@ -145,7 +145,8 @@ class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
         bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
         def _in_thread():
-            with self._thread_scope_orm._con as con:
+            _orm_base = self._orm_threadpool._thread_scope_orm
+            with _orm_base._con as con:
                 # check if we have enough entries to rotate
                 select_stmt = self.orm_table_spec.table_select_stmt(
                     select_from=self.orm_table_name,
@@ -194,7 +195,7 @@ class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
                     return list(cur)
 
         return await asyncio.wrap_future(
-            self._pool.submit(_in_thread),
+            self._orm_threadpool._pool.submit(_in_thread),
             loop=self._loop,
         )
 
