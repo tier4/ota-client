@@ -46,7 +46,7 @@ from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._io import (
     read_str_from_file,
     symlink_atomic,
@@ -260,7 +260,11 @@ class GrubHelper:
     @staticmethod
     def grub_mkconfig() -> str:
         try:
-            return subprocess_check_output("grub-mkconfig", raise_exception=True)
+            return subprocess_check_output(
+                "grub-mkconfig",
+                raise_exception=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except CalledProcessError as e:
             raise ValueError(
                 f"grub-mkconfig failed: {e.returncode=}, {e.stderr=}, {e.stdout=}"
@@ -269,7 +273,11 @@ class GrubHelper:
     @staticmethod
     def grub_reboot(idx: int):
         try:
-            subprocess_call(f"grub-reboot {idx}", raise_exception=True)
+            subprocess_call(
+                ["grub-reboot", str(idx)],
+                raise_exception=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except CalledProcessError:
             logger.exception(f"failed to grub-reboot to {idx}")
             raise
@@ -357,7 +365,10 @@ class GrubABPartitionDetector:
             of the active slot.
         """
         try:
-            dev_path = cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+            dev_path = cmdhelper.get_current_rootfs_dev(
+                active_root=cfg.ACTIVE_ROOT,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             assert dev_path
         except Exception as e:
             _err_msg = f"failed to detect current rootfs dev: {e!r}"
@@ -920,9 +931,9 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self) -> NoReturn:
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         try:
-            cmdhelper.reboot()
+            cmdhelper.reboot(chroot=chroot)
         except Exception as e:
             _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)

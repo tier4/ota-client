@@ -19,9 +19,8 @@ import errno
 import json
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
-import signal
-import sys
 import threading
 import time
 from concurrent.futures import Future
@@ -60,6 +59,8 @@ from otaclient._status_monitor import (
     UpdateProgressReport,
 )
 from otaclient._types import (
+    ClientUpdateControlFlags,
+    ClientUpdateRequestV2,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -72,6 +73,7 @@ from otaclient._types import (
 )
 from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
+from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import get_standby_slot_creator
 from otaclient.create_standby._delta_gen import (
@@ -80,7 +82,7 @@ from otaclient.create_standby._delta_gen import (
 )
 from otaclient.create_standby.rebuild_mode import RebuildMode
 from otaclient.metrics import OTAMetricsData
-from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, _env, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
@@ -738,6 +740,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
+        self._preserve_client_squashfs()
         self._boot_controller.post_update()
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
@@ -775,6 +778,27 @@ class _OTAUpdater(_OTAUpdateOperator):
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
+    def _preserve_client_squashfs(self) -> None:
+        """Copy the client squashfs file to the standby slot."""
+        if not _env.is_dynamic_client_running():
+            logger.info(
+                "dynamic client is not running, no need to copy client squashfs file"
+            )
+            return
+
+        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
+            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        ).relative_to("/")
+        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+        ).relative_to("/")
+        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            shutil.copy(_src, _dst, follow_symlinks=False)
+        except FileNotFoundError as e:
+            logger.warning(f"failed to copy client squashfs file: {e!r}")
+
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
@@ -801,7 +825,9 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update()
+        self._boot_controller.finalizing_update(
+            chroot=_env.get_dynamic_client_chroot_path()
+        )
 
     # API
 
@@ -823,6 +849,120 @@ class _OTAUpdater(_OTAUpdateOperator):
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
             self._metrics.publish()
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
+
+
+class _OTAClientUpdater(_OTAUpdateOperator):
+    """The implementation of OTA client update logic."""
+
+    def __init__(
+        self,
+        client_update_control_flags: ClientUpdateControlFlags,
+        **kwargs,
+    ) -> None:
+        # ------ init base class ------ #
+        super().__init__(**kwargs)
+
+        # --- Event flag to control client update ---- #
+        self.client_update_control_flags = client_update_control_flags
+
+        # ------ setup OTA client package parser ------ #
+        self._ota_client_package = OTAClientPackageDownloader(
+            base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
+            session_dir=self._session_workdir,
+        )
+
+    def _execute_client_update(self):
+        """Implementation of OTA updating."""
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+
+        try:
+            self._handle_upper_proxy()
+            self._process_metadata()
+            self._download_client_package_resources()
+            self._wait_sub_ecus()
+            if self._is_same_client_package_version():
+                # to notify the status report after reboot
+                self._request_shutdown()
+            else:
+                self._copy_client_package()
+                self._notify_data_ready()
+        except Exception as e:
+            logger.warning(f"failed to run squashfs: {e!r}")
+            self._request_shutdown()
+
+    def _download_client_package_resources(self) -> None:
+        """Download OTA client."""
+        # ------ in-update: download resources ------ #
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_CLIENT,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
+        try:
+            logger.info("start to download client manifest and package...")
+            self._download_client_package_files()
+        except TasksEnsureFailed:
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
+        finally:
+            # NOTE: after this point, we don't need downloader anymore
+            self._downloader_pool.shutdown()
+
+    def _download_client_package_files(self) -> None:
+        self._download_and_process_file_with_condition(
+            thread_name_prefix="download_client_file",
+            get_downloads_generator=self._ota_client_package.download_client_package,
+        )
+
+    def _wait_sub_ecus(self) -> None:
+        logger.info("wait for all sub-ECU to finish...")
+        # wait for all sub-ECU to finish OTA update
+        result = wait_and_log(
+            check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+            check_for=False,
+            message="client updating in sub ecus",
+            log_func=logger.info,
+            timeout=cfg.CLIENT_UPDATE_TIMEOUT,
+        )
+        if result is False:
+            logger.warning("sub-ECU client was aborted, skip waiting for sub-ecus")
+
+    def _is_same_client_package_version(self) -> bool:
+        return self._ota_client_package.is_same_client_package_version()
+
+    def _copy_client_package(self) -> None:
+        self._ota_client_package.copy_client_package()
+
+    def _notify_data_ready(self):
+        """Notify the main process that the client package is ready."""
+        logger.info("notify main process that the client package is ready..")
+        self.client_update_control_flags.notify_data_ready_event.set()
+
+    def _request_shutdown(self):
+        """Request shutdown."""
+        self.client_update_control_flags.request_shutdown_event.set()
+
+    # API
+
+    def execute(self) -> None:
+        """Main entry for executing local OTA client update."""
+        try:
+            self._execute_client_update()
+        except Exception as e:
+            logger.error(f"client update failed: {e!r}")
+            raise
+        finally:
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
@@ -849,12 +989,14 @@ class OTAClient:
         ecu_status_flags: MultipleECUStatusFlags,
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
+        client_update_control_flags: ClientUpdateControlFlags,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
         self.ecu_status_flags = ecu_status_flags
 
         self._status_report_queue = status_report_queue
+        self._client_update_control_flags = client_update_control_flags
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
@@ -1010,6 +1152,63 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
 
+    def client_update(self, request: ClientUpdateRequestV2) -> None:
+        """
+        NOTE that client update API will not raise any exceptions. The failure information
+            is available via status API.
+        """
+        if _env.is_dynamic_client_running():
+            self._live_ota_status = OTAStatus.FAILURE
+            e = ota_errors.DuplicatedClientUpdateRequest(module=__name__)
+            self._on_failure(
+                e,
+                ota_status=OTAStatus.FAILURE,
+                failure_reason=e.get_failure_reason(),
+                failure_type=e.failure_type,
+            )
+            return
+
+        self._live_ota_status = OTAStatus.CLIENT_UPDATING
+        new_session_id = request.session_id
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.CLIENT_UPDATING,
+                ),
+                session_id=new_session_id,
+            )
+        )
+        logger.info(f"start new OTA client update session: {new_session_id=}")
+
+        try:
+            logger.info("[client update] entering local update...")
+            if not self.ca_chains_store:
+                raise ota_errors.MetadataJWTVerficationFailed(
+                    "no CA chains are installed, reject any OTA update",
+                    module=__name__,
+                )
+
+            _OTAClientUpdater(
+                version=request.version,
+                raw_url_base=request.url_base,
+                cookies_json=request.cookies_json,
+                ca_chains_store=self.ca_chains_store,
+                ecu_status_flags=self.ecu_status_flags,
+                upper_otaproxy=self.proxy,
+                status_report_queue=self._status_report_queue,
+                session_id=new_session_id,
+                client_update_control_flags=self._client_update_control_flags,
+                metrics=self._metrics,
+            ).execute()
+        except ota_errors.OTAError as e:
+            self._live_ota_status = OTAStatus.FAILURE
+            self._on_failure(
+                e,
+                ota_status=OTAStatus.FAILURE,
+                failure_reason=e.get_failure_reason(),
+                failure_type=e.failure_type,
+            )
+
     def rollback(self, request: RollbackRequestV2) -> None:
         self._live_ota_status = OTAStatus.ROLLBACKING
         new_session_id = request.session_id
@@ -1083,6 +1282,24 @@ class OTAClient:
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
 
+            elif isinstance(request, ClientUpdateRequestV2):
+
+                _client_update_thread = threading.Thread(
+                    target=self.client_update,
+                    args=[request],
+                    daemon=True,
+                    name="ota_client_update_executor",
+                )
+                _client_update_thread.start()
+
+                resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        session_id=request.session_id,
+                    )
+                )
+                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+
             elif (
                 isinstance(request, RollbackRequestV2)
                 and self._live_ota_status == OTAStatus.SUCCESS
@@ -1115,11 +1332,6 @@ class OTAClient:
                 )
 
 
-def _sign_handler(signal_value, frame) -> NoReturn:
-    print(f"ota_core process receives {signal_value=}, exits ...")
-    sys.exit(1)
-
-
 def ota_core_process(
     *,
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
@@ -1127,12 +1339,12 @@ def ota_core_process(
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
+    client_update_control_flags: ClientUpdateControlFlags,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
     from otaclient.ota_core import OTAClient
 
-    signal.signal(signal.SIGTERM, _sign_handler)
     configure_logging()
 
     shm_writer = shm_writer_factory()
@@ -1150,5 +1362,6 @@ def ota_core_process(
         ecu_status_flags=ecu_status_flags,
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
+        client_update_control_flags=client_update_control_flags,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

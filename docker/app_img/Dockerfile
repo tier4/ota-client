@@ -49,10 +49,19 @@ ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
 ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
+# Add necessary directories for OTA
+RUN mkdir -p /mnt /ota-cache
+
 RUN set -eux; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
-        python3; \
+        python3 \
+        # for e2label, mkfs.ext4
+        e2fsprogs \
+        # for lsblk, mount, umount, findmnt, blkid
+        util-linux \
+        # for ca-certificates
+        ca-certificates; \
     apt-get clean; \
     rm -rf \
         /root/.cache \

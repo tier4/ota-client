@@ -43,7 +43,7 @@ _global_shutdown: bool = False
 _global_shutdown_lock = threading.Lock()
 
 
-def _on_global_shutdown() -> None:
+def otaproxy_on_global_shutdown() -> None:
     global _global_shutdown
     _global_shutdown = True
     _shutdown_otaproxy()
@@ -104,12 +104,13 @@ def otaproxy_process(*, init_cache: bool) -> None:
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
 ) -> None:  # pragma: no cover
-    atexit.register(_on_global_shutdown)
+    atexit.register(otaproxy_on_global_shutdown)
 
     _mp_ctx = mp.get_context("spawn")
 
     ota_cache_dir = Path(otaproxy_cfg.BASE_DIR)
     next_ota_cache_dir_checkpoint = 0
+    otaproxy_min_alive_until = 0
 
     global _otaproxy_p
     while not _global_shutdown:
@@ -125,6 +126,7 @@ def otaproxy_control_thread(
                 _now > next_ota_cache_dir_checkpoint
                 and _all_success
                 and ota_cache_dir.is_dir()
+                and any(ota_cache_dir.iterdir())
             ):
                 logger.info(
                     "all tracked ECUs are in SUCCESS OTA status, cleanup ota cache dir ..."
@@ -140,9 +142,11 @@ def otaproxy_control_thread(
                 name="otaproxy",
             )
             _otaproxy_p.start()
-            next_ota_cache_dir_checkpoint = _now + OTAPROXY_MIN_STARTUP_TIME
-            time.sleep(OTAPROXY_MIN_STARTUP_TIME)  # prevent pre-mature shutdown
+            next_ota_cache_dir_checkpoint = otaproxy_min_alive_until = (
+                _now + OTAPROXY_MIN_STARTUP_TIME
+            )
 
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
-            logger.info("shutting down otaproxy as not needed now ...")
-            _shutdown_otaproxy()
+            if _now > otaproxy_min_alive_until:  # to prevent pre-mature shutdown
+                logger.info("shutting down otaproxy as not needed now ...")
+                _shutdown_otaproxy()

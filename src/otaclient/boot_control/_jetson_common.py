@@ -33,6 +33,7 @@ from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import copytree_identical
+from otaclient_common.linux import subprocess_run_wrapper
 
 from .configs import jetson_common_cfg
 
@@ -173,6 +174,7 @@ class NVBootctrlCommon:
         *,
         check_output: bool,
         target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> Any:  # pragma: no cover
         """
         Raises:
@@ -185,17 +187,21 @@ class NVBootctrlCommon:
         if _slot_id:
             cmd.append(str(_slot_id))
 
-        res = subprocess.run(
+        res = subprocess_run_wrapper(
             cmd,
             check=True,
-            capture_output=True,
+            check_output=True,
+            chroot=chroot,
         )
         if check_output:
             return res.stdout.decode()
 
     @classmethod
     def get_current_slot(
-        cls, *, target: Optional[NVBootctrlTarget] = None
+        cls,
+        *,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> SlotID:  # pragma: no cover
         """Prints currently running SLOT.
 
@@ -204,14 +210,17 @@ class NVBootctrlCommon:
         """
         cmd = "get-current-slot"
         try:
-            res = cls._nvbootctrl(cmd, check_output=True, target=target)
+            res = cls._nvbootctrl(cmd, check_output=True, target=target, chroot=chroot)
             return SlotID(res.strip())
         except Exception as e:
             raise NVBootctrlExecError from e
 
     @classmethod
     def get_standby_slot(
-        cls, *, target: Optional[NVBootctrlTarget] = None
+        cls,
+        *,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> SlotID:  # pragma: no cover
         """Prints standby SLOT.
 
@@ -220,12 +229,16 @@ class NVBootctrlCommon:
         Raises:
             NVBootctrlExecError on failed to get current slot.
         """
-        current_slot = cls.get_current_slot(target=target)
+        current_slot = cls.get_current_slot(target=target, chroot=chroot)
         return SLOT_FLIP[current_slot]
 
     @classmethod
     def set_active_boot_slot(
-        cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
+        cls,
+        slot_id: SlotID,
+        *,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> None:  # pragma: no cover
         """On next boot, load and execute SLOT.
 
@@ -235,14 +248,17 @@ class NVBootctrlCommon:
         cmd = "set-active-boot-slot"
         try:
             return cls._nvbootctrl(
-                cmd, SlotID(slot_id), check_output=False, target=target
+                cmd, SlotID(slot_id), check_output=False, target=target, chroot=chroot
             )
         except subprocess.CalledProcessError as e:
             raise NVBootctrlExecError from e
 
     @classmethod
     def dump_slots_info(
-        cls, *, target: Optional[NVBootctrlTarget] = None
+        cls,
+        *,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> str:  # pragma: no cover
         """Prints info for slots.
 
@@ -251,7 +267,7 @@ class NVBootctrlCommon:
         """
         cmd = "dump-slots-info"
         try:
-            return cls._nvbootctrl(cmd, target=target, check_output=True)
+            return cls._nvbootctrl(cmd, target=target, check_output=True, chroot=chroot)
         except subprocess.CalledProcessError as e:
             raise NVBootctrlExecError from e
 

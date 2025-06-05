@@ -41,18 +41,37 @@ def wait_and_log(
     check_interval: int = 2,
     log_interval: int = 30,
     log_func: Callable[[str], None] = logger.info,
-) -> None:
-    """Wait for <flag> until it is set while print a log every <log_interval>."""
+    timeout: int | None = None,
+) -> bool:
+    """Wait for <flag> until it is set while print a log every <log_interval>.
+
+    Args:
+        check_flag: Function that returns a boolean value to check.
+        message: Message to include in the log output.
+        check_for: The value to check against (True or False).
+        check_interval: How often to check the flag in seconds.
+        log_interval: How often to log a message in seconds.
+        log_func: Function to use for logging.
+        timeout: Maximum time to wait in seconds. None means wait indefinitely.
+
+    Returns:
+        bool: True if condition was met, False if timeout occurred.
+    """
     log_round = 0
     for seconds in itertools.count(step=check_interval):
         if check_flag() == check_for:
-            return
+            return True
+
+        # Check if timeout has been reached
+        if timeout is not None and seconds >= timeout:
+            return False
 
         _new_log_round = seconds // log_interval
         if _new_log_round > log_round:
             log_func(f"wait for {message}: {seconds}s passed ...")
             log_round = _new_log_round
         time.sleep(check_interval)
+    return False
 
 
 def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover

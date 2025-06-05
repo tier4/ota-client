@@ -41,6 +41,7 @@ class OTAErrorCode(int, Enum):
     E_INVALID_STATUS_FOR_OTAROLLBACK = 202
     E_OTA_IMAGE_INVALID = 203
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
+    E_DUPLICATED_CLIENT_UPDATE_REQUEST = 205
 
     #
     # ------ unrecoverable errors ------
@@ -167,6 +168,11 @@ class OTAImageInvalid(OTAErrorRecoverable):
 class UpdateRequestCookieInvalid(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATE_REQUEST_COOKIE_INVALID
     failure_description: str = "failed to complete OTA as cookie is invalid"
+
+
+class DuplicatedClientUpdateRequest(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_DUPLICATED_CLIENT_UPDATE_REQUEST
+    failure_description: str = "duplicated client update request is not supported"
 
 
 #

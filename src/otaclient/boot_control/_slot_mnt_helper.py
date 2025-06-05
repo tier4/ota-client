@@ -23,7 +23,7 @@ from functools import partial
 from pathlib import Path
 
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -47,13 +47,15 @@ class SlotMountHelper:  # pragma: no cover
         self.active_slot_mount_point = Path(active_slot_mount_point)
 
         # ensure the each mount points being umounted at termination
-        atexit.register(
-            partial(
-                cmdhelper.ensure_umount,
-                self.active_slot_mount_point,
-                ignore_error=True,
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if not _env.is_dynamic_client_running():
+            atexit.register(
+                partial(
+                    cmdhelper.ensure_umount,
+                    self.active_slot_mount_point,
+                    ignore_error=True,
+                )
             )
-        )
         atexit.register(
             partial(
                 cmdhelper.ensure_umount,
@@ -87,6 +89,11 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount active slot rootfs dev...")
+
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if _env.is_dynamic_client_running():
+            return
+
         cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
@@ -128,7 +135,12 @@ class SlotMountHelper:  # pragma: no cover
 
     def umount_all(self, *, ignore_error: bool = True):
         logger.debug("unmount standby slot and active slot mount point...")
-        cmdhelper.ensure_umount(self.active_slot_mount_point, ignore_error=ignore_error)
+
+        # if the dynamic client is running, active slot should be mounted before chroot
+        if not _env.is_dynamic_client_running():
+            cmdhelper.ensure_umount(
+                self.active_slot_mount_point, ignore_error=ignore_error
+            )
         cmdhelper.ensure_umount(
             self.standby_slot_mount_point, ignore_error=ignore_error
         )

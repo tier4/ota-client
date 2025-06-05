@@ -34,7 +34,7 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import cmdhelper, replace_root
+from otaclient_common import _env, cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_run_wrapper
@@ -86,7 +86,13 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         """Mark current slot as GOOD."""
         cmd = "mark-boot-successful"
         try:
-            cls._nvbootctrl(cmd, slot_id, check_output=False, target=target)
+            cls._nvbootctrl(
+                cmd,
+                slot_id,
+                check_output=False,
+                target=target,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
         except subprocess.CalledProcessError as e:
             logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
 
@@ -98,7 +104,11 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         cmd = "set-slot-as-unbootable"
         try:
             return cls._nvbootctrl(
-                cmd, SlotID(slot_id), check_output=False, target=target
+                cmd,
+                SlotID(slot_id),
+                check_output=False,
+                target=target,
+                chroot=_env.get_dynamic_client_chroot_path(),
             )
         except subprocess.CalledProcessError as e:
             logger.warning(f"nvbootctrl {cmd} call failed: {e!r}")
@@ -121,7 +131,11 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
         """
         cmd = "is-unified-enabled"
         try:
-            cls._nvbootctrl(cmd, check_output=False)
+            cls._nvbootctrl(
+                cmd,
+                check_output=False,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
             return True
         except subprocess.CalledProcessError as e:
             if e.returncode == 70:
@@ -137,7 +151,7 @@ class NVUpdateEngine:
     NV_UPDATE_ENGINE = "nv_update_engine"
 
     @classmethod
-    def _nv_update_engine(cls, payload: Path | str):
+    def _nv_update_engine(cls, payload: Path | str, *, chroot: str | None = None):
         """nv_update_engine apply BUP, non unified_ab version."""
         # fmt: off
         cmd = [
@@ -147,7 +161,7 @@ class NVUpdateEngine:
             "--no-reboot",
         ]
         # fmt: on
-        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True, chroot=chroot)
         logger.info(
             (
                 f"apply BUP {payload=}: \n"
@@ -157,7 +171,9 @@ class NVUpdateEngine:
         )
 
     @classmethod
-    def _nv_update_engine_unified_ab(cls, payload: Path | str):
+    def _nv_update_engine_unified_ab(
+        cls, payload: Path | str, *, chroot: str | None = None
+    ):
         """nv_update_engine apply BUP, unified_ab version."""
         # fmt: off
         cmd = [
@@ -166,7 +182,7 @@ class NVUpdateEngine:
             "--payload", str(payload),
         ]
         # fmt: on
-        res = subprocess_run_wrapper(cmd, check=True, check_output=True)
+        res = subprocess_run_wrapper(cmd, check=True, check_output=True, chroot=chroot)
         logger.info(
             (
                 f"apply BUP {payload=} with unified A/B: \n"
@@ -261,7 +277,7 @@ class NVUpdateEngine:
                 continue
 
             logger.warning(f"apply BUP {bup_fpath} to standby slot ...")
-            update_execute_func(bup_fpath)
+            update_execute_func(bup_fpath, chroot=_env.get_dynamic_client_chroot_path())
             firmware_update_executed = True
         return firmware_update_executed
 
@@ -328,18 +344,23 @@ class _CBootControl:
 
         # ------ check A/B slots ------ #
         try:
+            _chroot = _env.get_dynamic_client_chroot_path()
             self.current_bootloader_slot = current_bootloader_slot = (
-                NVBootctrlJetsonCBOOT.get_current_slot()
+                NVBootctrlJetsonCBOOT.get_current_slot(chroot=_chroot)
             )
             self.standby_bootloader_slot = standby_bootloader_slot = (
-                NVBootctrlJetsonCBOOT.get_standby_slot()
+                NVBootctrlJetsonCBOOT.get_standby_slot(chroot=_chroot)
             )
             if not self.unified_ab_enabled:
                 self.current_rootfs_slot = current_rootfs_slot = (
-                    NVBootctrlJetsonCBOOT.get_current_slot(target="rootfs")
+                    NVBootctrlJetsonCBOOT.get_current_slot(
+                        target="rootfs", chroot=_chroot
+                    )
                 )
                 self.standby_rootfs_slot = standby_rootfs_slot = (
-                    NVBootctrlJetsonCBOOT.get_standby_slot(target="rootfs")
+                    NVBootctrlJetsonCBOOT.get_standby_slot(
+                        target="rootfs", chroot=_chroot
+                    )
                 )
             else:
                 self.current_rootfs_slot = current_rootfs_slot = current_bootloader_slot
@@ -361,7 +382,10 @@ class _CBootControl:
         # ------ detect rootfs_dev and parent_dev ------ #
         try:
             self.curent_rootfs_devpath = current_rootfs_devpath = (
-                cmdhelper.get_current_rootfs_dev(cfg.ACTIVE_ROOT)
+                cmdhelper.get_current_rootfs_dev(
+                    active_root=cfg.ACTIVE_ROOT,
+                    chroot=_env.get_dynamic_client_chroot_path(),
+                )
             )
             self.parent_devpath = parent_devpath = Path(
                 cmdhelper.get_parent_dev(current_rootfs_devpath)
@@ -401,13 +425,14 @@ class _CBootControl:
             parent_devpath=f"/dev/{boot_cfg.INTERNAL_EMMC_DEVNAME}",
             partition_id=SLOT_PAR_MAP[standby_rootfs_slot],
         )
+        _chroot = _env.get_dynamic_client_chroot_path()
         logger.info(f"finished cboot control init: {current_rootfs_slot=}")
         logger.info(
-            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}"
+            f"nvbootctrl dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_chroot)}"
         )
         if not unified_ab_enabled:
             logger.info(
-                f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs')}"
+                f"nvbootctrl -t rootfs dump-slots-info: \n{NVBootctrlJetsonCBOOT.dump_slots_info(target='rootfs', chroot=_chroot)}"
             )
 
     # API
@@ -431,15 +456,18 @@ class _CBootControl:
         target_slot = self.standby_rootfs_slot
 
         logger.info(f"switch boot to standby slot({target_slot})")
+        _chroot = _env.get_dynamic_client_chroot_path()
         if not self.unified_ab_enabled:
             logger.info(
                 f"unified AB slot is not enabled, also set active rootfs slot to ${target_slot}"
             )
-            NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, target="rootfs")
+            NVBootctrlJetsonCBOOT.set_active_boot_slot(
+                target_slot, target="rootfs", chroot=_chroot
+            )
 
         # when unified_ab enabled, switching bootloader slot will also switch
         #   the rootfs slot.
-        NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot)
+        NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, chroot=_chroot)
 
 
 class JetsonCBootControl(BootControllerProtocol):
@@ -672,7 +700,9 @@ class JetsonCBootControl(BootControllerProtocol):
 
             # ------ prepare to reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
-            logger.info(f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info()}")
+            logger.info(
+                f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
+            )
             logger.info("post update finished, wait for reboot ...")
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
@@ -681,9 +711,9 @@ class JetsonCBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def finalizing_update(self) -> NoReturn:
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         try:
-            cmdhelper.reboot()
+            cmdhelper.reboot(chroot=chroot)
         except Exception as e:
             _err_msg = f"reboot failed: {e!r}"
             logger.error(_err_msg)

@@ -46,6 +46,7 @@ import pickle
 import time
 from dataclasses import dataclass, field
 from itertools import chain
+from pathlib import Path
 
 from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
@@ -217,7 +218,7 @@ class ECUStatusStorage:
                 self._state.all_ecus_status_v1.values(),
             )
             if status.ecu_id in self._state.available_ecu_ids
-            and status.is_in_update
+            and (status.is_in_update or status.is_in_client_update)
             and status.ecu_id not in lost_ecus
         }
         self._state.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
@@ -473,3 +474,26 @@ class ECUStatusStorage:
                 if _ecu_status_rep:
                     res.add_ecu(_ecu_status_rep)
             return res
+
+    def save_state(self) -> None:
+        """Save the current state of the ECU status storage to a file."""
+        # TODO: should protect the pickled status with encryption key
+        # can be passed down to os.execve launched otaclient via env)
+        _pickle = self._state.to_pickle()
+        _path = Path(cfg.OTACLIENT_STATUS_FILE)
+        with open(_path, "wb") as f:
+            f.write(_pickle)
+        logger.info(f"saved ECU status storage to {_path}")
+
+    def load_state(self) -> bool:
+        """Load the state of the ECU status storage from a file."""
+        _path = Path(cfg.OTACLIENT_STATUS_FILE)
+        if not _path.exists():
+            logger.warning(f"file {_path} does not exist, skipping loading state.")
+            return False
+
+        with open(_path, "rb") as f:
+            _pickle = f.read()
+        self._state.from_pickle(_pickle)
+        logger.info(f"Loaded ECU status storage from {_path}")
+        return True

@@ -69,7 +69,7 @@ class RPIBootABPartitionFSM:
         self.parent_dev = "/dev/sda"
         self.is_switched_boot = False
 
-    def reboot_tryboot(self):
+    def reboot_tryboot(self, *args, **kwags):
         logger.info(f"tryboot to {self.standby_slot=}")
         self.is_switched_boot = True
         self.active_slot, self.standby_slot = self.standby_slot, self.active_slot
@@ -78,7 +78,7 @@ class RPIBootABPartitionFSM:
             self.active_slot_dev,
         )
 
-    def get_current_rootfs_dev(self, _):
+    def get_current_rootfs_dev(self, *args, **kwags):
         return self.active_slot_dev
 
     def get_parent_dev(self, *args, **kwags):

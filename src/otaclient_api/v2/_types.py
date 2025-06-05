@@ -105,6 +105,11 @@ class ECUStatusSummary(_Protocol):
 
     @property
     @abstractmethod
+    def is_in_client_update(self) -> bool:
+        """If this ECU is in CLIENT_UPDATING ota_status."""
+
+    @property
+    @abstractmethod
     def is_failed(self) -> bool:
         """If this ECU is in FAILURE ota_status."""
 
@@ -308,6 +313,10 @@ class StatusResponseEcu(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu])
         return self.status.status is StatusOta.UPDATING
 
     @property
+    def is_in_client_update(self) -> bool:
+        return self.status.status is StatusOta.CLIENT_UPDATING
+
+    @property
     def is_failed(self) -> bool:
         return self.status.status is StatusOta.FAILURE
 
@@ -466,6 +475,10 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
     @property
     def is_in_update(self) -> bool:
         return self.ota_status is StatusOta.UPDATING
+
+    @property
+    def is_in_client_update(self) -> bool:
+        return self.ota_status is StatusOta.CLIENT_UPDATING
 
     @property
     def is_failed(self) -> bool:
