@@ -66,21 +66,17 @@ def test_fpath_on_target(
 @pytest.mark.parametrize(
     "_in",
     (
-        (
-            DirTypedDict(
-                path="/a/b/c/d/e",
-                mode=0o040755,
-                uid=5123,
-                gid=2345,
-            ),
+        DirTypedDict(
+            path="/a/b/c/d/e",
+            mode=0o040755,
+            uid=5123,
+            gid=2345,
         ),
-        (
-            DirTypedDict(
-                path="/α/β/γ",
-                mode=0o040755,
-                uid=1000,
-                gid=1000,
-            )
+        DirTypedDict(
+            path="/α/β/γ",
+            mode=0o040755,
+            uid=1000,
+            gid=1000,
         ),
     ),
 )
@@ -233,6 +229,7 @@ def test_preapre_regular_file(
         uid=_in["uid"],
         gid=_in["gid"],
         mode=_in["mode"],
+        size=TEST_FILE_SIZE,
         check_size=True,
     )
 
