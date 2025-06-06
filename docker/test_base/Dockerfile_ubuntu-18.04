@@ -4,11 +4,8 @@ FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04 AS ota_image
 
 FROM ${UBUNTU_BASE}
 
-ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
-ENV CERTS_DIR="/certs"
-
-COPY --from=ota_image /${OTA_IMAGE_SERVER_ROOT} /
-COPY --from=ota_image /${CERTS_DIR} /
+COPY --from=ota_image /ota-image /ota-image
+COPY --from=ota_image /certs /certs
 
 # copy and setup the entry_point.sh
 COPY ./docker/test_base/entry_point.sh /entry_point.sh
