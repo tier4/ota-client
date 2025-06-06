@@ -69,7 +69,7 @@ RUN set -eux; \
         --ignore-file ota-metadata/metadata/ignore.txt; \
     python3 ota-metadata/metadata/ota_metadata/metadata_sign.py \
         --sign-key "${CERTS_DIR}"/sign.key \
-        --cert-file "${CERTS_DIR}"/sign.pem \
+        --cert-file sign.pem \
         --persistent-file ota-metadata/metadata/persistents.txt \
         --rootfs-directory data \
         --compressed-rootfs-directory data.zst; \
