@@ -172,7 +172,7 @@ def test_dirs_txt(
     _expected: FileTableDirectoryTypedDict,
     _expected_inode: FiletableInodeTypedDict,
 ):
-    assert parse_dirs_csv_line(_input, _inode_id) == _expected, _expected_inode
+    assert parse_dirs_csv_line(_input, _inode_id) == (_expected, _expected_inode)
 
 
 @pytest.mark.parametrize(
@@ -202,7 +202,7 @@ def test_symlinks_txt(
     _expected: FileTableNonRegularFiles,
     _expected_inode: FiletableInodeTypedDict,
 ):
-    assert parse_symlinks_csv_line(_input, _inode_id) == _expected, _expected_inode
+    assert parse_symlinks_csv_line(_input, _inode_id) == (_expected, _expected_inode)
 
 
 @pytest.mark.parametrize(
@@ -256,6 +256,7 @@ def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):
             _orm_inode=ft_inode_orm,
             inode_start=inode_start,
         )
+        logger.info(f"{total_regulars_num=}, {inode_start=}")
         assert total_regulars_num > 0
 
         dirs_num, inode_start = parse_dirs_from_csv_file(
@@ -264,6 +265,7 @@ def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):
             _inode_orm=ft_inode_orm,
             inode_start=inode_start,
         )
+        logger.info(f"{dirs_num=}, {inode_start=}")
         assert dirs_num > 0
 
         symlinks_num, _ = parse_symlinks_from_csv_file(
@@ -272,6 +274,7 @@ def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):
             _inode_orm=ft_inode_orm,
             inode_start=inode_start,
         )
+        logger.info(f"{symlinks_num=}, {inode_start=}")
         assert symlinks_num > 0
 
         assert inode_start > 1
