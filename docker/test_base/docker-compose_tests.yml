@@ -1,48 +1,24 @@
+x-common: &_common
+  network_mode: bridge
+  environment:
+    OUTPUT_DIR: /test_result
+    CERTS_DIR: /certs
+  volumes:
+    - ../..:/otaclient_src:ro
+    - ../../test_result:/test_result:rw
+
 services:
   tester-ubuntu-18.04:
-    build:
-      context: ../../
-      dockerfile: ./docker/test_base/Dockerfile_ubuntu-18.04
-      args:
-        - UBUNTU_BASE=ubuntu:18.04
-    image: ota-test_base:ubuntu1804
-    network_mode: bridge
-    container_name: ota-test
-    environment:
-      OUTPUT_DIR: /test_result
-      CERTS_DIR: /certs
-    volumes:
-      - ../..:/otaclient_src:ro
-      - ../../test_result:/test_result:rw
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_18.04
+    container_name: ota-test_ubuntu1804
+    <<: *_common
 
   tester-ubuntu-20.04:
-    build:
-      context: ../../
-      dockerfile: ./docker/test_base/Dockerfile
-      args:
-        - UBUNTU_BASE=ubuntu:20.04
-    image: ota-test_base:ubuntu2004
-    network_mode: bridge
-    container_name: ota-test
-    environment:
-      OUTPUT_DIR: /test_result
-      CERTS_DIR: /certs
-    volumes:
-      - ../../:/otaclient_src:ro
-      - ../../test_result:/test_result:rw
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_20.04
+    container_name: ota-test_ubuntu2004
+    <<: *_common
 
   tester-ubuntu-22.04:
-    build:
-      context: ../../
-      dockerfile: ./docker/test_base/Dockerfile
-      args:
-        - UBUNTU_BASE=ubuntu:22.04
-    image: ota-test_base:ubuntu2204
-    network_mode: bridge
-    container_name: ota-test
-    environment:
-      OUTPUT_DIR: /test_result
-      CERTS_DIR: /certs
-    volumes:
-      - ../..:/otaclient_src:ro
-      - ../../test_result:/test_result:rw
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
+    container_name: ota-test_ubuntu2204
+    <<: *_common

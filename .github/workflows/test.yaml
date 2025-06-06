@@ -44,9 +44,6 @@ jobs:
         # sonarcloud needs full git histories
         with:
           fetch-depth: 0
-      - name: Build ota-test_base docker image
-        run: |
-          docker compose -f docker/test_base/docker-compose_tests.yml build tester-${{ matrix.test_base }}
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           mkdir -p test_result

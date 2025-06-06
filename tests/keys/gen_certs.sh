@@ -9,7 +9,7 @@ CA_CHAIN_PREFIX=${1:-test}
 # Root CA:
 openssl ecparam -out root.key -name prime256v1 -genkey
 openssl req -new -x509 \
-    -days $((365 * 10 + 5)) \
+    -days $((365 * 100)) \
     -key root.key \
     -out ${CA_CHAIN_PREFIX}.root.pem \
     -sha256 \
@@ -30,7 +30,7 @@ authorityKeyIdentifier = keyid:always,issuer
 basicConstraints = critical, CA:true, pathlen:0
 "
 openssl x509 -req \
-    -days $((365 * 10 + 5)) \
+    -days $((365 * 100)) \
     -in interm.csr \
     -CA ${CA_CHAIN_PREFIX}.root.pem \
     -CAkey root.key \
@@ -57,7 +57,7 @@ openssl req -new \
     -subj "/C=JP/ST=Tokyo/O=Tier4/CN=sign.tier4.jp"
 
 openssl x509 -req \
-    -days 365 \
+    -days $((365 * 100)) \
     -in sign.csr \
     -CA ${CA_CHAIN_PREFIX}.interm.pem \
     -CAkey interm.key \
