@@ -20,7 +20,8 @@ RUN set -eux; \
         python3 \
         python3-pip \
         git; \
-    pip install -U pip; pip install uv; \
+    python3 -m pip install -U pip; \
+    python3 -m pip install uv; \
     chmod +x /entry_point.sh
 
 ENTRYPOINT [ "/entry_point.sh" ]
