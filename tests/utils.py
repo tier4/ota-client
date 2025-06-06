@@ -211,3 +211,26 @@ def compare_message(left, r):
             compare_message(_attrv_l, _attrv_r)
         else:
             assert _attrv_l == _attrv_r, f"mismatch {_attrv_l=}, {_attrv_r=}"
+
+
+def check_same_stat(
+    _fpath: Path,
+    uid: int,
+    gid: int,
+    mode: int,
+    size: int = 0,
+    *,
+    is_symlink: bool = False,
+    check_size: bool = False,
+):
+    _stat_from_fpath = os.stat(_fpath, follow_symlinks=False)
+    assert _stat_from_fpath.st_uid == uid
+    assert _stat_from_fpath.st_gid == gid
+
+    # shortpath the checks not suitable for symlink
+    if is_symlink:
+        return
+
+    assert _stat_from_fpath.st_mode == mode
+    if check_size:
+        assert _stat_from_fpath.st_size == size
