@@ -42,11 +42,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import pickle
 import time
 from dataclasses import dataclass, field
 from itertools import chain
-from pathlib import Path
 
 from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
@@ -99,51 +97,6 @@ class ECUStatusState:
 
     # Update request tracking
     last_update_request_received_timestamp: int = 0
-
-    def to_pickle(self):
-        """Serialize the ECUStatusState instance to a byte string using pickle.
-
-        Returns:
-            bytes: Pickled representation of the ECUStatusState instance
-        """
-        # asdict doesn't support serialization of Event objects
-        # so we need to convert them to a serializable format
-        # and then convert them back to Event objects during deserialization
-        state_dict = {}
-        for key, value in self.__dict__.items():
-            if isinstance(value, MultipleECUStatusFlags):
-                # Pickle doesn't support serialization of Event objects
-                flags_state = {
-                    flag_name: getattr(value, flag_name).is_set()
-                    for flag_name in dir(value)
-                    if isinstance(getattr(value, flag_name, None), asyncio.Event)
-                }
-                state_dict[key] = flags_state
-            else:
-                state_dict[key] = value
-        return pickle.dumps(state_dict)
-
-    def from_pickle(self, pickled_data):
-        """Deserialize a pickled byte string to restore the ECUStatusState instance.
-
-        Args:
-            pickled_data (bytes): Pickled representation of the ECUStatusState instance.
-        """
-        state_dict = pickle.loads(pickled_data)
-        for key, value in state_dict.items():
-            # Check if the value is of type MultipleECUStatusFlags
-            if isinstance(getattr(self, key, None), MultipleECUStatusFlags):
-                flags_instance = getattr(self, key)
-                for flag_name in dir(flags_instance):
-                    flag = getattr(flags_instance, flag_name, None)
-                    if isinstance(flag, asyncio.Event):
-                        flag_value = value.get(flag_name, False)
-                        if flag_value:
-                            flag.set()
-                        else:
-                            flag.clear()
-            else:
-                setattr(self, key, value)
 
 
 class ECUStatusStorage:
@@ -474,26 +427,3 @@ class ECUStatusStorage:
                 if _ecu_status_rep:
                     res.add_ecu(_ecu_status_rep)
             return res
-
-    def save_state(self) -> None:
-        """Save the current state of the ECU status storage to a file."""
-        # TODO: should protect the pickled status with encryption key
-        # can be passed down to os.execve launched otaclient via env)
-        _pickle = self._state.to_pickle()
-        _path = Path(cfg.OTACLIENT_STATUS_FILE)
-        with open(_path, "wb") as f:
-            f.write(_pickle)
-        logger.info(f"saved ECU status storage to {_path}")
-
-    def load_state(self) -> bool:
-        """Load the state of the ECU status storage from a file."""
-        _path = Path(cfg.OTACLIENT_STATUS_FILE)
-        if not _path.exists():
-            logger.warning(f"file {_path} does not exist, skipping loading state.")
-            return False
-
-        with open(_path, "rb") as f:
-            _pickle = f.read()
-        self._state.from_pickle(_pickle)
-        logger.info(f"Loaded ECU status storage from {_path}")
-        return True

@@ -41,8 +41,6 @@ class Consts:
     #
     RUN_DIR = "/run/otaclient"
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
-    # status file by pickle
-    OTACLIENT_STATUS_FILE = "/run/otaclient.status"
     # runtime folder for holding ota related files
     RUNTIME_OTA_SESSION = "/run/otaclient/ota"
 
