@@ -18,7 +18,6 @@ When underlying subprocess call failed and <raise_exception> is True,
     to the upper caller.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -37,7 +36,7 @@ logger = logging.getLogger(__name__)
 PartitionToken = Literal[
     "UUID", "PARTUUID",
     "LABEL", "PARTLABEL",
-    "TYPE", "FSTYPE"
+    "TYPE", "FSTYPE",
 ]
 # fmt: on
 

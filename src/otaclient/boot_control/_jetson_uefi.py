@@ -17,7 +17,6 @@ jetson-uefi module currently support BSP version >= R34(which UEFI is introduced
 But firmware update is only supported after BSP R35.2.
 """
 
-
 from __future__ import annotations
 
 import contextlib
@@ -958,6 +957,10 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         return firmware_updater.firmware_update()
 
     # APIs
+
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
 
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
