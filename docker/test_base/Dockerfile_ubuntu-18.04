@@ -17,7 +17,7 @@ COPY ./docker/test_base/entry_point.sh /entry_point.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        python3 \
+        python3.8 \
         python3-pip \
         git; \
     pip install -U pip; pip install uv; \
