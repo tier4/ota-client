@@ -18,7 +18,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
         python3-minimal \
-        python3-pip; \
+        python3-pip \
+        git; \
     pip install -U pip; pip install uv; \
     chmod +x /entry_point.sh
 
