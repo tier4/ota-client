@@ -24,8 +24,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -57,6 +57,8 @@ class TestClientPackageDownloader:
 
     DUMMY_URL = "http://example.com"
     DUMMY_SESSION_DIR = "/tmp/session"
+    DUMMY_PACKAGE_INSTALL_DIR = "/dummy/otaclient_release"
+    DUMMY_DYNAMIC_CLIENT_SQUASHFS_FILE = "/dummy/package.squashfs"
     DUMMY_MANIFEST_URL = "http://example.com/opt/ota/otaclient_release/manifest.json"
     DUMMY_MANIFEST = (
         '{"schema_version": "1", "date": "2025-03-13T00:00:00", '
@@ -80,6 +82,8 @@ class TestClientPackageDownloader:
             base_url=self.DUMMY_URL,
             ota_metadata=mock_metadata,
             session_dir=self.DUMMY_SESSION_DIR,
+            package_install_dir=self.DUMMY_PACKAGE_INSTALL_DIR,
+            squashfs_file=self.DUMMY_DYNAMIC_CLIENT_SQUASHFS_FILE,
         )
         return ota_client_package
 
@@ -283,7 +287,7 @@ class TestClientPackageDownloader:
         "package_type, expected_path",
         [
             ("squashfs", "/tmp/session/.download/package.squashfs"),
-            ("patch", "/tmp/session/.otaclient.squashfs"),
+            ("patch", "/tmp/session/package.squashfs"),
         ],
     )
     def test_get_target_squashfs_path(
@@ -423,11 +427,21 @@ class TestClientPackageDownloader:
 class TestClientPackagePrepareter:
     """Test class for OTAClientPackagePreparer"""
 
+    DUMMY_SQUASHFS_FILE = "/dummy/package.squashfs"
+    DUMMY_MOUNT_BASE = "/dummy/test_mount_point"
+    DUMMY_ACTIVE_ROOT = "/dummy/active_root"
+    DUMMY_ACTIVE_SLOT_MNT_POINT = "/dummy/active_slot_mount_point"
+
     @pytest.fixture
     def package_prepareter(self):
         from otaclient.client_package import OTAClientPackagePreparer
 
-        return OTAClientPackagePreparer()
+        return OTAClientPackagePreparer(
+            squashfs_file=self.DUMMY_SQUASHFS_FILE,
+            mount_base=self.DUMMY_MOUNT_BASE,
+            active_root=self.DUMMY_ACTIVE_ROOT,
+            active_slot_mnt_point=self.DUMMY_ACTIVE_SLOT_MNT_POINT,
+        )
 
     @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")
     @patch("otaclient.client_package.cmdhelper.ensure_umount")
@@ -439,14 +453,15 @@ class TestClientPackagePrepareter:
         mock_ensure_mointpoint,
         package_prepareter,
     ):
-        mount_base = "/tmp/test_mount_point"
-        package_prepareter._cleanup_mount_point(mount_base)
+        package_prepareter._cleanup_mount_point()
 
-        mock_ensure_mointpoint.assert_called_once_with(mount_base, ignore_error=True)
-        mock_ensure_umount.assert_called_once_with(
-            mount_base, ignore_error=False, max_retry=0, retry_interval=0
+        mock_ensure_mointpoint.assert_called_once_with(
+            self.DUMMY_MOUNT_BASE, ignore_error=True
         )
-        mock_rmtree.assert_called_once_with(mount_base, ignore_errors=False)
+        mock_ensure_umount.assert_called_once_with(
+            self.DUMMY_MOUNT_BASE, ignore_error=False, max_retry=0, retry_interval=0
+        )
+        mock_rmtree.assert_called_once_with(self.DUMMY_MOUNT_BASE, ignore_errors=False)
 
     @patch("otaclient.client_package.subprocess_call")
     @patch("otaclient.client_package.OTAClientPackagePreparer._unshare_wrapper")
