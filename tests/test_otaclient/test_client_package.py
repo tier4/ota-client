@@ -431,6 +431,7 @@ class TestClientPackagePrepareter:
     DUMMY_MOUNT_BASE = "/dummy/test_mount_point"
     DUMMY_ACTIVE_ROOT = "/dummy/active_root"
     DUMMY_ACTIVE_SLOT_MNT_POINT = "/dummy/active_slot_mount_point"
+    DUMMY_HOST_ROOT_MNT_POINT = "/dummy/host_root_mount_point"
 
     @pytest.fixture
     def package_prepareter(self):
@@ -441,6 +442,7 @@ class TestClientPackagePrepareter:
             mount_base=self.DUMMY_MOUNT_BASE,
             active_root=self.DUMMY_ACTIVE_ROOT,
             active_slot_mnt_point=self.DUMMY_ACTIVE_SLOT_MNT_POINT,
+            host_root_mnt_point=self.DUMMY_HOST_ROOT_MNT_POINT,
         )
 
     @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")

@@ -40,5 +40,5 @@ def is_dynamic_client_running() -> bool:
 def get_dynamic_client_chroot_path() -> Optional[str]:
     """Get the chroot path."""
     if is_dynamic_client_running():
-        return cfg.ACTIVE_SLOT_MNT
+        return cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT
     return None

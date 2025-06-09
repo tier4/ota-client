@@ -309,12 +309,14 @@ class OTAClientPackagePreparer:
         mount_base: StrOrPath,
         active_root: StrOrPath,
         active_slot_mnt_point: StrOrPath,
+        host_root_mnt_point: StrOrPath,
     ) -> None:
         """Initialize the OTA client package preparer."""
         self._squashfs_file = squashfs_file
         self._mount_base = mount_base
         self._active_root = active_root
         self._active_slot_mnt_point = active_slot_mnt_point
+        self._host_root_mnt_point = host_root_mnt_point
 
     def _cleanup_mount_point(self) -> None:
         """Cleanup the mount point."""
@@ -428,22 +430,39 @@ class OTAClientPackagePreparer:
             mount_func=cmdhelper.bind_mount_rw,
         )
 
-    def _rbind_mount_active_slot(self) -> None:
-        """Mount the active slot to the mount base."""
+    def _bind_mount_active_slot(self) -> None:
+        """Mount the active slot to the mount base for Update command."""
         # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
-
-        # TODO: currently, this mount point is used for both host chroot and OTA update
-        # These should be split into two mount points: one for the host chroot and one for OTA updates.
-        # The reason is that in rebuild mode with full disk scanning,
-        # we don't want the otaclient to scan inside the mounted directories.
-        # Therefore, the active slot mount point used as a delta source should not use the rbind flag.
 
         # check if the mount base exists
         if not os.path.exists(self._mount_base):
             raise ValueError(f"Mount base does not exist: {self._mount_base}")
 
         _mount_point = f"{self._mount_base}{self._active_slot_mnt_point}"
+        logger.info(f"mounting {self._active_root} to {_mount_point}")
+        cmdhelper.ensure_mointpoint(
+            _mount_point,
+            ignore_error=True,
+        )
+
+        cmdhelper.ensure_mount(
+            target=self._active_root,
+            mnt_point=_mount_point,
+            mount_func=cmdhelper.bind_mount_ro,
+            raise_exception=True,
+        )
+
+    def _rbind_mount_host_root(self) -> None:
+        """Rbind mount the host root to the mount base to execute host binaries"""
+        # This is used to make sure the host system directories are accessible from the chroot environment.
+        # This is necessary for the otaclient to run properly in the chroot environment.
+
+        # check if the mount base exists
+        if not os.path.exists(self._mount_base):
+            raise ValueError(f"Mount base does not exist: {self._mount_base}")
+
+        _mount_point = f"{self._mount_base}{self._host_root_mnt_point}"
         logger.info(f"mounting {self._active_root} to {_mount_point}")
         cmdhelper.ensure_mointpoint(
             _mount_point,
@@ -467,7 +486,8 @@ class OTAClientPackagePreparer:
             self._create_mount_namespaces()
             self._mount_squashfs_file()
             self._bind_mount_host_dirs()
-            self._rbind_mount_active_slot()
+            self._bind_mount_active_slot()
+            self._rbind_mount_host_root()
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
