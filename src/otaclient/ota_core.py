@@ -871,6 +871,8 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
             session_dir=self._session_workdir,
+            package_install_dir=cfg.OTACLIENT_INSTALLATION_RELEASE,
+            squashfs_file=cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
         )
 
     def _execute_client_update(self):
