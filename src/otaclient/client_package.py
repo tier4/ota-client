@@ -82,8 +82,8 @@ class OTAClientPackageDownloader:
         self._session_dir = Path(session_dir)
         self._download_dir = self._session_dir / f".download_{os.urandom(4).hex()}"
         self._download_dir.mkdir(exist_ok=True, parents=True)
-        self._package_install_dir = package_install_dir
-        self._squashfs_file = squashfs_file
+        self._package_install_dir = Path(package_install_dir)
+        self._squashfs_file = Path(squashfs_file)
 
         self._manifest = None
         self.package = None
@@ -104,9 +104,7 @@ class OTAClientPackageDownloader:
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
         # ------ step 1: download manifest.json ------ #
-        _entry_point_path = Path(self._package_install_dir) / Path(
-            self.ENTRY_POINT_FILE_NAME
-        )
+        _entry_point_path = self._package_install_dir / Path(self.ENTRY_POINT_FILE_NAME)
         _client_manifest_fpath = self._download_dir / _entry_point_path.name
         with condition:
             yield [
@@ -135,7 +133,7 @@ class OTAClientPackageDownloader:
 
         # ------ step 2: download the target package ------ #
         _package_filename = _available_package_metadata.filename
-        _package_file = str(self._package_install_dir) + "/" + _package_filename
+        _package_file = str(self._package_install_dir / _package_filename)
         _downloaded_package_path = self._download_dir / _package_filename
         with condition:
             yield [
@@ -169,7 +167,7 @@ class OTAClientPackageDownloader:
 
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = (
-            Path(self._package_install_dir) / Path(self._squashfs_file).name
+            self._package_install_dir / self._squashfs_file.name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
@@ -206,9 +204,7 @@ class OTAClientPackageDownloader:
             raise ValueError("OTA client package is not downloaded yet, abort")
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
-            _target_squashfs_path = (
-                Path(self._session_dir) / Path(self._squashfs_file).name
-            )
+            _target_squashfs_path = self._session_dir / self._squashfs_file.name
             if not _target_squashfs_path.is_file():
                 self._create_squashfs_from_patch(_target_squashfs_path)
             return _target_squashfs_path
