@@ -14,10 +14,10 @@ COPY --chmod=755 ./entry_point.sh /entry_point.sh
 RUN set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        python3 \
+        python3.8 \
         python3-pip \
         git; \
-    python3 -m pip install -U pip; \
-    python3 -m pip install uv
+    python3.8 -m pip install -U pip; \
+    python3.8 -m pip install uv
 
 ENTRYPOINT [ "/entry_point.sh" ]
