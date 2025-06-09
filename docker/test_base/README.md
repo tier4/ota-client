@@ -18,7 +18,7 @@ Built images and corresponding Ubuntu version:
 BASE_URI=ghcr.io/tier4/ota-client/test_base
 UBUNTU_VER=18.04
 docker buildx build --builder zstd-builder \
-    -f  Dockerfile_ubuntu-18.04 \
+    -f ubuntu-18.04.Dockerfile \
     --build-arg=UBUNTU_BASE=ubuntu:${UBUNTU_VER} \
     --output type=image,name=${BASE_URI}:ubuntu_${UBUNTU_VER},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true,push=true \
     .
