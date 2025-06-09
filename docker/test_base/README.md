@@ -10,13 +10,17 @@ Built images and corresponding Ubuntu version:
 
 ### Build for Ubuntu 18.04
 
+> [!NOTE]
+> A new buildx instance with `Driver: docker-container` is needed. The default buildx instance doesn't support zstd compression!
+> Create a new instance with `docker buildx create --name zstd-builder --use`.
+
 ```shell
 BASE_URI=ghcr.io/tier4/ota-client/test_base
 UBUNTU_VER=18.04
-docker build \
+docker buildx build --builder zstd-builder \
     -f  Dockerfile_ubuntu-18.04 \
     --build-arg=UBUNTU_BASE=ubuntu:${UBUNTU_VER} \
-    --output type=image,name=${BASE_URI}:ubuntu_${UBUNTU_VER},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true \
+    --output type=image,name=${BASE_URI}:ubuntu_${UBUNTU_VER},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true,push=true \
     .
 ```
 
@@ -25,8 +29,9 @@ docker build \
 ```shell
 BASE_URI=ghcr.io/tier4/ota-client/test_base
 UBUNTU_VER=20.04
-docker build \
+docker buildx build --builder zstd-builder \
+    -t ghcr.io/tier4/ota-client/test_base:ubuntu_${UBUNTU_VER} \
     --build-arg=UBUNTU_BASE=ubuntu:${UBUNTU_VER} \
-    --output type=image,name=${BASE_URI}:ubuntu_${UBUNTU_VER},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true \
+    --output type=image,name=${BASE_URI}:ubuntu_${UBUNTU_VER},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true,push=true \
     .
 ```
