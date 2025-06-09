@@ -117,6 +117,7 @@ def main() -> None:  # pragma: no cover
                 mount_base=cfg.DYNAMIC_CLIENT_MNT,
                 active_root=cfg.ACTIVE_ROOT,
                 active_slot_mnt_point=cfg.ACTIVE_SLOT_MNT,
+                host_root_mnt_point=cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
             )
             client_package_prepareter.mount_client_package()
 
