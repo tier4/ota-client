@@ -203,6 +203,7 @@ class TestGrubControl:
         _mock_otaclient_cfg = DefaultOTAClientConfigs()
         _mock_otaclient_cfg.STANDBY_SLOT_MNT = str(slot_b)  # type: ignore[assignment]
         _mock_otaclient_cfg.ACTIVE_SLOT_MNT = str(slot_a)  # type: ignore[assignment]
+        _mock_otaclient_cfg.ACTIVE_ROOT = str(slot_a)  # type: ignore[assignment]
         _mock_otaclient_cfg.BOOT_DPATH = str(boot_dir)  # type: ignore[assignment]
 
         mocker.patch(f"{MODULE}.cfg", _mock_otaclient_cfg)
@@ -221,6 +222,7 @@ class TestGrubControl:
         _mock_otaclient_cfg = DefaultOTAClientConfigs()
         _mock_otaclient_cfg.STANDBY_SLOT_MNT = str(slot_a)  # type: ignore[assignment]
         _mock_otaclient_cfg.ACTIVE_SLOT_MNT = str(slot_b)  # type: ignore[assignment]
+        _mock_otaclient_cfg.ACTIVE_ROOT = str(slot_b)  # type: ignore[assignment]
         _mock_otaclient_cfg.BOOT_DPATH = str(boot_dir)  # type: ignore[assignment]
 
         mocker.patch(f"{MODULE}.cfg", _mock_otaclient_cfg)
