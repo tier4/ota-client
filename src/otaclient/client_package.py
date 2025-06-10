@@ -30,7 +30,6 @@ from typing import Generator, Optional
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
-from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
@@ -63,7 +62,7 @@ class OTAClientPackageDownloader:
 
     """
 
-    ENTRY_POINT = cfg.OTACLIENT_INSTALLATION_RELEASE + "/manifest.json"
+    ENTRY_POINT_FILE_NAME = "manifest.json"
     ARCHITECTURE_X86_64 = "x86_64"
     ARCHITECTURE_ARM64 = "arm64"
     PACKAGE_TYPE_SQUASHFS = "squashfs"
@@ -75,12 +74,16 @@ class OTAClientPackageDownloader:
         base_url: str,
         ota_metadata: OTAMetadata,
         session_dir: StrOrPath,
+        package_install_dir: StrOrPath,
+        squashfs_file: StrOrPath,
     ) -> None:
         self._base_url = base_url
         self._ota_metadata = ota_metadata
         self._session_dir = Path(session_dir)
         self._download_dir = self._session_dir / f".download_{os.urandom(4).hex()}"
         self._download_dir.mkdir(exist_ok=True, parents=True)
+        self._package_install_dir = Path(package_install_dir)
+        self._squashfs_file = Path(squashfs_file)
 
         self._manifest = None
         self.package = None
@@ -101,12 +104,13 @@ class OTAClientPackageDownloader:
     ) -> Generator[list[DownloadInfo]]:
         """Download raw manifest.json and parse it."""
         # ------ step 1: download manifest.json ------ #
-        _client_manifest_fpath = self._download_dir / Path(self.ENTRY_POINT).name
+        _entry_point_path = self._package_install_dir / Path(self.ENTRY_POINT_FILE_NAME)
+        _client_manifest_fpath = self._download_dir / _entry_point_path.name
         with condition:
             yield [
                 DownloadInfo(
                     url=urljoin_ensure_base(
-                        self._rootfs_url, self.ENTRY_POINT.lstrip("/")
+                        self._rootfs_url, str(_entry_point_path).lstrip("/")
                     ),
                     dst=_client_manifest_fpath,
                 )
@@ -129,7 +133,7 @@ class OTAClientPackageDownloader:
 
         # ------ step 2: download the target package ------ #
         _package_filename = _available_package_metadata.filename
-        _package_file = cfg.OTACLIENT_INSTALLATION_RELEASE + "/" + _package_filename
+        _package_file = str(self._package_install_dir / _package_filename)
         _downloaded_package_path = self._download_dir / _package_filename
         with condition:
             yield [
@@ -163,8 +167,7 @@ class OTAClientPackageDownloader:
 
         # ------ step 2: check if squahfs package exists ------ #
         self.current_squashfs_path = (
-            Path(cfg.OTACLIENT_INSTALLATION_RELEASE)
-            / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
+            self._package_install_dir / self._squashfs_file.name
         )
         _is_squashfs_exists = self.current_squashfs_path.is_file()
         _is_zstd_supported = shutil.which("zstd") is not None
@@ -201,9 +204,7 @@ class OTAClientPackageDownloader:
             raise ValueError("OTA client package is not downloaded yet, abort")
 
         if self.package.type == self.PACKAGE_TYPE_PATCH:
-            _target_squashfs_path = (
-                Path(self._session_dir) / Path(cfg.DYNAMIC_CLIENT_SQUASHFS_FILE).name
-            )
+            _target_squashfs_path = self._session_dir / self._squashfs_file.name
             if not _target_squashfs_path.is_file():
                 self._create_squashfs_from_patch(_target_squashfs_path)
             return _target_squashfs_path
@@ -295,28 +296,42 @@ class OTAClientPackageDownloader:
 
     def copy_client_package(self) -> None:
         """Copy the client package."""
-        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
         # copy the squashfs file
-        os.makedirs(os.path.dirname(_squashfs_file), exist_ok=True)
-        shutil.copy(self._get_target_squashfs_path(), _squashfs_file)
+        os.makedirs(os.path.dirname(self._squashfs_file), exist_ok=True)
+        shutil.copy(self._get_target_squashfs_path(), self._squashfs_file)
 
 
 class OTAClientPackagePreparer:
 
-    def _cleanup_mount_point(self, mount_base: StrOrPath) -> None:
+    def __init__(
+        self,
+        squashfs_file: StrOrPath,
+        mount_base: StrOrPath,
+        active_root: StrOrPath,
+        active_slot_mnt_point: StrOrPath,
+        host_root_mnt_point: StrOrPath,
+    ) -> None:
+        """Initialize the OTA client package preparer."""
+        self._squashfs_file = squashfs_file
+        self._mount_base = mount_base
+        self._active_root = active_root
+        self._active_slot_mnt_point = active_slot_mnt_point
+        self._host_root_mnt_point = host_root_mnt_point
+
+    def _cleanup_mount_point(self) -> None:
         """Cleanup the mount point."""
         try:
             # unmount the dynamic client mount point
-            cmdhelper.ensure_mointpoint(mount_base, ignore_error=True)
+            cmdhelper.ensure_mointpoint(self._mount_base, ignore_error=True)
             cmdhelper.ensure_umount(
-                mount_base, ignore_error=False, max_retry=0, retry_interval=0
+                self._mount_base, ignore_error=False, max_retry=0, retry_interval=0
             )
         except Exception as e:
             logger.warning(f"error while unmounting dynamic client mount point: {e}")
 
         try:
             # remove the dynamic client mount point
-            shutil.rmtree(mount_base, ignore_errors=False)
+            shutil.rmtree(self._mount_base, ignore_errors=False)
         except Exception as e:
             logger.warning(f"error while removing dynamic client mount point: {e}")
 
@@ -345,34 +360,30 @@ class OTAClientPackagePreparer:
                     errno, f"Failed to unshare mount namespace: {os.strerror(errno)}"
                 )
 
-    def _mount_squashfs_file(
-        self,
-        squashfs_file: StrOrPath,
-        mount_base: StrOrPath,
-    ) -> None:
+    def _mount_squashfs_file(self) -> None:
         """Mount the squashfs file to the mount base."""
         # check if the squashfs file exists
-        if not os.path.exists(squashfs_file):
-            raise ValueError(f"Squashfs file does not exist: {squashfs_file}")
+        if not os.path.exists(self._squashfs_file):
+            raise ValueError(f"Squashfs file does not exist: {self._squashfs_file}")
 
         # mount the squashfs file
         cmdhelper.ensure_mointpoint(
-            mount_base,
+            self._mount_base,
             ignore_error=False,
         )
 
         cmdhelper.ensure_mount(
-            target=squashfs_file,
-            mnt_point=mount_base,
+            target=self._squashfs_file,
+            mnt_point=self._mount_base,
             mount_func=cmdhelper.mount_squashfs,
             raise_exception=True,
         )
 
-    def _bind_mount_host_dirs(self, mount_base: StrOrPath) -> None:
+    def _bind_mount_host_dirs(self) -> None:
         """Bind mount the host directories to the mount base."""
         # check if the mount base exists
-        if not os.path.exists(mount_base):
-            raise ValueError(f"Mount base does not exist: {mount_base}")
+        if not os.path.exists(self._mount_base):
+            raise ValueError(f"Mount base does not exist: {self._mount_base}")
 
         def bind_paths(paths: list[str], mount_base: StrOrPath, mount_func) -> None:
             for _path in paths:
@@ -414,33 +425,52 @@ class OTAClientPackagePreparer:
         ]
 
         bind_paths(
-            paths=RW_PATHS, mount_base=mount_base, mount_func=cmdhelper.bind_mount_rw
+            paths=RW_PATHS,
+            mount_base=self._mount_base,
+            mount_func=cmdhelper.bind_mount_rw,
         )
 
-    def _rbind_mount_active_slot(self, mount_base: StrOrPath) -> None:
-        """Mount the active slot to the mount base."""
+    def _bind_mount_active_slot(self) -> None:
+        """Mount the active slot to the mount base for Update command."""
         # After chroot, the active slot root is not accessible from the chroot environment.
         # So we need to bind mount the active slot before chroot.
 
-        # TODO: currently, this mount point is used for both host chroot and OTA update
-        # These should be split into two mount points: one for the host chroot and one for OTA updates.
-        # The reason is that in rebuild mode with full disk scanning,
-        # we don't want the otaclient to scan inside the mounted directories.
-        # Therefore, the active slot mount point used as a delta source should not use the rbind flag.
-
         # check if the mount base exists
-        if not os.path.exists(mount_base):
-            raise ValueError(f"Mount base does not exist: {mount_base}")
+        if not os.path.exists(self._mount_base):
+            raise ValueError(f"Mount base does not exist: {self._mount_base}")
 
-        _mount_point = f"{mount_base}{cfg.ACTIVE_SLOT_MNT}"
-        logger.info(f"mounting {cfg.ACTIVE_ROOT} to {_mount_point}")
+        _mount_point = f"{self._mount_base}{self._active_slot_mnt_point}"
+        logger.info(f"mounting {self._active_root} to {_mount_point}")
         cmdhelper.ensure_mointpoint(
             _mount_point,
             ignore_error=True,
         )
 
         cmdhelper.ensure_mount(
-            target=cfg.ACTIVE_ROOT,
+            target=self._active_root,
+            mnt_point=_mount_point,
+            mount_func=cmdhelper.bind_mount_ro,
+            raise_exception=True,
+        )
+
+    def _rbind_mount_host_root(self) -> None:
+        """Rbind mount the host root to the mount base to execute host binaries"""
+        # This is used to make sure the host system directories are accessible from the chroot environment.
+        # This is necessary for the otaclient to run properly in the chroot environment.
+
+        # check if the mount base exists
+        if not os.path.exists(self._mount_base):
+            raise ValueError(f"Mount base does not exist: {self._mount_base}")
+
+        _mount_point = f"{self._mount_base}{self._host_root_mnt_point}"
+        logger.info(f"mounting {self._active_root} to {_mount_point}")
+        cmdhelper.ensure_mointpoint(
+            _mount_point,
+            ignore_error=True,
+        )
+
+        cmdhelper.ensure_mount(
+            target=self._active_root,
             mnt_point=_mount_point,
             mount_func=cmdhelper.rbind_mount_ro,
             raise_exception=True,
@@ -450,17 +480,14 @@ class OTAClientPackagePreparer:
 
     def mount_client_package(self) -> None:
         """Mount the client package to the mount base."""
-        _squashfs_file = cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
-
-        _mount_base = cfg.DYNAMIC_CLIENT_MNT
-        os.makedirs(_mount_base, exist_ok=True)
         try:
-            logger.info(f"mounting {_squashfs_file} to {_mount_base}")
-            self._cleanup_mount_point(_mount_base)
+            logger.info(f"mounting {self._squashfs_file} to {self._mount_base}")
+            self._cleanup_mount_point()
             self._create_mount_namespaces()
-            self._mount_squashfs_file(_squashfs_file, _mount_base)
-            self._bind_mount_host_dirs(_mount_base)
-            self._rbind_mount_active_slot(_mount_base)
+            self._mount_squashfs_file()
+            self._bind_mount_host_dirs()
+            self._bind_mount_active_slot()
+            self._rbind_mount_host_root()
 
             logger.info("mounted squashfs successfully")
         except subprocess.CalledProcessError as e:
