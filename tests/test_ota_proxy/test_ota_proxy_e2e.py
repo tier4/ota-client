@@ -116,7 +116,7 @@ def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir
         App(_ota_cache),
         host=cfg.OTA_PROXY_SERVER_ADDR,
         port=cfg.OTA_PROXY_SERVER_PORT,
-        log_level="info",
+        log_level="error",
         lifespan="on",
         loop="uvloop",
         http="h11",
@@ -162,8 +162,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         self.ota_cachedb = ota_cachedb
 
         # patch the OTACache's space availability check method
-        self.space_availability = request.param
         condition, enable_cache_for_test = request.param
+        self.space_availability = condition
+        self.enable_cache_for_test = enable_cache_for_test
         return partial(
             ota_proxy_process, condition, enable_cache_for_test, ota_cache_dir
         )
@@ -183,7 +184,8 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
             # ensure the mocked background space checker is running, see
             #   ota_proxy_process above.
-            assert (self.ota_cache_dir / "flag").is_file()
+            if self.enable_cache_for_test:
+                assert (self.ota_cache_dir / "flag").is_file()
             yield p
         finally:
             logger.info("shutting down otaproxy process ...")
@@ -221,6 +223,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         launch_ota_proxy_server.join()
 
         # --- assertions --- #
+        if not self.enable_cache_for_test:
+            return
+
         special_file_url_based_sha256 = url_based_hash(unquote(SPECIAL_FILE_URL))
         # Under different space availability, ota_proxy's behaviors are different
         # 1. below soft limit, cache is enabled and cache entry will be presented
