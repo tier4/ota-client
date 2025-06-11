@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
 import asyncio
 import logging
@@ -42,6 +43,7 @@ from ._consts import (
     RESP_TYPE_BODY,
     RESP_TYPE_START,
 )
+from .config import config as cfg
 from .errors import BaseOTACacheError
 from .ota_cache import OTACache
 
@@ -52,6 +54,7 @@ burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_error
 # only expose app
 __all__ = ("App",)
 
+WAIT_FOR_SEMAPHORE: float = 0.1
 
 # helper methods
 
@@ -137,10 +140,19 @@ class App:
         uvicorn.run(app, host="0.0.0.0", port=8082, log_level="debug", lifespan="on")
     """
 
-    def __init__(self, ota_cache: OTACache):
+    def __init__(
+        self,
+        ota_cache: OTACache,
+        *,
+        max_concurrent_requests: int = cfg.MAX_CONCURRENT_REQUESTS,
+        wait_for_semaphore: float = WAIT_FOR_SEMAPHORE,
+    ):
         self._lock = asyncio.Lock()
         self._closed = True
         self._ota_cache = ota_cache
+
+        self._se = asyncio.Semaphore(max_concurrent_requests)
+        self._se_wait = wait_for_semaphore
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -316,7 +328,6 @@ class App:
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
 
-        # get the url from the request
         url = scope["path"]
         _url = urlparse(url)
         if not _url.scheme or not _url.path:
@@ -324,8 +335,19 @@ class App:
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
 
-        logger.debug(f"receive request for {url=}")
-        await self._pull_data_and_send(url, scope, send)
+        try:
+            # logger.debug(f"receive request for {url=}")
+            await asyncio.wait_for(self._se.acquire(), timeout=self._se_wait)
+            try:
+                await self._pull_data_and_send(url, scope, send)
+            finally:
+                self._se.release()
+        except asyncio.TimeoutError:
+            await self._respond_with_error(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                "Too many incoming requests, dropped",
+                send,
+            )
 
     async def __call__(self, scope, receive, send):
         """The entrance of the ASGI application.
