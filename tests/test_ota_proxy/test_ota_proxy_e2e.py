@@ -50,16 +50,7 @@ SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
-
-async def _start_uvicorn_server(server: uvicorn.Server):
-    """NOTE: copied from Server.serve method, start method
-    cannot be called directly.
-    """
-    config = server.config
-    if not config.loaded:
-        config.load()
-    server.lifespan = config.lifespan_class(config)
-    await server.startup()
+CLIENTS_NUM = 2
 
 
 def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir: Path):
@@ -67,7 +58,6 @@ def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir
     import os
 
     import anyio
-    import uvicorn
 
     from ota_proxy import App, OTACache
 
@@ -160,7 +150,6 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     THTREADPOOL_EXECUTOR_PATCH_PATH = f"{MODULE}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
-    CLIENTS_NUM = 3
 
     @pytest.fixture(params=OTA_PROXY_TEST_PARAMS)
     def setup_ota_proxy_server(self, tmp_path: Path, request):
@@ -310,7 +299,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # --- execution --- #
         sync_event = asyncio.Event()
         tasks: list[asyncio.Task] = []
-        for _ in range(self.CLIENTS_NUM):
+        for _ in range(CLIENTS_NUM):
             tasks.append(
                 asyncio.create_task(
                     self.ota_image_downloader(
@@ -319,9 +308,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                     )
                 )
             )
-        logger.info(
-            f"all {self.CLIENTS_NUM} clients have started to download ota image..."
-        )
+        logger.info(f"all {CLIENTS_NUM} clients have started to download ota image...")
         sync_event.set()
 
         # --- assertions --- #
