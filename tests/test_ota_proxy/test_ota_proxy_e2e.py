@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import multiprocessing
 import random
 import shutil
 import time
+from functools import partial
 from hashlib import sha256
+from multiprocessing.context import SpawnProcess
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin
 
@@ -59,6 +62,79 @@ async def _start_uvicorn_server(server: uvicorn.Server):
     await server.startup()
 
 
+def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir: Path):
+    import logging
+    import os
+
+    import anyio
+    import uvicorn
+
+    from ota_proxy import App, OTACache
+
+    logging.basicConfig(level=logging.CRITICAL, force=True)
+    logger = logging.getLogger("ota_proxy")
+    logger.setLevel(logging.INFO)
+    logger.info(f"otaproxy started: {os.getpid()=}")
+
+    # NOTE:for below_hard_limit, first we let otaproxy runs under
+    #      below_soft_limit to accumulate some entries,
+    #      and then we switch to below_hard_limit
+    # NOTE; for exceed_hard_limit, first we let otaproxy runs under
+    #       below_soft_limit to accumulate some entires,
+    #       and then switch to below_hard_limit to test LRU cache rotate,
+    #       finally switch to exceed_hard_limit.
+    def _mocked_background_check_freespace(self):
+        flag_file = ota_cache_dir / "flag"
+        flag_file.write_text(condition)
+
+        _count = 0
+        while not self._closed:
+            if condition == "below_soft_limit":
+                self._storage_below_soft_limit_event.set()
+                self._storage_below_hard_limit_event.set()
+            elif condition == "exceed_hard_limit":
+                if _count < 5:
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                elif _count < 10:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.set()
+                else:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.clear()
+            elif condition == "below_hard_limit":
+                if _count < 10:
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                else:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.set()
+
+            time.sleep(2)
+            _count += 1
+
+    OTACache._background_check_free_space = _mocked_background_check_freespace
+    _ota_cache = OTACache(
+        cache_enabled=enable_cache_for_test,
+        upper_proxy="",
+        enable_https=False,
+        init_cache=True,
+        base_dir=ota_cache_dir,
+        db_file=ota_cache_dir / "cachedb",
+    )
+    _config = uvicorn.Config(
+        App(_ota_cache),
+        host=cfg.OTA_PROXY_SERVER_ADDR,
+        port=cfg.OTA_PROXY_SERVER_PORT,
+        log_level="info",
+        lifespan="on",
+        loop="uvloop",
+        http="h11",
+    )
+    _server = uvicorn.Server(_config)
+    anyio.run(_server.serve, backend="asyncio", backend_options={"use_uvloop": True})
+
+
 @pytest.fixture(scope="module")
 def parse_regulars():
     regular_entries: list[RegularInf] = []
@@ -76,7 +152,7 @@ OTA_PROXY_TEST_PARAMS = [
     ("below_soft_limit", True),
     ("below_hard_limit", True),
     ("exceed_hard_limit", True),
-    ("exceed_hard_limit", False),
+    ("below_soft_limit", False),
 ]
 
 
@@ -87,11 +163,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     CLIENTS_NUM = 3
 
     @pytest.fixture(params=OTA_PROXY_TEST_PARAMS)
-    async def setup_ota_proxy_server(self, tmp_path: Path, request):
-        import uvicorn
-
-        from ota_proxy import App, OTACache
-
+    def setup_ota_proxy_server(self, tmp_path: Path, request):
         logger.info(f"setup otaproxy with {request.param}")
 
         ota_cache_dir = tmp_path / "ota-cache"
@@ -103,83 +175,38 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # patch the OTACache's space availability check method
         self.space_availability = request.param
         condition, enable_cache_for_test = request.param
-
-        # NOTE:for below_hard_limit, first we let otaproxy runs under
-        #      below_soft_limit to accumulate some entries,
-        #      and then we switch to below_hard_limit
-        # NOTE; for exceed_hard_limit, first we let otaproxy runs under
-        #       below_soft_limit to accumulate some entires,
-        #       and then switch to below_hard_limit to test LRU cache rotate,
-        #       finally switch to exceed_hard_limit.
-        def _mocked_background_check_freespace(self):
-            _count = 0
-            while not self._closed:
-                if condition == "below_soft_limit":
-                    self._storage_below_soft_limit_event.set()
-                    self._storage_below_hard_limit_event.set()
-                elif condition == "exceed_hard_limit":
-                    if _count < 5:
-                        self._storage_below_soft_limit_event.set()
-                        self._storage_below_hard_limit_event.set()
-                    elif _count < 10:
-                        self._storage_below_soft_limit_event.clear()
-                        self._storage_below_hard_limit_event.set()
-                    else:
-                        self._storage_below_soft_limit_event.clear()
-                        self._storage_below_hard_limit_event.clear()
-                elif condition == "below_hard_limit":
-                    if _count < 10:
-                        self._storage_below_soft_limit_event.set()
-                        self._storage_below_hard_limit_event.set()
-                    else:
-                        self._storage_below_soft_limit_event.clear()
-                        self._storage_below_hard_limit_event.set()
-
-                time.sleep(2)
-                _count += 1
-
-        OTACache._background_check_free_space = _mocked_background_check_freespace
-
-        # create a OTACache instance within the test process
-        _ota_cache = OTACache(
-            cache_enabled=enable_cache_for_test,
-            upper_proxy="",
-            enable_https=False,
-            init_cache=True,
-            base_dir=ota_cache_dir,
-            db_file=ota_cachedb,
+        return partial(
+            ota_proxy_process, condition, enable_cache_for_test, ota_cache_dir
         )
-        _config = uvicorn.Config(
-            App(_ota_cache),
-            host=cfg.OTA_PROXY_SERVER_ADDR,
-            port=cfg.OTA_PROXY_SERVER_PORT,
-            log_level="error",
-            lifespan="on",
-            loop="asyncio",
-            http="h11",
-        )
-        otaproxy_inst = uvicorn.Server(_config)
-        self.otaproxy_inst = otaproxy_inst
-        self.ota_cache = _ota_cache
 
     @pytest.fixture(autouse=True)
     async def launch_ota_proxy_server(self, setup_ota_proxy_server):
         """
         NOTE: launch ota_proxy in different space availability condition
         """
+        logger.info("launch otaproxy process ...")
+        mp_ctx = multiprocessing.get_context("spawn")
+        p = mp_ctx.Process(target=setup_ota_proxy_server)
         try:
-            await _start_uvicorn_server(self.otaproxy_inst)
-            await asyncio.sleep(1)  # wait before otaproxy server is ready
-            yield
+            p.start()
+            logger.info("wait 3 seconds for otaproxy process starts ...")
+            await asyncio.sleep(3)  # wait before otaproxy server is ready
+
+            # ensure the mocked background space checker is running, see
+            #   ota_proxy_process above.
+            assert (self.ota_cache_dir / "flag").is_file()
+            yield p
         finally:
+            logger.info("shutting down otaproxy process ...")
             try:
-                await self.otaproxy_inst.shutdown()
-            except Exception:
-                pass  # ignore exp on shutting down
+                p.terminate()
+                p.join()
             finally:
                 shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
-    async def test_download_file_with_special_fname(self):
+    async def test_download_file_with_special_fname(
+        self, launch_ota_proxy_server: SpawnProcess
+    ):
         """
         Test the basic functionality of ota_proxy under different space availability:
             download and cache a file with special name
@@ -200,8 +227,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # 1. assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
 
-        # shutdown the otaproxy server before inspecting the database
-        await self.otaproxy_inst.shutdown()
+        # shutdown otaproxy server before checking
+        launch_ota_proxy_server.terminate()
+        launch_ota_proxy_server.join()
 
         # --- assertions --- #
         special_file_url_based_sha256 = url_based_hash(unquote(SPECIAL_FILE_URL))
@@ -275,7 +303,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             )
 
     async def test_multiple_clients_download_ota_image(
-        self, parse_regulars: list[RegularInf]
+        self, parse_regulars: list[RegularInf], launch_ota_proxy_server: SpawnProcess
     ):
         """Test multiple client download the whole ota image simultaneously."""
         # ------ dispatch many clients to download from otaproxy simultaneously ------ #
@@ -301,7 +329,10 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         for _fut in asyncio.as_completed(tasks):
             await _fut
 
-        await self.otaproxy_inst.shutdown()
+        # shutdown the otaproxy process before checking cache_dir
+        launch_ota_proxy_server.terminate()
+        launch_ota_proxy_server.join()
+
         # 2. check there is no tmp files left in the ota_cache dir
         #    ensure that the gc for multi-cache-streaming works
         assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
