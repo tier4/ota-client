@@ -47,8 +47,6 @@ SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
-ENTRIES_TO_DOWNLOAD = 4096
-
 
 async def _start_uvicorn_server(server: uvicorn.Server):
     """NOTE: copied from Server.serve method, start method
@@ -64,11 +62,22 @@ async def _start_uvicorn_server(server: uvicorn.Server):
 @pytest.fixture(scope="module")
 def parse_regulars():
     regular_entries: list[RegularInf] = []
+    _count = 0
     with open(REGULARS_TXT_PATH, "r") as f:
-        for _line in f:
+        for _count, _line in enumerate(f, start=1):
             _entry = parse_regulars_from_txt(_line)
             regular_entries.append(_entry)
-    return random.sample(regular_entries, ENTRIES_TO_DOWNLOAD)
+    logger.info(f"will test with {_count} entries to download ...")
+    return regular_entries
+
+
+# params: <storage_status>, <enable_cache>
+OTA_PROXY_TEST_PARAMS = [
+    ("below_soft_limit", True),
+    ("below_hard_limit", True),
+    ("exceed_hard_limit", True),
+    ("exceed_hard_limit", False),
+]
 
 
 class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
@@ -77,17 +86,13 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
     CLIENTS_NUM = 3
 
-    @pytest.fixture(
-        params=[
-            "below_soft_limit",
-            "below_hard_limit",
-            "exceed_hard_limit",
-        ],
-    )
+    @pytest.fixture(params=OTA_PROXY_TEST_PARAMS)
     async def setup_ota_proxy_server(self, tmp_path: Path, request):
         import uvicorn
 
         from ota_proxy import App, OTACache
+
+        logger.info(f"setup otaproxy with {request.param}")
 
         ota_cache_dir = tmp_path / "ota-cache"
         ota_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +102,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
         # patch the OTACache's space availability check method
         self.space_availability = request.param
-        condition = request.param
+        condition, enable_cache_for_test = request.param
 
         # NOTE:for below_hard_limit, first we let otaproxy runs under
         #      below_soft_limit to accumulate some entries,
@@ -137,7 +142,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
         # create a OTACache instance within the test process
         _ota_cache = OTACache(
-            cache_enabled=True,
+            cache_enabled=enable_cache_for_test,
             upper_proxy="",
             enable_https=False,
             init_cache=True,
@@ -296,103 +301,6 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         for _fut in asyncio.as_completed(tasks):
             await _fut
 
-        await self.otaproxy_inst.shutdown()
-        # 2. check there is no tmp files left in the ota_cache dir
-        #    ensure that the gc for multi-cache-streaming works
-        assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
-
-
-class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
-    THTREADPOOL_EXECUTOR_PATCH_PATH = f"{MODULE}.otacache"
-    OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
-    OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
-    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
-    CLIENTS_NUM = 3
-
-    @pytest.fixture(autouse=True)
-    async def setup_ota_proxy_server(self, tmp_path: Path):
-        import uvicorn
-
-        from ota_proxy import App, OTACache
-
-        ota_cache_dir = tmp_path / "ota-cache"
-        ota_cache_dir.mkdir(parents=True, exist_ok=True)
-        ota_cachedb = ota_cache_dir / "cachedb"
-        self.ota_cache_dir = ota_cache_dir  # bind to test inst
-        self.ota_cachedb = ota_cachedb
-
-        # create a OTACache instance within the test process
-        _ota_cache = OTACache(
-            cache_enabled=False,
-            upper_proxy="",
-            enable_https=False,
-            init_cache=True,
-            base_dir=ota_cache_dir,
-            db_file=ota_cachedb,
-        )
-        _config = uvicorn.Config(
-            App(_ota_cache),
-            host=cfg.OTA_PROXY_SERVER_ADDR,
-            port=cfg.OTA_PROXY_SERVER_PORT,
-            log_level="error",
-            lifespan="on",
-            loop="asyncio",
-            http="h11",
-        )
-        otaproxy_inst = uvicorn.Server(_config)
-        self.otaproxy_inst = otaproxy_inst
-        self.ota_cache = _ota_cache
-
-        try:
-            await _start_uvicorn_server(self.otaproxy_inst)
-            await asyncio.sleep(1)  # wait before otaproxy server is ready
-            yield
-        finally:
-            shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
-            try:
-                await self.otaproxy_inst.shutdown()
-            except Exception:
-                pass  # ignore exp on shutting down
-
-    async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
-        """Test single client download the whole ota image."""
-        async with aiohttp.ClientSession() as session:
-            await sync_event.wait()
-            await asyncio.sleep(random.randrange(100, 200) // 100)
-            for entry in regular_entries:
-                url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f"/data/{entry.relative_to('/')}")
-                )
-                async with session.get(
-                    url,
-                    proxy=self.OTA_PROXY_URL,
-                    cookies={"acookie": "acookie", "bcookie": "bcookie"},
-                ) as resp:
-                    hash_f = sha256()
-                    async for data, _ in resp.content.iter_chunks():
-                        hash_f.update(data)
-                    assert hash_f.digest() == entry.sha256hash
-
-    async def test_multiple_clients_download_ota_image(self, parse_regulars):
-        """Test multiple client download the whole ota image simultaneously."""
-        # ------ dispatch many clients to download from otaproxy simultaneously ------ #
-        # --- execution --- #
-        sync_event = asyncio.Event()
-        tasks: list[asyncio.Task] = []
-        for _ in range(self.CLIENTS_NUM):
-            tasks.append(
-                asyncio.create_task(
-                    self.ota_image_downloader(parse_regulars, sync_event)
-                )
-            )
-        logger.info(
-            f"all {self.CLIENTS_NUM} clients have started to download ota image..."
-        )
-        sync_event.set()
-
-        # --- assertions --- #
-        # 1. ensure all clients finished the downloading successfully
-        await asyncio.gather(*tasks, return_exceptions=False)
         await self.otaproxy_inst.shutdown()
         # 2. check there is no tmp files left in the ota_cache dir
         #    ensure that the gc for multi-cache-streaming works
