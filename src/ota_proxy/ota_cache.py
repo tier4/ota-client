@@ -29,6 +29,7 @@ import anyio
 import anyio.to_thread
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
@@ -43,6 +44,8 @@ from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash
 
 logger = logging.getLogger(__name__)
+# NOTE: only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
 
 
 # helper functions
@@ -403,7 +406,9 @@ class OTACache:
                         yield data
 
         # open remote connection
-        resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
+        resp_headers: CIMultiDictProxy[str] = await (
+            _remote_fd := _do_request()
+        ).__anext__()  # type: ignore
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(
@@ -591,7 +596,13 @@ class OTACache:
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
         if cache_policy.no_cache:
-            logger.info(f"client indicates that do not cache for {raw_url=}")
+            burst_suppressed_logger.info(
+                f"client indicates that do not cache for {raw_url=}"
+            )
+        if cache_policy.retry_caching:
+            burst_suppressed_logger.info(
+                f"client requests re-caching for {raw_url=}, {cache_policy.file_sha256=}"
+            )
 
         # when there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:
