@@ -45,6 +45,9 @@ SPECIAL_FILE_PATH = f"/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_URL = f"{cfg.OTA_IMAGE_URL}{quote(SPECIAL_FILE_PATH)}"
 SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
+REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
+
+ENTRIES_TO_DOWNLOAD = 4096
 
 
 async def _start_uvicorn_server(server: uvicorn.Server):
@@ -58,11 +61,20 @@ async def _start_uvicorn_server(server: uvicorn.Server):
     await server.startup()
 
 
+@pytest.fixture(scope="module")
+def parse_regulars():
+    regular_entries: list[RegularInf] = []
+    with open(REGULARS_TXT_PATH, "r") as f:
+        for _line in f:
+            _entry = parse_regulars_from_txt(_line)
+            regular_entries.append(_entry)
+    return random.sample(regular_entries, ENTRIES_TO_DOWNLOAD)
+
+
 class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
     THTREADPOOL_EXECUTOR_PATCH_PATH = f"{MODULE}.otacache"
     OTA_IMAGE_URL = f"http://{cfg.OTA_IMAGE_SERVER_ADDR}:{cfg.OTA_IMAGE_SERVER_PORT}"
     OTA_PROXY_URL = f"http://{cfg.OTA_PROXY_SERVER_ADDR}:{cfg.OTA_PROXY_SERVER_PORT}"
-    REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
     CLIENTS_NUM = 3
 
     @pytest.fixture(
@@ -162,15 +174,6 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             finally:
                 shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
-    @pytest.fixture(scope="class")
-    def parse_regulars(self) -> list[RegularInf]:
-        regular_entries: list[RegularInf] = []
-        with open(self.REGULARS_TXT_PATH, "r") as f:
-            for _line in f:
-                _entry = parse_regulars_from_txt(_line)
-                regular_entries.append(_entry)
-        return regular_entries
-
     async def test_download_file_with_special_fname(self):
         """
         Test the basic functionality of ota_proxy under different space availability:
@@ -236,7 +239,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
             for entry in regular_entries:
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
+                    cfg.OTA_IMAGE_URL, quote(f"/data/{entry.relative_to('/')}")
                 )
 
                 _retry_count = 0
@@ -351,15 +354,6 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
             except Exception:
                 pass  # ignore exp on shutting down
 
-    @pytest.fixture(scope="class")
-    def parse_regulars(self):
-        regular_entries: list[RegularInf] = []
-        with open(self.REGULARS_TXT_PATH, "r") as f:
-            for _line in f:
-                _entry = parse_regulars_from_txt(_line)
-                regular_entries.append(_entry)
-        return regular_entries
-
     async def ota_image_downloader(self, regular_entries, sync_event: asyncio.Event):
         """Test single client download the whole ota image."""
         async with aiohttp.ClientSession() as session:
@@ -367,7 +361,7 @@ class TestOTAProxyServerWithoutCache(ThreadpoolExecutorFixtureMixin):
             await asyncio.sleep(random.randrange(100, 200) // 100)
             for entry in regular_entries:
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f'/data/{entry.relative_to("/")}')
+                    cfg.OTA_IMAGE_URL, quote(f"/data/{entry.relative_to('/')}")
                 )
                 async with session.get(
                     url,

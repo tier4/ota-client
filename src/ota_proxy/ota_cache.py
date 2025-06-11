@@ -525,14 +525,12 @@ class OTACache:
 
         # if set, cleanup any previous cache file before starting new cache
         if cache_policy.retry_caching:
-            logger.debug(f"requested with retry_cache for {raw_url=} ...")
             await self._lru_helper.remove_entry(cache_identifier)
             (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
             subscription := await tracker.subscribe_tracker()
         ):
-            # logger.debug(f"reader subscribe for {tracker.meta=}")
             stream_fd, cache_meta = subscription
             return stream_fd, cache_meta.export_headers_to_client()
 
