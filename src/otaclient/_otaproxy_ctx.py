@@ -45,6 +45,9 @@ _global_process_lock = threading.Lock()
 
 def otaproxy_on_global_shutdown() -> None:
     global _global_shutdown
+    if _global_shutdown.is_set():
+        return
+
     _global_shutdown.set()
     _shutdown_otaproxy()
 
