@@ -11,3 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+FILE_TABLE_MEDIA_TYPE = (
+    "application/vnd.tier4.ota.file-based-ota-image.file_table.v1.sqlite3"
+)
+"""The supported file_table version."""
+
+FILE_TABLE_FNAME = "file_table.sqlite3"
