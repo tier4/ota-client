@@ -15,15 +15,29 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import shutil
+import sqlite3
 import stat
+from contextlib import closing
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
+from simple_sqlite3_orm.utils import check_db_integrity
+
+from ota_metadata.file_table import (
+    FILE_TABLE_FNAME,
+    FILE_TABLE_MEDIA_TYPE,
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    MEDIA_TYPE_FNAME,
+)
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 
+logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
 CANONICAL_ROOT = "/"
@@ -91,9 +105,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -159,3 +173,91 @@ def prepare_regular(
             f"failed on preparing {entry!r}, {_rs=}: {e!r}"
         )
         raise
+
+
+#
+# ------ save and load file_table ------ #
+#
+# Layout of /opt/ota/image-meta folder:
+#   ./image-meta
+#       - mediaType
+#       - file_table.sqlite3
+#
+# When mediaType is "application/vnd.tier4.ota.file-based-ota-image.file_table.v1.sqlite3",
+#   otaclient looks for `file_table.sqlite3` under this folder.
+
+
+def _check_base_filetable(db_f: StrOrPath) -> StrOrPath | None:
+    if not db_f or not Path(db_f).is_file():
+        return
+
+    with contextlib.suppress(Exception), contextlib.closing(
+        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
+    ) as con:
+        if not (
+            check_db_integrity(con, table_name=FT_REGULAR_TABLE_NAME)
+            and check_db_integrity(con, table_name=FT_RESOURCE_TABLE_NAME)
+        ):
+            logger.warning(
+                f"{db_f} presented, but either ft_regular or ft_resource tables missing"
+            )
+            return
+    try:
+        with contextlib.closing(sqlite3.connect(":memory:")) as con:
+            con.execute(f"ATTACH '{db_f}' AS attach_test;")
+            return db_f
+    except Exception as e:
+        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
+
+
+def save_fstable(
+    db_f: StrOrPath,
+    dst: StrOrPath,
+    *,
+    saved_name=FILE_TABLE_FNAME,
+    media_type=FILE_TABLE_MEDIA_TYPE,
+    media_type_fname=MEDIA_TYPE_FNAME,
+) -> None:
+    """Save the <db_f> to <dst>, with image-meta save layout."""
+
+    dst = Path(dst)
+    dst.mkdir(exist_ok=True, parents=True)
+
+    with closing(sqlite3.connect(db_f)) as _fs_conn, closing(
+        sqlite3.connect(dst / saved_name)
+    ) as _dst_conn:
+        with _dst_conn as conn:
+            _fs_conn.backup(conn)
+
+        with _dst_conn as conn:
+            # change the journal_mode back to DELETE to make db file on read-only mount work.
+            # see https://www.sqlite.org/wal.html#read_only_databases for more details.
+            conn.execute("PRAGMA journal_mode=DELETE;")
+
+    media_type_f = dst / media_type_fname
+    media_type_f.write_text(media_type)
+
+
+def find_saved_fstable(image_meta_dir: StrOrPath) -> StrOrPath | None:
+    """Find and validate saved file_table in <image_meta_dir>.
+
+    Returns:
+        Return the file_table database fpath if it is a valid file_table.
+    """
+    image_meta_dir = Path(image_meta_dir)
+    media_type_f = image_meta_dir / MEDIA_TYPE_FNAME
+
+    if not (
+        media_type_f.is_file() and media_type_f.read_text() == FILE_TABLE_MEDIA_TYPE
+    ):
+        logger.info(
+            f"{MEDIA_TYPE_FNAME} not found under {image_meta_dir=}, "
+            f"or mediaType is unsupported (supported type: {FILE_TABLE_MEDIA_TYPE=})"
+        )
+        return
+
+    db_f = image_meta_dir / FILE_TABLE_FNAME
+    if not db_f.is_file():
+        logger.info(f"{db_f} not found under {image_meta_dir=}")
+        return
+    return _check_base_filetable(db_f)

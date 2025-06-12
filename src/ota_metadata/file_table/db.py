@@ -28,17 +28,20 @@ from simple_sqlite3_orm import (
 )
 from typing_extensions import Annotated
 
+from ota_metadata.file_table import (
+    FT_DIR_TABLE_NAME,
+    FT_INODE_TABLE_NAME,
+    FT_NON_REGULAR_TABLE_NAME,
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+)
 from otaclient_common._logging import get_burst_suppressed_logger
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
 CANONICAL_ROOT = "/"
 
-FT_REGULAR_TABLE_NAME = "ft_regular"
-FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
-FT_DIR_TABLE_NAME = "ft_dir"
-FT_INODE_TABLE_NAME = "ft_inode"
-FT_RESOURCE_TABLE_NAME = "ft_resource"
+
 MAX_ENTRIES_PER_DIGEST = 10
 
 
@@ -88,7 +91,6 @@ class FileTableRegularTypedDict(TypedDict, total=False):
 
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
-
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
@@ -100,7 +102,6 @@ class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
 
 
 class FileTableRegularORMPool(ORMThreadPoolBase[FileTableRegularFiles]):
-
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
 
 
@@ -132,7 +133,6 @@ class FileTableNonRegularTypedDict(TypedDict, total=False):
 
 
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
-
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
@@ -144,7 +144,6 @@ class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
 
 class FileTableDirectories(TableSpec):
-
     path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
 
@@ -155,7 +154,6 @@ class FileTableDirectoryTypedDict(TypedDict, total=False):
 
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
-
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
@@ -167,7 +165,6 @@ class FileTableDirORM(ORMBase[FileTableDirectories]):
 
 
 class FileTableResource(TableSpec):
-
     resource_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     digest: Annotated[bytes, ConstrainRepr("NOT NULL"), SkipValidation]
     size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
@@ -180,7 +177,6 @@ class FileTableResourceTypedDict(TypedDict, total=False):
 
 
 class FileTableResourceORM(ORMBase[FileTableResource]):
-
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
@@ -189,5 +185,4 @@ class FileTableResourceORM(ORMBase[FileTableResource]):
 
 
 class FileTableResourceORMPool(ORMThreadPoolBase[FileTableResource]):
-
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
