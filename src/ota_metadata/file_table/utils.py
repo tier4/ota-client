@@ -248,7 +248,7 @@ def find_saved_fstable(image_meta_dir: StrOrPath) -> StrOrPath | None:
     media_type_f = image_meta_dir / MEDIA_TYPE_FNAME
 
     if not (
-        media_type_f.is_file() and media_type_f.read_text() != FILE_TABLE_MEDIA_TYPE
+        media_type_f.is_file() and media_type_f.read_text() == FILE_TABLE_MEDIA_TYPE
     ):
         logger.info(
             f"{MEDIA_TYPE_FNAME} not found under {image_meta_dir=}, "
