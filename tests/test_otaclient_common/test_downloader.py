@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import itertools
@@ -35,10 +34,12 @@ from requests.structures import CaseInsensitiveDict as CIDict
 
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
+    BrokenDecompressionError,
     Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
     HashVerificationError,
+    PartialDownload,
     check_cache_policy_in_resp,
 )
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
@@ -162,7 +163,6 @@ def run_http_server_subprocess(
 
 
 class TestDownloader:
-
     @pytest.fixture(autouse=True)
     def setup_downloader(self, tmp_path: Path):
         self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
@@ -174,7 +174,6 @@ class TestDownloader:
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
     ):
-
         class _ControlledException(Exception):
             """For breakout the actual downloading."""
 
@@ -221,14 +220,27 @@ class TestDownloader:
             },
         )
 
+    @pytest.mark.parametrize(
+        "exceptions",
+        (
+            (HashVerificationError),
+            (BrokenDecompressionError),
+            (PartialDownload),
+        ),
+    )
     def test_retry_cache_headers_injection(
         self,
+        exceptions: type[Exception],
         mocker: pytest_mock.MockerFixture,
         setup_test_data: tuple[Path, list[FileInfo]],
         tmp_path: Path,
     ):
-        # wrap the original get method to capture the call
-        mock_get = mocker.MagicMock(wraps=self.downloader._session.get)
+        # wrap the original get method to capture the call, and raises expected exception,
+        # NOTE that here we just let session.get raises exception for convienient,
+        #   in actual running, session.get will not raise exceptions defined in download.py.
+        mock_get = mocker.MagicMock(
+            wraps=self.downloader._session.get, side_effect=exceptions
+        )
         self.downloader._session.get = mock_get
 
         _, file_info_list = setup_test_data
@@ -236,8 +248,8 @@ class TestDownloader:
         file_info = file_info_list[0]
 
         tmp_file = tmp_path / "a_tmp_file"
-        with pytest.raises(HashVerificationError):
-            self.downloader.download(file_info.url, tmp_file, digest="wrong_digest!!!")
+        with pytest.raises(exceptions):
+            self.downloader.download(file_info.url, tmp_file, digest="not_important")
 
         # examine the call and ensure the header is injected
         # one normal get call
@@ -428,7 +440,6 @@ TEST_DURATION = 30
 
 
 class TestDownloadingPoolWatchdog:
-
     @pytest.fixture(autouse=True)
     def setup_test(self):
         self._test_started_timestamp = 0
