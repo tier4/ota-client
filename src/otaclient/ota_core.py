@@ -38,12 +38,9 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
-from ota_metadata.legacy2.metadata import (
-    OTAMetadata,
-    ResourceMeta,
-    check_base_filetable,
-)
+from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
@@ -270,6 +267,14 @@ class _OTAUpdater:
         self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
+        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
+        self._image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                cfg.STANDBY_SLOT_MNT,
+            )
+        )
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
@@ -572,7 +577,7 @@ class _OTAUpdater:
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
         try:
-            self._ota_metadata.save_fstable(self._ota_tmp_meta_on_standby)
+            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
         except Exception as e:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
@@ -580,32 +585,6 @@ class _OTAUpdater:
 
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
-        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
-        # NOTE: get the db via active_slot mount_point
-        _base_ft_db = Path(
-            replace_root(
-                Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                old_root=cfg.CANONICAL_ROOT,
-                new_root=Path(cfg.ACTIVE_SLOT_MNT),
-            )
-        )
-
-        _base_ft_db_at_standby = None
-        ota_tmp_meta_base_store = self._ota_tmp_meta_on_standby / "base"
-        # prepare the db file to OTA tmp metadata storage
-        if (
-            _base_ft_db_at_standby := Path(
-                replace_root(
-                    Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-                    old_root=cfg.CANONICAL_ROOT,
-                    new_root=Path(cfg.STANDBY_SLOT_MNT),
-                )
-            )
-        ).is_file():
-            ota_tmp_meta_base_store.mkdir(exist_ok=True, parents=True)
-            shutil.copy(_base_ft_db_at_standby, ota_tmp_meta_base_store)
-            _base_ft_db_at_standby = ota_tmp_meta_base_store / OTAMetadata.FSTABLE_DB
-
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -616,8 +595,19 @@ class _OTAUpdater:
             )
         )
 
+        base_meta_dir_on_standby_slot = None
         try:
             if use_inplace_mode:
+                # try to use base file_table from standby slot itself
+                base_meta_dir_on_standby_slot = self._ota_tmp_meta_on_standby / "base"
+                # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
+                #       it is not included in the OTA image, thus also not in file_table.
+                if self._image_meta_dir_on_standby.is_dir():
+                    shutil.move(
+                        self._image_meta_dir_on_standby, base_meta_dir_on_standby_slot
+                    )
+                verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
+
                 _inplace_mode_params = DeltaGenParams(
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
@@ -626,7 +616,7 @@ class _OTAUpdater:
                     session_id=self.session_id,
                 )
 
-                if verified_base_db := check_base_filetable(_base_ft_db_at_standby):
+                if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
                     InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
                         str(verified_base_db)
@@ -643,7 +633,8 @@ class _OTAUpdater:
                     session_id=self.session_id,
                 )
 
-                if verified_base_db := check_base_filetable(_base_ft_db):
+                verified_base_db = find_saved_fstable(self._image_meta_dir_on_active)
+                if verified_base_db:
                     logger.info("use rebuild mode with base file table assist ...")
                     RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(
                         str(verified_base_db)
@@ -659,8 +650,8 @@ class _OTAUpdater:
             ) from e
         finally:
             # we don't need the copy of base file table after delta calculation
-            if ota_tmp_meta_base_store.is_dir():
-                shutil.rmtree(ota_tmp_meta_base_store)
+            if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
+                shutil.rmtree(base_meta_dir_on_standby_slot)
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
