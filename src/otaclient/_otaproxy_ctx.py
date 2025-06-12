@@ -138,8 +138,8 @@ def otaproxy_control_thread(
         elif _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
             #   will still init the cache even init_cache is False.
-            if not _global_shutdown.is_set():
-                with _global_process_lock:
+            with _global_process_lock:
+                if not _global_shutdown.is_set():
                     _otaproxy_p = _mp_ctx.Process(
                         target=partial(otaproxy_process, init_cache=False),
                         name="otaproxy",
