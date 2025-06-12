@@ -16,7 +16,6 @@
 This downloader implements the OTA-Cache-File-Control protocol to co-operate with otaproxy.
 """
 
-
 from __future__ import annotations
 
 import hashlib
@@ -238,7 +237,7 @@ def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
     def _wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         try:
             return func(*args, **kwargs)
-        except (HashVerificationError, BrokenDecompressionError) as e:
+        except (PartialDownload, HashVerificationError, BrokenDecompressionError) as e:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retry mechanism does its job.
             logger.warning(f"trigger cache retry due to: {e!r}")
@@ -254,7 +253,6 @@ DEFAULT_RETRY_STATUS = frozenset([413, 429, 500, 502, 503, 504])
 
 
 class Downloader:
-
     def __init__(
         self,
         *,
