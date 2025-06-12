@@ -39,26 +39,23 @@ from otaclient_common.common import ensure_otaproxy_start
 logger = logging.getLogger(__name__)
 
 _otaproxy_p: mp_ctx.SpawnProcess | None = None
-_global_shutdown: bool = False
-_global_shutdown_lock = threading.Lock()
+_global_shutdown = threading.Event()
+_global_process_lock = threading.Lock()
 
 
 def otaproxy_on_global_shutdown() -> None:
     global _global_shutdown
-    _global_shutdown = True
+    _global_shutdown.set()
     _shutdown_otaproxy()
 
 
 def _shutdown_otaproxy():
     global _otaproxy_p
-    if _global_shutdown_lock.acquire(blocking=False):
-        try:
-            if _otaproxy_p:
-                _otaproxy_p.terminate()
-                _otaproxy_p.join()
-                _otaproxy_p = None
-        finally:
-            _global_shutdown_lock.release()
+    with _global_process_lock:
+        if _otaproxy_p:
+            _otaproxy_p.terminate()
+            _otaproxy_p.join()
+            _otaproxy_p = None
 
 
 OTAPROXY_CHECK_INTERVAL = 3
@@ -113,11 +110,12 @@ def otaproxy_control_thread(
     otaproxy_min_alive_until = 0
 
     global _otaproxy_p
-    while not _global_shutdown:
+    while not _global_shutdown.is_set():
         time.sleep(OTAPROXY_CHECK_INTERVAL)
         _now = time.time()
 
-        _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
+        with _global_process_lock:
+            _otaproxy_running = _otaproxy_p and _otaproxy_p.is_alive()
         _otaproxy_should_run = ecu_status_flags.any_requires_network.is_set()
         _all_success = ecu_status_flags.all_success.is_set()
 
@@ -137,14 +135,16 @@ def otaproxy_control_thread(
         elif _otaproxy_should_run and not _otaproxy_running:
             # NOTE: always try to re-use cache. If the cache dir is empty, otaproxy
             #   will still init the cache even init_cache is False.
-            _otaproxy_p = _mp_ctx.Process(
-                target=partial(otaproxy_process, init_cache=False),
-                name="otaproxy",
-            )
-            _otaproxy_p.start()
-            next_ota_cache_dir_checkpoint = otaproxy_min_alive_until = (
-                _now + OTAPROXY_MIN_STARTUP_TIME
-            )
+            if not _global_shutdown.is_set():
+                with _global_process_lock:
+                    _otaproxy_p = _mp_ctx.Process(
+                        target=partial(otaproxy_process, init_cache=False),
+                        name="otaproxy",
+                    )
+                    _otaproxy_p.start()
+                    next_ota_cache_dir_checkpoint = otaproxy_min_alive_until = (
+                        _now + OTAPROXY_MIN_STARTUP_TIME
+                    )
 
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
             if _now > otaproxy_min_alive_until:  # to prevent pre-mature shutdown

@@ -260,6 +260,7 @@ def main() -> None:  # pragma: no cover
                 # this is a python bug(https://github.com/python/cpython/issues/88887),
                 # and it is fixed since python3.12 (https://github.com/python/cpython/pull/131530).
                 if sys.version_info < (3, 12):
+                    logger.info("stopping resource tracker ...")
                     _resource_tracker = getattr(
                         mp_resource_tracker, "_resource_tracker", None
                     )
