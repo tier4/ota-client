@@ -25,7 +25,6 @@ Version1 OTA metafiles list:
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os.path
 import shutil
@@ -39,18 +38,19 @@ from urllib.parse import quote
 
 from simple_sqlite3_orm import gen_sql_stmt
 from simple_sqlite3_orm.utils import (
-    check_db_integrity,
     enable_tmp_store_at_memory,
     enable_wal_mode,
     wrap_value,
 )
 
-from ota_metadata.file_table.db import (
+from ota_metadata.file_table import (
     FT_DIR_TABLE_NAME,
     FT_INODE_TABLE_NAME,
     FT_NON_REGULAR_TABLE_NAME,
     FT_REGULAR_TABLE_NAME,
     FT_RESOURCE_TABLE_NAME,
+)
+from ota_metadata.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
@@ -88,32 +88,6 @@ DB_TIMEOUT = 16  # seconds
 
 MAX_ENTRIES_PER_DIGEST = 10
 """How many entries to scan through for each unique digest."""
-
-
-def check_base_filetable(db_f: StrOrPath | None) -> StrOrPath | None:
-    if not db_f or not Path(db_f).is_file():
-        return
-
-    with contextlib.suppress(Exception), contextlib.closing(
-        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
-    ) as con:
-        if not (
-            check_db_integrity(
-                con,
-                table_name=FileTableRegularORM.orm_bootstrap_table_name,
-            )
-            and check_db_integrity(
-                con,
-                table_name=FileTableResourceORM.orm_bootstrap_table_name,
-            )
-        ):
-            return
-    try:
-        with contextlib.closing(sqlite3.connect(":memory:")) as con:
-            con.execute(f"ATTACH '{db_f}' AS attach_test;")
-            return db_f
-    except Exception as e:
-        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
 
 
 class OTAMetadata:
@@ -382,19 +356,6 @@ class OTAMetadata:
             raise
         finally:
             shutil.rmtree(_download_dir, ignore_errors=True)
-
-    def save_fstable(self, dst: StrOrPath, db_fname: str = FSTABLE_DB) -> None:
-        """Dump the file_table to <dst>/<db_fname>"""
-        with closing(self.connect_fstable()) as _fs_conn, closing(
-            sqlite3.connect(Path(dst) / db_fname)
-        ) as _dst_conn:
-            with _dst_conn as conn:
-                _fs_conn.backup(conn)
-
-            with _dst_conn as conn:
-                # change the journal_mode back to DELETE to make db file on read-only mount work.
-                # see https://www.sqlite.org/wal.html#read_only_databases for more details.
-                conn.execute("PRAGMA journal_mode=DELETE;")
 
     # helper methods
 
