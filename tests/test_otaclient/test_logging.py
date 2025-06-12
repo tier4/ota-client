@@ -181,6 +181,9 @@ class TestLogClient:
         )
         configure_logging()
 
+        # Give some time for the logging handler to be fully set up
+        await asyncio.sleep(0.1)
+
         # send a test log message
         logger.error(log_message, extra=extra)
         # wait for the log message to be received
