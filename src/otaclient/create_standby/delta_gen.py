@@ -194,7 +194,9 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
     # scanning in unknown large, deep folders in full
     # scan mode.
     # NOTE: the following settings are enough for most cases.
-    MAX_FOLDER_DEEPTH = 23
+    # NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
+    #       so extend the maximum folders depth.
+    MAX_FOLDER_DEEPTH = 27
     MAX_FILENUM_PER_FOLDER = 8192
 
     def _check_if_need_to_process_dir(
