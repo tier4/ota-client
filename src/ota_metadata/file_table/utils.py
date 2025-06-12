@@ -104,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert _symlink_target_raw, (
-                f"{entry!r} is symlink, but no symlink target is defined"
-            )
+            assert (
+                _symlink_target_raw
+            ), f"{entry!r} is symlink, but no symlink target is defined"
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
