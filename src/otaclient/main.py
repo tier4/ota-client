@@ -243,7 +243,7 @@ def main() -> None:  # pragma: no cover
                 # exit ota proxy thread if it is running
                 if _otaproxy_control_t and _otaproxy_control_t.is_alive():
                     logger.info("exit otaproxy control thread ...")
-                    otaproxy_on_global_shutdown()
+                    otaproxy_on_global_shutdown(blocking=True)
                     _otaproxy_control_t.join()
                 # kill other resources except main process
                 logger.info("on main shutdown...")

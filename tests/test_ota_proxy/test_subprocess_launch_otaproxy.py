@@ -118,7 +118,7 @@ def test_otaproxy_shutdown_race_condition():
         mock_process.reset_mock()
 
         # Call global shutdown
-        otaproxy_on_global_shutdown()
+        otaproxy_on_global_shutdown(blocking=True)
 
         # Wait to ensure shutdown signal is processed
         time.sleep(1)
@@ -164,7 +164,7 @@ def test_otaproxy_immediate_shutdown_prevents_startup():
         mock_process_instance.is_alive.return_value = False
 
         # Call shutdown BEFORE starting control thread
-        otaproxy_on_global_shutdown()
+        otaproxy_on_global_shutdown(blocking=True)
 
         # Set flags that would trigger startup
         ecu_status_flags.any_requires_network.set()
@@ -213,7 +213,7 @@ def test_otaproxy_control_thread_exits_on_shutdown():
         assert control_thread.is_alive()
 
         # Call shutdown
-        otaproxy_on_global_shutdown()
+        otaproxy_on_global_shutdown(blocking=True)
 
         # Wait for thread to exit
         control_thread.join(timeout=5)

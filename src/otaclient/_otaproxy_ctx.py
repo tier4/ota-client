@@ -43,19 +43,22 @@ _global_shutdown = threading.Event()
 _global_process_lock = threading.Lock()
 
 
-def otaproxy_on_global_shutdown() -> None:
+def otaproxy_on_global_shutdown(blocking: bool = False) -> None:
     global _global_shutdown
     _global_shutdown.set()
-    _shutdown_otaproxy()
+    _shutdown_otaproxy(blocking=blocking)
 
 
-def _shutdown_otaproxy():
+def _shutdown_otaproxy(blocking: bool = False) -> None:
     global _otaproxy_p
-    with _global_process_lock:
-        if _otaproxy_p:
-            _otaproxy_p.terminate()
-            _otaproxy_p.join()
-            _otaproxy_p = None
+    if _global_process_lock.acquire(blocking=blocking):
+        try:
+            if _otaproxy_p:
+                _otaproxy_p.terminate()
+                _otaproxy_p.join()
+                _otaproxy_p = None
+        finally:
+            _global_process_lock.release()
 
 
 OTAPROXY_CHECK_INTERVAL = 3
@@ -149,4 +152,4 @@ def otaproxy_control_thread(
         elif _otaproxy_p and _otaproxy_running and not _otaproxy_should_run:
             if _now > otaproxy_min_alive_until:  # to prevent pre-mature shutdown
                 logger.info("shutting down otaproxy as not needed now ...")
-                _shutdown_otaproxy()
+                _shutdown_otaproxy(blocking=True)
