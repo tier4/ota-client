@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of cache streaming."""
 
-
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +27,7 @@ from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 import anyio
 from anyio import open_file
 
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
@@ -41,6 +41,8 @@ from .errors import (
 )
 
 logger = logging.getLogger(__name__)
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
 
 # cache tracker
 
@@ -260,7 +262,9 @@ class CacheTracker:
         _wait_count = 0
         while not self._writer_ready.is_set():
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
-                logger.warning(f"timeout waiting provider for {self.cache_meta}, abort")
+                burst_suppressed_logger.warning(
+                    f"timeout waiting provider for {self.cache_meta}, abort"
+                )
                 return
             if self._writer_failed.is_set():
                 return  # early break on failed provider
@@ -351,7 +355,7 @@ async def cache_streaming(
                 try:
                     await _cache_write_gen.asend(chunk)
                 except Exception as e:
-                    logger.error(
+                    burst_suppressed_logger.error(
                         f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
                     )
                     _cache_writer_failed = True
