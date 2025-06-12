@@ -15,30 +15,34 @@
 NOTE: the test cases are mostly re-used from the previous implementation.
 """
 
-
 from __future__ import annotations
 
 import logging
 import sqlite3
 import stat
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from ota_metadata.file_table import (
-    FileEntryAttrs,
-    FileTableDirectories,
+from ota_metadata.file_table.db import (
+    FileTableDirectoryTypedDict,
     FileTableDirORM,
+    FileTableInodeORM,
+    FiletableInodeTypedDict,
     FileTableNonRegularFiles,
     FileTableNonRegularORM,
-    FileTableRegularFiles,
+    FileTableNonRegularTypedDict,
     FileTableRegularORM,
+    FileTableRegularTypedDict,
+    FileTableResourceORM,
 )
 from ota_metadata.legacy2.csv_parser import (
+    parse_create_file_table_row,
     parse_dirs_csv_line,
     parse_dirs_from_csv_file,
     parse_persists_csv_line,
-    parse_regulars_csv_line,
+    parse_regular_csv_line,
     parse_regulars_from_csv_file,
     parse_symlinks_csv_line,
     parse_symlinks_from_csv_file,
@@ -57,23 +61,26 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
 
 # try to include as any special characters as possible
 @pytest.mark.parametrize(
-    "_input, _ft_expected, _rs_expected",
+    "_input, _ft_expected, _ft_inode_expected, _rs_expected",
     (
         # rev4: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode,[compression_alg]]]
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',Ελληνικό/to/file',1234,12345678,zst",
-            FileTableRegularFiles(
+            # NOTE: resource_id and inode_id are assigned automatically when inserting into the database
+            FileTableRegularTypedDict(
                 path=r"/aaa\,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
-                entry_attrs=FileEntryAttrs(
-                    mode=int("0644", 8) | stat.S_IFREG,
-                    uid=1000,
-                    gid=1000,
-                    size=1234,
-                    inode=12345678,
-                ),
+            ),
+            # NOTE: otaclient implementation details:
+            #   TO label the hardlinked file entry, and indicate database builder to
+            #       not automatically assign an inode_id for hardlinked entry, pre-assign inode_id
+            #       by `-<inode_id_in_csv_entry>`.
+            #   Later the database builder will check against the inode_id, and calculating
+            #       links_count field for hardlinked file entry.
+            FiletableInodeTypedDict(
+                mode=int("0644", 8) | stat.S_IFREG,
+                uid=1000,
+                gid=1000,
+                inode_id=-12345678,
             ),
             ResourceTable(
                 digest=bytes.fromhex(
@@ -86,18 +93,14 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
         # rev3: mode,uid,gid,link number,sha256sum,'path/to/file'[,size[,inode]]
         (
             r"0644,1000,1000,3,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa\,'\'',Ελληνικό/to/file',1234,12345678,",
-            FileTableRegularFiles(
+            FileTableRegularTypedDict(
                 path=r"/aaa\,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
-                entry_attrs=FileEntryAttrs(
-                    mode=int("0644", 8) | stat.S_IFREG,
-                    uid=1000,
-                    gid=1000,
-                    size=1234,
-                    inode=12345678,
-                ),
+            ),
+            FiletableInodeTypedDict(
+                mode=int("0644", 8) | stat.S_IFREG,
+                uid=1000,
+                gid=1000,
+                inode_id=-12345678,
             ),
             ResourceTable(
                 path=r"/aaa\,',Ελληνικό/to/file",
@@ -110,17 +113,13 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
         # rev2: mode,uid,gid,link number,sha256sum,'path/to/file'[,size]
         (
             r"0644,1000,1000,1,0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef,'/aaa,'\'',Ελληνικό/to/file',1234",
-            FileTableRegularFiles(
+            FileTableRegularTypedDict(
                 path=r"/aaa,',Ελληνικό/to/file",
-                digest=bytes.fromhex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                ),
-                entry_attrs=FileEntryAttrs(
-                    mode=int("0644", 8) | stat.S_IFREG,
-                    uid=1000,
-                    gid=1000,
-                    size=1234,
-                ),
+            ),
+            FiletableInodeTypedDict(
+                mode=int("0644", 8) | stat.S_IFREG,
+                uid=1000,
+                gid=1000,
             ),
             ResourceTable(
                 path=r"/aaa,',Ελληνικό/to/file",
@@ -135,51 +134,75 @@ OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
     ),
 )
 def test_regulars_txt(
-    _input: str, _ft_expected: FileTableRegularFiles, _rs_expected: ResourceTable
+    _input: str,
+    _ft_expected: FileTableRegularTypedDict,
+    _ft_inode_expected: FiletableInodeTypedDict,
+    _rs_expected: ResourceTable,
 ):
-    _ft, _rs = parse_regulars_csv_line(_input)
+    _raw_parsed = parse_regular_csv_line(_input)
+
+    _ft, _ft_inode, _rs = parse_create_file_table_row(_raw_parsed)
     assert _ft == _ft_expected
+    assert _ft_inode == _ft_inode_expected
     assert _rs == _rs_expected
 
 
 @pytest.mark.parametrize(
-    "_input, _expected",
+    "_input, _inode_id, _expected, _expected_inode",
     (
         (
             r"0755,0,0,'/usr/lib/python3/aaa,'\''Ελληνικό'",
-            FileTableDirectories(
+            _inode_id := 12345,
+            FileTableDirectoryTypedDict(
                 path=r"/usr/lib/python3/aaa,'Ελληνικό",
-                entry_attrs=FileEntryAttrs(
-                    mode=int("0755", 8) | stat.S_IFDIR, uid=0, gid=0
-                ),
+                inode_id=_inode_id,
+            ),
+            FiletableInodeTypedDict(
+                mode=int("0755", 8) | stat.S_IFDIR,
+                uid=0,
+                gid=0,
+                inode_id=_inode_id,
             ),
         ),
     ),
 )
-def test_dirs_txt(_input: str, _expected: FileTableDirectories):
-    assert parse_dirs_csv_line(_input) == _expected
+def test_dirs_txt(
+    _input: str,
+    _inode_id: int,
+    _expected: FileTableDirectoryTypedDict,
+    _expected_inode: FiletableInodeTypedDict,
+):
+    assert parse_dirs_csv_line(_input, _inode_id) == (_expected, _expected_inode)
 
 
 @pytest.mark.parametrize(
-    "_input, _expected",
+    "_input, _inode_id, _expected, _expected_inode",
     (
         # ensure ' are escaped and (,') will not break path parsing
         (
             r"0777,0,0,'/var/lib/ieee-data/iab.csv','../../ieee-data/'\'','\''Ελληνικό.csv'",
-            FileTableNonRegularFiles(
+            _inode_id := 123456,
+            FileTableNonRegularTypedDict(
                 path=r"/var/lib/ieee-data/iab.csv",
-                entry_attrs=FileEntryAttrs(
-                    mode=int("0777", 8) | stat.S_IFLNK,
-                    uid=0,
-                    gid=0,
-                ),
-                contents=r"../../ieee-data/','Ελληνικό.csv".encode(),
+                inode_id=_inode_id,
+                meta=r"../../ieee-data/','Ελληνικό.csv".encode(),
+            ),
+            FiletableInodeTypedDict(
+                mode=int("0777", 8) | stat.S_IFLNK,
+                uid=0,
+                gid=0,
+                inode_id=_inode_id,
             ),
         ),
     ),
 )
-def test_symlinks_txt(_input: str, _expected: FileTableNonRegularFiles):
-    assert parse_symlinks_csv_line(_input) == _expected
+def test_symlinks_txt(
+    _input: str,
+    _inode_id: int,
+    _expected: FileTableNonRegularFiles,
+    _expected_inode: FiletableInodeTypedDict,
+):
+    assert parse_symlinks_csv_line(_input, _inode_id) == (_expected, _expected_inode)
 
 
 @pytest.mark.parametrize(
@@ -204,37 +227,54 @@ dirs_txt = OTA_IMAGE_ROOT / "dirs.txt"
 symlinks_txt = OTA_IMAGE_ROOT / "symlinks.txt"
 
 
-def test_parse_and_import_regulars_txt():
-    with sqlite3.connect(
-        "file:ft_table?mode=memory", uri=True
-    ) as ft_table_conn, sqlite3.connect(
-        "file:rs_table?mode=memory", uri=True
-    ) as rs_table_conn:
-        ft_table_orm = FileTableRegularORM(ft_table_conn)
-        ft_table_orm.orm_create_table()
+def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):
+    _ft_db = tmp_path / "file_table.sqlite3"
+    _rs_db = tmp_path / "resource_table.sqlite3"
 
-        rs_table_orm = ResourceTableORM(rs_table_conn)
-        rs_table_orm.orm_create_table()
-        _imported = parse_regulars_from_csv_file(
-            regulars_txt, ft_table_orm, rs_table_orm
+    with closing(sqlite3.connect(_ft_db)) as fst_conn, closing(
+        sqlite3.connect(_rs_db)
+    ) as rst_conn:
+        ft_regular_orm = FileTableRegularORM(fst_conn)
+        ft_regular_orm.orm_bootstrap_db()
+        ft_dir_orm = FileTableDirORM(fst_conn)
+        ft_dir_orm.orm_bootstrap_db()
+        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
+        ft_non_regular_orm.orm_bootstrap_db()
+        ft_resource_orm = FileTableResourceORM(fst_conn)
+        ft_resource_orm.orm_bootstrap_db()
+        ft_inode_orm = FileTableInodeORM(fst_conn)
+        ft_inode_orm.orm_bootstrap_db()
+        rs_orm = ResourceTableORM(rst_conn)
+        rs_orm.orm_bootstrap_db()
+
+        inode_start = 1
+        total_regulars_num, inode_start = parse_regulars_from_csv_file(
+            _fpath=regulars_txt,
+            _orm=ft_regular_orm,
+            _orm_ft_resource=ft_resource_orm,
+            _orm_rs=rs_orm,
+            _orm_inode=ft_inode_orm,
+            inode_start=inode_start,
         )
-        logger.info(f"imported {_imported} entries")
-        assert _imported > 0
+        logger.info(f"{total_regulars_num=}, {inode_start=}")
+        assert total_regulars_num > 0
 
+        dirs_num, inode_start = parse_dirs_from_csv_file(
+            dirs_txt,
+            ft_dir_orm,
+            _inode_orm=ft_inode_orm,
+            inode_start=inode_start,
+        )
+        logger.info(f"{dirs_num=}, {inode_start=}")
+        assert dirs_num > 0
 
-def test_parse_and_import_dirs_txt():
-    with sqlite3.connect(":memory:") as conn:
-        orm = FileTableDirORM(conn)
-        orm.orm_create_table()
-        _imported = parse_dirs_from_csv_file(dirs_txt, orm)
-        logger.info(f"imported {_imported} entries")
-        assert _imported > 0
+        symlinks_num, _ = parse_symlinks_from_csv_file(
+            symlinks_txt,
+            ft_non_regular_orm,
+            _inode_orm=ft_inode_orm,
+            inode_start=inode_start,
+        )
+        logger.info(f"{symlinks_num=}, {inode_start=}")
+        assert symlinks_num > 0
 
-
-def test_parse_and_import_symlinks_txt():
-    with sqlite3.connect(":memory:") as conn:
-        orm = FileTableNonRegularORM(conn)
-        orm.orm_create_table()
-        _imported = parse_symlinks_from_csv_file(symlinks_txt, orm)
-        logger.info(f"imported {_imported} entries")
-        assert _imported > 0
+        assert inode_start > 1
