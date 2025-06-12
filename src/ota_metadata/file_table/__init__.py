@@ -18,3 +18,10 @@ FILE_TABLE_MEDIA_TYPE = (
 """The supported file_table version."""
 
 FILE_TABLE_FNAME = "file_table.sqlite3"
+MEDIA_TYPE_FNAME = "mediaType"
+
+FT_REGULAR_TABLE_NAME = "ft_regular"
+FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
+FT_DIR_TABLE_NAME = "ft_dir"
+FT_INODE_TABLE_NAME = "ft_inode"
+FT_RESOURCE_TABLE_NAME = "ft_resource"
