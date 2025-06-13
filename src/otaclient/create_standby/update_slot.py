@@ -198,11 +198,14 @@ class UpdateStandbySlot:
                         )
                     cur_digest = _this_digest
                     cur_entries = [_entry]
+                else:
+                    cur_entries.append(_entry)
 
             # finalizing all the workers
-            barrier = threading.Barrier(self.max_workers)
+            barrier = threading.Barrier(self.max_workers + 1)
             for _ in range(self.max_workers):
                 pool.submit(self._worker_finalizer, barrier)
+            barrier.wait()
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
