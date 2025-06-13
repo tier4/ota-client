@@ -13,7 +13,6 @@
 # limitations under the License.
 """The implementation of tracking otaclient operation status."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -66,7 +65,6 @@ class SetOTAClientMetaReport:
 
 @dataclass
 class UpdateProgressReport:
-
     class Type(Enum):
         # NOTE: PREPARE_LOCAL, DOWNLOAD_REMOTE and APPLY_DELTA are together
         #       counted as <processed_files_*>
@@ -309,31 +307,39 @@ class OTAClientStatusCollector:
         """Main entry of status monitor working thread."""
         _next_shm_push = 0
         while True:
-            _now = time.time()
+            _now = time.perf_counter()
+
+            report = None
             try:
                 report = self._input_queue.get_nowait()
                 if report is TERMINATE_SENTINEL:
-                    break
+                    return
 
-                # ------ push status on load_report ------ #
-                # NOTE: always push OTAStatus change report
-                if (
-                    self.load_report(report)
-                    and self._status
-                    and (
-                        isinstance(report.payload, OTAStatusChangeReport)
-                        or _now > _next_shm_push
-                    )
-                ):
-                    try:
-                        self._shm_status.write_msg(self._status)
-                        _next_shm_push = _now + self.shm_push_interval
-                    except Exception as e:
-                        burst_suppressed_logger.debug(
-                            f"failed to push status to shm: {e!r}"
-                        )
+                # report that is invalid
+                if not self.load_report(report):
+                    report = None
             except queue.Empty:
-                time.sleep(self.min_collect_interval)
+                pass
+
+            # ------ push status on load_report ------ #
+            # NOTE: always push OTAStatus change report
+            if (
+                report
+                and self._status
+                and (
+                    isinstance(report.payload, OTAStatusChangeReport)
+                    or _now > _next_shm_push
+                )
+            ):
+                try:
+                    self._shm_status.write_msg(self._status)
+                    _next_shm_push = _now + self.shm_push_interval
+                except Exception as e:
+                    burst_suppressed_logger.debug(
+                        f"failed to push status to shm: {e!r}"
+                    )
+
+            time.sleep(self.min_collect_interval)
 
     def _ota_status_logging_thread(self) -> None:
         while True:
