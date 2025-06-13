@@ -100,7 +100,9 @@ from otaclient_common.retry_task_map import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATUS_QUERY_INTERVAL = 1
-WAIT_BEFORE_REBOOT = 6
+# This time should be larger than the frequency of FMS status notification(currently 10s)
+# Otherwise, the final status might not be showed on FMS Console.
+WAIT_BEFORE_REBOOT = 12  # seconds
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
