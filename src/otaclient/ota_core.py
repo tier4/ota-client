@@ -856,19 +856,18 @@ class OTAClient:
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
         self.current_version = self.boot_controller.load_version()
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
+                ),
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=_boot_ctrl_loaded_ota_status,
                 ),
             )
         )
