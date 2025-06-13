@@ -173,6 +173,7 @@ class UpdateStandbySlot:
 
         NOTE: it depends on the regular file table is sorted by digest!
         """
+        logger.info("process regular file entries ...")
         with ThreadPoolExecutor(
             max_workers=self.max_workers,
             thread_name_prefix="ota_update_slot",
@@ -186,10 +187,10 @@ class UpdateStandbySlot:
                     logger.error("detect worker failed, abort!")
                     return
 
-                self._se.acquire()
                 _this_digest = _entry["digest"]
                 if _this_digest != cur_digest:
                     if cur_entries:
+                        self._se.acquire()
                         pool.submit(
                             self._process_one_files_group_workload,
                             cur_digest,
