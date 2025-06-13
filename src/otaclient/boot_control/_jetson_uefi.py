@@ -974,8 +974,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
-            if not standby_as_ref:
-                self._mp_control.mount_active()
+            self._mp_control.mount_active()
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
