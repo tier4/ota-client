@@ -650,7 +650,7 @@ class _OTAUpdater:
         finally:
             # we don't need the copy of base file table after delta calculation
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
-                shutil.rmtree(base_meta_dir_on_standby_slot)
+                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
@@ -747,7 +747,7 @@ class _OTAUpdater:
             )
         )
         ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
-        shutil.rmtree(ota_metadata_save_dst)
+        shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
         shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
         self._boot_controller.post_update()
