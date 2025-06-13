@@ -506,9 +506,9 @@ class UEFIFirmwareUpdater:
 
             try:
                 _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                assert (
-                    _digest == capsule_digest_value
-                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                assert _digest == capsule_digest_value, (
+                    f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(
                     src=capsule_fpath,
@@ -560,9 +560,9 @@ class UEFIFirmwareUpdater:
                 _digest = cal_file_digest(
                     ota_image_bootaa64, algorithm=payload_digest_alg
                 )
-                assert (
-                    _digest == payload_digest_value
-                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                assert _digest == payload_digest_value, (
+                    f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
@@ -974,8 +974,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
-            if not standby_as_ref:
-                self._mp_control.mount_active()
+            self._mp_control.mount_active()
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
