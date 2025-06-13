@@ -233,9 +233,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -564,8 +564,7 @@ class _OTAUpdater:
         self._boot_controller.pre_update(
             self.update_version,
             # NOTE: this option is deprecated and not used by bootcontroller
-            # NOTE(20250602): will use this arg again for in-place mode in the future.
-            # TODO:(20250604): when standby_as_ref is set, skip mounting active slot.
+            # NOTE(20250613): when standby_as_ref is set, skip mounting active slot.
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
