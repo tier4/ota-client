@@ -446,6 +446,7 @@ class JetsonCBootControl(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
+            self._update_version = "unknown"
             # startup boot controller
             self._cboot_control = cboot_control = _CBootControl()
 
@@ -590,6 +591,7 @@ class JetsonCBootControl(BootControllerProtocol):
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-cboot: pre-update ...")
+            self._update_version = version
             # udpate active slot's ota_status
             self._ota_status_control.pre_update_current()
 
@@ -605,10 +607,8 @@ class JetsonCBootControl(BootControllerProtocol):
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             # mount slots
             self._mp_control.mount_standby()
-            self._mp_control.mount_active()
-
-            # update standby slot's ota_status files
-            self._ota_status_control.pre_update_standby(version=version)
+            if not standby_as_ref:
+                self._mp_control.mount_active()
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -619,6 +619,9 @@ class JetsonCBootControl(BootControllerProtocol):
     def post_update(self) -> None:
         try:
             logger.info("jetson-cboot: post-update ...")
+            # ------ update standby slot's ota_status files ------ #
+            self._ota_status_control.post_update_standby(version=self._update_version)
+
             # ------ update extlinux.conf ------ #
             update_standby_slot_extlinux_cfg(
                 active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
@@ -692,7 +695,6 @@ class JetsonCBootControl(BootControllerProtocol):
             logger.info("jetson-cboot: pre-rollback setup ...")
             self._ota_status_control.pre_rollback_current()
             self._mp_control.mount_standby()
-            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
@@ -703,6 +705,7 @@ class JetsonCBootControl(BootControllerProtocol):
     def post_rollback(self):
         try:
             logger.info("jetson-cboot: post-rollback setup...")
+            self._ota_status_control.post_rollback_standby()
             self._mp_control.umount_all(ignore_error=True)
             self._cboot_control.switch_boot_to_standby()
         except Exception as e:
