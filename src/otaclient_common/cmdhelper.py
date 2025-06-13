@@ -314,8 +314,10 @@ def reboot(
         cmd.extend(args)
 
     logger.warning("system will reboot now!")
-    subprocess_call(cmd, raise_exception=False, chroot=chroot)
-    sys.exit(0)
+    try:
+        subprocess_call(cmd, raise_exception=False, chroot=chroot)
+    finally:
+        sys.exit(0)
 
 
 #
