@@ -506,9 +506,9 @@ class UEFIFirmwareUpdater:
 
             try:
                 _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                assert (
-                    _digest == capsule_digest_value
-                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                assert _digest == capsule_digest_value, (
+                    f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(
                     src=capsule_fpath,
@@ -560,9 +560,9 @@ class UEFIFirmwareUpdater:
                 _digest = cal_file_digest(
                     ota_image_bootaa64, algorithm=payload_digest_alg
                 )
-                assert (
-                    _digest == payload_digest_value
-                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                assert _digest == payload_digest_value, (
+                    f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
@@ -855,6 +855,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
+            self._update_version = "unknown"
             self._uefi_control = uefi_control = _UEFIBootControl()
 
             # mount point prepare
@@ -968,13 +969,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-uefi: pre-update ...")
+            self._update_version = version
             self._ota_status_control.pre_update_current()
 
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
-            self._mp_control.mount_active()
-
-            self._ota_status_control.pre_update_standby(version=version)
+            if not standby_as_ref:
+                self._mp_control.mount_active()
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -985,6 +986,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def post_update(self) -> None:
         try:
             logger.info("jetson-uefi: post-update ...")
+            # ------ update standby slot's ota-status ------ #
+            self._ota_status_control.post_update_standby(version=self._update_version)
+
             # ------ update extlinux.conf ------ #
             update_standby_slot_extlinux_cfg(
                 active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
@@ -1078,7 +1082,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             logger.info("jetson-uefi: pre-rollback setup ...")
             self._ota_status_control.pre_rollback_current()
             self._mp_control.mount_standby()
-            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"jetson-uefi: failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
@@ -1089,6 +1092,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def post_rollback(self):
         try:
             logger.info("jetson-uefi: post-rollback setup...")
+            self._ota_status_control.post_rollback_standby()
             self._mp_control.umount_all(ignore_error=True)
             self._uefi_control.switch_boot_to_standby()
         except Exception as e:
