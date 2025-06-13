@@ -16,7 +16,6 @@
 Supports BSP version < R34.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -712,14 +711,7 @@ class JetsonCBootControl(BootControllerProtocol):
             ) from e
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
-        try:
-            cmdhelper.reboot(chroot=chroot)
-        except Exception as e:
-            _err_msg = f"reboot failed: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+        cmdhelper.reboot(chroot=chroot)
 
     def pre_rollback(self):
         try:

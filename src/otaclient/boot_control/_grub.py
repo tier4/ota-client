@@ -30,7 +30,6 @@ NOTE(20231027) A workaround fix is applied to handle the edge case of rootfs not
     still expecting new mechanism to fundamentally resolve this issue.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -932,14 +931,7 @@ class GrubController(BootControllerProtocol):
             ) from e
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
-        try:
-            cmdhelper.reboot(chroot=chroot)
-        except Exception as e:
-            _err_msg = f"reboot failed: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+        cmdhelper.reboot(chroot=chroot)
 
     def pre_rollback(self):
         try:
