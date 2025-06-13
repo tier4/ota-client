@@ -233,9 +233,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(cookies, dict), (
-                f"invalid cookies, expecting json object: {cookies_json}"
-            )
+            assert isinstance(
+                cookies, dict
+            ), f"invalid cookies, expecting json object: {cookies_json}"
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -564,8 +564,9 @@ class _OTAUpdater:
         self._boot_controller.pre_update(
             self.update_version,
             # NOTE: this option is deprecated and not used by bootcontroller
-            # NOTE(20250602): will use this arg again for in-place mode in the future.
-            # TODO:(20250604): when standby_as_ref is set, skip mounting active slot.
+            # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
+            #       we cannot do this for now, as some boot controller impl still refer to
+            #       active_slot mounts.
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
@@ -651,7 +652,7 @@ class _OTAUpdater:
         finally:
             # we don't need the copy of base file table after delta calculation
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
-                shutil.rmtree(base_meta_dir_on_standby_slot)
+                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
         # ------ in-update: download resources ------ #
         self._status_report_queue.put_nowait(
@@ -748,7 +749,7 @@ class _OTAUpdater:
             )
         )
         ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
-        shutil.rmtree(ota_metadata_save_dst)
+        shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
         shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
         self._boot_controller.post_update()
@@ -855,19 +856,18 @@ class OTAClient:
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
         self.current_version = self.boot_controller.load_version()
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
+                ),
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=_boot_ctrl_loaded_ota_status,
                 ),
             )
         )

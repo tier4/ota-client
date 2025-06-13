@@ -391,7 +391,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             _delta_src_dir = replace_root(
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
             )
-            shutil.rmtree(_delta_src_dir)
+            shutil.rmtree(_delta_src_dir, ignore_errors=True)
 
 
 class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
@@ -628,7 +628,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 )
             ):
                 dirnames.clear()
-                shutil.rmtree(delta_src_curdir_path)
+                shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
                 continue
 
             # NOTE: remove the dir symlinks
