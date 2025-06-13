@@ -181,4 +181,4 @@ class UpdateStandbySlot:
         self._process_regular_file_entries()
 
         # finally, cleanup the resource dir
-        shutil.rmtree(self._resource_dir)
+        shutil.rmtree(self._resource_dir, ignore_errors=True)
