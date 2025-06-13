@@ -883,8 +883,7 @@ class GrubController(BootControllerProtocol):
             ### mount slots ###
             self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
             self._mp_control.mount_standby()
-            if not standby_as_ref:
-                self._mp_control.mount_active()
+            self._mp_control.mount_active()
 
             # remove old files under standby ota_partition folder
             self._cleanup_standby_ota_partition_folder()
