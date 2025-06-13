@@ -194,7 +194,9 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
     # scanning in unknown large, deep folders in full
     # scan mode.
     # NOTE: the following settings are enough for most cases.
-    MAX_FOLDER_DEEPTH = 23
+    # NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
+    #       so extend the maximum folders depth.
+    MAX_FOLDER_DEEPTH = 27
     MAX_FILENUM_PER_FOLDER = 8192
 
     def _check_if_need_to_process_dir(
@@ -389,7 +391,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             _delta_src_dir = replace_root(
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
             )
-            shutil.rmtree(_delta_src_dir)
+            shutil.rmtree(_delta_src_dir, ignore_errors=True)
 
 
 class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
@@ -626,7 +628,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 )
             ):
                 dirnames.clear()
-                shutil.rmtree(delta_src_curdir_path)
+                shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
                 continue
 
             # NOTE: remove the dir symlinks

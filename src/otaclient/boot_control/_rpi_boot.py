@@ -13,7 +13,6 @@
 # limitations under the License.
 """Boot control support for Raspberry pi 4 Model B."""
 
-
 from __future__ import annotations
 
 import contextlib
@@ -434,6 +433,7 @@ class RPIBootController(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
+            self._update_version = "unknown"
             self._rpiboot_control = _RPIBootControl()
             # mount point prepare
             self._mp_control = SlotMountHelper(
@@ -483,12 +483,17 @@ class RPIBootController(BootControllerProtocol):
 
     # APIs
 
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
+
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("rpi_boot: pre-update setup...")
+            self._update_version = version
             ### udpate active slot's ota_status ###
             self._ota_status_control.pre_update_current()
 
@@ -499,9 +504,6 @@ class RPIBootController(BootControllerProtocol):
             )
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
-
-            ### update standby slot's ota_status files ###
-            self._ota_status_control.pre_update_standby(version=version)
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -514,7 +516,6 @@ class RPIBootController(BootControllerProtocol):
             logger.info("rpi_boot: pre-rollback setup...")
             self._ota_status_control.pre_rollback_current()
             self._mp_control.mount_standby()
-            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
@@ -525,6 +526,7 @@ class RPIBootController(BootControllerProtocol):
     def post_rollback(self):
         try:
             logger.info("rpi_boot: post-rollback setup...")
+            self._ota_status_control.post_rollback_standby()
             self._rpiboot_control.prepare_tryboot_txt()
             self._mp_control.umount_all(ignore_error=True)
         except Exception as e:
@@ -537,6 +539,8 @@ class RPIBootController(BootControllerProtocol):
     def post_update(self) -> None:
         try:
             logger.info("rpi_boot: post-update setup...")
+            ### update standby slot's ota_status files ###
+            self._ota_status_control.post_update_standby(version=self._update_version)
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
             self._rpiboot_control.update_firmware(
