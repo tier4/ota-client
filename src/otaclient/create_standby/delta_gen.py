@@ -332,7 +332,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 #   to the copy_dir at standby slot for later use.
                 if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
-                    os.link(fpath, resource_save_dst, follow_symlinks=False)
+                    shutil.move(fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
@@ -452,8 +452,14 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 calculated_digest, file_size = worker_helper.stream_and_verify_file(
                     fpath, tmp_dst_fpath
                 )
-                if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
-                    os.replace(tmp_dst_fpath, self._copy_dst / calculated_digest.hex())
+                resource_save_dst = self._copy_dst / calculated_digest.hex()
+
+                if (
+                    not resource_save_dst.is_file()
+                    and self._rst_orm_pool.orm_delete_entries(digest=calculated_digest)
+                    == 1
+                ):
+                    os.replace(tmp_dst_fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
@@ -585,7 +591,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         )
 
         while _input := self._que.get():
-            expected_digest, fpaths = _input
+            expected_digest, canonical_fpaths = _input
             delta_src_fpaths = [
                 Path(
                     replace_root(
@@ -594,7 +600,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                         self._delta_src_mount_point,
                     )
                 )
-                for _fpath in fpaths
+                for _fpath in canonical_fpaths
             ]
 
             try:
@@ -682,9 +688,20 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         )
 
         while _input := self._que.get():
-            expected_digest, fpaths = _input
+            expected_digest, canonical_fpaths = _input
+            delta_src_fpaths = {
+                Path(
+                    replace_root(
+                        _fpath,
+                        CANONICAL_ROOT,
+                        self._delta_src_mount_point,
+                    )
+                )
+                for _fpath in canonical_fpaths
+            }
+
             try:
-                for fpath in fpaths:
+                for fpath in delta_src_fpaths:
                     _tmp_fpath = self._copy_dst / _gen_tmp_fname()
                     try:
                         calculated_digest, file_size = (
