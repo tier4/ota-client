@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import anyio
-from anyio import open_file, to_thread
+from anyio import open_file
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -146,6 +146,8 @@ class CacheTracker:
         try:
             async with await open_file(self.fpath, "wb") as f:
                 fd = f.wrapped.fileno()
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_NOREUSE)
+
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
@@ -161,10 +163,6 @@ class CacheTracker:
                         self._writer_ready.set()
 
                     self._bytes_written += _written
-
-                await f.flush()
-                await to_thread.run_sync(os.fsync, fd)
-                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             # logger.debug(
             #     "cache write finished, total bytes written"
