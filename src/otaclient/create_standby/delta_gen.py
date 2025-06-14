@@ -584,21 +584,20 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             report_que=self._status_report_queue,
         )
 
-        delta_src_fpaths = None
         while _input := self._que.get():
-            try:
-                expected_digest, fpaths = _input
-                delta_src_fpaths = [
-                    Path(
-                        replace_root(
-                            _fpath,
-                            CANONICAL_ROOT,
-                            self._delta_src_mount_point,
-                        )
+            expected_digest, fpaths = _input
+            delta_src_fpaths = [
+                Path(
+                    replace_root(
+                        _fpath,
+                        CANONICAL_ROOT,
+                        self._delta_src_mount_point,
                     )
-                    for _fpath in fpaths
-                ]
+                )
+                for _fpath in fpaths
+            ]
 
+            try:
                 for fpath in delta_src_fpaths:
                     try:
                         calculated_digest, file_size = worker_helper.verify_file(fpath)
@@ -613,7 +612,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            os.link(fpath, resource_save_dst, follow_symlinks=False)
+                            shutil.move(fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
@@ -621,11 +620,10 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             except BaseException:
                 continue
             finally:
-                # after the resource is collected, remove the original file
-                if delta_src_fpaths:
-                    for _f in delta_src_fpaths:
-                        _f.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
+                # after the resource is collected, remove the original file
+                for _f in delta_src_fpaths:
+                    _f.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
