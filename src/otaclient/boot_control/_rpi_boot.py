@@ -161,6 +161,7 @@ class _RPIBootControl:
             _err_msg = f"system-boot is not mounted at {self.system_boot_mp}, try to mount it..."
             logger.warning(_err_msg)
 
+            self.system_boot_mp.mkdir(exist_ok=True, parents=True)
             try:
                 cmdhelper.mount(
                     system_boot_partition,
@@ -285,19 +286,19 @@ class _RPIBootControl:
         flash-kernel requires at least these mounts to work properly.
         """
         target_slot_mp = Path(target_slot_mp)
-        mounts: dict[str, str] = {}
+        mounts: dict[Path, Path] = {}
 
         # we need to mount /proc, /sys and /boot/firmware to make flash-kernel works
         system_boot_mp = target_slot_mp / Path(
             boot_cfg.SYSTEM_BOOT_MOUNT_POINT
         ).relative_to("/")
-        mounts[str(system_boot_mp)] = boot_cfg.SYSTEM_BOOT_MOUNT_POINT
+        mounts[system_boot_mp] = Path(boot_cfg.SYSTEM_BOOT_MOUNT_POINT)
 
         proc_mp = target_slot_mp / "proc"
-        mounts[str(proc_mp)] = "/proc"
+        mounts[proc_mp] = Path("/proc")
 
         sys_mp = target_slot_mp / "sys"
-        mounts[str(sys_mp)] = "/sys"
+        mounts[sys_mp] = Path("/sys")
 
         # NOTE(20250314): ensure that tmp folder exists on standby slot
         _tmp_on_standby = target_slot_mp / "tmp"
@@ -308,6 +309,7 @@ class _RPIBootControl:
 
         try:
             for _mp, _src in mounts.items():
+                _mp.mkdir(exist_ok=True, parents=True)
                 cmdhelper.mount(
                     _src,
                     _mp,

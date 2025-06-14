@@ -249,6 +249,31 @@ class TestRPIBootControl:
             mocker.MagicMock(return_value=mp_control_mock),
         )
 
+    def test_prepare_flash_kernel(
+        self, mocker: pytest_mock.MockerFixture, tmp_path: Path
+    ):
+        # Setup
+        target_slot_mp = tmp_path / "target_slot"
+        target_slot_mp.mkdir()
+
+        mock_cmdhelper = mocker.patch(f"{RPI_BOOT_MODULE_PATH}.cmdhelper")
+
+        # Execute
+        with _rpi_boot._RPIBootControl._prepare_flash_kernel(target_slot_mp):
+            pass
+
+        # Verify directories were created
+        assert (target_slot_mp / "boot" / "firmware").exists()
+        assert (target_slot_mp / "proc").exists()
+        assert (target_slot_mp / "sys").exists()
+        assert (target_slot_mp / "tmp").exists()
+
+        # Verify mount was called 3 times (system-boot, proc, sys)
+        assert mock_cmdhelper.mount.call_count == 3
+
+        # Verify umount was called 3 times in cleanup
+        assert mock_cmdhelper.umount.call_count == 3
+
     def test_rpi_boot_normal_update(self, mocker: pytest_mock.MockerFixture):
         # ------ patch rpi_boot_cfg for boot_controller_inst1.stage 1~3 ------#
         _mock_rpi_boot_cfg = RPIBootControlConfig()
