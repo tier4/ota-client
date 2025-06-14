@@ -135,12 +135,43 @@ class ProcessFileHelper(Generic[T]):
             operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
         )
 
-    def process_one_file(self, fpath: StrOrPath) -> tuple[bytes, int]:
+    def verify_file(self, fpath: StrOrPath) -> tuple[bytes, int]:
         hash_f, file_size = sha256(), 0
         with open(fpath, "rb") as src:
+            src_fd = src.fileno()
+            # NOTE(20250616): hint kernel that we will read the whole file,
+            #                 kernel will enable read-ahead cache and discard
+            #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
             while read_size := src.readinto(self._hash_buffer):
                 file_size += read_size
                 hash_f.update(self._hash_bufferview[:read_size])
+            # NOTE(20250616): hint kernel to drop the file cache pages.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        return hash_f.digest(), file_size
+
+    def stream_and_verify_file(
+        self, fpath: StrOrPath, dst_fpath: StrOrPath
+    ) -> tuple[bytes, int]:
+        hash_f, file_size = sha256(), 0
+        with open(fpath, "rb") as src, open(dst_fpath, "wb") as dst:
+            src_fd, dst_fd = src.fileno(), dst.fileno()
+            # NOTE(20250616): hint kernel that we will read the whole file,
+            #                 kernel will enable read-ahead cache and discard
+            #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+            while read_size := src.readinto(self._hash_buffer):
+                file_size += read_size
+                hash_f.update(self._hash_bufferview[:read_size])
+                # zero-copy write
+                dst.write(self._hash_bufferview[:read_size])
+
+            dst.flush()
+            os.fsync(dst_fd)
+
+            # NOTE(20250616): hint kernel to drop the file cache pages.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
         return hash_f.digest(), file_size
 
     def report_one_file(self, *file_size: int, force_report: bool = False) -> None:
@@ -296,7 +327,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                calculated_digest, file_size = worker_helper.process_one_file(fpath)
+                calculated_digest, file_size = worker_helper.verify_file(fpath)
 
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
@@ -418,7 +449,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                calculated_digest, file_size = worker_helper.process_one_file(fpath)
+                calculated_digest, file_size = worker_helper.verify_file(fpath)
 
                 # If the resource we scan here is listed in the resouce table, COPY it
                 #   to the copy_dir at standby slot for later use.
@@ -571,9 +602,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                 for fpath in delta_src_fpaths:
                     try:
-                        calculated_digest, file_size = worker_helper.process_one_file(
-                            fpath
-                        )
+                        calculated_digest, file_size = worker_helper.verify_file(fpath)
                     except BaseException:
                         continue
 
@@ -661,9 +690,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                 for fpath in fpaths:
                     try:
-                        calculated_digest, file_size = worker_helper.process_one_file(
-                            fpath
-                        )
+                        calculated_digest, file_size = worker_helper.verify_file(fpath)
                     except BaseException:
                         continue
 
