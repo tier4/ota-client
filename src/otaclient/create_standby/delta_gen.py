@@ -143,6 +143,7 @@ class ProcessFileHelper(Generic[T]):
             # NOTE(20250616): hint kernel that we will read the whole file,
             #                 kernel will enable read-ahead cache and discard
             #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
             while read_size := src.readinto(self._hash_buffer):
                 file_size += read_size
@@ -160,6 +161,8 @@ class ProcessFileHelper(Generic[T]):
             # NOTE(20250616): hint kernel that we will read the whole file,
             #                 kernel will enable read-ahead cache and discard
             #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
             while read_size := src.readinto(self._hash_buffer):
                 file_size += read_size
