@@ -21,11 +21,11 @@ import logging
 import os
 import threading
 import weakref
-from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import anyio
 from anyio import open_file
+from anyio.to_thread import run_sync
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -42,11 +42,6 @@ from .errors import (
 logger = logging.getLogger(__name__)
 
 # cache tracker
-
-
-def _tracker_finalizer(tmp_fpath: Path):
-    """Finalizer that cleans up the tmp file when this tracker is gced."""
-    tmp_fpath.unlink(missing_ok=True)
 
 
 class CacheTracker:
@@ -102,7 +97,7 @@ class CacheTracker:
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
-        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
+        self.fpath = anyio.Path(base_dir) / self._tmp_file_naming(cache_identifier)
         self.save_path = anyio.Path(base_dir) / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
@@ -114,13 +109,6 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
-
-        # self-register the finalizer to this tracker
-        weakref.finalize(
-            self,
-            _tracker_finalizer,
-            self.fpath,
-        )
 
     @property
     def writer_failed(self) -> bool:
@@ -178,7 +166,7 @@ class CacheTracker:
             # finalize the cache file, skip finalize if the target file is
             #   already presented.
             if not await self.save_path.is_file():
-                os.link(self.fpath, self.save_path)
+                await run_sync(os.replace, self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
             self._writer_failed.set()
@@ -186,6 +174,7 @@ class CacheTracker:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
             self._writer_finished.set()
             self._writer_ready.set()
+            await self.fpath.unlink(missing_ok=True)
             self = None  # remove the ref to tracker
 
     async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
