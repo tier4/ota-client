@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of cache streaming."""
 
-
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +25,7 @@ from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import anyio
-from anyio import open_file
+from anyio import open_file, to_thread
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -146,6 +145,7 @@ class CacheTracker:
         logger.debug(f"start to cache for {cache_meta=}...")
         try:
             async with await open_file(self.fpath, "wb") as f:
+                fd = f.wrapped.fileno()
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
@@ -161,6 +161,10 @@ class CacheTracker:
                         self._writer_ready.set()
 
                     self._bytes_written += _written
+
+                await f.flush()
+                await to_thread.run_sync(os.fsync, fd)
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             # logger.debug(
             #     "cache write finished, total bytes written"
@@ -201,6 +205,8 @@ class CacheTracker:
         err_count, _bytes_read = 0, 0
         try:
             async with await open_file(self.fpath, "rb") as f:
+                fd = f.wrapped.fileno()
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while (
                     not self._writer_finished.is_set()
                     or _bytes_read < self._bytes_written
@@ -235,6 +241,7 @@ class CacheTracker:
                         )
                     )
                     err_count += 1
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         finally:
             self = None  # del the ref to the tracker on finished
 
