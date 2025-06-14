@@ -398,12 +398,13 @@ class OTACache:
                 #                 1. https://github.com/aio-libs/aiohttp/issues/4581
                 #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
                 await asyncio.sleep(0)
-                async for data, _ in response.content.iter_chunks():
-                    if data:  # only yield non-empty data chunk
-                        yield data
+                while data := await response.content.read(1024 * 1024):
+                    yield data
 
         # open remote connection
-        resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
+        resp_headers: CIMultiDictProxy[str] = await (
+            _remote_fd := _do_request()
+        ).__anext__()  # type: ignore
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(

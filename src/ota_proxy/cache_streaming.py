@@ -163,10 +163,8 @@ class CacheTracker:
 
             # commit the cache meta to the database
             await self._commit_cache_cb(cache_meta)
-            # finalize the cache file, skip finalize if the target file is
-            #   already presented.
-            if not await self.save_path.is_file():
-                await run_sync(os.replace, self.fpath, self.save_path)
+            # finalize the cache file, unconditionally override the existed one
+            await run_sync(os.replace, self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
             self._writer_failed.set()
