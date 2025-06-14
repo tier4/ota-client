@@ -206,6 +206,7 @@ class CacheTracker:
         try:
             async with await open_file(self.fpath, "rb") as f:
                 fd = f.wrapped.fileno()
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_NOREUSE)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while (
                     not self._writer_finished.is_set()
