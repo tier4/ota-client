@@ -682,13 +682,16 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         )
 
         while _input := self._que.get():
+            expected_digest, fpaths = _input
             try:
-                expected_digest, fpaths = _input
-
                 for fpath in fpaths:
+                    _tmp_fpath = self._copy_dst / _gen_tmp_fname()
                     try:
-                        calculated_digest, file_size = worker_helper.verify_file(fpath)
+                        calculated_digest, file_size = (
+                            worker_helper.stream_and_verify_file(fpath, _tmp_fpath)
+                        )
                     except BaseException:
+                        _tmp_fpath.unlink(missing_ok=True)
                         continue
 
                     if calculated_digest == expected_digest:
@@ -699,7 +702,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
+                            shutil.move(_tmp_fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
