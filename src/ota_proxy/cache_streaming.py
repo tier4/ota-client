@@ -145,9 +145,6 @@ class CacheTracker:
         logger.debug(f"start to cache for {cache_meta=}...")
         try:
             async with await open_file(self.fpath, "wb") as f:
-                fd = f.wrapped.fileno()
-                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_NOREUSE)
-
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
@@ -163,6 +160,7 @@ class CacheTracker:
                         self._writer_ready.set()
 
                     self._bytes_written += _written
+                os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_NOREUSE)
 
             # logger.debug(
             #     "cache write finished, total bytes written"
@@ -204,7 +202,6 @@ class CacheTracker:
         try:
             async with await open_file(self.fpath, "rb") as f:
                 fd = f.wrapped.fileno()
-                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_NOREUSE)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while (
                     not self._writer_finished.is_set()
