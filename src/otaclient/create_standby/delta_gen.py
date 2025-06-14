@@ -315,11 +315,9 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             report_que=self._status_report_queue,
         )
 
-        fpath = None
         while _input := self._que.get():
+            fpath, canonical_fpath, fully_scan = _input
             try:
-                fpath, canonical_fpath, fully_scan = _input
-
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -338,10 +336,9 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             except BaseException:
                 continue
             finally:
-                # remove the original file as we will recreate file entries later
-                if fpath:
-                    fpath.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
+                # remove the original file as we will recreate file entries later
+                fpath.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
