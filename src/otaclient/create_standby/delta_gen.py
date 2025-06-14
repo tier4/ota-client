@@ -33,6 +33,7 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
+from otaclient_common._io import _gen_tmp_fname
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -436,9 +437,9 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
         )
 
         while _input := self._que.get():
+            tmp_dst_fpath = self._copy_dst / _gen_tmp_fname()
+            fpath, canonical_fpath, fully_scan = _input
             try:
-                fpath, canonical_fpath, fully_scan = _input
-
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly skip it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -446,18 +447,19 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                calculated_digest, file_size = worker_helper.verify_file(fpath)
-
                 # If the resource we scan here is listed in the resouce table, COPY it
                 #   to the copy_dir at standby slot for later use.
+                calculated_digest, file_size = worker_helper.stream_and_verify_file(
+                    fpath, tmp_dst_fpath
+                )
                 if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
-                    resource_save_dst = self._copy_dst / calculated_digest.hex()
-                    shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
+                    os.replace(tmp_dst_fpath, self._copy_dst / calculated_digest.hex())
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
                 self._max_pending_tasks.release()  # always release se first
+                tmp_dst_fpath.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
