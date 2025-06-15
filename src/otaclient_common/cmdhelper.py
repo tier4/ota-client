@@ -248,7 +248,6 @@ def mkfs_ext4(
     fslabel: str | None = None,
     fsuuid: str | None = None,
     raise_exception: bool = True,
-    chroot: str | None = None,
 ) -> None:  # pragma: no cover
     """Create new ext4 formatted filesystem on <dev>, optionally with <fslabel>
         and/or <fsuuid>.
@@ -288,7 +287,7 @@ def mkfs_ext4(
 
     cmd.append(dev)
     logger.warning(f"format {dev} to ext4: {cmd=}")
-    subprocess_call(cmd, raise_exception=raise_exception, chroot=chroot)
+    subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def reboot(
@@ -390,7 +389,7 @@ def bind_mount_rw(
     cmd = [
         "mount",
         "-o", "bind,rw",
-        "--make-private", "--make-unbindable",
+        "--make-private",
         str(target),
         str(mount_point)
     ]
