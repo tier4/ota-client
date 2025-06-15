@@ -126,7 +126,11 @@ class SlotMountHelper:  # pragma: no cover
     ) -> None:
         cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=True)
         if erase_standby:
-            return cmdhelper.mkfs_ext4(self.standby_slot_dev, fslabel=fslabel)
+            return cmdhelper.mkfs_ext4(
+                self.standby_slot_dev,
+                fslabel=fslabel,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
 
         # TODO: in the future if in-place update mode is implemented, do a
         #   fschck over the standby slot file system.
