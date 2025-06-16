@@ -21,7 +21,6 @@ import logging
 import os
 import threading
 import weakref
-from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import anyio
@@ -29,7 +28,6 @@ from anyio import open_file
 from anyio.to_thread import run_sync
 
 from otaclient_common._logging import get_burst_suppressed_logger
-from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
 from .config import config as cfg
@@ -73,8 +71,8 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 10  # max wait ~4.27s
-    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 10  # max wait ~4.27s
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # max wait: ~9s
+    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # max wait: ~9s
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
@@ -97,16 +95,15 @@ class CacheTracker:
         self,
         cache_identifier: str,
         *,
-        base_dir: StrOrPath,
+        base_dir: anyio.Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
-        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.save_path = anyio.Path(base_dir) / cache_identifier
+        self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
+        self.save_path = base_dir / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
-        self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
         self._writer_failed = asyncio.Event()
 
@@ -134,23 +131,16 @@ class CacheTracker:
         If cache writing failed, this method will exit and tracker.writer_failed and
         tracker.writer_finished will be set.
         """
-        logger.debug(f"start to cache for {cache_meta=}...")
         try:
             async with await open_file(self.fpath, "wb") as f:
                 _written = 0
                 while _data := (yield _written):
                     if not self._space_availability_event.is_set():
                         _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
-                        logger.warning(_err_msg)
+                        burst_suppressed_logger.warning(_err_msg)
                         raise StorageReachHardLimit(_err_msg)
 
                     _written = await f.write(_data)
-
-                    # set the writer is ready on first chunk of data written,
-                    # signal the subcriber that the cache stream starts.
-                    if not self._writer_ready.is_set():
-                        self._writer_ready.set()
-
                     self._bytes_written += _written
                 os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_NOREUSE)
 
@@ -167,16 +157,16 @@ class CacheTracker:
 
             # commit the cache meta to the database
             await self._commit_cache_cb(cache_meta)
-            # finalize the cache file, skip finalize if the target file is
-            #   already presented.
+            # finalize the cache file, always rewrite the existed file
             await run_sync(os.replace, self.fpath, self.save_path)
         except Exception as e:
-            logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
+            burst_suppressed_logger.warning(
+                f"failed to write cache for {cache_meta=}: {e!r}"
+            )
             self._writer_failed.set()
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
             self._writer_finished.set()
-            self._writer_ready.set()
             self = None  # remove the ref to tracker
 
     async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
@@ -189,14 +179,14 @@ class CacheTracker:
             CacheMultipleStreamingFailed if provider failed or timeout reading
             data chunk from tmp cache file(might be caused by a dead provider).
         """
-        err_count, _bytes_read = 0, 0
+        wait_data_count, bytes_read = 0, 0
         try:
             async with await open_file(self.fpath, "rb") as f:
                 fd = f.wrapped.fileno()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while (
                     not self._writer_finished.is_set()
-                    or _bytes_read < self._bytes_written
+                    or bytes_read < self._bytes_written
                 ):
                     if self._writer_failed.is_set():
                         raise CacheStreamingInterrupt(
@@ -204,14 +194,12 @@ class CacheTracker:
                         )
 
                     if _chunk := await f.read(cfg.CHUNK_SIZE):
-                        err_count = 0
-                        _bytes_read += len(_chunk)
+                        wait_data_count = 0
+                        bytes_read += len(_chunk)
                         yield _chunk
-                        continue
-
                     # no data chunk is read, wait with backoff for the next
                     #   data chunk written by the provider.
-                    if err_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
+                    elif wait_data_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
                         _err_msg = (
                             f"failed to read stream for {self.cache_meta}: "
@@ -219,15 +207,15 @@ class CacheTracker:
                         )
                         logger.warning(_err_msg)
                         raise CacheMultiStreamingFailed(_err_msg)
-
-                    await asyncio.sleep(
-                        get_backoff(
-                            err_count,
-                            self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
-                            self.SUBSCRIBER_WAIT_BACKOFF_MAX,
+                    else:
+                        await asyncio.sleep(
+                            get_backoff(
+                                wait_data_count,
+                                self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
+                                self.SUBSCRIBER_WAIT_BACKOFF_MAX,
+                            )
                         )
-                    )
-                    err_count += 1
+                        wait_data_count += 1
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         finally:
             self = None  # del the ref to the tracker on finished
@@ -252,10 +240,10 @@ class CacheTracker:
     async def subscribe_tracker(self) -> tuple[AsyncIterator[bytes], CacheMeta] | None:
         """Subscribe to this tracker and get the cache stream and cache_meta."""
         _wait_count = 0
-        while not self._writer_ready.is_set():
+        while self._bytes_written <= 0:
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
                 burst_suppressed_logger.warning(
-                    f"timeout waiting provider for {self.cache_meta}, abort"
+                    "timeout waiting provider starts caching, abort"
                 )
                 return
             if self._writer_failed.is_set():
@@ -270,9 +258,8 @@ class CacheTracker:
             )
             _wait_count += 1
 
-        if self._writer_failed.is_set() or self.cache_meta is None:
-            return  # try to subscribe a failed stream
-        return self._subscriber_stream_cache(), self.cache_meta
+        if not self._writer_failed.is_set() and self.cache_meta:
+            return self._subscriber_stream_cache(), self.cache_meta
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
