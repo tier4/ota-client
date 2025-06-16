@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Protocol
+from typing import Optional, Protocol
 
 from otaclient._types import OTAStatus
 
@@ -44,6 +44,15 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
+
+    #
+    # ------ client update ------ #
+    #
+
+    @abstractmethod
+    def prepare_active_and_standby_slots(
+        self, *, base_mount_point: Optional[Path], erase_standby: bool
+    ): ...
 
     #
     # ------ update ------ #

@@ -21,7 +21,7 @@ import os
 import subprocess
 from pathlib import Path
 from string import Template
-from typing import Any, Generator, Literal, NoReturn
+from typing import Any, Generator, Literal, NoReturn, Optional
 
 from typing_extensions import Self
 
@@ -484,6 +484,16 @@ class RPIBootController(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
+    def prepare_active_and_standby_slots(
+        self, *, base_mount_point: Optional[Path] = None, erase_standby=False
+    ):
+        self._mp_control.prepare_standby_dev(
+            erase_standby=erase_standby,
+            fslabel=self._rpiboot_control.standby_slot,
+        )
+        self._mp_control.mount_standby(base_mount_point=base_mount_point)
+        self._mp_control.mount_active(base_mount_point=base_mount_point)
+
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("rpi_boot: pre-update setup...")
@@ -491,12 +501,7 @@ class RPIBootController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._mp_control.prepare_standby_dev(
-                erase_standby=erase_standby,
-                fslabel=self._rpiboot_control.standby_slot,
-            )
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
+            self.prepare_active_and_standby_slots(erase_standby=erase_standby)
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)

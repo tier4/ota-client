@@ -24,8 +24,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -443,6 +443,7 @@ class TestClientPackagePrepareter:
             active_root=self.DUMMY_ACTIVE_ROOT,
             active_slot_mnt_point=self.DUMMY_ACTIVE_SLOT_MNT_POINT,
             host_root_mnt_point=self.DUMMY_HOST_ROOT_MNT_POINT,
+            bootloader=MagicMock(),
         )
 
     @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")

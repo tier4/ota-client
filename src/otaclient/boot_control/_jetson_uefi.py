@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, ClassVar, Generator, Literal, NoReturn
+from typing import Any, ClassVar, Generator, Literal, NoReturn, Optional
 
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -975,14 +975,19 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
+    def prepare_active_and_standby_slots(
+        self, *, base_mount_point: Optional[Path] = None, erase_standby=False
+    ):
+        self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
+        self._mp_control.mount_standby(base_mount_point=base_mount_point)
+        self._mp_control.mount_active(base_mount_point=base_mount_point)
+
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-uefi: pre-update ...")
             self._ota_status_control.pre_update_current()
 
-            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
+            self.prepare_active_and_standby_slots(erase_standby=erase_standby)
 
             self._ota_status_control.pre_update_standby(version=version)
         except Exception as e:
