@@ -309,27 +309,25 @@ class OTAClientStatusCollector:
         while True:
             _now = time.perf_counter()
 
+            # ------ try process the report ------ #
             report = None
             try:
                 report = self._input_queue.get_nowait()
                 if report is TERMINATE_SENTINEL:
+                    logger.info("status collector thread exits on receiving sentinal")
                     return
 
                 # report that is invalid
                 if not self.load_report(report):
                     report = None
             except queue.Empty:
-                pass
+                time.sleep(self.min_collect_interval)
 
-            # ------ push status on load_report ------ #
+            # ------ push status ------ #
             # NOTE: always push OTAStatus change report
-            if (
-                report
-                and self._status
-                and (
-                    isinstance(report.payload, OTAStatusChangeReport)
-                    or _now > _next_shm_push
-                )
+            if self._status and (
+                _now > _next_shm_push
+                or (report and isinstance(report.payload, OTAStatusChangeReport))
             ):
                 try:
                     self._shm_status.write_msg(self._status)
@@ -338,8 +336,6 @@ class OTAClientStatusCollector:
                     burst_suppressed_logger.debug(
                         f"failed to push status to shm: {e!r}"
                     )
-
-            time.sleep(self.min_collect_interval)
 
     def _ota_status_logging_thread(self) -> None:
         while True:
