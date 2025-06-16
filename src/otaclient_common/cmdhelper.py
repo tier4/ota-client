@@ -378,7 +378,7 @@ def bind_mount_rw(
     """Bind mount the <target> to <mount_point> read-write.
 
     This is implemented by calling:
-        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
+        mount -o bind,rw --make-private <target> <mount_point>
 
     Args:
         target (StrOrPath): target to be mounted.
@@ -390,7 +390,7 @@ def bind_mount_rw(
     cmd = [
         "mount",
         "-o", "bind,rw",
-        "--make-private", "--make-unbindable",
+        "--make-private",
         str(target),
         str(mount_point)
     ]
