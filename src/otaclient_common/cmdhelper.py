@@ -390,7 +390,7 @@ def bind_mount_rw(
     cmd = [
         "mount",
         "-o", "bind,rw",
-        "--make-private", "--make-unbindable",
+        "--make-private",
         str(target),
         str(mount_point)
     ]
