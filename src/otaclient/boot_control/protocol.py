@@ -46,6 +46,15 @@ class BootControllerProtocol(Protocol):
         """Cleanup by boot_control implementation when OTA failed."""
 
     #
+    # ------ client update ------ #
+    #
+
+    @abstractmethod
+    def prepare_active_and_standby_slots(
+        self, *, base_mount_point: Path, erase_standby: bool
+    ): ...
+
+    #
     # ------ update ------ #
     #
 

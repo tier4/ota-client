@@ -880,6 +880,13 @@ class GrubController(BootControllerProtocol):
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
+    def prepare_active_and_standby_slots(
+        self, *, base_mount_point: Path = None, erase_standby=False
+    ):
+        self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
+        self._mp_control.mount_standby(base_mount_point=base_mount_point)
+        self._mp_control.mount_active(base_mount_point=base_mount_point)
+
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
         try:
             logger.info("grub_boot: pre-update setup...")
@@ -887,9 +894,7 @@ class GrubController(BootControllerProtocol):
             self._ota_status_control.pre_update_current()
 
             ### mount slots ###
-            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
+            self.prepare_active_and_standby_slots(erase_standby=erase_standby)
 
             ### update standby slot's ota_status files ###
             self._ota_status_control.pre_update_standby(version=version)
