@@ -18,7 +18,6 @@ When underlying subprocess call failed and <raise_exception> is True,
     to the upper caller.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -301,7 +300,7 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
             Defaults to None, not passing any args.
 
     Raises:
-        CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
+        SystemExit by sys.exit(0).
     """
     cmd = ["reboot"]
     if args:
@@ -309,8 +308,10 @@ def reboot(args: list[str] | None = None) -> NoReturn:  # pragma: no cover
         cmd.extend(args)
 
     logger.warning("system will reboot now!")
-    subprocess_call(cmd, raise_exception=True)
-    sys.exit(0)
+    try:
+        subprocess_call(cmd, raise_exception=False)
+    finally:
+        sys.exit(0)
 
 
 #

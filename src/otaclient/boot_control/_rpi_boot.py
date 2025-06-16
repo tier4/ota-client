@@ -13,7 +13,6 @@
 # limitations under the License.
 """Boot control support for Raspberry pi 4 Model B."""
 
-
 from __future__ import annotations
 
 import contextlib
@@ -417,16 +416,11 @@ class _RPIBootControl:
             logger.error(_err_msg)
             raise _RPIBootControllerError(_err_msg) from e
 
-    def reboot_tryboot(self):
+    def reboot_tryboot(self) -> NoReturn:
         """Reboot with tryboot flag."""
         logger.info(f"tryboot reboot to standby slot({self.standby_slot})...")
-        try:
-            # NOTE: "0 tryboot" is a single param.
-            cmdhelper.reboot(args=["0 tryboot"])
-        except Exception as e:
-            _err_msg = "failed to reboot"
-            logger.exception(_err_msg)
-            raise _RPIBootControllerError(_err_msg) from e
+        # NOTE: "0 tryboot" is a single param.
+        cmdhelper.reboot(args=["0 tryboot"])
 
 
 class RPIBootController(BootControllerProtocol):
@@ -553,14 +547,7 @@ class RPIBootController(BootControllerProtocol):
             ) from e
 
     def finalizing_update(self) -> NoReturn:
-        try:
-            self._rpiboot_control.reboot_tryboot()
-        except Exception as e:
-            _err_msg = f"reboot failed: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+        self._rpiboot_control.reboot_tryboot()
 
     finalizing_rollback = finalizing_update
 
