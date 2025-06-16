@@ -3,14 +3,14 @@ from __future__ import annotations
 import os
 from hashlib import sha256
 from os import PathLike
-from typing import AsyncIterator
+from typing import AsyncGenerator
 
 from anyio import open_file
 
 from .config import config as cfg
 
 
-async def read_file(fpath: PathLike) -> AsyncIterator[bytes]:
+async def read_file(fpath: PathLike) -> AsyncGenerator[bytes]:
     """Open and read a file asynchronously."""
     async with await open_file(fpath, "rb") as f:
         fd = f.wrapped.fileno()
