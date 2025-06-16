@@ -18,7 +18,6 @@ When underlying subprocess call failed and <raise_exception> is True,
     to the upper caller.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -307,7 +306,7 @@ def reboot(
         chroot (str | None, optional): the chroot path to use. Defaults to None.
 
     Raises:
-        CalledProcessError for the reboot call, or SystemExit on sys.exit(0).
+        SystemExit by sys.exit(0).
     """
     cmd = ["reboot"]
     if args:
@@ -315,8 +314,10 @@ def reboot(
         cmd.extend(args)
 
     logger.warning("system will reboot now!")
-    subprocess_call(cmd, raise_exception=True, chroot=chroot)
-    sys.exit(0)
+    try:
+        subprocess_call(cmd, raise_exception=False, chroot=chroot)
+    finally:
+        sys.exit(0)
 
 
 #
