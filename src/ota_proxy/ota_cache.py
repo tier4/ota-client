@@ -618,8 +618,10 @@ class OTACache:
         ):
             return _res
 
-        if _res := await self._retrieve_file_by_cache_lookup(
-            raw_url=raw_url, cache_policy=cache_policy
+        if not cache_policy.retry_caching and (
+            _res := await self._retrieve_file_by_cache_lookup(
+                raw_url=raw_url, cache_policy=cache_policy
+            )
         ):
             return _res
 
