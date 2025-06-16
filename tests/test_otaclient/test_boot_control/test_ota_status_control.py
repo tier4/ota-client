@@ -260,3 +260,31 @@ class TestOTAStatusFilesControl:
         assert not self.finalize_switch_boot_flag.is_set()
         # slot_b's status is read
         assert status_control.booted_ota_status == OTAStatus.FAILURE
+
+    def test_client_updating_status_handling(self):
+        """Test CLIENT_UPDATING status is converted to SUCCESS as workaround."""
+        # ------ setup ------ #
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.CLIENT_UPDATING)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+
+        # ------ execution ------ #
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            force_initialize=False,
+        )
+
+        # ------ assertion ------ #
+        assert not self.finalize_switch_boot_flag.is_set()
+        # CLIENT_UPDATING should be converted to SUCCESS as workaround
+        assert status_control.booted_ota_status == OTAStatus.SUCCESS
+        # The original status file should remain unchanged (CLIENT_UPDATING is not persisted back)
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.CLIENT_UPDATING
+        assert (
+            read_str_from_file(self.slot_a_slot_in_use_file)
+            == status_control._load_current_slot_in_use()
+            == self.slot_a
+        )
