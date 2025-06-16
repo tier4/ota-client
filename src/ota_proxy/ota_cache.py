@@ -21,7 +21,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import AsyncGenerator, AsyncIterator, Mapping, Optional, cast
+from typing import AsyncGenerator, Mapping, Optional, cast
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
@@ -410,15 +410,15 @@ class OTACache:
 
     async def _retrieve_file_by_downloading(
         self, raw_url: str, headers: Mapping[str, str]
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str]]:
         # open remote connection
-        _remote_fd = cast("AsyncIterator[bytes]", self._do_request(raw_url, headers))
+        _remote_fd = cast("AsyncGenerator[bytes]", self._do_request(raw_url, headers))
         resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
@@ -471,7 +471,7 @@ class OTACache:
 
     async def _retrieve_file_by_external_cache(
         self, client_cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         # skip if not external cache or otaclient doesn't sent valid file_sha256
         if (
             not self._external_cache_data_dir
@@ -512,7 +512,7 @@ class OTACache:
         raw_url: str,
         cache_policy: OTAFileCacheControl,
         headers_from_client: dict[str, str],
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
         # NOTE(20241202): no new cache on hard limit being reached
         if (
             not self._cache_enabled
@@ -574,7 +574,7 @@ class OTACache:
 
     async def retrieve_file(
         self, raw_url: str, headers_from_client: dict[str, str]
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.
