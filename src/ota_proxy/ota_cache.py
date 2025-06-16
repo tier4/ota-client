@@ -339,17 +339,23 @@ class OTACache:
                 # case 1: try to reserve space for the saved cache entry
                 if await self._reserve_space(meta.cache_size):
                     if not await self._lru_helper.commit_entry(meta):
-                        logger.debug(f"failed to commit cache for {meta.url=}")
+                        burst_suppressed_logger.warning(
+                            f"failed to commit cache for {meta.url=}"
+                        )
                 else:
                     # case 2: cache successful, but reserving space failed,
                     # NOTE(20221018): let cache tracker remove the tmp file
-                    logger.debug(f"failed to reserve space for {meta.url=}")
+                    burst_suppressed_logger.warning(
+                        f"failed to reserve space for {meta.url=}"
+                    )
             else:
                 # case 3: commit cache and finish up
                 if not await self._lru_helper.commit_entry(meta):
-                    logger.debug(f"failed to commit cache entry for {meta.url=}")
+                    burst_suppressed_logger.warning(
+                        f"failed to commit cache entry for {meta.url=}"
+                    )
         except Exception as e:
-            logger.exception(f"failed on callback for {meta=}: {e!r}")
+            burst_suppressed_logger.exception(f"failed on callback for {meta=}: {e!r}")
 
     def _process_raw_url(self, raw_url: str) -> str:
         """Process the raw URL received from upper uvicorn app.
