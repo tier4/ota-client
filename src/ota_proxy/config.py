@@ -48,7 +48,7 @@ class Config:
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
-    AIOHTTP_SOCKET_READ_TIMEOUT = 60  # second
+    AIOHTTP_SOCKET_READ_TIMEOUT = 16  # second
 
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"
@@ -60,6 +60,9 @@ class Config:
     EXTERNAL_CACHE_DEV_FSLABEL: str = "ota_cache_src"
     EXTERNAL_CACHE_DATA_DNAME: str = "data"
     """The cache blob storage is located at <cache_mnt_point>/data."""
+
+    MAX_CONCURRENT_REQUESTS: int = 256
+    """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
 
 
 config = Config()

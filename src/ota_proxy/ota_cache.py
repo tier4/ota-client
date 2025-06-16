@@ -29,6 +29,7 @@ import anyio
 import anyio.to_thread
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
@@ -43,6 +44,8 @@ from .lru_cache_helper import LRUCacheHelper
 from .utils import read_file, url_based_hash
 
 logger = logging.getLogger(__name__)
+# NOTE: only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
 
 
 # helper functions
@@ -521,14 +524,12 @@ class OTACache:
 
         # if set, cleanup any previous cache file before starting new cache
         if cache_policy.retry_caching:
-            logger.debug(f"requested with retry_cache for {raw_url=} ...")
             await self._lru_helper.remove_entry(cache_identifier)
             (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
             subscription := await tracker.subscribe_tracker()
         ):
-            # logger.debug(f"reader subscribe for {tracker.meta=}")
             stream_fd, cache_meta = subscription
             return stream_fd, cache_meta.export_headers_to_client()
 
@@ -592,7 +593,13 @@ class OTACache:
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
         if cache_policy.no_cache:
-            logger.info(f"client indicates that do not cache for {raw_url=}")
+            burst_suppressed_logger.info(
+                f"client indicates that do not cache for {raw_url=}"
+            )
+        if cache_policy.retry_caching:
+            burst_suppressed_logger.info(
+                f"client requests re-caching for {raw_url=}, {cache_policy.file_sha256=}"
+            )
 
         # when there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:

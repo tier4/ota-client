@@ -21,12 +21,14 @@ import logging
 import os
 import threading
 import weakref
+from pathlib import Path
 from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
 
 import anyio
 from anyio import open_file
 from anyio.to_thread import run_sync
 
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
@@ -40,6 +42,8 @@ from .errors import (
 )
 
 logger = logging.getLogger(__name__)
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
 
 # cache tracker
 
@@ -69,8 +73,8 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # 9s
-    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # 9s
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 6  # seconds
+    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 6  # seconds
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
@@ -97,7 +101,7 @@ class CacheTracker:
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
-        self.fpath = anyio.Path(base_dir) / self._tmp_file_naming(cache_identifier)
+        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
         self.save_path = anyio.Path(base_dir) / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
@@ -163,7 +167,8 @@ class CacheTracker:
 
             # commit the cache meta to the database
             await self._commit_cache_cb(cache_meta)
-            # finalize the cache file, unconditionally override the existed one
+            # finalize the cache file, skip finalize if the target file is
+            #   already presented.
             await run_sync(os.replace, self.fpath, self.save_path)
         except Exception as e:
             logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
@@ -172,7 +177,6 @@ class CacheTracker:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
             self._writer_finished.set()
             self._writer_ready.set()
-            await self.fpath.unlink(missing_ok=True)
             self = None  # remove the ref to tracker
 
     async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
@@ -250,7 +254,9 @@ class CacheTracker:
         _wait_count = 0
         while not self._writer_ready.is_set():
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
-                logger.warning(f"timeout waiting provider for {self.cache_meta}, abort")
+                burst_suppressed_logger.warning(
+                    f"timeout waiting provider for {self.cache_meta}, abort"
+                )
                 return
             if self._writer_failed.is_set():
                 return  # early break on failed provider
@@ -341,7 +347,7 @@ async def cache_streaming(
                 try:
                     await _cache_write_gen.asend(chunk)
                 except Exception as e:
-                    logger.error(
+                    burst_suppressed_logger.error(
                         f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
                     )
                     _cache_writer_failed = True
