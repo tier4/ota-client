@@ -305,33 +305,35 @@ class OTAClientStatusCollector:
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
-        _next_shm_push = 0
+        next_shm_push, lastest_changes_pushed = 0, False
         while True:
             _now = time.perf_counter()
 
             # ------ try process the report ------ #
             report = None
             try:
-                report = self._input_queue.get_nowait()
-                if report is TERMINATE_SENTINEL:
-                    logger.info("status collector thread exits on receiving sentinal")
+                _report = self._input_queue.get_nowait()
+                if _report is TERMINATE_SENTINEL:
+                    logger.info("status collector thread exits on receiving sentinel")
                     return
 
-                # report that is invalid
-                if not self.load_report(report):
-                    report = None
+                if self.load_report(_report):  # valid report
+                    report = _report
+                    lastest_changes_pushed = False
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
             # ------ push status ------ #
             # NOTE: always push OTAStatus change report
+            # NOTE: for every push interval, push only when we have status updated
             if self._status and (
-                _now > _next_shm_push
+                (_now > next_shm_push and not lastest_changes_pushed)
                 or (report and isinstance(report.payload, OTAStatusChangeReport))
             ):
                 try:
                     self._shm_status.write_msg(self._status)
-                    _next_shm_push = _now + self.shm_push_interval
+                    next_shm_push = _now + self.shm_push_interval
+                    lastest_changes_pushed = True
                 except Exception as e:
                     burst_suppressed_logger.debug(
                         f"failed to push status to shm: {e!r}"
