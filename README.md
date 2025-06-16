@@ -9,9 +9,11 @@ It is designed to work with web.auto FMS OTA component.
 
 ## Feature
 
-- A/B partition update with support for generic x86_64 device, NVIDIA Jetson series based devices and Raspberry Pi device.
+- A/B partition update with support for generic x86_64 device, NVIDIA Jetson series based devices and Raspberry Pi
+  device.
 - Full Rootfs update, with delta update support.
-- Local delta calculation, allowing update to any version of OTA image without the need of a pre-generated delta OTA package.
+- Local delta calculation, allowing update to any version of OTA image without the need of a pre-generated delta OTA
+  package.
 - Support persist files from active slot to newly updated slot.
 - Verification over OTA image by digital signature and PKI.
 - Support for protected OTA server with cookie.
@@ -20,4 +22,11 @@ It is designed to work with web.auto FMS OTA component.
 
 ## License
 
-OTAClient is licensed under the Apache License, Version 2.0.
+OTAClient is licensed under the Apache License 2.0.
+
+This project uses open-source software, each under its own license.
+For details, see the table below:
+
+| Software | License                                           | Source                                              |
+|----------|---------------------------------------------------|-----------------------------------------------------|
+| certifi  | [MPL-2.0](https://opensource.org/license/MPL-2.0) | [GitHub](https://github.com/certifi/python-certifi) |

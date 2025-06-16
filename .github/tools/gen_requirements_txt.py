@@ -11,9 +11,6 @@ def gen_requirements_txt(pyproject_cfg: dict[str, Any]) -> str:
     _res: list[str] = [
         "# Automatically generated from pyproject.toml by gen_requirements_txt.py script.",
         "# DO NOT EDIT! Only for reference use.",
-        "# This Source Code Form is subject to the terms of the Mozilla Public",
-        "# License, v. 2.0. If a copy of the MPL was not distributed with this",
-        "# file, You can obtain one at https://mozilla.org/MPL/2.0/.",
     ]
     try:
         _res.extend(pyproject_cfg["project"]["dependencies"])
