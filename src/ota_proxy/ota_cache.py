@@ -21,7 +21,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import AsyncIterator, Mapping, Optional
+from typing import AsyncGenerator, AsyncIterator, Mapping, Optional, cast
 from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 # NOTE: only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
 
+RESP_READ_SIZE = 256 * 1024  # 256KiB
 
 # helper functions
 
@@ -380,34 +381,33 @@ class OTACache:
 
     # retrieve_file handlers
 
-    async def _retrieve_file_by_downloading(
-        self,
-        raw_url: str,
-        *,
-        headers: Mapping[str, str],
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
-        async def _do_request() -> AsyncIterator[bytes]:
-            async with self._session.get(
-                self._process_raw_url(raw_url),
-                proxy=self._upper_proxy,
-                headers=headers,
-            ) as response:
-                yield response.headers  # type: ignore
-                # NOTE(20230803): sometimes aiohttp will raises:
-                #                 "ClientPayloadError: Response payload is not completed" exception,
-                #                 according to some posts in related issues, add a asyncio.sleep(0)
-                #                 to make event loop switch to other task here seems mitigates the problem.
-                #                 check the following URLs for details:
-                #                 1. https://github.com/aio-libs/aiohttp/issues/4581
-                #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
-                await asyncio.sleep(0)
-                while data := await response.content.read(1024 * 1024):
-                    yield data
+    async def _do_request(
+        self, raw_url: str, headers: Mapping[str, str]
+    ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
+        async with self._session.get(
+            self._process_raw_url(raw_url),
+            proxy=self._upper_proxy,
+            headers=headers,
+        ) as response:
+            yield response.headers
+            # NOTE(20230803): sometimes aiohttp will raises:
+            #                 "ClientPayloadError: Response payload is not completed" exception,
+            #                 according to some posts in related issues, add a asyncio.sleep(0)
+            #                 to make event loop switch to other task here seems mitigates the problem.
+            #                 check the following URLs for details:
+            #                 1. https://github.com/aio-libs/aiohttp/issues/4581
+            #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
+            # NOTE(20250616): the original issue is closed as fixed since 3.10.
+            # await asyncio.sleep(0)
+            while data := await response.content.read(RESP_READ_SIZE):
+                yield data
 
+    async def _retrieve_file_by_downloading(
+        self, raw_url: str, headers: Mapping[str, str]
+    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
         # open remote connection
-        resp_headers: CIMultiDictProxy[str] = await (
-            _remote_fd := _do_request()
-        ).__anext__()  # type: ignore
+        _remote_fd = cast("AsyncIterator[bytes]", self._do_request(raw_url, headers))
+        resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(
