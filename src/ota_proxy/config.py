@@ -61,6 +61,7 @@ class Config:
     EXTERNAL_CACHE_DATA_DNAME: str = "data"
     """The cache blob storage is located at <cache_mnt_point>/data."""
 
+    # ------ task management ------ #
     MAX_CONCURRENT_REQUESTS: int = 512
     """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
 

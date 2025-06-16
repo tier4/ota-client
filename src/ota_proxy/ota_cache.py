@@ -613,7 +613,9 @@ class OTACache:
 
         # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
         #   and loaded, still try to use external cache source.
-        if _res := await self._retrieve_file_by_external_cache(cache_policy):
+        if self._external_cache_data_dir and (
+            _res := await self._retrieve_file_by_external_cache(cache_policy)
+        ):
             return _res
 
         if _res := await self._retrieve_file_by_cache_lookup(
