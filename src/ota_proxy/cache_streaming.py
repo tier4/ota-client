@@ -211,6 +211,7 @@ class CacheTracker:
             burst_suppressed_logger.warning(
                 f"failed to write cache for {cache_meta=}: {e!r}"
             )
+            await self.fpath.unlink(missing_ok=True)
             self._writer_failed.set()
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
