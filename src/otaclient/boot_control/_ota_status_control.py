@@ -88,16 +88,16 @@ class OTAStatusFilesControl:
             # TODO(airkei) [2025-06-17]: Currently, there is no way to know the "ClientUpdate" result status.
             # When the last "Update" is "Failure", Next OTA might show "Failure" on FMS Console in the middle of OTA.
             # This is because ota-client reports "Failure" after the "ClientUpdate" is done.
-            # As temporary workaround, we set the status to SUCCESS here when current process is dynamic client.
+            # As temporary workaround, we set the status to INITIALIZED here when current process is dynamic client.
             # In future, we should store the "ClientUpdate" status in the dedicated file, then notify the status to upper layer.
             # 1. ota-client prepares the dedicated status file for ClientUpdate
             # 2. ota-client API adds new ClientUpdate status field in gRPC Status API
             # 3. Edge migrate Status handling from v1 to v2
             # 4. Edge handle its ClientUpdate status correctly.
             logger.info(
-                f"dynamic client is running, setting status to {OTAStatus.SUCCESS.name}"
+                f"dynamic client is running, setting status to {OTAStatus.INITIALIZED.name}"
             )
-            self._ota_status = OTAStatus.SUCCESS
+            self._ota_status = OTAStatus.INITIALIZED
             return
 
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
