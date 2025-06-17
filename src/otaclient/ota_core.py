@@ -215,9 +215,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -754,7 +754,6 @@ class _OTARollbacker:
 
 
 class OTAClient:
-
     def __init__(
         self,
         *,
@@ -798,19 +797,19 @@ class OTAClient:
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
         self.current_version = self.boot_controller.load_version()
+
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
+                ),
+            )
+        )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=_boot_ctrl_loaded_ota_status,
                 ),
             )
         )
@@ -966,7 +965,6 @@ class OTAClient:
                 )
 
             elif isinstance(request, UpdateRequestV2):
-
                 _update_thread = threading.Thread(
                     target=self.update,
                     args=[request],
@@ -1003,7 +1001,6 @@ class OTAClient:
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
             else:
-
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
                 resp_queue.put_nowait(
