@@ -22,7 +22,6 @@ from contextlib import closing
 from typing import Optional
 
 from multidict import CIMultiDict
-from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     AsyncORMBase,
     ConstrainRepr,
@@ -60,13 +59,13 @@ class CacheMeta(TableSpec):
     content_encoding: the content_encoding header string comes with resp from remote server.
     """
 
-    file_sha256: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
-    url: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
-    bucket_idx: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
-    last_access: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
-    cache_size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
-    file_compression_alg: Annotated[Optional[str], SkipValidation] = None
-    content_encoding: Annotated[Optional[str], SkipValidation] = None
+    file_sha256: Annotated[str, ConstrainRepr("PRIMARY KEY")]
+    url: Annotated[str, ConstrainRepr("NOT NULL")]
+    bucket_idx: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    last_access: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    cache_size: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    file_compression_alg: Optional[str] = None
+    content_encoding: Optional[str] = None
 
     def __hash__(self) -> int:
         return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
@@ -113,64 +112,101 @@ class CacheMetaORM(ORMBase[CacheMeta]):
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
-    async def rotate_cache(
-        self, bucket_idx: int, num: int
-    ) -> Optional[list[CacheMeta]]:
-        bucket_fn, last_access_fn = "bucket_idx", "last_access"
+    bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-        def _in_thread():
-            with self._thread_scope_orm._con as con:
-                # check if we have enough entries to rotate
-                select_stmt = self.orm_table_spec.table_select_stmt(
-                    select_from=self.orm_table_name,
-                    select_cols="*",
-                    function="count",
-                    where_cols=(bucket_fn,),
-                    order_by=(last_access_fn,),
-                    limit=num,
-                )
-                cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
-                # we don't have enough entries to delete
-                if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                    return
+    def _count_bucket_query(self, limit: int) -> str:
+        return self.orm_table_spec.table_select_stmt(
+            select_from=self.orm_bootstrap_table_name,
+            select_cols="*",
+            function="count",
+            where_cols=(self.bucket_fn,),
+            order_by=(self.last_access_fn,),
+            limit=limit,
+        )
 
-                # RETURNING statement is available only after sqlite3 v3.35.0
-                if sqlite3.sqlite_version_info < (3, 35, 0):
-                    # first select entries met the requirements
-                    select_to_delete_stmt = self.orm_table_spec.table_select_stmt(
-                        select_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
+    # RETURNING statement is available only after sqlite3 v3.35.0
+    if sqlite3.sqlite_version_info < (3, 35, 0):
+
+        def _select_query(self, limit: int) -> str:
+            return self.orm_table_spec.table_select_stmt(
+                select_from=self.orm_table_name,
+                where_cols=(self.bucket_fn,),
+                order_by=(self.last_access_fn,),
+                limit=limit,
+            )
+
+        def _delete_query(self, limit: int) -> str:
+            return self.orm_table_spec.table_delete_stmt(
+                delete_from=self.orm_table_name,
+                where_cols=(self.bucket_fn,),
+                order_by=(self.last_access_fn,),
+                limit=limit,
+            )
+
+        async def rotate_cache(
+            self, bucket_idx: int, num: int
+        ) -> Optional[list[CacheMeta]]:
+            def _in_thread():
+                with self._thread_scope_orm._con as con:
+                    # check if we have enough entries to rotate
+                    cur = con.execute(
+                        self._count_bucket_query(num), {self.bucket_fn: bucket_idx}
                     )
-                    cur = con.execute(select_to_delete_stmt, {bucket_fn: bucket_idx})
+                    # we don't have enough entries to delete
+                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                        return
+
+                    # first select entries met the requirements
+                    cur = con.execute(
+                        self._select_query(num), {self.bucket_fn: bucket_idx}
+                    )
                     rows_to_remove = list(cur)
 
                     # delete the target entries
-                    delete_stmt = self.orm_table_spec.table_delete_stmt(
-                        delete_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                    )
-                    con.execute(delete_stmt, {bucket_fn: bucket_idx})
-
+                    con.execute(self._delete_query(num), {self.bucket_fn: bucket_idx})
                     return rows_to_remove
-                else:
-                    rotate_stmt = self.orm_table_spec.table_delete_stmt(
-                        delete_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                        returning_cols="*",
+
+            return await asyncio.wrap_future(
+                self._pool.submit(_in_thread),
+                loop=self._loop,
+            )
+
+    else:
+
+        def _delete_query_with_returning(self, limit: int) -> str:
+            return self.orm_table_spec.table_delete_stmt(
+                delete_from=self.orm_table_name,
+                where_cols=(self.bucket_fn,),
+                order_by=(self.last_access_fn,),
+                limit=limit,
+                returning_cols="*",
+            )
+
+        async def rotate_cache(
+            self, bucket_idx: int, num: int
+        ) -> Optional[list[CacheMeta]]:
+            def _in_thread():
+                with self._thread_scope_orm._con as con:
+                    # check if we have enough entries to rotate
+                    cur = con.execute(
+                        self._count_bucket_query(num), {self.bucket_fn: bucket_idx}
                     )
-                    cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
+                    cur.row_factory = None
+                    # we don't have enough entries to delete
+                    if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                        return
+
+                    cur = con.execute(
+                        self._delete_query_with_returning(num),
+                        {self.bucket_fn: bucket_idx},
+                    )
+                    cur.row_factory = self.orm_table_spec.table_row_factory
                     return list(cur)
 
-        return await asyncio.wrap_future(
-            self._pool.submit(_in_thread),
-            loop=self._loop,
-        )
+            return await asyncio.wrap_future(
+                self._pool.submit(_in_thread),
+                loop=self._loop,
+            )
 
 
 def init_db(db_f: StrOrPath, table_name: str) -> None:
