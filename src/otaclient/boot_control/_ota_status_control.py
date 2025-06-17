@@ -95,9 +95,9 @@ class OTAStatusFilesControl:
             # 3. Edge migrate Status handling from v1 to v2
             # 4. Edge handle its ClientUpdate status correctly.
             logger.info(
-                f"dynamic client is running, setting status to {OTAStatus.INITIALIZED.name}"
+                f"dynamic client is running, setting status to {OTAStatus.SUCCESS.name}"
             )
-            self._ota_status = OTAStatus.INITIALIZED
+            self._ota_status = OTAStatus.SUCCESS
             return
 
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
