@@ -18,13 +18,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import sqlite3
-from pathlib import Path
+from contextlib import closing
 from typing import Optional
 
 from multidict import CIMultiDict
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
+    CreateTableParams,
     ORMBase,
     TableSpec,
     utils,
@@ -39,6 +40,8 @@ from .cache_control_header import OTAFileCacheControl
 from .config import config as cfg
 
 logger = logging.getLogger(__name__)
+
+DB_TABLE_NAME = cfg.TABLE_NAME
 
 
 class CacheMeta(TableSpec):
@@ -90,24 +93,22 @@ class CacheMeta(TableSpec):
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
-    def cachemeta_create_indexes(self) -> None:
-        _indexes = {
-            "bucket_idx_index": CacheMeta.table_create_index_stmt(
-                table_name=self.orm_table_name,
-                index_name="bucket_idx_index",
-                index_cols=("bucket_idx",),
-                if_not_exists=True,
-            ),
-            "last_access_index": CacheMeta.table_create_index_stmt(
-                table_name=self.orm_table_name,
-                index_name="last_access_index",
-                index_cols=("last_access",),
-                if_not_exists=True,
-            ),
-        }
-
-        for sql_stmt in _indexes.values():
-            self.orm_execute(sql_stmt)
+    orm_bootstrap_table_name = DB_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_indexes_params = [
+        CacheMeta.table_create_index_stmt(
+            table_name=DB_TABLE_NAME,
+            index_name="bucket_idx_index",
+            index_cols=("bucket_idx",),
+            if_not_exists=True,
+        ),
+        CacheMeta.table_create_index_stmt(
+            table_name=DB_TABLE_NAME,
+            index_name="last_access_index",
+            index_cols=("last_access",),
+            if_not_exists=True,
+        ),
+    ]
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
@@ -171,32 +172,9 @@ class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
         )
 
 
-def check_db(db_f: StrOrPath, table_name: str) -> bool:
-    """Check whether specific db is normal or not."""
-    if not Path(db_f).is_file():
-        logger.warning(f"{db_f} not found")
-        return False
-
-    con = sqlite3.connect(f"file:{db_f}?mode=ro", uri=True)
-    try:
-        if not utils.check_db_integrity(con):
-            logger.warning(f"{db_f} fails integrity check")
-            return False
-        if not utils.lookup_table(con, table_name):
-            logger.warning(f"{table_name} not found in {db_f}")
-            return False
-    finally:
-        con.close()
-    return True
-
-
 def init_db(db_f: StrOrPath, table_name: str) -> None:
     """Init the database."""
-    con = sqlite3.connect(db_f)
-    orm = CacheMetaORM(con, table_name)
-    try:
-        orm.orm_create_table(without_rowid=True)
-        orm.cachemeta_create_indexes()
+    with closing(sqlite3.connect(db_f)) as con:
+        orm = CacheMetaORM(con, table_name)
+        orm.orm_bootstrap_db()
         utils.enable_wal_mode(con, relax_sync_mode=True)
-    finally:
-        con.close()
