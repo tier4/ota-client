@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from http import HTTPStatus
-from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
 import aiohttp
@@ -58,16 +57,17 @@ WAIT_FOR_SEMAPHORE: float = 0.1
 # helper methods
 
 
-def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
+def parse_raw_headers(raw_headers: list[tuple[bytes, bytes]]) -> CIMultiDict[str]:
     """Picks and decode raw headers from client's request.
 
-    Uvicorn sends headers from client's request to application as list of bytes tuple.
+    Uvicorn sends headers from client's request to application as list of encoded bytes tuple.
+    Uvicorn will process the headers name into lower case.
     Currently we only need authorization, cookie and ota-file-cache-control header.
 
     Returns:
         An inst of header dict.
     """
-    headers = {}
+    headers = CIMultiDict()
     for bheader_pair in raw_headers:
         if len(bheader_pair) != 2:
             continue
@@ -86,8 +86,8 @@ def parse_raw_headers(raw_headers: List[Tuple[bytes, bytes]]) -> Dict[str, str]:
 
 
 def encode_headers(
-    headers: Union[CIMultiDict[str], CIMultiDictProxy[str]],
-) -> List[Tuple[bytes, bytes]]:
+    headers: CIMultiDict[str] | CIMultiDictProxy[str],
+) -> list[tuple[bytes, bytes]]:
     """Encode headers dict to list of bytes tuples for sending back to client.
 
     Uvicorn requests application to pre-process headers to bytes.
@@ -96,7 +96,7 @@ def encode_headers(
     2. content-type
     3. ota-file-cache-control header
     """
-    bytes_headers: List[Tuple[bytes, bytes]] = []
+    bytes_headers: list[tuple[bytes, bytes]] = []
     if _encoding := headers.get(HEADER_CONTENT_ENCODING):
         bytes_headers.append((BHEADER_CONTENT_ENCODING, _encoding.encode("utf-8")))
     if _type := headers.get(HEADER_CONTENT_TYPE):
@@ -168,7 +168,7 @@ class App:
                 await self._ota_cache.close()
 
     @staticmethod
-    async def _respond_with_error(status: Union[HTTPStatus, int], msg: str, send):
+    async def _respond_with_error(status: HTTPStatus | int, msg: str, send):
         """Helper method for sending errors back to client."""
         await send(
             {
@@ -197,7 +197,7 @@ class App:
 
     @staticmethod
     async def _init_response(
-        status: Union[HTTPStatus, int], headers: List[Tuple[bytes, bytes]], send
+        status: HTTPStatus | int, headers: list[tuple[bytes, bytes]], send
     ):
         """Helper method for constructing and sending HTTP response back to client.
 
