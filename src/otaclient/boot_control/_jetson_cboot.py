@@ -611,12 +611,8 @@ class JetsonCBootControl(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def prepare_active_and_standby_slots(
-        self, *, base_mount_point: Optional[Path] = None, erase_standby=False
-    ):
-        self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-        self._mp_control.mount_standby(base_mount_point=base_mount_point)
-        self._mp_control.mount_active(base_mount_point=base_mount_point)
+    def get_standby_slot_dev(self) -> str:  # pragma: no cover
+        return self._mp_control.standby_slot_dev
 
     def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
         try:
@@ -633,7 +629,10 @@ class JetsonCBootControl(BootControllerProtocol):
                 self._cboot_control.set_standby_rootfs_unbootable()
 
             # prepare standby slot dev
-            self.prepare_active_and_standby_slots(erase_standby=erase_standby)
+            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
+            # mount slots
+            self._mp_control.mount_standby()
+            self._mp_control.mount_active()
 
             # update standby slot's ota_status files
             self._ota_status_control.pre_update_standby(version=version)
