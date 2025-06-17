@@ -20,6 +20,7 @@ import threading
 from functools import partial
 from pathlib import Path
 from typing import Optional
+from unittest.mock import patch
 
 import pytest
 
@@ -261,10 +262,23 @@ class TestOTAStatusFilesControl:
         # slot_b's status is read
         assert status_control.booted_ota_status == OTAStatus.FAILURE
 
-    def test_client_updating_status_handling(self):
-        """Test CLIENT_UPDATING status is converted to SUCCESS as workaround."""
+    @pytest.mark.parametrize(
+        "initial_status",
+        [
+            OTAStatus.FAILURE,
+            OTAStatus.SUCCESS,
+        ],
+    )
+    @patch(
+        "otaclient.boot_control._ota_status_control._env.is_dynamic_client_running",
+        return_value=True,
+    )
+    def test_dynamic_client_running_status_handling(
+        self, mock_is_dynamic_client_running, initial_status: OTAStatus
+    ):
+        """Test that any status is converted to SUCCESS when dynamic client is running."""
         # ------ setup ------ #
-        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.CLIENT_UPDATING)
+        write_str_to_file_atomic(self.slot_a_status_file, initial_status)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
 
         # ------ execution ------ #
@@ -279,10 +293,10 @@ class TestOTAStatusFilesControl:
 
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
-        # CLIENT_UPDATING should be converted to SUCCESS as workaround
+        # Any status should be converted to SUCCESS when dynamic client is running
         assert status_control.booted_ota_status == OTAStatus.SUCCESS
-        # The original status file should remain unchanged (CLIENT_UPDATING is not persisted back)
-        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.CLIENT_UPDATING
+        # The original status file should remain unchanged
+        assert read_str_from_file(self.slot_a_status_file) == initial_status
         assert (
             read_str_from_file(self.slot_a_slot_in_use_file)
             == status_control._load_current_slot_in_use()

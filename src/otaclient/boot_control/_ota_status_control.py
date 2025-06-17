@@ -23,6 +23,7 @@ from typing import Callable, Optional, Union
 
 from otaclient._types import OTAStatus
 from otaclient.configs.cfg import cfg
+from otaclient_common import _env
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -81,16 +82,24 @@ class OTAStatusFilesControl:
             self._store_current_status(OTAStatus.INITIALIZED)
             self._ota_status = OTAStatus.INITIALIZED
             return
-        logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
-        if _loaded_ota_status == OTAStatus.CLIENT_UPDATING:
-            # TODO(airkei): Currently, there is no way to know the "ClientUpdate" result status.
+        if _env.is_dynamic_client_running():
+            # TODO(airkei) [2025-06-17]: Currently, there is no way to know the "ClientUpdate" result status.
             # When the last "Update" is "Failure", Next OTA might show "Failure" on FMS Console in the middle of OTA.
             # This is because ota-client reports "Failure" after the "ClientUpdate" is done.
-            # As temporary workaround, we set the status to SUCCESS here.
+            # As temporary workaround, we set the status to SUCCESS here when current process is dynamic client.
             # In future, we should store the "ClientUpdate" status in the dedicated file, then notify the status to upper layer.
+            # 1. ota-client prepares the dedicated status file for ClientUpdate
+            # 2. ota-client API adds new ClientUpdate status field in gRPC Status API
+            # 3. Edge migrate Status handling from v1 to v2
+            # 4. Edge handle its ClientUpdate status correctly.
+            logger.info(
+                f"dynamic client is running, setting status to {OTAStatus.SUCCESS.name}"
+            )
             self._ota_status = OTAStatus.SUCCESS
             return
+
+        logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
