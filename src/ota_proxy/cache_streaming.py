@@ -193,10 +193,6 @@ class CacheTracker:
                     self._bytes_written += _written
                 os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_NOREUSE)
 
-            # logger.debug(
-            #     "cache write finished, total bytes written"
-            #     f"({self._bytes_written}) for {self.meta=}"
-            # )
             # NOTE(20240805): mark the writer succeeded in advance to release the
             #   subscriber faster. Whether the database entry is committed or not
             #   doesn't matter here, the subscriber doesn't need to fail if caching
