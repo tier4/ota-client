@@ -133,7 +133,7 @@ class OTACache:
         self._db_file = db_f = Path(db_file) if db_file else Path(cfg.DB_FILE)
 
         _base_dir.mkdir(parents=True, exist_ok=True)
-        self._base_dir = anyio.Path(self._base_dir)
+        self._base_dir = anyio.Path(_base_dir)
         if not check_db(self._db_file, table_name):
             logger.info(f"db file is broken, force init db file at {db_f}")
             db_f.unlink(missing_ok=True)
