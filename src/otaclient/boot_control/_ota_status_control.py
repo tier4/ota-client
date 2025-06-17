@@ -83,6 +83,15 @@ class OTAStatusFilesControl:
             return
         logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
+        if _loaded_ota_status == OTAStatus.CLIENT_UPDATING:
+            # TODO(airkei): Currently, there is no way to know the "ClientUpdate" result status.
+            # When the last "Update" is "Failure", Next OTA might show "Failure" on FMS Console in the middle of OTA.
+            # This is because ota-client reports "Failure" after the "ClientUpdate" is done.
+            # As temporary workaround, we set the status to SUCCESS here.
+            # In future, we should store the "ClientUpdate" status in the dedicated file, then notify the status to upper layer.
+            self._ota_status = OTAStatus.SUCCESS
+            return
+
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
         if _loaded_ota_status not in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:
