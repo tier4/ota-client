@@ -338,6 +338,15 @@ class OTAClientPackagePreparer:
         except Exception as e:
             logger.warning(f"error while removing dynamic client mount point: {e}")
 
+    def _umount_standby_device(self) -> None:
+        """Prepare the active and standby slots for the OTA update."""
+        _boot_controller_type = get_boot_controller(self._bootloader)
+        _boot_controller = _boot_controller_type()
+        _standby_slot_dev = _boot_controller.get_standby_slot_dev()
+
+        logger.info(f"unmounting standby slot device: {_standby_slot_dev}")
+        cmdhelper.ensure_umount(_standby_slot_dev, ignore_error=False)
+
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
         # create a new mount namespace
@@ -433,14 +442,6 @@ class OTAClientPackagePreparer:
             mount_func=cmdhelper.bind_mount_rw,
         )
 
-    def _umount_standby_device(self) -> None:
-        """Prepare the active and standby slots for the OTA update."""
-        _boot_controller_type = get_boot_controller(self._bootloader)
-        _boot_controller = _boot_controller_type()
-        _standby_slot_dev = _boot_controller.get_standby_slot_dev()
-
-        cmdhelper.ensure_umount(_standby_slot_dev, ignore_error=False)
-
     def _bind_mount_active_slot(self) -> None:
         """Mount the active slot to the mount base for Update command."""
         # After chroot, the active slot root is not accessible from the chroot environment.
@@ -494,10 +495,10 @@ class OTAClientPackagePreparer:
         try:
             logger.info(f"mounting {self._squashfs_file} to {self._mount_base}")
             self._cleanup_mount_point()
+            self._umount_standby_device()
             self._create_mount_namespaces()
             self._mount_squashfs_file()
             self._bind_mount_host_dirs()
-            self._umount_standby_device()
             self._bind_mount_active_slot()
             self._rbind_mount_host_root()
 
