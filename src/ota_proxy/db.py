@@ -24,13 +24,14 @@ from typing import Optional
 from multidict import CIMultiDict
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
+    AsyncORMBase,
     ConstrainRepr,
     CreateTableParams,
     ORMBase,
     TableSpec,
     utils,
 )
-from simple_sqlite3_orm._orm import AsyncORMBase
+from simple_sqlite3_orm.utils import check_db_integrity
 from typing_extensions import Annotated
 
 from otaclient_common._typing import StrOrPath
@@ -178,3 +179,8 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
         orm = CacheMetaORM(con, table_name)
         orm.orm_bootstrap_db()
         utils.enable_wal_mode(con, relax_sync_mode=True)
+
+
+def check_db(db_f: StrOrPath, table_name: str) -> bool:
+    with closing(sqlite3.connect(db_f)) as con:
+        return check_db_integrity(con, table_name)
