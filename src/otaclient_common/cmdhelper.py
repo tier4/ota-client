@@ -340,6 +340,7 @@ class MountHelper(Protocol):
         mount_point: StrOrPath,
         *,
         raise_exception: bool = True,
+        set_unbindable: bool = True,
     ) -> None: ...
 
 
@@ -373,17 +374,23 @@ def mount(
 
 
 def bind_mount_rw(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-write.
 
     This is implemented by calling:
-        mount -o bind,rw --make-private <target> <mount_point>
+        mount -o bind,rw --make-private --make-unbindable <target> <mount_point>
 
     Args:
         target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
             Defaults to True.
     """
     # fmt: off
@@ -391,15 +398,23 @@ def bind_mount_rw(
         "mount",
         "-o", "bind,rw",
         "--make-private",
-        str(target),
-        str(mount_point)
     ]
+    if set_unbindable:
+        cmd.append("--make-unbindable")
+    cmd.extend([
+        str(target),
+        str(mount_point),
+    ])
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_rw(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
@@ -414,21 +429,31 @@ def mount_rw(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
+            Defaults to True.
     """
     # fmt: off
     cmd = [
         "mount",
         "-o", "rw",
-        "--make-private", "--make-unbindable",
+        "--make-private",
+    ]
+    if set_unbindable:
+        cmd.append("--make-unbindable")
+    cmd.extend([
         str(target),
         str(mount_point),
-    ]
+    ])
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def bind_mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Bind mount the <target> to <mount_point> read-only.
 
@@ -440,31 +465,43 @@ def bind_mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
+            Defaults to True.
     """
     # fmt: off
     cmd = [
         "mount",
         "-o", "bind,ro",
-        "--make-private", "--make-unbindable",
-        str(target),
-        str(mount_point)
+        "--make-private",
     ]
+    if set_unbindable:
+        cmd.append("--make-unbindable")
+    cmd.extend([
+        str(target),
+        str(mount_point),
+    ])
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def rbind_mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Rbind mount the <target> to <mount_point> read-only.
 
     This is implemented by calling:
-        mount -o bind,ro --make-private <target> <mount_point>
+        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
 
     Args:
         target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
+            Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
             Defaults to True.
     """
     # fmt: off
@@ -472,15 +509,23 @@ def rbind_mount_ro(
         "mount",
         "--rbind",
         "--make-private",
-        str(target),
-        str(mount_point)
     ]
+    if set_unbindable:
+        cmd.append("--make-unbindable")
+    cmd.extend([
+        str(target),
+        str(mount_point),
+    ])
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_ro(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Mount <target> to <mount_point> read-only.
 
@@ -492,6 +537,8 @@ def mount_ro(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
+            Defaults to True.
     """
     # NOTE: set raise_exception to false to allow not mounted
     #       not mounted dev will have empty return str
@@ -502,6 +549,7 @@ def mount_ro(
             _active_mount_point,
             mount_point,
             raise_exception=raise_exception,
+            set_unbindable=set_unbindable,
         )
     else:
         # target is not mounted, we mount it by ourself
@@ -509,21 +557,29 @@ def mount_ro(
         cmd = [
             "mount",
             "-o", "ro",
-            "--make-private", "--make-unbindable",
+            "--make-private",
+        ]
+        if set_unbindable:
+            cmd.append("--make-unbindable")
+        cmd.extend([
             str(target),
             str(mount_point),
-        ]
+        ])
         # fmt: on
         subprocess_call(cmd, raise_exception=raise_exception)
 
 
 def mount_squashfs(
-    target: StrOrPath, mount_point: StrOrPath, *, raise_exception: bool = True
+    target: StrOrPath,
+    mount_point: StrOrPath,
+    *,
+    raise_exception: bool = True,
+    set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Mount the <target> sqiashfs to <mount_point>.
 
     This is implemented by calling:
-        mount --make-private --make-unbindable -o ro -t squashfs <target> <mount_point>
+        mount -o ro -t squashfs --make-private --make-unbindable <target> <mount_point>
 
     NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
             mount events propagation to/from this mount point.
@@ -533,16 +589,22 @@ def mount_squashfs(
         mount_point (StrOrPath): mount point to mount to.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
+        set_unbindable (bool, optional): whether to set the mount point as unbindable.
+            Defaults to True.
     """
     # fmt: off
     cmd = [
         "mount",
-        "--make-private", "--make-unbindable",
         "-o", "ro",
         "-t", "squashfs",
+        "--make-private",
+    ]
+    if set_unbindable:
+        cmd.append("--make-unbindable")
+    cmd.extend([
         str(target),
         str(mount_point),
-    ]
+    ])
     # fmt: on
     subprocess_call(cmd, raise_exception=raise_exception)
 
@@ -579,6 +641,7 @@ def ensure_mount(
     *,
     mount_func: MountHelper,
     raise_exception: bool,
+    set_unbindable: bool = True,
     max_retry: int = MAX_RETRY_COUNT,
     retry_interval: int = RETRY_INTERVAL,
 ) -> None:  # pragma: no cover
@@ -589,7 +652,9 @@ def ensure_mount(
     """
     for _retry in range(max_retry + 1):
         try:
-            mount_func(target=target, mount_point=mnt_point)
+            mount_func(
+                target=target, mount_point=mnt_point, set_unbindable=set_unbindable
+            )
             is_target_mounted(mnt_point, raise_exception=True)
             return
         except CalledProcessError as e:
