@@ -511,7 +511,7 @@ class OTACache:
         *,
         raw_url: str,
         cache_policy: OTAFileCacheControl,
-        headers_from_client: dict[str, str],
+        headers_from_client: CIMultiDict[str],
     ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
         # NOTE(20241202): no new cache on hard limit being reached
         if (
@@ -573,7 +573,7 @@ class OTACache:
     # exposed API
 
     async def retrieve_file(
-        self, raw_url: str, headers_from_client: dict[str, str]
+        self, raw_url: str, headers_from_client: CIMultiDict[str]
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
         """Retrieve a file descriptor for the requested <raw_url>.
 
