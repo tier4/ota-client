@@ -22,11 +22,11 @@ from pathlib import Path
 from typing import Optional
 
 from multidict import CIMultiDict
+from pydantic import SkipValidation
 from simple_sqlite3_orm import (
     ConstrainRepr,
     ORMBase,
     TableSpec,
-    TypeAffinityRepr,
     utils,
 )
 from simple_sqlite3_orm._orm import AsyncORMBase
@@ -56,39 +56,13 @@ class CacheMeta(TableSpec):
     content_encoding: the content_encoding header string comes with resp from remote server.
     """
 
-    file_sha256: Annotated[
-        str,
-        TypeAffinityRepr(str),
-        ConstrainRepr("PRIMARY KEY"),
-    ]
-    url: Annotated[
-        str,
-        TypeAffinityRepr(str),
-        ConstrainRepr("NOT NULL"),
-    ]
-    bucket_idx: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    last_access: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    cache_size: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    file_compression_alg: Annotated[
-        Optional[str],
-        TypeAffinityRepr(str),
-    ] = None
-    content_encoding: Annotated[
-        Optional[str],
-        TypeAffinityRepr(str),
-    ] = None
+    file_sha256: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    url: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
+    bucket_idx: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
+    last_access: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
+    cache_size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation] = 0
+    file_compression_alg: Annotated[Optional[str], SkipValidation] = None
+    content_encoding: Annotated[Optional[str], SkipValidation] = None
 
     def __hash__(self) -> int:
         return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
@@ -116,7 +90,6 @@ class CacheMeta(TableSpec):
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
-
     def cachemeta_create_indexes(self) -> None:
         _indexes = {
             "bucket_idx_index": CacheMeta.table_create_index_stmt(
@@ -138,7 +111,6 @@ class CacheMetaORM(ORMBase[CacheMeta]):
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
-
     async def rotate_cache(
         self, bucket_idx: int, num: int
     ) -> Optional[list[CacheMeta]]:
