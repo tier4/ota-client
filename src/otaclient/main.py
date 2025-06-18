@@ -118,6 +118,7 @@ def main() -> None:  # pragma: no cover
                 active_root=cfg.ACTIVE_ROOT,
                 active_slot_mnt_point=cfg.ACTIVE_SLOT_MNT,
                 host_root_mnt_point=cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
+                bootloader=ecu_info.bootloader,
             )
             client_package_prepareter.mount_client_package()
 

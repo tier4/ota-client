@@ -30,6 +30,7 @@ from typing import Generator, Optional
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
+from otaclient.boot_control import BootloaderType, get_boot_controller
 from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import (
@@ -310,6 +311,7 @@ class OTAClientPackagePreparer:
         active_root: StrOrPath,
         active_slot_mnt_point: StrOrPath,
         host_root_mnt_point: StrOrPath,
+        bootloader: BootloaderType,
     ) -> None:
         """Initialize the OTA client package preparer."""
         self._squashfs_file = squashfs_file
@@ -317,6 +319,7 @@ class OTAClientPackagePreparer:
         self._active_root = active_root
         self._active_slot_mnt_point = active_slot_mnt_point
         self._host_root_mnt_point = host_root_mnt_point
+        self._bootloader = bootloader
 
     def _cleanup_mount_point(self) -> None:
         """Cleanup the mount point."""
@@ -334,6 +337,15 @@ class OTAClientPackagePreparer:
             shutil.rmtree(self._mount_base, ignore_errors=False)
         except Exception as e:
             logger.warning(f"error while removing dynamic client mount point: {e}")
+
+    def _umount_standby_device(self) -> None:
+        """Prepare the active and standby slots for the OTA update."""
+        _boot_controller_type = get_boot_controller(self._bootloader)
+        _boot_controller = _boot_controller_type()
+        _standby_slot_dev = _boot_controller.get_standby_slot_dev()
+
+        logger.info(f"unmounting standby slot device: {_standby_slot_dev}")
+        cmdhelper.ensure_umount(_standby_slot_dev, ignore_error=False)
 
     def _create_mount_namespaces(self) -> None:
         """Create mount namespaces for the current process."""
@@ -485,6 +497,7 @@ class OTAClientPackagePreparer:
         try:
             logger.info(f"mounting {self._squashfs_file} to {self._mount_base}")
             self._cleanup_mount_point()
+            self._umount_standby_device()
             self._create_mount_namespaces()
             self._mount_squashfs_file()
             self._bind_mount_host_dirs()
