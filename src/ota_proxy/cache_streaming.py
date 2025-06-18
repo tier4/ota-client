@@ -191,7 +191,11 @@ class CacheTracker:
 
                     _written = await f.write(_data)
                     self._bytes_written += _written
-                os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+
+                _fd = f.wrapped.fileno()
+                await f.flush()
+                await run_sync(os.fsync, _fd)
+                os.posix_fadvise(_fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             # NOTE(20240805): mark the writer succeeded in advance to release the
             #   subscriber faster. Whether the database entry is committed or not
@@ -212,7 +216,7 @@ class CacheTracker:
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
             self._writer_finished.set()
-            self = None  # remove the ref to tracker
+            self, que = None, None  # type: ignore ,remove the ref to tracker
 
     async def subscribe_tracker(self) -> tuple[AsyncGenerator[bytes], CacheMeta] | None:
         """Subscribe to this tracker and get the cache stream and cache_meta."""
