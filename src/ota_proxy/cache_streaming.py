@@ -172,7 +172,7 @@ class CacheTracker:
     # exposed API
 
     async def provider_write_cache(
-        self, cache_meta: CacheMeta, que: asyncio.Queue[bytes]
+        self, cache_meta: CacheMeta, input_que: asyncio.Queue[bytes]
     ) -> None:
         """Provider writes data chunks from upper caller to tmp cache file.
 
@@ -183,7 +183,7 @@ class CacheTracker:
         try:
             async with await open_file(self.fpath, "wb") as f:
                 _written = 0
-                while _data := await que.get():
+                while _data := await input_que.get():
                     if not self._space_availability_event.is_set():
                         _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
                         burst_suppressed_logger.warning(_err_msg)
@@ -216,7 +216,7 @@ class CacheTracker:
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
             self._writer_finished.set()
-            self, que = None, None  # type: ignore ,remove the ref to tracker
+            self, input_que = None, None  # type: ignore ,remove the ref to tracker
 
     async def subscribe_tracker(self) -> tuple[AsyncGenerator[bytes], CacheMeta] | None:
         """Subscribe to this tracker and get the cache stream and cache_meta."""
@@ -295,9 +295,9 @@ async def cache_streaming(
     Raises:
         CacheStreamingFailed if any exception happens.
     """
-    que: asyncio.Queue[bytes] = asyncio.Queue()
+    tee_que: asyncio.Queue[bytes] = asyncio.Queue()
     try:
-        asyncio.create_task(tracker.provider_write_cache(cache_meta, que))
+        asyncio.create_task(tracker.provider_write_cache(cache_meta, tee_que))
 
         # tee the incoming chunk to two destinations
         async for chunk in fd:
@@ -309,7 +309,7 @@ async def cache_streaming(
 
             # to caching task, if the tracker is still working
             if not tracker._writer_failed.is_set():
-                que.put_nowait(chunk)
+                tee_que.put_nowait(chunk)
 
             # even cache write failed, we still continue pushing to uvicorn
             yield chunk
@@ -319,7 +319,7 @@ async def cache_streaming(
         raise CacheStreamingFailed(_err_msg) from e
     finally:
         # send sentinel to the caching task
-        que.put_nowait(None)  # type: ignore
+        tee_que.put_nowait(None)  # type: ignore
 
         # remove the refs
-        fd, tracker, que = None, None, None  # type: ignore
+        fd, tracker, tee_que = None, None, None  # type: ignore
