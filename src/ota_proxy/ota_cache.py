@@ -39,7 +39,7 @@ from .cache_control_header import (
     export_kwargs_as_header_string,
     parse_header,
 )
-from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
+from .cache_streaming import CacheTracker, CacheWriterPool, CachingRegister
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
@@ -157,6 +157,8 @@ class OTACache:
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
+
+        self._cache_write_pool = CacheWriterPool()
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -575,7 +577,9 @@ class OTACache:
                 resp_headers_from_upper=resp_headers,
             )
             # start caching
-            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
+            wrapped_fd = self._cache_write_pool.cache_streaming(
+                remote_fd, tracker, cache_meta
+            )
             return wrapped_fd, resp_headers
         except Exception:
             tracker.set_writer_failed()
