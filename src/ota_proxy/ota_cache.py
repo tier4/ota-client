@@ -55,7 +55,7 @@ RESP_READ_SIZE = 256 * 1024  # 256KiB
 def create_cachemeta_for_request(
     raw_url: str,
     cache_identifier: str,
-    compression_alg: str,
+    compression_alg: str | None,
     /,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
@@ -63,7 +63,7 @@ def create_cachemeta_for_request(
 
     Use information from upper in prior, otherwise use pre-calculated information.
 
-    Params:
+    Args:
         raw_url
         cache_identifier: pre-collected information from caller
         compression_alg: pre-collected information from caller
@@ -77,7 +77,7 @@ def create_cachemeta_for_request(
         file_compression_alg = _upper_cache_policy.file_compression_alg or None
     else:
         file_sha256 = cache_identifier
-        file_compression_alg = compression_alg
+        file_compression_alg = compression_alg or None
 
     return CacheMeta(
         file_sha256=file_sha256,
@@ -526,7 +526,7 @@ class OTACache:
         if not cache_identifier:
             # fallback to use URL based hash, and clear compression_alg for such case
             cache_identifier = url_based_hash(raw_url)
-            compression_alg = ""
+            compression_alg = None
 
         # if set, cleanup any previous cache file before starting new cache
         if cache_policy.retry_caching:
