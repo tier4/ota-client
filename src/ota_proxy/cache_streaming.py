@@ -304,7 +304,7 @@ class CacheWriterPool:
     def __init__(
         self,
         *,
-        max_workers: int = 16,
+        max_workers: int | None = None,
         max_dispatch_wait=MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
     ) -> None:
         self.max_dispatch_wait = max_dispatch_wait
