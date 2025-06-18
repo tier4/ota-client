@@ -413,6 +413,7 @@ class OTAClientPackagePreparer:
                     mnt_point=_mount_point,
                     mount_func=mount_func,
                     raise_exception=True,
+                    set_unbindable=False,
                 )
 
         # bind necessary directories
@@ -486,6 +487,7 @@ class OTAClientPackagePreparer:
             mnt_point=_mount_point,
             mount_func=cmdhelper.rbind_mount_ro,
             raise_exception=True,
+            set_unbindable=False,
         )
 
     # APIs
