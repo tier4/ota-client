@@ -67,9 +67,12 @@ def _parse_header_asdict(_input: str) -> OTAFileCacheDirTypedDict:
 def export_header_dict_asstr(_input: OTAFileCacheDirTypedDict) -> str:
     with StringIO() as buffer:
         for k, v in _input:
-            if k not in VALID_DIRECTORIES or not v:
+            if k not in VALID_DIRECTORIES:
                 burst_suppressed_logger.warning(f"get unknown directory, ignore: {k}")
                 continue
+            if not v:
+                continue
+
             buffer.write(k if isinstance(v, bool) and v else f"{k}={v}")
             buffer.write(HEADER_DIR_SEPARATOR)
         return buffer.getvalue().strip(HEADER_DIR_SEPARATOR)
@@ -79,9 +82,12 @@ def export_kwargs_as_header_string(**kwargs: Unpack[OTAFileCacheDirTypedDict]) -
     """Directly export header str from a list of directive pairs."""
     with StringIO() as buffer:
         for k, v in kwargs.items():
-            if k not in VALID_DIRECTORIES or not v:
+            if k not in VALID_DIRECTORIES:
                 burst_suppressed_logger.warning(f"get unknown directory, ignore: {k}")
                 continue
+            if not v:
+                continue
+
             buffer.write(k if isinstance(v, bool) and v else f"{k}={v}")
             buffer.write(HEADER_DIR_SEPARATOR)
         return buffer.getvalue().strip(HEADER_DIR_SEPARATOR)
