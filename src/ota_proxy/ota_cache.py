@@ -138,6 +138,7 @@ class OTACache:
 
         _base_dir.mkdir(parents=True, exist_ok=True)
         self._base_dir = anyio.Path(_base_dir)
+        self._base_dir_sync = Path(_base_dir)
         if not check_db(self._db_file, table_name):
             logger.info(f"db file is broken, force init db file at {db_f}")
             db_f.unlink(missing_ok=True)
@@ -299,15 +300,7 @@ class OTACache:
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _cache_entries_cleanup(self, entry_hashes: list[str]) -> None:
-        """Cleanup entries indicated by entry_hashes list."""
-        _base_dir = Path(self._base_dir)
-        for entry_hash in entry_hashes:
-            # remove cache entry
-            f = _base_dir / entry_hash
-            f.unlink(missing_ok=True)
-
-    async def _reserve_space(self, size: int) -> bool:
+    def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
         Args:
@@ -316,7 +309,7 @@ class OTACache:
         Returns:
             A bool indicates whether the space reserving is successful or not.
         """
-        _hashes = await self._lru_helper.rotate_cache(size)
+        _hashes = self._lru_helper.rotate_cache(size)
         # NOTE: distinguish between [] and None! The fore one means we don't need
         #       cache rotation for saving the cache file, the latter one means
         #       cache rotation failed.
@@ -324,14 +317,20 @@ class OTACache:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
             )
-            await anyio.to_thread.run_sync(self._cache_entries_cleanup, _hashes)
+            for entry_hash in _hashes:
+                # remove cache entry
+                f = self._base_dir_sync / entry_hash
+                f.unlink(missing_ok=True)
             return True
         else:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    async def _commit_cache_callback(self, meta: CacheMeta):
+    def _commit_cache_callback(self, meta: CacheMeta):
         """The callback for committing CacheMeta to cache_db.
+
+        NOTE(20250618): this callback now is synced and exepcted to be run
+                        within a worker thread.
 
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
@@ -343,8 +342,8 @@ class OTACache:
         try:
             if not self._storage_below_soft_limit_event.is_set():
                 # case 1: try to reserve space for the saved cache entry
-                if await self._reserve_space(meta.cache_size):
-                    if not await self._lru_helper.commit_entry(meta):
+                if self._reserve_space(meta.cache_size):
+                    if not self._lru_helper.commit_entry(meta):
                         burst_suppressed_logger.warning(
                             f"failed to commit cache for {meta.url=}"
                         )
@@ -356,7 +355,7 @@ class OTACache:
                     )
             else:
                 # case 3: commit cache and finish up
-                if not await self._lru_helper.commit_entry(meta):
+                if not self._lru_helper.commit_entry(meta):
                     burst_suppressed_logger.warning(
                         f"failed to commit cache entry for {meta.url=}"
                     )
