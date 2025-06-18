@@ -180,4 +180,7 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
     with closing(sqlite3.connect(db_f)) as con:
-        return check_db_integrity(con, table_name)
+        try:
+            return check_db_integrity(con, table_name)
+        except Exception:
+            return False
