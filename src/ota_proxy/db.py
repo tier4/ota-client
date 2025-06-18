@@ -37,7 +37,7 @@ from typing_extensions import Annotated
 from otaclient_common._typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
-from .cache_control_header import OTAFileCacheControl
+from .cache_control_header import export_kwargs_as_header_string
 from .config import config as cfg
 
 logger = logging.getLogger(__name__)
@@ -84,11 +84,9 @@ class CacheMeta(TableSpec):
         if self.file_sha256 and not self.file_sha256.startswith(
             cfg.URL_BASED_HASH_PREFIX
         ):
-            res[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=self.file_sha256,
-                    file_compression_alg=self.file_compression_alg or "",
-                )
+            res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=self.file_sha256,
+                file_compression_alg=self.file_compression_alg or "",
             )
         return res
 
