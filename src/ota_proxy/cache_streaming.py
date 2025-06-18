@@ -113,6 +113,7 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
+        weakref.finalize(self, os.unlink, self.fpath)
 
     @property
     def writer_failed(self) -> bool:
@@ -197,6 +198,9 @@ class CacheTracker:
                         burst_suppressed_logger.warning(_err_msg)
                         raise StorageReachHardLimit(_err_msg)
 
+                    if self._writer_failed.is_set():
+                        raise CacheStreamingInterrupt("interrupted as upper failed")
+
                     chunks.append(_data)
                     batch_read_size += len(_data)
                     if batch_read_size > LOCAL_WRITE_BUFFER_SIZE:
@@ -221,17 +225,12 @@ class CacheTracker:
 
             # finalize the cache file, always rewrite the existed file
             if not self._writer_failed.is_set():
-                os.replace(self.fpath, self.save_path)
+                os.link(self.fpath, self.save_path)
                 self._commit_cache_cb(self.cache_meta)
         except Exception as e:
             burst_suppressed_logger.warning(
                 f"failed to write cache for {cache_meta=}: {e!r}"
             )
-            try:
-                os.unlink(self.fpath)
-            except Exception:
-                pass
-
             self._writer_failed.set()
         finally:
             # NOTE: always unblocked the subscriber waiting for writer ready/finished
