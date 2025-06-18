@@ -43,8 +43,11 @@ class OTAFileCacheDirTypedDict(TypedDict, total=False):
 
 
 def parse_header(_input: str) -> OTAFileCacheControl:
+    if not _input:
+        return OTAFileCacheControl()
+
     _res = OTAFileCacheControl()
-    for c in _input.split(HEADER_DIR_SEPARATOR):
+    for c in _input.strip().split(HEADER_DIR_SEPARATOR):
         k, *v = c.strip().split("=", maxsplit=1)
         if k not in VALID_DIRECTORIES:
             burst_suppressed_logger.warning(f"get unknown directory, ignore: {c}")
@@ -54,8 +57,11 @@ def parse_header(_input: str) -> OTAFileCacheControl:
 
 
 def _parse_header_asdict(_input: str) -> OTAFileCacheDirTypedDict:
+    if not _input:
+        return {}
+
     _res: OTAFileCacheDirTypedDict = {}
-    for c in _input.split(HEADER_DIR_SEPARATOR):
+    for c in _input.strip().split(HEADER_DIR_SEPARATOR):
         k, *v = c.strip().split("=", maxsplit=1)
         if k not in VALID_DIRECTORIES:
             burst_suppressed_logger.warning(f"get unknown directory, ignore: {c}")
@@ -80,6 +86,9 @@ def export_header_dict_asstr(_input: OTAFileCacheDirTypedDict) -> str:
 
 def export_kwargs_as_header_string(**kwargs: Unpack[OTAFileCacheDirTypedDict]) -> str:
     """Directly export header str from a list of directive pairs."""
+    if not kwargs:
+        return ""
+
     with StringIO() as buffer:
         for k, v in kwargs.items():
             if k not in VALID_DIRECTORIES:
@@ -95,6 +104,9 @@ def export_kwargs_as_header_string(**kwargs: Unpack[OTAFileCacheDirTypedDict]) -
 
 def update_header_str(_input: str, **kwargs: Unpack[OTAFileCacheDirTypedDict]) -> str:
     """Update input header string with input directive pairs."""
+    if not kwargs:
+        return _input
+
     _res = _parse_header_asdict(_input)
     _res.update(kwargs)
     return export_kwargs_as_header_string(**_res)
