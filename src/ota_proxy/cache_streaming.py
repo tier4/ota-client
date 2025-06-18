@@ -23,7 +23,7 @@ import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import AsyncGenerator, Callable, Coroutine
+from typing import AsyncGenerator, Callable
 
 import anyio
 from anyio import open_file
@@ -179,7 +179,6 @@ class CacheTracker:
         self,
         cache_meta: CacheMeta,
         input_que: Queue[bytes | None],
-        loop: asyncio.AbstractEventLoop,
     ) -> None:
         """Provider writes data chunks from upper caller to tmp cache file.
 
@@ -223,9 +222,7 @@ class CacheTracker:
             # finalize the cache file, always rewrite the existed file
             if not self._writer_failed.is_set():
                 os.replace(self.fpath, self.save_path)
-                asyncio.run_coroutine_threadsafe(
-                    self._commit_cache_cb(self.cache_meta), loop
-                )
+                self._commit_cache_cb(self.cache_meta)
         except Exception as e:
             burst_suppressed_logger.warning(
                 f"failed to write cache for {cache_meta=}: {e!r}"
@@ -267,7 +264,7 @@ class CacheTracker:
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, None]]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
 
 
 class CachingRegister:
@@ -354,10 +351,7 @@ class CacheWriterPool:
             if time.time() < self._last_finished_at + self.max_dispatch_wait:
                 # dispatch cache writing task at thread
                 self._pool.submit(
-                    tracker.provider_write_cache_at_thread,
-                    cache_meta,
-                    tee_que,
-                    self._loop,
+                    tracker.provider_write_cache_at_thread, cache_meta, tee_que
                 ).add_done_callback(self._commit_finish_time)
             else:
                 burst_suppressed_logger.warning(
