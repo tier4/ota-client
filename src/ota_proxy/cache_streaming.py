@@ -49,6 +49,13 @@ LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
 # cache tracker
 
 
+def _unlink_no_error(fpath):
+    try:
+        os.unlink(fpath)
+    except Exception:
+        pass
+
+
 class CacheTracker:
     """A tracker for an ongoing cache entry.
 
@@ -113,7 +120,7 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
-        weakref.finalize(self, os.unlink, self.fpath)
+        weakref.finalize(self, _unlink_no_error, self.fpath)
 
     @property
     def writer_failed(self) -> bool:
@@ -298,13 +305,15 @@ class CachingRegister:
 #   this timeout, the caller should not schedule new
 #   cache writing anymore.
 MAX_WAIT_TIME_FOR_DISPATCH_WRITE = 16  # seconds
+# copied from ThreadPoolExecutor
+DEFAULT_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)
 
 
 class CacheWriterPool:
     def __init__(
         self,
         *,
-        max_workers: int | None = None,
+        max_workers: int = DEFAULT_WORKERS_NUM,
         max_dispatch_wait=MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
     ) -> None:
         self.max_dispatch_wait = max_dispatch_wait
@@ -315,6 +324,7 @@ class CacheWriterPool:
             initializer=self._thread_worker_initializer,
         )
         self._loop = asyncio.get_event_loop()
+        self._se = threading.Semaphore(max_workers)
         self._last_finished_at = float("inf")
 
     def _thread_worker_initializer(self) -> None:
@@ -322,6 +332,7 @@ class CacheWriterPool:
         self._worker_thread_local.view = memoryview(buffer)
 
     def _commit_finish_time(self, _) -> None:
+        self._se.release()
         self._last_finished_at = time.time()
 
     async def cache_streaming(
@@ -347,7 +358,10 @@ class CacheWriterPool:
         tee_que: Queue[bytes | None] = Queue()
         writer_failed_event = tracker._writer_failed
         try:
-            if time.time() < self._last_finished_at + self.max_dispatch_wait:
+            if (
+                self._se.acquire(blocking=False)
+                or time.time() < self._last_finished_at + self.max_dispatch_wait
+            ):
                 # dispatch cache writing task at thread
                 self._pool.submit(
                     tracker.provider_write_cache_at_thread, cache_meta, tee_que
