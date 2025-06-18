@@ -191,7 +191,7 @@ class CacheTracker:
 
                     _written = await f.write(_data)
                     self._bytes_written += _written
-                os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_NOREUSE)
+                os.posix_fadvise(f.wrapped.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
 
             # NOTE(20240805): mark the writer succeeded in advance to release the
             #   subscriber faster. Whether the database entry is committed or not
