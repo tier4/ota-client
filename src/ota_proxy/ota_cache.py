@@ -34,7 +34,11 @@ from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
-from .cache_control_header import OTAFileCacheControl
+from .cache_control_header import (
+    OTAFileCacheControl,
+    export_kwargs_as_header_string,
+    parse_header,
+)
 from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
@@ -69,7 +73,7 @@ def create_cachemeta_for_request(
         compression_alg: pre-collected information from caller
         resp_headers_from_upper
     """
-    _upper_cache_policy = OTAFileCacheControl.parse_header(
+    _upper_cache_policy = parse_header(
         resp_headers_from_upper.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
     )
     if _upper_cache_policy.file_sha256:
@@ -489,20 +493,16 @@ class OTACache:
 
         if await cache_file_zst.is_file():
             _header = CIMultiDict()
-            _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=cache_identifier,
-                    file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
-                )
+            _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=cache_identifier,
+                file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
             )
             return read_file(cache_file_zst), _header
 
         if await cache_file.is_file():
             _header = CIMultiDict()
-            _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=cache_identifier
-                )
+            _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=cache_identifier
             )
             return read_file(cache_file), _header
 
@@ -595,7 +595,7 @@ class OTACache:
         if self._closed:
             raise BaseOTACacheError("ota cache pool is closed")
 
-        cache_policy = OTAFileCacheControl.parse_header(
+        cache_policy = parse_header(
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
         if cache_policy.no_cache:
