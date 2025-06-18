@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sqlite3
 from contextlib import closing
@@ -27,6 +26,7 @@ from simple_sqlite3_orm import (
     ConstrainRepr,
     CreateTableParams,
     ORMBase,
+    ORMThreadPoolBase,
     TableSpec,
     gen_sql_stmt,
     utils,
@@ -110,7 +110,7 @@ class CacheMetaORM(ORMBase[CacheMeta]):
     ]
 
 
-class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
+class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
     orm_bootstrap_table_name = DB_TABLE_NAME
     bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
@@ -164,10 +164,15 @@ class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
                 cur = con.execute(self.rotate_stmt, _params)
                 return list(cur)
 
-    async def rotate_cache(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
-        return await asyncio.wrap_future(
-            self._pool.submit(self._rotate_in_thread, bucket_idx, num), loop=self._loop
-        )
+    def rotate_cache(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
+        """
+        NOTE: this is a blocking method.
+        """
+        return self._pool.submit(self._rotate_in_thread, bucket_idx, num).result()
+
+
+class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
+    orm_bootstrap_table_name = DB_TABLE_NAME
 
 
 def init_db(db_f: StrOrPath, table_name: str) -> None:

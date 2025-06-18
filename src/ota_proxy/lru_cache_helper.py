@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of OTA cache control."""
 
-
 from __future__ import annotations
 
 import bisect
@@ -25,9 +24,11 @@ from simple_sqlite3_orm import utils
 
 from otaclient_common._logging import get_burst_suppressed_logger
 
-from .db import AsyncCacheMetaORM, CacheMeta
+from .db import AsyncCacheMetaORM, CacheMeta, CacheMetaORMPool
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.db_error")
+
+DB_CONN_NUMS = 3
 
 
 class LRUCacheHelper:
@@ -46,7 +47,7 @@ class LRUCacheHelper:
         *,
         bsize_dict: dict[int, int],
         table_name: str,
-        thread_nums: int,
+        thread_nums: int = DB_CONN_NUMS,
         thread_wait_timeout: int,
     ):
         self.bsize_list = list(bsize_dict)
@@ -68,6 +69,12 @@ class LRUCacheHelper:
             number_of_cons=thread_nums,
             row_factory="table_spec_no_validation",
         )
+        self._db = CacheMetaORMPool(
+            table_name=table_name,
+            con_factory=_con_factory,
+            number_of_cons=thread_nums,
+            row_factory="table_spec_no_validation",
+        )
 
         self._closed = False
 
@@ -75,24 +82,20 @@ class LRUCacheHelper:
         self._async_db.orm_pool_shutdown(wait=True, close_connections=True)
         self._closed = True
 
-    async def commit_entry(self, entry: CacheMeta) -> bool:
+    # sync API
+
+    def commit_entry(self, entry: CacheMeta) -> bool:
         """Commit cache entry meta to the database."""
         # populate bucket and last_access column
         entry.bucket_idx = bisect.bisect_right(self.bsize_list, entry.cache_size) - 1
         entry.last_access = int(time.time())
 
-        if (await self._async_db.orm_insert_entry(entry, or_option="replace")) != 1:
+        if (self._db.orm_insert_entry(entry, or_option="replace")) != 1:
             burst_suppressed_logger.error(f"db: failed to add {entry=}")
             return False
         return True
 
-    async def lookup_entry(self, file_sha256: str) -> CacheMeta | None:
-        return await self._async_db.orm_select_entry(file_sha256=file_sha256)
-
-    async def remove_entry(self, file_sha256: str) -> bool:
-        return await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
-
-    async def rotate_cache(self, size: int) -> list[str] | None:
+    def rotate_cache(self, size: int) -> list[str] | None:
         """Wrapper method for calling the database LRU cache rotating method.
 
         Args:
@@ -115,11 +118,19 @@ class LRUCacheHelper:
         # NOTE(20240802): limit the max steps we can go to avoid remove too large file
         max_steps = min(len(self.bsize_list), _cur_bucket_idx + 3)
         for _bucket_idx in range(_cur_bucket_idx + 1, max_steps):
-            if res := await self._async_db.rotate_cache(_bucket_idx, 1):
+            if res := self._db.rotate_cache(_bucket_idx, 1):
                 return [entry.file_sha256 for entry in res]
 
         # second: if cannot find one entry at any upper bucket, check current bucket
-        if res := await self._async_db.rotate_cache(
+        if res := self._db.rotate_cache(
             _cur_bucket_idx, self.bsize_dict[_cur_bucket_size]
         ):
             return [entry.file_sha256 for entry in res]
+
+    # async API
+
+    async def lookup_entry(self, file_sha256: str) -> CacheMeta | None:
+        return await self._async_db.orm_select_entry(file_sha256=file_sha256)
+
+    async def remove_entry(self, file_sha256: str) -> bool:
+        return await self._async_db.orm_delete_entries(file_sha256=file_sha256) > 0
