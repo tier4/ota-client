@@ -316,7 +316,7 @@ class CacheWriterPool:
             initializer=self._thread_worker_initializer,
         )
         self._loop = asyncio.get_event_loop()
-        self._last_finished_at = 0
+        self._last_finished_at = float("inf")
 
     def _thread_worker_initializer(self) -> None:
         self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
