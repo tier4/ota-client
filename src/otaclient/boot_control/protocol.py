@@ -38,6 +38,10 @@ class BootControllerProtocol(Protocol):
         """Get the Path points to the standby slot mount point."""
 
     @abstractmethod
+    def get_standby_slot_dev(self) -> str:
+        """Get the dev to the standby slot."""
+
+    @abstractmethod
     def load_version(self) -> str:
         """Read the version info from the current slot."""
 
