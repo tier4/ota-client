@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
 
+LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
+
 # cache tracker
 
 
@@ -182,15 +184,24 @@ class CacheTracker:
         self.cache_meta = cache_meta
         try:
             async with await open_file(self.fpath, "wb") as f:
-                _written = 0
+                chunks = []
+                batch_read_size = 0
+
                 while _data := await input_que.get():
                     if not self._space_availability_event.is_set():
                         _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
                         burst_suppressed_logger.warning(_err_msg)
                         raise StorageReachHardLimit(_err_msg)
 
-                    _written = await f.write(_data)
-                    self._bytes_written += _written
+                    chunks.append(_data)
+                    batch_read_size += len(_data)
+                    if batch_read_size > LOCAL_WRITE_BUFFER_SIZE:
+                        self._bytes_written += await f.write(b"".join(chunks))
+                        chunks = []
+                        batch_read_size = 0
+
+                # remember the final batch
+                self._bytes_written += await f.write(b"".join(chunks))
 
                 _fd = f.wrapped.fileno()
                 await f.flush()
