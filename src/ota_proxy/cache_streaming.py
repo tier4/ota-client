@@ -298,15 +298,8 @@ async def cache_streaming(
     tee_que: asyncio.Queue[bytes] = asyncio.Queue()
     try:
         asyncio.create_task(tracker.provider_write_cache(cache_meta, tee_que))
-
         # tee the incoming chunk to two destinations
         async for chunk in fd:
-            # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
-            #       an empty chunk will be sent to indicate the EOF of stream,
-            #       we MUST handle this empty chunk.
-            if not chunk:  # skip if empty chunk is read from remote
-                continue
-
             # to caching task, if the tracker is still working
             if not tracker._writer_failed.is_set():
                 tee_que.put_nowait(chunk)
