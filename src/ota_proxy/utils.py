@@ -36,15 +36,7 @@ def process_raw_url(raw_url: str, enable_https: bool) -> str:
                     because we should forward the request as it to the remote.
     NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
     """
-    scheme = "https" if enable_https else "http"
     _raw_parse = urlsplit(raw_url)
-
-    # NOTE: if scheme is not included in the url, i.e., the input is:
-    #           example.com/a/b/c
-    #       urlsplit will treat the whole string as `path` segment.
-    if not _raw_parse.scheme and not _raw_parse.netloc:
-        _raw_parse = urlsplit(f"{scheme}://{raw_url}")
-
     # get the base of the raw_url, which is <scheme>://<netloc>
     _raw_base = SplitResult(
         scheme=_raw_parse.scheme,
@@ -57,7 +49,7 @@ def process_raw_url(raw_url: str, enable_https: bool) -> str:
     # get the leftover part of URL besides base as path, and then quote it
     # finally, regenerate proper quoted url
     return SplitResult(
-        scheme=scheme,
+        scheme="https" if enable_https else "http",
         netloc=_raw_parse.netloc,
         path=quote(raw_url.replace(_raw_base, "", 1)),
         query="",
