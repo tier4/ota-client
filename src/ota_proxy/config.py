@@ -13,6 +13,9 @@
 # limitations under the License.
 
 
+import os
+
+
 class Config:
     BASE_DIR = "/ota-cache"
 
@@ -21,7 +24,8 @@ class Config:
     LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
     REMOTE_READ_BUFFER_SIZE = 256 * 1024  # 256KiB
 
-    CACHE_WRITE_WORKERS_NUM = 40
+    # copied from ThreadPoolExecutor
+    CACHE_WRITE_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)
 
     # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
