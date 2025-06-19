@@ -15,7 +15,6 @@ async def read_file(fpath: PathLike) -> AsyncGenerator[bytes]:
     """Open and read a file asynchronously."""
     async with await open_file(fpath, "rb") as f:
         fd = f.wrapped.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_NOREUSE)
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
         while data := await f.read(cfg.CHUNK_SIZE):
             yield data

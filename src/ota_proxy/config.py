@@ -19,6 +19,7 @@ class Config:
     # ------ io config ------ #
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
     LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
+    REMOTE_READ_BUFFER_SIZE = 256 * 1024  # 256KiB
 
     # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
@@ -72,6 +73,7 @@ class Config:
     # ------ task management ------ #
     MAX_CONCURRENT_REQUESTS = 512
     """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
+    WAIT_FOR_SEMAPHORE = 0.1
 
 
 config = Config()

@@ -52,8 +52,6 @@ burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_error
 # only expose app
 __all__ = ("App",)
 
-WAIT_FOR_SEMAPHORE: float = 0.1
-
 # helper methods
 
 
@@ -144,7 +142,7 @@ class App:
         ota_cache: OTACache,
         *,
         max_concurrent_requests: int = cfg.MAX_CONCURRENT_REQUESTS,
-        wait_for_semaphore: float = WAIT_FOR_SEMAPHORE,
+        wait_for_semaphore: float = cfg.WAIT_FOR_SEMAPHORE,
     ):
         self._lock = asyncio.Lock()
         self._closed = True

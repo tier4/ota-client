@@ -50,8 +50,6 @@ logger = logging.getLogger(__name__)
 # NOTE: only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
 
-RESP_READ_SIZE = 256 * 1024  # 256KiB
-
 # helper functions
 
 
@@ -118,6 +116,7 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
+        remote_read_buffer_size: int = cfg.REMOTE_READ_BUFFER_SIZE,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -126,6 +125,7 @@ class OTACache:
         self._closed = True
         self._shutdown_lock = asyncio.Lock()
 
+        self.remote_read_buffer_size = remote_read_buffer_size
         self.table_name = table_name = cfg.TABLE_NAME
         self._chunk_size = cfg.CHUNK_SIZE
         self._cache_enabled = cache_enabled
@@ -390,7 +390,7 @@ class OTACache:
 
                 data_chunks.append(data)
                 read_size += len(data)
-                if read_size > RESP_READ_SIZE:
+                if read_size > self.remote_read_buffer_size:
                     yield b"".join(data_chunks)
                     data_chunks = []
                     read_size = 0
