@@ -151,6 +151,10 @@ class App:
 
     async def start(self):
         """Start the ota_cache instance."""
+        logger.info("server started")
+        logger.info(f"Event loop policy: {asyncio.get_event_loop_policy()=}")
+        logger.info(f"Event loop: {asyncio.get_event_loop()=}")
+
         async with self._lock:
             if self._closed:
                 self._closed = False
