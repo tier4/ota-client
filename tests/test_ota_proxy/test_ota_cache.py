@@ -99,7 +99,7 @@ class TestLRUCacheHelper:
         try:
             yield lru_cache_helper
         finally:
-            lru_cache_helper.close()
+            await lru_cache_helper.close()
 
     async def test_commit_entry(
         self, lru_helper: LRUCacheHelper, setup_testdata: dict[str, CacheMeta]
