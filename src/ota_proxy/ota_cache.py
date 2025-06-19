@@ -22,7 +22,6 @@ import threading
 import time
 from pathlib import Path
 from typing import AsyncGenerator, Mapping, Optional, cast
-from urllib.parse import SplitResult, quote, urlsplit
 
 import aiohttp
 import anyio
@@ -45,7 +44,7 @@ from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
-from .utils import read_file, url_based_hash
+from .utils import process_raw_url, read_file, url_based_hash
 
 logger = logging.getLogger(__name__)
 # NOTE: only allow max 6 lines of logging per 30 seconds
@@ -362,41 +361,13 @@ class OTACache:
         except Exception as e:
             burst_suppressed_logger.exception(f"failed on callback for {meta=}: {e!r}")
 
-    def _process_raw_url(self, raw_url: str) -> str:
-        """Process the raw URL received from upper uvicorn app.
-
-        NOTE: raw_url(get from uvicorn) is unquoted, we must quote it again before we send it to the remote
-        NOTE(20221003): as otaproxy, we should treat all contents after netloc as path and not touch it,
-                        because we should forward the request as it to the remote.
-        NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
-        """
-        _raw_parse = urlsplit(raw_url)
-        # get the base of the raw_url, which is <scheme>://<netloc>
-        _raw_base = SplitResult(
-            scheme=_raw_parse.scheme,
-            netloc=_raw_parse.netloc,
-            path="",
-            query="",
-            fragment="",
-        ).geturl()
-
-        # get the leftover part of URL besides base as path, and then quote it
-        # finally, regenerate proper quoted url
-        return SplitResult(
-            scheme="https" if self._enable_https else "http",
-            netloc=_raw_parse.netloc,
-            path=quote(raw_url.replace(_raw_base, "", 1)),
-            query="",
-            fragment="",
-        ).geturl()
-
     # retrieve_file handlers
 
     async def _do_request(
         self, raw_url: str, headers: Mapping[str, str]
     ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
         async with self._session.get(
-            self._process_raw_url(raw_url),
+            process_raw_url(raw_url, self._enable_https),
             proxy=self._upper_proxy,
             headers=headers,
         ) as response:
