@@ -121,7 +121,6 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
-        weakref.finalize(self, _unlink_no_error, self.fpath)
 
     @property
     def writer_failed(self) -> bool:
@@ -197,6 +196,7 @@ class CacheTracker:
         self.cache_meta = cache_meta
         try:
             with open(self.fpath, "wb") as f:
+                weakref.finalize(self, _unlink_no_error, self.fpath)
                 chunks = []
                 batch_read_size = 0
 
