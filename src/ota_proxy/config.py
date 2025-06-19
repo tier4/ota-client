@@ -78,7 +78,6 @@ class Config:
 
     # ------ task management ------ #
     MAX_CONCURRENT_REQUESTS = 1024
-    MAX_CONCURRENT_CACHE_WRITES = int(CACHE_WRITE_WORKERS_NUM * 1.5)
 
 
 config = Config()

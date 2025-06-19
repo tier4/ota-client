@@ -322,7 +322,6 @@ class CacheWriterPool:
         fd: AsyncGenerator[bytes],
         tracker: CacheTracker,
         cache_meta: CacheMeta,
-        caching_se: threading.Semaphore,
     ) -> AsyncGenerator[bytes]:
         """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
@@ -347,12 +346,11 @@ class CacheWriterPool:
             # dispatch cache writing task at thread
             self._pool.submit(
                 tracker.provider_write_cache_at_thread, cache_meta, tee_que
-            ).add_done_callback(lambda _: caching_se.release())
+            )
         except Exception as e:
             _err_msg = f"failed to dispatch caching for {cache_meta}: {e!r}"
             burst_suppressed_logger.warning(_err_msg)
             tracker.set_writer_failed()
-            caching_se.release()
 
         try:
             # tee the incoming chunk to two destinations
