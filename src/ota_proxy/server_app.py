@@ -142,14 +142,12 @@ class App:
         ota_cache: OTACache,
         *,
         max_concurrent_requests: int = cfg.MAX_CONCURRENT_REQUESTS,
-        wait_for_semaphore: float = cfg.WAIT_FOR_SEMAPHORE,
     ):
         self._lock = asyncio.Lock()
         self._closed = True
         self._ota_cache = ota_cache
 
         self._se = asyncio.Semaphore(max_concurrent_requests)
-        self._se_wait = wait_for_semaphore
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -333,8 +331,7 @@ class App:
             return
 
         try:
-            # logger.debug(f"receive request for {url=}")
-            await asyncio.wait_for(self._se.acquire(), timeout=self._se_wait)
+            await asyncio.wait_for(self._se.acquire(), timeout=0.01)
             try:
                 await self._pull_data_and_send(url, scope, send)
             finally:

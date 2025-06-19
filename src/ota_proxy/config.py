@@ -74,8 +74,7 @@ class Config:
 
     # ------ task management ------ #
     MAX_CONCURRENT_REQUESTS = 512
-    """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
-    WAIT_FOR_SEMAPHORE = 0.1
+    MAX_CONCURRENT_CACHE_WRITES = int(CACHE_WRITE_WORKERS_NUM * 1.5)
 
 
 config = Config()
