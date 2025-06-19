@@ -310,18 +310,12 @@ class CacheWriterPool:
     ) -> None:
         self._worker_thread_local = threading.local()
         self._pool = ThreadPoolExecutor(
-            max_workers=max_workers,
-            thread_name_prefix="cache_writer",
-            initializer=self._thread_worker_initializer,
+            max_workers=max_workers, thread_name_prefix="cache_writer"
         )
         self._loop = asyncio.get_event_loop()
 
     async def close(self) -> None:
         await run_sync(self._pool.shutdown)
-
-    def _thread_worker_initializer(self) -> None:
-        self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
-        self._worker_thread_local.view = memoryview(buffer)
 
     async def cache_streaming(
         self,
