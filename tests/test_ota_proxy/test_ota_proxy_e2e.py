@@ -50,7 +50,7 @@ SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
-CLIENTS_NUM = 2
+CLIENTS_NUM = 3
 
 
 def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir: Path):

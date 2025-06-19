@@ -15,10 +15,18 @@
 
 class Config:
     BASE_DIR = "/ota-cache"
-    CHUNK_SIZE = 1 * 1024 * 1024  # 4MB
+
+    # ------ io config ------ #
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
+    LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
+    REMOTE_READ_BUFFER_SIZE = 256 * 1024  # 256KiB
+
+    # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
+
+    # ------ LRU cache config ------ #
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
     # if we have to reserve space for this file.
@@ -37,18 +45,19 @@ class Config:
         16 * (1024**2): 2,
         32 * (1024**2): 2,  # [32MiB, ~), will not be rotated
     }
+
+    # ------ db config ------ #
     DB_FILE = f"{BASE_DIR}/cache_db"
     DB_THREADS = 3
     DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
-    # DB configuration/setup
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
     TABLE_DEFINITION_VERSION = "v4"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
-    AIOHTTP_SOCKET_READ_TIMEOUT = 60  # second
+    AIOHTTP_SOCKET_READ_TIMEOUT = 16  # second
 
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"
@@ -57,9 +66,14 @@ class Config:
     # the file extension for compressed files in external cache storage
     EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
 
-    EXTERNAL_CACHE_DEV_FSLABEL: str = "ota_cache_src"
-    EXTERNAL_CACHE_DATA_DNAME: str = "data"
+    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
+    EXTERNAL_CACHE_DATA_DNAME = "data"
     """The cache blob storage is located at <cache_mnt_point>/data."""
+
+    # ------ task management ------ #
+    MAX_CONCURRENT_REQUESTS = 512
+    """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
+    WAIT_FOR_SEMAPHORE = 0.1
 
 
 config = Config()

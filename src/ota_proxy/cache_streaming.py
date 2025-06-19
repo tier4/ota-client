@@ -13,22 +13,23 @@
 # limitations under the License.
 """Implementation of cache streaming."""
 
-
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import threading
+import time
 import weakref
-from pathlib import Path
-from typing import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from queue import Queue
+from typing import AsyncGenerator, Callable
 
 import anyio
 from anyio import open_file
+from anyio.to_thread import run_sync
 
-from otaclient_common._typing import StrOrPath
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common.common import get_backoff
 
 from .config import config as cfg
@@ -41,13 +42,18 @@ from .errors import (
 )
 
 logger = logging.getLogger(__name__)
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
+
 
 # cache tracker
 
 
-def _tracker_finalizer(tmp_fpath: Path):
-    """Finalizer that cleans up the tmp file when this tracker is gced."""
-    tmp_fpath.unlink(missing_ok=True)
+def _unlink_no_error(fpath):
+    try:
+        os.unlink(fpath)
+    except Exception:
+        pass
 
 
 class CacheTracker:
@@ -75,8 +81,8 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # 9s
-    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # 9s
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # max wait: ~9s
+    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # max wait: ~9s
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
@@ -99,96 +105,34 @@ class CacheTracker:
         self,
         cache_identifier: str,
         *,
-        base_dir: StrOrPath,
+        base_dir: anyio.Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
+        local_write_buffer_size: int = cfg.LOCAL_WRITE_BUFFER_SIZE,
     ):
-        self.fpath = Path(base_dir) / self._tmp_file_naming(cache_identifier)
-        self.save_path = anyio.Path(base_dir) / cache_identifier
+        self.local_write_buffer_size = local_write_buffer_size
+        self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
+        self.save_path = base_dir / cache_identifier
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
-        self._writer_ready = asyncio.Event()
         self._writer_finished = asyncio.Event()
-        self._writer_failed = asyncio.Event()
+        self._writer_failed = threading.Event()
 
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
-
-        # self-register the finalizer to this tracker
-        weakref.finalize(
-            self,
-            _tracker_finalizer,
-            self.fpath,
-        )
+        weakref.finalize(self, _unlink_no_error, self.fpath)
 
     @property
     def writer_failed(self) -> bool:
         return self._writer_failed.is_set()
 
-    @property
-    def writer_finished(self) -> bool:
-        return self._writer_finished.is_set()
-
     def set_writer_failed(self) -> None:  # pragma: no cover
         self._writer_finished.set()
         self._writer_failed.set()
 
-    async def _provider_write_cache(
-        self, cache_meta: CacheMeta
-    ) -> AsyncGenerator[int, bytes]:
-        """Provider writes data chunks from upper caller to tmp cache file.
-
-        If cache writing failed, this method will exit and tracker.writer_failed and
-        tracker.writer_finished will be set.
-        """
-        logger.debug(f"start to cache for {cache_meta=}...")
-        try:
-            async with await open_file(self.fpath, "wb") as f:
-                _written = 0
-                while _data := (yield _written):
-                    if not self._space_availability_event.is_set():
-                        _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
-                        logger.warning(_err_msg)
-                        raise StorageReachHardLimit(_err_msg)
-
-                    _written = await f.write(_data)
-
-                    # set the writer is ready on first chunk of data written,
-                    # signal the subcriber that the cache stream starts.
-                    if not self._writer_ready.is_set():
-                        self._writer_ready.set()
-
-                    self._bytes_written += _written
-
-            # logger.debug(
-            #     "cache write finished, total bytes written"
-            #     f"({self._bytes_written}) for {self.meta=}"
-            # )
-            # NOTE(20240805): mark the writer succeeded in advance to release the
-            #   subscriber faster. Whether the database entry is committed or not
-            #   doesn't matter here, the subscriber doesn't need to fail if caching
-            #   finished but db commit failed.
-            self._writer_finished.set()
-            cache_meta.cache_size = self._bytes_written
-
-            # commit the cache meta to the database
-            await self._commit_cache_cb(cache_meta)
-            # finalize the cache file, skip finalize if the target file is
-            #   already presented.
-            if not await self.save_path.is_file():
-                os.link(self.fpath, self.save_path)
-        except Exception as e:
-            logger.warning(f"failed to write cache for {cache_meta=}: {e!r}")
-            self._writer_failed.set()
-        finally:
-            # NOTE: always unblocked the subscriber waiting for writer ready/finished
-            self._writer_finished.set()
-            self._writer_ready.set()
-            self = None  # remove the ref to tracker
-
-    async def _subscriber_stream_cache(self) -> AsyncIterator[bytes]:
+    async def _subscriber_stream_cache(self) -> AsyncGenerator[bytes]:
         """Subscriber keeps polling chunks from ongoing tmp cache file.
 
         Subscriber will keep polling until the provider fails or
@@ -198,12 +142,14 @@ class CacheTracker:
             CacheMultipleStreamingFailed if provider failed or timeout reading
             data chunk from tmp cache file(might be caused by a dead provider).
         """
-        err_count, _bytes_read = 0, 0
+        wait_data_count, bytes_read = 0, 0
         try:
             async with await open_file(self.fpath, "rb") as f:
+                fd = f.wrapped.fileno()
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while (
                     not self._writer_finished.is_set()
-                    or _bytes_read < self._bytes_written
+                    or bytes_read < self._bytes_written
                 ):
                     if self._writer_failed.is_set():
                         raise CacheStreamingInterrupt(
@@ -211,14 +157,12 @@ class CacheTracker:
                         )
 
                     if _chunk := await f.read(cfg.CHUNK_SIZE):
-                        err_count = 0
-                        _bytes_read += len(_chunk)
+                        wait_data_count = 0
+                        bytes_read += len(_chunk)
                         yield _chunk
-                        continue
-
                     # no data chunk is read, wait with backoff for the next
                     #   data chunk written by the provider.
-                    if err_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
+                    elif wait_data_count > self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY:
                         # abort caching due to potential dead streaming coro
                         _err_msg = (
                             f"failed to read stream for {self.cache_meta}: "
@@ -226,41 +170,90 @@ class CacheTracker:
                         )
                         logger.warning(_err_msg)
                         raise CacheMultiStreamingFailed(_err_msg)
-
-                    await asyncio.sleep(
-                        get_backoff(
-                            err_count,
-                            self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
-                            self.SUBSCRIBER_WAIT_BACKOFF_MAX,
+                    else:
+                        await asyncio.sleep(
+                            get_backoff(
+                                wait_data_count,
+                                self.SUBSCRIBER_WAIT_BACKOFF_FACTOR,
+                                self.SUBSCRIBER_WAIT_BACKOFF_MAX,
+                            )
                         )
-                    )
-                    err_count += 1
+                        wait_data_count += 1
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         finally:
             self = None  # del the ref to the tracker on finished
 
     # exposed API
 
-    async def start_provider(self, cache_meta: CacheMeta) -> AsyncGenerator[int, bytes]:
-        """Register meta to the Tracker, create tmp cache entry and get ready.
+    def provider_write_cache_at_thread(
+        self,
+        cache_meta: CacheMeta,
+        input_que: Queue[bytes | None],
+    ) -> None:
+        """Provider writes data chunks from upper caller to tmp cache file.
 
-        Check _provider_write_cache for more details.
-
-        Args:
-            meta: inst of CacheMeta for the requested file tracked by this tracker.
-                This meta is created by open_remote() method.
+        If cache writing failed, this method will exit and tracker.writer_failed and
+        tracker.writer_finished will be set.
         """
         self.cache_meta = cache_meta
-        _gen = self._provider_write_cache(cache_meta)
-        # kick start the generator
-        await _gen.asend(None)  # type: ignore
-        return _gen
+        try:
+            with open(self.fpath, "wb") as f:
+                chunks = []
+                batch_read_size = 0
 
-    async def subscribe_tracker(self) -> tuple[AsyncIterator[bytes], CacheMeta] | None:
+                while _data := input_que.get():
+                    if not self._space_availability_event.is_set():
+                        _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
+                        burst_suppressed_logger.warning(_err_msg)
+                        raise StorageReachHardLimit(_err_msg)
+
+                    if self._writer_failed.is_set():
+                        raise CacheStreamingInterrupt("interrupted as upper failed")
+
+                    chunks.append(_data)
+                    batch_read_size += len(_data)
+                    if batch_read_size > self.local_write_buffer_size:
+                        self._bytes_written += f.write(b"".join(chunks))
+                        chunks = []
+                        batch_read_size = 0
+
+                # remember the final batch
+                self._bytes_written += f.write(b"".join(chunks))
+
+                _fd = f.fileno()
+                f.flush()
+                os.fsync(_fd)
+                os.posix_fadvise(_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+            # NOTE(20240805): mark the writer succeeded in advance to release the
+            #   subscriber faster. Whether the database entry is committed or not
+            #   doesn't matter here, the subscriber doesn't need to fail if caching
+            #   finished but db commit failed.
+            self._writer_finished.set()
+            cache_meta.cache_size = self._bytes_written
+
+            # finalize the cache file, always rewrite the existed file
+            if not self._writer_failed.is_set():
+                os.link(self.fpath, self.save_path)
+                self._commit_cache_cb(self.cache_meta)
+        except Exception as e:
+            burst_suppressed_logger.warning(
+                f"failed to write cache for {cache_meta=}: {e!r}"
+            )
+            self._writer_failed.set()
+        finally:
+            # NOTE: always unblocked the subscriber waiting for writer ready/finished
+            self._writer_finished.set()
+            self, input_que = None, None  # type: ignore ,remove the ref to tracker
+
+    async def subscribe_tracker(self) -> tuple[AsyncGenerator[bytes], CacheMeta] | None:
         """Subscribe to this tracker and get the cache stream and cache_meta."""
         _wait_count = 0
-        while not self._writer_ready.is_set():
+        while self._bytes_written <= 0 or self.cache_meta is None:
             if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
-                logger.warning(f"timeout waiting provider for {self.cache_meta}, abort")
+                burst_suppressed_logger.warning(
+                    "timeout waiting provider starts caching, abort"
+                )
                 return
             if self._writer_failed.is_set():
                 return  # early break on failed provider
@@ -274,13 +267,12 @@ class CacheTracker:
             )
             _wait_count += 1
 
-        if self._writer_failed.is_set() or self.cache_meta is None:
-            return  # try to subscribe a failed stream
-        return self._subscriber_stream_cache(), self.cache_meta
+        if not self._writer_failed.is_set() and self.cache_meta:
+            return self._subscriber_stream_cache(), self.cache_meta
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Coroutine[None, None, None]]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
 
 
 class CachingRegister:
@@ -311,68 +303,96 @@ class CachingRegister:
         self._id_tracker[cache_identifier] = tracker
 
 
-async def cache_streaming(
-    fd: AsyncIterator[bytes],
-    tracker: CacheTracker,
-    cache_meta: CacheMeta,
-) -> AsyncIterator[bytes]:
-    """A cache streamer that get data chunk from <fd> and tees to multiple destination.
+# if all the workers in pool keeps busy longer than
+#   this timeout, the caller should not schedule new
+#   cache writing anymore.
+MAX_WAIT_TIME_FOR_DISPATCH_WRITE = 16  # seconds
+# copied from ThreadPoolExecutor
+DEFAULT_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)
 
-    Data chunk yielded from <fd> will be teed to:
-    1. upper uvicorn otaproxy APP to send back to client,
-    2. cache_tracker cache_write_gen for caching to local.
 
-    Args:
-        fd: opened connection to a remote file.
-        tracker: an inst of ongoing cache tracker bound to this request.
-        cache_meta: meta data of the requested resource.
+class CacheWriterPool:
+    def __init__(
+        self,
+        *,
+        max_workers: int = DEFAULT_WORKERS_NUM,
+        max_dispatch_wait=MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
+    ) -> None:
+        self.max_dispatch_wait = max_dispatch_wait
+        self._worker_thread_local = threading.local()
+        self._pool = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="cache_writer",
+            initializer=self._thread_worker_initializer,
+        )
+        self._loop = asyncio.get_event_loop()
+        self._se = threading.Semaphore(max_workers)
+        self._last_finished_at = float("inf")
 
-    Returns:
-        A bytes async iterator to yield data chunk from, for upper otaproxy uvicorn APP.
+    async def close(self) -> None:
+        await run_sync(self._pool.shutdown)
 
-    Raises:
-        CacheStreamingFailed if any exception happens during retrieving.
-    """
-    _cache_write_gen = None
-    try:
-        _cache_write_gen = await tracker.start_provider(cache_meta)
-        _cache_writer_failed = False
+    def _thread_worker_initializer(self) -> None:
+        self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+        self._worker_thread_local.view = memoryview(buffer)
 
-        # tee the incoming chunk to two destinations
-        async for chunk in fd:
-            # NOTE: for aiohttp, when HTTP chunk encoding is enabled,
-            #       an empty chunk will be sent to indicate the EOF of stream,
-            #       we MUST handle this empty chunk.
-            if not chunk:  # skip if empty chunk is read from remote
-                continue
+    def _commit_finish_time(self, _) -> None:
+        self._se.release()
+        self._last_finished_at = time.time()
 
-            # to caching generator, if the tracker is still working
-            if not _cache_writer_failed:
-                try:
-                    await _cache_write_gen.asend(chunk)
-                except Exception as e:
-                    logger.error(
-                        f"cache write coroutine failed for {cache_meta=}, abort caching: {e!r}"
-                    )
-                    _cache_writer_failed = True
+    async def cache_streaming(
+        self, fd: AsyncGenerator[bytes], tracker: CacheTracker, cache_meta: CacheMeta
+    ) -> AsyncGenerator[bytes]:
+        """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
-            # to uvicorn thread
-            yield chunk
+        Data chunk yielded from <fd> will be teed to:
+        1. upper uvicorn otaproxy APP to send back to client,
+        2. cache_tracker cache_write_gen for caching to local.
 
-        # signal provider on finish, no more data chunk will be sent
-        with contextlib.suppress(StopAsyncIteration):
-            await _cache_write_gen.asend(b"")
-    except Exception as e:
-        _err_msg = f"cache tee failed for {cache_meta=}: {e!r}"
-        logger.warning(_err_msg)
-        raise CacheStreamingFailed(_err_msg) from e
-    finally:
-        # force terminate the generator in all condition at exit, this
-        #   can ensure the generator being gced after cache_streaming exits.
-        if _cache_write_gen:
-            with contextlib.suppress(StopAsyncIteration):
-                await _cache_write_gen.athrow(StopAsyncIteration)
+        Args:
+            fd: opened connection to a remote file.
+            tracker: an inst of ongoing cache tracker bound to this request.
+            cache_meta: meta data of the requested resource.
 
-        # remove the refs
-        fd, tracker = None, None  # type: ignore
-        _cache_write_gen = None
+        Returns:
+            A AsyncGenerator[bytes] to yield data chunk from, for upper otaproxy uvicorn APP.
+
+        Raises:
+            CacheStreamingFailed if any exception happens.
+        """
+        tee_que: Queue[bytes | None] = Queue()
+        writer_failed_event = tracker._writer_failed
+        try:
+            if (
+                self._se.acquire(blocking=False)
+                or time.time() < self._last_finished_at + self.max_dispatch_wait
+            ):
+                # dispatch cache writing task at thread
+                self._pool.submit(
+                    tracker.provider_write_cache_at_thread, cache_meta, tee_que
+                ).add_done_callback(self._commit_finish_time)
+            else:
+                burst_suppressed_logger.warning(
+                    f"all writers in the pool keeps busy longer than {self.max_dispatch_wait}s, "
+                    "do not write cache this time"
+                )
+                writer_failed_event.set()
+
+            # tee the incoming chunk to two destinations
+            async for chunk in fd:
+                # to caching task, if the tracker is still working
+                if not writer_failed_event.is_set():
+                    tee_que.put_nowait(chunk)
+
+                # even cache write failed, we still continue pushing to uvicorn
+                yield chunk
+        except Exception as e:
+            writer_failed_event.set()  # abort or drop caching
+            _err_msg = f"upper file descriptor failed({cache_meta=}): {e!r}"
+            burst_suppressed_logger.warning(_err_msg)
+            raise CacheStreamingFailed(_err_msg) from e
+        finally:
+            # send sentinel to the caching task
+            tee_que.put_nowait(None)
+            # remove the refs
+            fd, tracker, tee_que = None, None, None  # type: ignore

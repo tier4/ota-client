@@ -1653,7 +1653,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.3,<3" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
     { name = "requests", specifier = "==2.32.4" },
-    { name = "simple-sqlite3-orm", specifier = ">=0.10,<0.11" },
+    { name = "simple-sqlite3-orm", specifier = "~=0.12" },
     { name = "typing-extensions", specifier = ">=4.6.3" },
     { name = "urllib3", specifier = ">=2.2.2,<2.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<0.35" },
@@ -2509,16 +2509,16 @@ wheels = [
 
 [[package]]
 name = "simple-sqlite3-orm"
-version = "0.10.0"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "pydantic", version = "2.11.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/39/8a4932881c7961f0896211c574fc5efe742961df4f44081220c292fd0d29/simple_sqlite3_orm-0.10.0.tar.gz", hash = "sha256:41716e3ff6f528266e017e4d282f48fa2d6aa62d79fef610e2df9b71606ead85", size = 37539, upload-time = "2025-02-17T03:06:15.285Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/f3/3e1728bb9c00498f292d658e4aaf3dc6157161fa866b86ae1e5d13e7deba/simple_sqlite3_orm-0.12.0.tar.gz", hash = "sha256:c80b7efe5e7374f2aa9bcb4d759eec09a8f8e7de90f2b2d2ead0f563219a2c34", size = 93077, upload-time = "2025-05-17T10:34:48.009Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f4/ad/3136dc11e3c02664c8d7f3dfc550980dbbc3b3866314ecda12335324469a/simple_sqlite3_orm-0.10.0-py3-none-any.whl", hash = "sha256:cd62007903df9964e50e57e39f0f9072fac0867473d191bee94e937800ac1a86", size = 35797, upload-time = "2025-02-17T03:06:13.392Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/7c/dcb93ddb8bf4dcec615257c7a405eb3d3516c87bf6e773a8b439d521b59f/simple_sqlite3_orm-0.12.0-py3-none-any.whl", hash = "sha256:518e582f91dc83dda989cec8b6eadcfcec22166fb4e603363254a4208a45b2ed", size = 38554, upload-time = "2025-05-17T10:34:46.561Z" },
 ]
 
 [[package]]

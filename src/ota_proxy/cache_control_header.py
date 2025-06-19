@@ -12,42 +12,108 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
-from dataclasses import dataclass, fields
-from typing import ClassVar, Dict, List
+import logging
+from dataclasses import dataclass
+from io import StringIO
+from typing import ClassVar, Optional, TypedDict
 
-from typing_extensions import Self
+from typing_extensions import Unpack
 
-from otaclient_common._typing import copy_callable_typehint_to_method
+from otaclient_common._logging import get_burst_suppressed_logger
 
-_FIELDS = "_fields"
+logger = logging.getLogger(__name__)
+# NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.header_parse_error")
+
+VALID_DIRECTORIES = set(
+    ["no_cache", "retry_caching", "file_sha256", "file_compression_alg"]
+)
+HEADER_LOWERCASE = "ota-file-cache-control"
+HEADER_DIR_SEPARATOR = ","
 
 
-@dataclass
-class _HeaderDef:
-    # ------ Header definition ------ #
-    # NOTE: according to RFC7230, the header name is case-insensitive,
-    #       so for convenience during code implementation, we always use lower-case
-    #       header name.
-    HEADER_LOWERCASE: ClassVar[str] = "ota-file-cache-control"
-    HEADER_DIR_SEPARATOR: ClassVar[str] = ","
-
-    # ------ Directives definition ------ #
-    no_cache: bool = False
-    retry_caching: bool = False
+class OTAFileCacheDirTypedDict(TypedDict, total=False):
+    no_cache: bool
+    retry_caching: bool
     # added in revision 2:
-    file_sha256: str = ""
-    file_compression_alg: str = ""
+    file_sha256: Optional[str]
+    file_compression_alg: Optional[str]
 
-    def __init_subclass__(cls) -> None:
-        _fields = {}
-        for f in fields(cls):
-            _fields[f.name] = f.type
-        setattr(cls, _FIELDS, _fields)
+
+def parse_header(_input: str) -> OTAFileCacheControl:
+    if not _input:
+        return OTAFileCacheControl()
+
+    _res = OTAFileCacheControl()
+    for c in _input.strip().split(HEADER_DIR_SEPARATOR):
+        k, *v = c.strip().split("=", maxsplit=1)
+        if k not in VALID_DIRECTORIES:
+            burst_suppressed_logger.warning(f"get unknown directory, ignore: {c}")
+            continue
+        setattr(_res, k, v[0] if v else True)
+    return _res
+
+
+def _parse_header_asdict(_input: str) -> OTAFileCacheDirTypedDict:
+    if not _input:
+        return {}
+
+    _res: OTAFileCacheDirTypedDict = {}
+    for c in _input.strip().split(HEADER_DIR_SEPARATOR):
+        k, *v = c.strip().split("=", maxsplit=1)
+        if k not in VALID_DIRECTORIES:
+            burst_suppressed_logger.warning(f"get unknown directory, ignore: {c}")
+            continue
+        _res[k] = v[0] if v else True
+    return _res
+
+
+def export_header_dict_asstr(_input: OTAFileCacheDirTypedDict) -> str:
+    with StringIO() as buffer:
+        for k, v in _input:
+            if k not in VALID_DIRECTORIES:
+                burst_suppressed_logger.warning(f"get unknown directory, ignore: {k}")
+                continue
+            if not v:
+                continue
+
+            buffer.write(k if isinstance(v, bool) and v else f"{k}={v}")
+            buffer.write(HEADER_DIR_SEPARATOR)
+        return buffer.getvalue().strip(HEADER_DIR_SEPARATOR)
+
+
+def export_kwargs_as_header_string(**kwargs: Unpack[OTAFileCacheDirTypedDict]) -> str:
+    """Directly export header str from a list of directive pairs."""
+    if not kwargs:
+        return ""
+
+    with StringIO() as buffer:
+        for k, v in kwargs.items():
+            if k not in VALID_DIRECTORIES:
+                burst_suppressed_logger.warning(f"get unknown directory, ignore: {k}")
+                continue
+            if not v:
+                continue
+
+            buffer.write(k if isinstance(v, bool) and v else f"{k}={v}")
+            buffer.write(HEADER_DIR_SEPARATOR)
+        return buffer.getvalue().strip(HEADER_DIR_SEPARATOR)
+
+
+def update_header_str(_input: str, **kwargs: Unpack[OTAFileCacheDirTypedDict]) -> str:
+    """Update input header string with input directive pairs."""
+    if not kwargs:
+        return _input
+
+    _res = _parse_header_asdict(_input)
+    _res.update(kwargs)
+    return export_kwargs_as_header_string(**_res)
 
 
 @dataclass
-class OTAFileCacheControl(_HeaderDef):
+class OTAFileCacheControl:
     """Custom header for ota file caching control policies.
 
     format:
@@ -62,68 +128,22 @@ class OTAFileCacheControl(_HeaderDef):
         file_compression_alg: the compression alg used for the OTA file
     """
 
-    @classmethod
-    def parse_header(cls, _input: str) -> Self:
-        _fields: Dict[str, type] = getattr(cls, _FIELDS)
-        _parsed_directives = {}
-        for _raw_directive in _input.split(cls.HEADER_DIR_SEPARATOR):
-            if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
-                continue
+    # ------ Header definition ------ #
+    # NOTE: according to RFC7230, the header name is case-insensitive,
+    #       so for convenience during code implementation, we always use lower-case
+    #       header name.
+    HEADER_LOWERCASE: ClassVar[str] = HEADER_LOWERCASE
+    HEADER_DIR_SEPARATOR: ClassVar[str] = HEADER_DIR_SEPARATOR
 
-            key = _parsed[0].strip()
-            if not (_field_type := _fields.get(key)):
-                continue
+    # ------ Directives definition ------ #
+    no_cache: bool = False
+    retry_caching: bool = False
+    # added in revision 2:
+    file_sha256: Optional[str] = None
+    file_compression_alg: Optional[str] = None
 
-            if _field_type is bool:
-                _parsed_directives[key] = True
-            elif len(_parsed) == 2 and (value := _parsed[1].strip()):
-                _parsed_directives[key] = value
-        return cls(**_parsed_directives)
-
-    @classmethod
-    @copy_callable_typehint_to_method(_HeaderDef)
-    def export_kwargs_as_header(cls, **kwargs) -> str:
-        """Directly export header str from a list of directive pairs."""
-        _fields: Dict[str, type] = getattr(cls, _FIELDS)
-        _directives: List[str] = []
-        for key, value in kwargs.items():
-            if key not in _fields:
-                continue
-
-            if isinstance(value, bool) and value:
-                _directives.append(key)
-            elif value:  # str field
-                _directives.append(f"{key}={value}")
-        return cls.HEADER_DIR_SEPARATOR.join(_directives)
-
-    @classmethod
-    def update_header_str(cls, _input: str, **kwargs) -> str:
-        """Update input header string with input directive pairs.
-
-        Current used directives:
-        1. no_cache
-        2. retry_caching
-        3. file_sha256
-        4. file_compression_alg
-        """
-        _fields: Dict[str, type] = getattr(cls, _FIELDS)
-        _parsed_directives = {}
-        for _raw_directive in _input.split(cls.HEADER_DIR_SEPARATOR):
-            if not (_parsed := _raw_directive.strip().split("=", maxsplit=1)):
-                continue
-            key = _parsed[0].strip()
-            if key not in _fields:
-                continue
-            _parsed_directives[key] = _raw_directive
-
-        for _key, value in kwargs.items():
-            if not (_field_type := _fields.get(_key)):
-                continue
-
-            if _field_type is bool and value:
-                _parsed_directives[_key] = _key
-            elif value:
-                _parsed_directives[_key] = f"{_key}={value}"
-            else:  # remove False or empty directives
-                _parsed_directives.pop(_key, None)
-        return cls.HEADER_DIR_SEPARATOR.join(_parsed_directives.values())
+    # TODO: (20250618): to not change the callers of these methods,
+    #                   currently just register these methods under OTAFileCacheControl class.
+    parse_header = staticmethod(parse_header)
+    export_kwargs_as_header = staticmethod(export_kwargs_as_header_string)
+    update_header_str = staticmethod(update_header_str)

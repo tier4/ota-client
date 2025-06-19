@@ -21,29 +21,34 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import AsyncIterator, Mapping, Optional
-from urllib.parse import SplitResult, quote, urlsplit
+from typing import AsyncGenerator, Mapping, Optional, cast
 
 import aiohttp
 import anyio
-import anyio.to_thread
+from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
-from .cache_control_header import OTAFileCacheControl
-from .cache_streaming import CacheTracker, CachingRegister, cache_streaming
+from .cache_control_header import (
+    OTAFileCacheControl,
+    export_kwargs_as_header_string,
+    parse_header,
+)
+from .cache_streaming import CacheTracker, CacheWriterPool, CachingRegister
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError
+from .errors import BaseOTACacheError, CacheCommitFailed
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
-from .utils import read_file, url_based_hash
+from .utils import process_raw_url, read_file, url_based_hash
 
 logger = logging.getLogger(__name__)
-
+# NOTE: only allow max 6 lines of logging per 30 seconds
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
 
 # helper functions
 
@@ -51,7 +56,7 @@ logger = logging.getLogger(__name__)
 def create_cachemeta_for_request(
     raw_url: str,
     cache_identifier: str,
-    compression_alg: str,
+    compression_alg: str | None,
     /,
     resp_headers_from_upper: CIMultiDictProxy[str],
 ) -> CacheMeta:
@@ -59,13 +64,13 @@ def create_cachemeta_for_request(
 
     Use information from upper in prior, otherwise use pre-calculated information.
 
-    Params:
+    Args:
         raw_url
         cache_identifier: pre-collected information from caller
         compression_alg: pre-collected information from caller
         resp_headers_from_upper
     """
-    _upper_cache_policy = OTAFileCacheControl.parse_header(
+    _upper_cache_policy = parse_header(
         resp_headers_from_upper.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
     )
     if _upper_cache_policy.file_sha256:
@@ -73,7 +78,7 @@ def create_cachemeta_for_request(
         file_compression_alg = _upper_cache_policy.file_compression_alg or None
     else:
         file_sha256 = cache_identifier
-        file_compression_alg = compression_alg
+        file_compression_alg = compression_alg or None
 
     return CacheMeta(
         file_sha256=file_sha256,
@@ -111,6 +116,7 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
+        remote_read_buffer_size: int = cfg.REMOTE_READ_BUFFER_SIZE,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -119,16 +125,19 @@ class OTACache:
         self._closed = True
         self._shutdown_lock = asyncio.Lock()
 
+        self.remote_read_buffer_size = remote_read_buffer_size
         self.table_name = table_name = cfg.TABLE_NAME
         self._chunk_size = cfg.CHUNK_SIZE
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https
 
-        self._base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
+        _base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
         self._db_file = db_f = Path(db_file) if db_file else Path(cfg.DB_FILE)
 
-        self._base_dir.mkdir(parents=True, exist_ok=True)
+        _base_dir.mkdir(parents=True, exist_ok=True)
+        self._base_dir = anyio.Path(_base_dir)
+        self._base_dir_sync = Path(_base_dir)
         if not check_db(self._db_file, table_name):
             logger.info(f"db file is broken, force init db file at {db_f}")
             db_f.unlink(missing_ok=True)
@@ -156,7 +165,7 @@ class OTACache:
             logger.warning("try to launch already launched ota_cache instance, ignored")
             return
         self._closed = False
-        self._base_dir.mkdir(exist_ok=True, parents=True)
+        await self._base_dir.mkdir(exist_ok=True, parents=True)
 
         # NOTE: we configure aiohttp to not decompress the resp body(if content-encoding specified),
         #       we cache the contents as its original form, and send to the client with
@@ -178,7 +187,7 @@ class OTACache:
             if self._init_cache:
                 logger.warning("purge and init ota_cache")
                 shutil.rmtree(str(self._base_dir), ignore_errors=True)
-                self._base_dir.mkdir(exist_ok=True, parents=True)
+                await self._base_dir.mkdir(exist_ok=True, parents=True)
                 # init db file with table created
                 self._db_file.unlink(missing_ok=True)
 
@@ -186,9 +195,7 @@ class OTACache:
 
             # reuse the previously left ota_cache
             else:  # cleanup unfinished tmp files
-                async for tmp_f in anyio.Path(self._base_dir).glob(
-                    f"{cfg.TMP_FILE_PREFIX}*"
-                ):
+                async for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
                     await tmp_f.unlink(missing_ok=True)
 
             # dispatch a background task to pulling the disk usage info
@@ -200,18 +207,14 @@ class OTACache:
             _free_space_check_thread.start()
 
             # init cache helper(and connect to ota_cache db)
-            self._lru_helper = LRUCacheHelper(
-                self._db_file,
-                bsize_dict=cfg.BUCKET_FILE_SIZE_DICT,
-                table_name=cfg.TABLE_NAME,
-                thread_nums=cfg.DB_THREADS,
-                thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
-            )
+            self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister()
 
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
                 self._enable_https = False
+
+            self._cache_write_pool = CacheWriterPool()
 
         logger.info("ota_cache started")
 
@@ -228,10 +231,11 @@ class OTACache:
                 await self._session.close()
 
                 if self._cache_enabled:
-                    self._lru_helper.close()
+                    await self._lru_helper.close()
+                    await self._cache_write_pool.close()
 
                 if self._external_cache_mp:
-                    umount_external_cache(self._external_cache_mp)
+                    await run_sync(umount_external_cache, self._external_cache_mp)
 
         logger.info("shutdown ota-cache completed")
 
@@ -290,14 +294,7 @@ class OTACache:
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _cache_entries_cleanup(self, entry_hashes: list[str]) -> None:
-        """Cleanup entries indicated by entry_hashes list."""
-        for entry_hash in entry_hashes:
-            # remove cache entry
-            f = self._base_dir / entry_hash
-            f.unlink(missing_ok=True)
-
-    async def _reserve_space(self, size: int) -> bool:
+    def _reserve_space(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
         Args:
@@ -306,7 +303,7 @@ class OTACache:
         Returns:
             A bool indicates whether the space reserving is successful or not.
         """
-        _hashes = await self._lru_helper.rotate_cache(size)
+        _hashes = self._lru_helper.rotate_cache(size)
         # NOTE: distinguish between [] and None! The fore one means we don't need
         #       cache rotation for saving the cache file, the latter one means
         #       cache rotation failed.
@@ -314,14 +311,22 @@ class OTACache:
             logger.debug(
                 f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
             )
-            await anyio.to_thread.run_sync(self._cache_entries_cleanup, _hashes)
+            for entry_hash in _hashes:
+                # remove cache entry
+                f = self._base_dir_sync / entry_hash
+                f.unlink(missing_ok=True)
             return True
         else:
             logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
             return False
 
-    async def _commit_cache_callback(self, meta: CacheMeta):
+    def _commit_cache_callback(self, meta: CacheMeta):
         """The callback for committing CacheMeta to cache_db.
+
+        NOTE(20250618): this callback now is synced and exepcted to be run
+                        within a worker thread.
+        NOTE(20250618): now on failed db commit, this method will raise exception
+                        to indicate caller to drop the cache.
 
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
@@ -333,82 +338,75 @@ class OTACache:
         try:
             if not self._storage_below_soft_limit_event.is_set():
                 # case 1: try to reserve space for the saved cache entry
-                if await self._reserve_space(meta.cache_size):
-                    if not await self._lru_helper.commit_entry(meta):
-                        logger.debug(f"failed to commit cache for {meta.url=}")
+                if self._reserve_space(meta.cache_size):
+                    if not self._lru_helper.commit_entry(meta):
+                        burst_suppressed_logger.warning(
+                            f"failed to commit cache for {meta.url=}"
+                        )
                 else:
                     # case 2: cache successful, but reserving space failed,
                     # NOTE(20221018): let cache tracker remove the tmp file
-                    logger.debug(f"failed to reserve space for {meta.url=}")
+                    burst_suppressed_logger.warning(
+                        f"failed to reserve space for {meta.url=}"
+                    )
             else:
                 # case 3: commit cache and finish up
-                if not await self._lru_helper.commit_entry(meta):
-                    logger.debug(f"failed to commit cache entry for {meta.url=}")
+                if not self._lru_helper.commit_entry(meta):
+                    burst_suppressed_logger.warning(
+                        f"failed to commit cache entry for {meta.url=}"
+                    )
         except Exception as e:
-            logger.exception(f"failed on callback for {meta=}: {e!r}")
-
-    def _process_raw_url(self, raw_url: str) -> str:
-        """Process the raw URL received from upper uvicorn app.
-
-        NOTE: raw_url(get from uvicorn) is unquoted, we must quote it again before we send it to the remote
-        NOTE(20221003): as otaproxy, we should treat all contents after netloc as path and not touch it,
-                        because we should forward the request as it to the remote.
-        NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
-        """
-        _raw_parse = urlsplit(raw_url)
-        # get the base of the raw_url, which is <scheme>://<netloc>
-        _raw_base = SplitResult(
-            scheme=_raw_parse.scheme,
-            netloc=_raw_parse.netloc,
-            path="",
-            query="",
-            fragment="",
-        ).geturl()
-
-        # get the leftover part of URL besides base as path, and then quote it
-        # finally, regenerate proper quoted url
-        return SplitResult(
-            scheme="https" if self._enable_https else "http",
-            netloc=_raw_parse.netloc,
-            path=quote(raw_url.replace(_raw_base, "", 1)),
-            query="",
-            fragment="",
-        ).geturl()
+            _err_msg = f"failed on callback for {meta=}: {e!r}"
+            burst_suppressed_logger.error(_err_msg)
+            raise CacheCommitFailed(_err_msg) from e
 
     # retrieve_file handlers
 
-    async def _retrieve_file_by_downloading(
-        self,
-        raw_url: str,
-        *,
-        headers: Mapping[str, str],
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
-        async def _do_request() -> AsyncIterator[bytes]:
-            async with self._session.get(
-                self._process_raw_url(raw_url),
-                proxy=self._upper_proxy,
-                headers=headers,
-            ) as response:
-                yield response.headers  # type: ignore
-                # NOTE(20230803): sometimes aiohttp will raises:
-                #                 "ClientPayloadError: Response payload is not completed" exception,
-                #                 according to some posts in related issues, add a asyncio.sleep(0)
-                #                 to make event loop switch to other task here seems mitigates the problem.
-                #                 check the following URLs for details:
-                #                 1. https://github.com/aio-libs/aiohttp/issues/4581
-                #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
-                await asyncio.sleep(0)
-                async for data, _ in response.content.iter_chunks():
-                    if data:  # only yield non-empty data chunk
-                        yield data
+    async def _do_request(
+        self, raw_url: str, headers: Mapping[str, str]
+    ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
+        async with self._session.get(
+            process_raw_url(raw_url, self._enable_https),
+            proxy=self._upper_proxy,
+            headers=headers,
+        ) as response:
+            yield response.headers
+            # NOTE(20230803): sometimes aiohttp will raises:
+            #                 "ClientPayloadError: Response payload is not completed" exception,
+            #                 according to some posts in related issues, add a asyncio.sleep(0)
+            #                 to make event loop switch to other task here seems mitigates the problem.
+            #                 check the following URLs for details:
+            #                 1. https://github.com/aio-libs/aiohttp/issues/4581
+            #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
+            # NOTE(20250616): the original issue is closed as fixed since 3.10.
+            # await asyncio.sleep(0)
+            data_chunks = []
+            read_size = 0
 
+            # NOTE: also see https://docs.aiohttp.org/en/stable/streams.html#aiohttp.StreamReader.iter_chunks
+            async for data, end_of_http_chunk in response.content.iter_chunks():
+                if end_of_http_chunk:
+                    continue
+
+                data_chunks.append(data)
+                read_size += len(data)
+                if read_size > self.remote_read_buffer_size:
+                    yield b"".join(data_chunks)
+                    data_chunks = []
+                    read_size = 0
+            yield b"".join(data_chunks)  # remember the last batch of data
+
+    async def _retrieve_file_by_downloading(
+        self, raw_url: str, headers: Mapping[str, str]
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str]]:
         # open remote connection
-        resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore
+        _remote_fd = cast("AsyncGenerator[bytes]", self._do_request(raw_url, headers))
+        resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
@@ -432,7 +430,7 @@ class OTACache:
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        cache_file = anyio.Path(self._base_dir / cache_identifier)
+        cache_file = self._base_dir / cache_identifier
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -461,7 +459,7 @@ class OTACache:
 
     async def _retrieve_file_by_external_cache(
         self, client_cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         # skip if not external cache or otaclient doesn't sent valid file_sha256
         if (
             not self._external_cache_data_dir
@@ -479,20 +477,16 @@ class OTACache:
 
         if await cache_file_zst.is_file():
             _header = CIMultiDict()
-            _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=cache_identifier,
-                    file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
-                )
+            _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=cache_identifier,
+                file_compression_alg=cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG,
             )
             return read_file(cache_file_zst), _header
 
         if await cache_file.is_file():
             _header = CIMultiDict()
-            _header[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=cache_identifier
-                )
+            _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=cache_identifier
             )
             return read_file(cache_file), _header
 
@@ -501,8 +495,8 @@ class OTACache:
         *,
         raw_url: str,
         cache_policy: OTAFileCacheControl,
-        headers_from_client: dict[str, str],
-    ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
+        headers_from_client: CIMultiDict[str],
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
         # NOTE(20241202): no new cache on hard limit being reached
         if (
             not self._cache_enabled
@@ -516,18 +510,16 @@ class OTACache:
         if not cache_identifier:
             # fallback to use URL based hash, and clear compression_alg for such case
             cache_identifier = url_based_hash(raw_url)
-            compression_alg = ""
+            compression_alg = None
 
         # if set, cleanup any previous cache file before starting new cache
         if cache_policy.retry_caching:
-            logger.debug(f"requested with retry_cache for {raw_url=} ...")
             await self._lru_helper.remove_entry(cache_identifier)
-            (self._base_dir / cache_identifier).unlink(missing_ok=True)
+            await (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
             subscription := await tracker.subscribe_tracker()
         ):
-            # logger.debug(f"reader subscribe for {tracker.meta=}")
             stream_fd, cache_meta = subscription
             return stream_fd, cache_meta.export_headers_to_client()
 
@@ -554,7 +546,9 @@ class OTACache:
                 resp_headers_from_upper=resp_headers,
             )
             # start caching
-            wrapped_fd = cache_streaming(remote_fd, tracker, cache_meta)
+            wrapped_fd = self._cache_write_pool.cache_streaming(
+                remote_fd, tracker, cache_meta
+            )
             return wrapped_fd, resp_headers
         except Exception:
             tracker.set_writer_failed()
@@ -565,8 +559,8 @@ class OTACache:
     # exposed API
 
     async def retrieve_file(
-        self, raw_url: str, headers_from_client: dict[str, str]
-    ) -> tuple[AsyncIterator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
+        self, raw_url: str, headers_from_client: CIMultiDict[str]
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.
@@ -587,11 +581,17 @@ class OTACache:
         if self._closed:
             raise BaseOTACacheError("ota cache pool is closed")
 
-        cache_policy = OTAFileCacheControl.parse_header(
+        cache_policy = parse_header(
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
         if cache_policy.no_cache:
-            logger.info(f"client indicates that do not cache for {raw_url=}")
+            burst_suppressed_logger.info(
+                f"client indicates that do not cache for {raw_url=}"
+            )
+        if cache_policy.retry_caching:
+            burst_suppressed_logger.info(
+                f"client requests re-caching for {raw_url=}, {cache_policy.file_sha256=}"
+            )
 
         # when there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:
@@ -605,11 +605,15 @@ class OTACache:
 
         # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
         #   and loaded, still try to use external cache source.
-        if _res := await self._retrieve_file_by_external_cache(cache_policy):
+        if self._external_cache_data_dir and (
+            _res := await self._retrieve_file_by_external_cache(cache_policy)
+        ):
             return _res
 
-        if _res := await self._retrieve_file_by_cache_lookup(
-            raw_url=raw_url, cache_policy=cache_policy
+        if not cache_policy.retry_caching and (
+            _res := await self._retrieve_file_by_cache_lookup(
+                raw_url=raw_url, cache_policy=cache_policy
+            )
         ):
             return _res
 

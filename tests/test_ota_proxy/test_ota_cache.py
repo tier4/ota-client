@@ -78,7 +78,6 @@ def entries_to_remove(setup_testdata: dict[str, CacheMeta]) -> list[CacheMeta]:
 
 @pytest.mark.asyncio(scope="class")
 class TestLRUCacheHelper:
-
     @pytest_asyncio.fixture(autouse=True, scope="class")
     async def lru_helper(self, tmp_path_factory: pytest.TempPathFactory):
         ota_cache_folder = tmp_path_factory.mktemp("ota-cache")
@@ -109,7 +108,7 @@ class TestLRUCacheHelper:
             # deliberately clear the bucket_idx, this should be set by commit_entry method
             _copy = entry.model_copy()
             _copy.bucket_idx = 0
-            assert await lru_helper.commit_entry(entry)
+            assert lru_helper.commit_entry(entry)
 
     async def test_lookup_entry(
         self,
@@ -137,5 +136,5 @@ class TestLRUCacheHelper:
         # NOTE that the first bucket and last bucket will not be rotated,
         #   see lru_cache_helper module for more details.
         for target_bucket in list(cfg.BUCKET_FILE_SIZE_DICT)[1:-1]:
-            entries_to_be_removed = await lru_helper.rotate_cache(target_bucket)
+            entries_to_be_removed = lru_helper.rotate_cache(target_bucket)
             assert entries_to_be_removed is not None and len(entries_to_be_removed) != 0
