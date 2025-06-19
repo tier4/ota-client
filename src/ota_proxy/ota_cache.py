@@ -117,6 +117,7 @@ class OTACache:
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
         remote_read_buffer_size: int = cfg.REMOTE_READ_BUFFER_SIZE,
+        max_concurrent_caching: int = cfg.MAX_CONCURRENT_CACHE_WRITES,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -124,6 +125,7 @@ class OTACache:
         )
         self._closed = True
         self._shutdown_lock = asyncio.Lock()
+        self._caching_se = threading.Semaphore(max_concurrent_caching)
 
         self.remote_read_buffer_size = remote_read_buffer_size
         self.table_name = table_name = cfg.TABLE_NAME
@@ -523,8 +525,13 @@ class OTACache:
             stream_fd, cache_meta = subscription
             return stream_fd, cache_meta.export_headers_to_client()
 
+        # caller is the provider of the requested resource
         # no valid online tracker is available for this request, create a new one and
         #   promote the caller to be the provider.
+        # If there is too much ongoing caching, skip caching but directly download.
+        if not self._caching_se.acquire(blocking=False):
+            return
+
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
@@ -532,10 +539,8 @@ class OTACache:
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
-        self._on_going_caching.register_tracker(cache_identifier, tracker)
-
-        # caller is the provider of the requested resource
         try:
+            self._on_going_caching.register_tracker(cache_identifier, tracker)
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
@@ -545,9 +550,13 @@ class OTACache:
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
+
             # start caching
             wrapped_fd = self._cache_write_pool.cache_streaming(
-                remote_fd, tracker, cache_meta
+                remote_fd,
+                tracker,
+                cache_meta,
+                self._caching_se,
             )
             return wrapped_fd, resp_headers
         except Exception:

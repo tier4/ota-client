@@ -324,7 +324,11 @@ class CacheWriterPool:
         self._worker_thread_local.view = memoryview(buffer)
 
     async def cache_streaming(
-        self, fd: AsyncGenerator[bytes], tracker: CacheTracker, cache_meta: CacheMeta
+        self,
+        fd: AsyncGenerator[bytes],
+        tracker: CacheTracker,
+        cache_meta: CacheMeta,
+        caching_se: threading.Semaphore,
     ) -> AsyncGenerator[bytes]:
         """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
@@ -336,6 +340,7 @@ class CacheWriterPool:
             fd: opened connection to a remote file.
             tracker: an inst of ongoing cache tracker bound to this request.
             cache_meta: meta data of the requested resource.
+            caching_se: Semaphore for limiting the ongoing caching.
 
         Returns:
             A AsyncGenerator[bytes] to yield data chunk from, for upper otaproxy uvicorn APP.
@@ -348,8 +353,14 @@ class CacheWriterPool:
             # dispatch cache writing task at thread
             self._pool.submit(
                 tracker.provider_write_cache_at_thread, cache_meta, tee_que
-            )
+            ).add_done_callback(lambda _: caching_se.release())
+        except Exception as e:
+            _err_msg = f"failed to dispatch caching for {cache_meta}: {e!r}"
+            burst_suppressed_logger.warning(_err_msg)
+            tracker.set_writer_failed()
+            caching_se.release()
 
+        try:
             # tee the incoming chunk to two destinations
             async for chunk in fd:
                 # to caching task, if the tracker is still working
