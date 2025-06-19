@@ -441,8 +441,7 @@ class OTACache:
             if await cache_file.is_file():
                 break
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
-
-        if not await cache_file.is_file():
+        else:
             logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )

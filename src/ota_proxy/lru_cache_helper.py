@@ -57,7 +57,8 @@ class LRUCacheHelper:
         *,
         bsize_dict: dict[int, int] = cfg.BUCKET_FILE_SIZE_DICT,
         table_name: str = cfg.TABLE_NAME,
-        thread_nums: int = cfg.DB_THREADS,
+        read_db_thread_nums: int = cfg.READ_DB_THREADS,
+        write_db_thread_nums: int = cfg.WRITE_DB_THREAD,
         thread_wait_timeout: int = cfg.DB_THREAD_WAIT_TIMEOUT,
     ):
         self.bsize_list = list(bsize_dict)
@@ -67,13 +68,13 @@ class LRUCacheHelper:
         self._async_db = AsyncCacheMetaORM(
             table_name=table_name,
             con_factory=_configured_con_factory,
-            number_of_cons=thread_nums,
+            number_of_cons=read_db_thread_nums,
             row_factory="table_spec_no_validation",
         )
         self._db = CacheMetaORMPool(
             table_name=table_name,
             con_factory=_configured_con_factory,
-            number_of_cons=thread_nums,
+            number_of_cons=write_db_thread_nums,
             row_factory="table_spec_no_validation",
         )
 

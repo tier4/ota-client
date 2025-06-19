@@ -54,7 +54,8 @@ class Config:
 
     # ------ db config ------ #
     DB_FILE = f"{BASE_DIR}/cache_db"
-    DB_THREADS = 3
+    # serializing the access
+    READ_DB_THREADS = WRITE_DB_THREAD = 1
     DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
     # ota-cache table
