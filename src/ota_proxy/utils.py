@@ -4,6 +4,7 @@ import os
 from hashlib import sha256
 from os import PathLike
 from typing import AsyncGenerator
+from urllib.parse import SplitResult, quote, urlsplit
 
 from anyio import open_file
 
@@ -25,3 +26,40 @@ def url_based_hash(raw_url: str) -> str:
     """Generate sha256hash with unquoted raw_url."""
     _sha256_value = sha256(raw_url.encode()).hexdigest()
     return f"{cfg.URL_BASED_HASH_PREFIX}{_sha256_value}"
+
+
+def process_raw_url(raw_url: str, enable_https: bool) -> str:
+    """Process the raw URL received from upper uvicorn app.
+
+    NOTE: raw_url(get from uvicorn) is unquoted, we must quote it again before we send it to the remote
+    NOTE(20221003): as otaproxy, we should treat all contents after netloc as path and not touch it,
+                    because we should forward the request as it to the remote.
+    NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
+    """
+    scheme = "https" if enable_https else "http"
+    _raw_parse = urlsplit(raw_url)
+
+    # NOTE: if scheme is not included in the url, i.e., the input is:
+    #           example.com/a/b/c
+    #       urlsplit will treat the whole string as `path` segment.
+    if not _raw_parse.scheme and not _raw_parse.netloc:
+        _raw_parse = urlsplit(f"{scheme}://{raw_url}")
+
+    # get the base of the raw_url, which is <scheme>://<netloc>
+    _raw_base = SplitResult(
+        scheme=_raw_parse.scheme,
+        netloc=_raw_parse.netloc,
+        path="",
+        query="",
+        fragment="",
+    ).geturl()
+
+    # get the leftover part of URL besides base as path, and then quote it
+    # finally, regenerate proper quoted url
+    return SplitResult(
+        scheme=scheme,
+        netloc=_raw_parse.netloc,
+        path=quote(raw_url.replace(_raw_base, "", 1)),
+        query="",
+        fragment="",
+    ).geturl()
