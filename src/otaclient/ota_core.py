@@ -892,7 +892,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
                 self._notify_data_ready()
         except Exception as e:
             logger.warning(f"failed to run squashfs: {e!r}")
-            self._request_shutdown()
+            raise
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
@@ -953,6 +953,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _request_shutdown(self):
         """Request shutdown."""
+        # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
         self.client_update_control_flags.request_shutdown_event.set()
 
     # API
@@ -1092,6 +1093,15 @@ class OTAClient:
         finally:
             del exc  # prevent ref cycle
 
+    def _exit_from_dynamic_client(self) -> None:
+        """Exit from dynamic client."""
+        if not _env.is_dynamic_client_running():
+            # dynamic client is not running, no need to exit
+            return
+
+        logger.info("exit from dynamic client...")
+        self._client_update_control_flags.request_shutdown_event.set()
+
     # API
 
     @property
@@ -1152,6 +1162,7 @@ class OTAClient:
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
+            self._exit_from_dynamic_client()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
@@ -1159,14 +1170,8 @@ class OTAClient:
             is available via status API.
         """
         if _env.is_dynamic_client_running():
-            self._live_ota_status = OTAStatus.FAILURE
-            e = ota_errors.DuplicatedClientUpdateRequest(module=__name__)
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
+            # Duplicates client update should not be allowed.
+            # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
             return
 
         self._live_ota_status = OTAStatus.CLIENT_UPDATING
@@ -1201,14 +1206,11 @@ class OTAClient:
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
             ).execute()
-        except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
+        except ota_errors.OTAError:
+            # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
+            self._exit_from_dynamic_client()
+        except Exception:
+            self._exit_from_dynamic_client()
 
     def rollback(self, request: RollbackRequestV2) -> None:
         self._live_ota_status = OTAStatus.ROLLBACKING
