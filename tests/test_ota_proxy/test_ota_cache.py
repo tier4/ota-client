@@ -51,7 +51,6 @@ def setup_testdata() -> dict[str, CacheMeta]:
         file_sha256 = url_based_hash(mocked_url)
 
         entries[file_sha256] = CacheMeta(
-            url=mocked_url,
             # see lru_cache_helper module for more details
             bucket_idx=bisect.bisect_right(size_list, target_size),
             cache_size=target_size,
@@ -89,13 +88,7 @@ class TestLRUCacheHelper:
         orm.orm_create_table(without_rowid=True)
         conn.close()
 
-        lru_cache_helper = LRUCacheHelper(
-            db_f,
-            bsize_dict=cfg.BUCKET_FILE_SIZE_DICT,
-            table_name=cfg.TABLE_NAME,
-            thread_nums=cfg.DB_THREADS,
-            thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
-        )
+        lru_cache_helper = LRUCacheHelper(db_f)
         try:
             yield lru_cache_helper
         finally:

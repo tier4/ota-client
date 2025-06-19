@@ -99,7 +99,6 @@ class TestOngoingCachingRegister:
         # NOTE 2: bypass provider_start method, directly set tracker property
         cache_meta = CacheMeta(
             last_access=idx,
-            url="some_url",
             file_sha256="some_filesha256_value",
         )
         _tracker.cache_meta = cache_meta  # normally it was set by start_provider
