@@ -16,11 +16,16 @@
 class Config:
     BASE_DIR = "/ota-cache"
 
-    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
+    # ------ io config ------ #
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
+    LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
 
+    # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
+
+    # ------ LRU cache config ------ #
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
     # if we have to reserve space for this file.
@@ -45,7 +50,6 @@ class Config:
     DB_THREADS = 3
     DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
-    # DB configuration/setup
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
     TABLE_DEFINITION_VERSION = "v4"

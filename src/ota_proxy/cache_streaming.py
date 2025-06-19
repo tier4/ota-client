@@ -45,7 +45,6 @@ logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
 
-LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
 
 # cache tracker
 
@@ -109,7 +108,9 @@ class CacheTracker:
         base_dir: anyio.Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
+        local_write_buffer_size: int = cfg.LOCAL_WRITE_BUFFER_SIZE,
     ):
+        self.local_write_buffer_size = local_write_buffer_size
         self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
         self.save_path = base_dir / cache_identifier
         self.cache_meta: CacheMeta | None = None
@@ -211,7 +212,7 @@ class CacheTracker:
 
                     chunks.append(_data)
                     batch_read_size += len(_data)
-                    if batch_read_size > LOCAL_WRITE_BUFFER_SIZE:
+                    if batch_read_size > self.local_write_buffer_size:
                         self._bytes_written += f.write(b"".join(chunks))
                         chunks = []
                         batch_read_size = 0
