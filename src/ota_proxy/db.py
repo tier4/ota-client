@@ -60,7 +60,6 @@ class CacheMeta(TableSpec):
     """
 
     file_sha256: Annotated[str, ConstrainRepr("PRIMARY KEY")]
-    url: Annotated[str, ConstrainRepr("NOT NULL")]
     bucket_idx: Annotated[int, ConstrainRepr("NOT NULL")] = 0
     last_access: Annotated[int, ConstrainRepr("NOT NULL")] = 0
     cache_size: Annotated[int, ConstrainRepr("NOT NULL")] = 0

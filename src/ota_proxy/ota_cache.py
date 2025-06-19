@@ -83,7 +83,6 @@ def create_cachemeta_for_request(
     return CacheMeta(
         file_sha256=file_sha256,
         file_compression_alg=file_compression_alg,
-        url=raw_url,
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
     )
 
@@ -341,19 +340,19 @@ class OTACache:
                 if self._reserve_space(meta.cache_size):
                     if not self._lru_helper.commit_entry(meta):
                         burst_suppressed_logger.warning(
-                            f"failed to commit cache for {meta.url=}"
+                            f"failed to commit cache for {meta=}"
                         )
                 else:
                     # case 2: cache successful, but reserving space failed,
                     # NOTE(20221018): let cache tracker remove the tmp file
                     burst_suppressed_logger.warning(
-                        f"failed to reserve space for {meta.url=}"
+                        f"failed to reserve space for {meta=}"
                     )
             else:
                 # case 3: commit cache and finish up
                 if not self._lru_helper.commit_entry(meta):
                     burst_suppressed_logger.warning(
-                        f"failed to commit cache entry for {meta.url=}"
+                        f"failed to commit cache entry for {meta=}"
                     )
         except Exception as e:
             _err_msg = f"failed on callback for {meta=}: {e!r}"
