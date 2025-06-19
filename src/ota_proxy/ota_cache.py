@@ -207,13 +207,7 @@ class OTACache:
             _free_space_check_thread.start()
 
             # init cache helper(and connect to ota_cache db)
-            self._lru_helper = LRUCacheHelper(
-                self._db_file,
-                bsize_dict=cfg.BUCKET_FILE_SIZE_DICT,
-                table_name=cfg.TABLE_NAME,
-                thread_nums=cfg.DB_THREADS,
-                thread_wait_timeout=cfg.DB_THREAD_WAIT_TIMEOUT,
-            )
+            self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister()
 
             if self._upper_proxy:

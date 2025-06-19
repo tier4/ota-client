@@ -18,18 +18,27 @@ from __future__ import annotations
 import bisect
 import sqlite3
 import time
-from pathlib import Path
+from functools import partial
 
 from anyio.to_thread import run_sync
 from simple_sqlite3_orm import utils
 
 from otaclient_common._logging import get_burst_suppressed_logger
+from otaclient_common._typing import StrOrPath
 
+from .config import config as cfg
 from .db import AsyncCacheMetaORM, CacheMeta, CacheMetaORMPool
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.db_error")
 
-DB_CONN_NUMS = 3
+
+def _con_factory(db_f: StrOrPath, thread_wait_timeout: int):
+    con = sqlite3.connect(db_f, check_same_thread=False, timeout=thread_wait_timeout)
+
+    utils.enable_wal_mode(con, relax_sync_mode=True)
+    utils.enable_mmap(con)
+    utils.enable_tmp_store_at_memory(con)
+    return con
 
 
 class LRUCacheHelper:
@@ -44,35 +53,26 @@ class LRUCacheHelper:
 
     def __init__(
         self,
-        db_f: str | Path,
+        db_f: StrOrPath,
         *,
-        bsize_dict: dict[int, int],
-        table_name: str,
-        thread_nums: int = DB_CONN_NUMS,
-        thread_wait_timeout: int,
+        bsize_dict: dict[int, int] = cfg.BUCKET_FILE_SIZE_DICT,
+        table_name: str = cfg.TABLE_NAME,
+        thread_nums: int = cfg.DB_THREADS,
+        thread_wait_timeout: int = cfg.DB_THREAD_WAIT_TIMEOUT,
     ):
         self.bsize_list = list(bsize_dict)
         self.bsize_dict = bsize_dict.copy()
 
-        def _con_factory():
-            con = sqlite3.connect(
-                db_f, check_same_thread=False, timeout=thread_wait_timeout
-            )
-
-            utils.enable_wal_mode(con, relax_sync_mode=True)
-            utils.enable_mmap(con)
-            utils.enable_tmp_store_at_memory(con)
-            return con
-
+        _configured_con_factory = partial(_con_factory, db_f, thread_wait_timeout)
         self._async_db = AsyncCacheMetaORM(
             table_name=table_name,
-            con_factory=_con_factory,
+            con_factory=_configured_con_factory,
             number_of_cons=thread_nums,
             row_factory="table_spec_no_validation",
         )
         self._db = CacheMetaORMPool(
             table_name=table_name,
-            con_factory=_con_factory,
+            con_factory=_configured_con_factory,
             number_of_cons=thread_nums,
             row_factory="table_spec_no_validation",
         )

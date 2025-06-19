@@ -15,7 +15,9 @@
 
 class Config:
     BASE_DIR = "/ota-cache"
-    CHUNK_SIZE = 1 * 1024 * 1024  # 4MB
+
+    CHUNK_SIZE = 1 * 1024 * 1024  # 1MB
+
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
@@ -37,6 +39,8 @@ class Config:
         16 * (1024**2): 2,
         32 * (1024**2): 2,  # [32MiB, ~), will not be rotated
     }
+
+    # ------ db config ------ #
     DB_FILE = f"{BASE_DIR}/cache_db"
     DB_THREADS = 3
     DB_THREAD_WAIT_TIMEOUT = 30  # seconds
@@ -57,12 +61,12 @@ class Config:
     # the file extension for compressed files in external cache storage
     EXTERNAL_CACHE_STORAGE_COMPRESS_ALG = "zst"
 
-    EXTERNAL_CACHE_DEV_FSLABEL: str = "ota_cache_src"
-    EXTERNAL_CACHE_DATA_DNAME: str = "data"
+    EXTERNAL_CACHE_DEV_FSLABEL = "ota_cache_src"
+    EXTERNAL_CACHE_DATA_DNAME = "data"
     """The cache blob storage is located at <cache_mnt_point>/data."""
 
     # ------ task management ------ #
-    MAX_CONCURRENT_REQUESTS: int = 512
+    MAX_CONCURRENT_REQUESTS = 512
     """How many on-going requests are allowed. If exceeds, return 429 on new requests."""
 
 
