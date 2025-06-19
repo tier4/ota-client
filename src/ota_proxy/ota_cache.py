@@ -115,7 +115,6 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
-        remote_read_buffer_size: int = cfg.REMOTE_READ_BUFFER_SIZE,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -124,7 +123,6 @@ class OTACache:
         self._closed = True
         self._shutdown_lock = asyncio.Lock()
 
-        self.remote_read_buffer_size = remote_read_buffer_size
         self.table_name = table_name = cfg.TABLE_NAME
         self._chunk_size = cfg.CHUNK_SIZE
         self._cache_enabled = cache_enabled
@@ -379,21 +377,11 @@ class OTACache:
             #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
             # NOTE(20250616): the original issue is closed as fixed since 3.10.
             # await asyncio.sleep(0)
-            data_chunks = []
-            read_size = 0
-
             # NOTE: also see https://docs.aiohttp.org/en/stable/streams.html#aiohttp.StreamReader.iter_chunks
             async for data, end_of_http_chunk in response.content.iter_chunks():
                 if end_of_http_chunk:
                     continue
-
-                data_chunks.append(data)
-                read_size += len(data)
-                if read_size > self.remote_read_buffer_size:
-                    yield b"".join(data_chunks)
-                    data_chunks = []
-                    read_size = 0
-            yield b"".join(data_chunks)  # remember the last batch of data
+                yield data
 
     async def _retrieve_file_by_downloading(
         self, raw_url: str, headers: Mapping[str, str]

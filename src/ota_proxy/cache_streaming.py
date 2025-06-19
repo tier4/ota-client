@@ -107,9 +107,7 @@ class CacheTracker:
         base_dir: anyio.Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
-        local_write_buffer_size: int = cfg.LOCAL_WRITE_BUFFER_SIZE,
     ):
-        self.local_write_buffer_size = local_write_buffer_size
         self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
         self.save_path = base_dir / cache_identifier
         self.cache_meta: CacheMeta | None = None
@@ -197,9 +195,6 @@ class CacheTracker:
         try:
             with open(self.fpath, "wb") as f:
                 weakref.finalize(self, _unlink_no_error, self.fpath)
-                chunks = []
-                batch_read_size = 0
-
                 while _data := input_que.get():
                     if not self._space_availability_event.is_set():
                         _err_msg = f"abort writing cache for {cache_meta=}: {StorageReachHardLimit.__name__}"
@@ -209,15 +204,7 @@ class CacheTracker:
                     if self._writer_failed.is_set():
                         raise CacheStreamingInterrupt("interrupted as upper failed")
 
-                    chunks.append(_data)
-                    batch_read_size += len(_data)
-                    if batch_read_size > self.local_write_buffer_size:
-                        self._bytes_written += f.write(b"".join(chunks))
-                        chunks = []
-                        batch_read_size = 0
-
-                # remember the final batch
-                self._bytes_written += f.write(b"".join(chunks))
+                    self._bytes_written += f.write(_data)
 
                 _fd = f.fileno()
                 f.flush()
