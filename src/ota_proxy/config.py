@@ -21,10 +21,6 @@ class Config:
     LOCAL_WRITE_BUFFER_SIZE = 1024**2  # 1MiB
     REMOTE_READ_BUFFER_SIZE = 256 * 1024  # 256KiB
 
-    # if all the workers in pool keeps busy longer than
-    #   this timeout, the caller should not schedule new
-    #   cache writing anymore.
-    MAX_WAIT_TIME_FOR_DISPATCH_WRITE = 16  # seconds
     CACHE_WRITE_WORKERS_NUM = 40
 
     # ------ storage quota ------ #

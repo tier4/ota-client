@@ -19,7 +19,6 @@ import asyncio
 import logging
 import os
 import threading
-import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
@@ -308,9 +307,7 @@ class CacheWriterPool:
         self,
         *,
         max_workers: int = cfg.CACHE_WRITE_WORKERS_NUM,
-        max_dispatch_wait: float = cfg.MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
     ) -> None:
-        self.max_dispatch_wait = max_dispatch_wait
         self._worker_thread_local = threading.local()
         self._pool = ThreadPoolExecutor(
             max_workers=max_workers,
@@ -318,8 +315,6 @@ class CacheWriterPool:
             initializer=self._thread_worker_initializer,
         )
         self._loop = asyncio.get_event_loop()
-        self._se = threading.Semaphore(max_workers)
-        self._last_finished_at = float("inf")
 
     async def close(self) -> None:
         await run_sync(self._pool.shutdown)
@@ -327,10 +322,6 @@ class CacheWriterPool:
     def _thread_worker_initializer(self) -> None:
         self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
         self._worker_thread_local.view = memoryview(buffer)
-
-    def _commit_finish_time(self, _) -> None:
-        self._se.release()
-        self._last_finished_at = time.time()
 
     async def cache_streaming(
         self, fd: AsyncGenerator[bytes], tracker: CacheTracker, cache_meta: CacheMeta
@@ -354,20 +345,10 @@ class CacheWriterPool:
         """
         tee_que: Queue[bytes | None] = Queue()
         try:
-            if (
-                self._se.acquire(blocking=False)
-                or time.time() < self._last_finished_at + self.max_dispatch_wait
-            ):
-                # dispatch cache writing task at thread
-                self._pool.submit(
-                    tracker.provider_write_cache_at_thread, cache_meta, tee_que
-                ).add_done_callback(self._commit_finish_time)
-            else:
-                burst_suppressed_logger.warning(
-                    f"all writers in the pool keeps busy longer than {self.max_dispatch_wait}s, "
-                    "do not write cache this time"
-                )
-                tracker.set_writer_failed()
+            # dispatch cache writing task at thread
+            self._pool.submit(
+                tracker.provider_write_cache_at_thread, cache_meta, tee_que
+            )
 
             # tee the incoming chunk to two destinations
             async for chunk in fd:
