@@ -158,8 +158,6 @@ class OTACache:
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
 
-        self._cache_write_pool = CacheWriterPool()
-
     async def start(self):
         """Start the ota_cache instance."""
         # silently ignore multi launching of ota_cache
@@ -221,6 +219,8 @@ class OTACache:
             if self._upper_proxy:
                 # if upper proxy presented, force disable https
                 self._enable_https = False
+
+            self._cache_write_pool = CacheWriterPool()
 
         logger.info("ota_cache started")
 
