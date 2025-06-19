@@ -20,6 +20,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from anyio.to_thread import run_sync
 from simple_sqlite3_orm import utils
 
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -78,9 +79,9 @@ class LRUCacheHelper:
 
         self._closed = False
 
-    def close(self):
+    def _close(self) -> None:
         self._async_db.orm_pool_shutdown(wait=True, close_connections=True)
-        self._closed = True
+        self._db.orm_pool_shutdown(wait=True, close_connections=True)
 
     # sync API
 
@@ -107,6 +108,7 @@ class LRUCacheHelper:
         """
         # NOTE: currently item size smaller than 1st bucket and larger than latest bucket
         #       will be saved without cache rotating.
+        # NOTE: return [] to indicate caller that rotate_cache is successful.
         if size >= self.bsize_list[-1] or size < self.bsize_list[1]:
             return []
 
@@ -128,6 +130,10 @@ class LRUCacheHelper:
             return [entry.file_sha256 for entry in res]
 
     # async API
+
+    async def close(self) -> None:
+        self._closed = True
+        await run_sync(self._close)
 
     async def lookup_entry(self, file_sha256: str) -> CacheMeta | None:
         return await self._async_db.orm_select_entry(file_sha256=file_sha256)

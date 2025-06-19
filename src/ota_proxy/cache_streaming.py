@@ -328,7 +328,7 @@ class CacheWriterPool:
         self._se = threading.Semaphore(max_workers)
         self._last_finished_at = float("inf")
 
-    async def stop(self) -> None:
+    async def close(self) -> None:
         await run_sync(self._pool.shutdown)
 
     def _thread_worker_initializer(self) -> None:

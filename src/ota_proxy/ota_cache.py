@@ -25,7 +25,7 @@ from typing import AsyncGenerator, Mapping, Optional, cast
 
 import aiohttp
 import anyio
-import anyio.to_thread
+from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -237,10 +237,11 @@ class OTACache:
                 await self._session.close()
 
                 if self._cache_enabled:
-                    self._lru_helper.close()
+                    await self._lru_helper.close()
+                    await self._cache_write_pool.close()
 
                 if self._external_cache_mp:
-                    umount_external_cache(self._external_cache_mp)
+                    await run_sync(umount_external_cache, self._external_cache_mp)
 
         logger.info("shutdown ota-cache completed")
 
