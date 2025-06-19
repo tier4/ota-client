@@ -353,7 +353,6 @@ class CacheWriterPool:
             CacheStreamingFailed if any exception happens.
         """
         tee_que: Queue[bytes | None] = Queue()
-        writer_failed_event = tracker._writer_failed
         try:
             if (
                 self._se.acquire(blocking=False)
@@ -368,18 +367,18 @@ class CacheWriterPool:
                     f"all writers in the pool keeps busy longer than {self.max_dispatch_wait}s, "
                     "do not write cache this time"
                 )
-                writer_failed_event.set()
+                tracker.set_writer_failed()
 
             # tee the incoming chunk to two destinations
             async for chunk in fd:
                 # to caching task, if the tracker is still working
-                if not writer_failed_event.is_set():
+                if not tracker.writer_failed:
                     tee_que.put_nowait(chunk)
 
                 # even cache write failed, we still continue pushing to uvicorn
                 yield chunk
         except Exception as e:
-            writer_failed_event.set()  # abort or drop caching
+            tracker.set_writer_failed()  # abort or drop caching
             _err_msg = f"upper file descriptor failed({cache_meta=}): {e!r}"
             burst_suppressed_logger.warning(_err_msg)
             raise CacheStreamingFailed(_err_msg) from e
