@@ -27,6 +27,7 @@ from typing import AsyncGenerator, Callable
 
 import anyio
 from anyio import open_file
+from anyio.to_thread import run_sync
 
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common.common import get_backoff
@@ -326,6 +327,9 @@ class CacheWriterPool:
         self._loop = asyncio.get_event_loop()
         self._se = threading.Semaphore(max_workers)
         self._last_finished_at = float("inf")
+
+    async def stop(self) -> None:
+        await run_sync(self._pool.shutdown)
 
     def _thread_worker_initializer(self) -> None:
         self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
