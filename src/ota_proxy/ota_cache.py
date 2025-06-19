@@ -41,7 +41,7 @@ from .cache_control_header import (
 from .cache_streaming import CacheTracker, CacheWriterPool, CachingRegister
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError
+from .errors import BaseOTACacheError, CacheCommitFailed
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
@@ -330,6 +330,8 @@ class OTACache:
 
         NOTE(20250618): this callback now is synced and exepcted to be run
                         within a worker thread.
+        NOTE(20250618): now on failed db commit, this method will raise exception
+                        to indicate caller to drop the cache.
 
         If caching is successful, and the space usage is reaching soft limit,
         we will try to ensure free space for already cached file.
@@ -359,7 +361,9 @@ class OTACache:
                         f"failed to commit cache entry for {meta.url=}"
                     )
         except Exception as e:
-            burst_suppressed_logger.exception(f"failed on callback for {meta=}: {e!r}")
+            _err_msg = f"failed on callback for {meta=}: {e!r}"
+            burst_suppressed_logger.error(_err_msg)
+            raise CacheCommitFailed(_err_msg) from e
 
     # retrieve_file handlers
 
