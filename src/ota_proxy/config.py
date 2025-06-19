@@ -21,6 +21,7 @@ class Config:
 
     # ------ io config ------ #
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
+    LOCAL_READ_SIZE = 2 * 1024 * 1024  # 2MiB
 
     # copied from ThreadPoolExecutor
     CACHE_WRITE_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)

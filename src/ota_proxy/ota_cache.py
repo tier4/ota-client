@@ -377,10 +377,7 @@ class OTACache:
             #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
             # NOTE(20250616): the original issue is closed as fixed since 3.10.
             # await asyncio.sleep(0)
-            # NOTE: also see https://docs.aiohttp.org/en/stable/streams.html#aiohttp.StreamReader.iter_chunks
-            async for data, end_of_http_chunk in response.content.iter_chunks():
-                if end_of_http_chunk:
-                    continue
+            while data := await response.content.read(self._chunk_size):
                 yield data
 
     async def _retrieve_file_by_downloading(

@@ -11,12 +11,14 @@ from anyio import open_file
 from .config import config as cfg
 
 
-async def read_file(fpath: PathLike) -> AsyncGenerator[bytes]:
+async def read_file(
+    fpath: PathLike, chunk_size: int = cfg.LOCAL_READ_SIZE
+) -> AsyncGenerator[bytes]:
     """Open and read a file asynchronously."""
     async with await open_file(fpath, "rb") as f:
         fd = f.wrapped.fileno()
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-        while data := await f.read(cfg.CHUNK_SIZE):
+        while data := await f.read(chunk_size):
             yield data
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
