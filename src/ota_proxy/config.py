@@ -77,7 +77,7 @@ class Config:
     """The cache blob storage is located at <cache_mnt_point>/data."""
 
     # ------ task management ------ #
-    MAX_CONCURRENT_REQUESTS = 512
+    MAX_CONCURRENT_REQUESTS = 1024
     MAX_CONCURRENT_CACHE_WRITES = int(CACHE_WRITE_WORKERS_NUM * 1.5)
 
 

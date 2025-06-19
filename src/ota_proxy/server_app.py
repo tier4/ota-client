@@ -330,18 +330,11 @@ class App:
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
 
+        await self._se.acquire()
         try:
-            await asyncio.wait_for(self._se.acquire(), timeout=0.01)
-            try:
-                await self._pull_data_and_send(url, scope, send)
-            finally:
-                self._se.release()
-        except asyncio.TimeoutError:
-            await self._respond_with_error(
-                HTTPStatus.TOO_MANY_REQUESTS,
-                "Too many incoming requests, dropped",
-                send,
-            )
+            await self._pull_data_and_send(url, scope, send)
+        finally:
+            self._se.release()
 
     async def __call__(self, scope, receive, send):
         """The entrance of the ASGI application.
