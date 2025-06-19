@@ -303,20 +303,12 @@ class CachingRegister:
         self._id_tracker[cache_identifier] = tracker
 
 
-# if all the workers in pool keeps busy longer than
-#   this timeout, the caller should not schedule new
-#   cache writing anymore.
-MAX_WAIT_TIME_FOR_DISPATCH_WRITE = 16  # seconds
-# copied from ThreadPoolExecutor
-DEFAULT_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)
-
-
 class CacheWriterPool:
     def __init__(
         self,
         *,
-        max_workers: int = DEFAULT_WORKERS_NUM,
-        max_dispatch_wait=MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
+        max_workers: int = cfg.CACHE_WRITE_WORKERS_NUM,
+        max_dispatch_wait: float = cfg.MAX_WAIT_TIME_FOR_DISPATCH_WRITE,
     ) -> None:
         self.max_dispatch_wait = max_dispatch_wait
         self._worker_thread_local = threading.local()
