@@ -36,7 +36,8 @@ jobs:
         id: set_env
         run: |
           OTACLIENT_WHL=$(basename $(ls dist/otaclient-*.whl))
-          OTACLIENT_VERSION=$(hatch version | sed -E 's/([0-9]+\.[0-9]+(\.[0-9]+)?).*/\1/')
+          # Remove everything after '+' to clean Git metadata
+          OTACLIENT_VERSION=$(hatch version | cut -d'+' -f1)
           echo OTACLIENT_WHL=${OTACLIENT_WHL} >> $GITHUB_OUTPUT
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
