@@ -29,6 +29,7 @@ from anyio import open_file
 from anyio.to_thread import run_sync
 
 from otaclient_common._logging import get_burst_suppressed_logger
+from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
 from .config import config as cfg
@@ -44,6 +45,19 @@ logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.handle_error")
 
+SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 8  # max wait: ~4s
+SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 8  # max wait: ~4s
+SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
+SUBSCRIBER_WAIT_BACKOFF_MAX = 1
+FNAME_PART_SEPARATOR = "_"
+
+# In case of all the reader threads are busy,
+#   not let the caller waits for too long.
+WAIT_READ_TIMEOUT = 64  # seconds
+
+# In case of all the writer threads are busy,
+#   not piling up pending data for too long.
+WAIT_WRITE_TIMEOUT = 32  # seconds
 
 # cache tracker
 
@@ -295,11 +309,9 @@ class CacheWriterPool:
         *,
         max_workers: int = cfg.CACHE_WRITE_WORKERS_NUM,
     ) -> None:
-        self._worker_thread_local = threading.local()
         self._pool = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="cache_writer"
         )
-        self._loop = asyncio.get_event_loop()
 
     async def close(self) -> None:
         await run_sync(self._pool.shutdown)
@@ -358,3 +370,86 @@ class CacheWriterPool:
             tee_que.put_nowait(None)
             # remove the refs
             fd, tracker, tee_que = None, None, None  # type: ignore
+
+
+class CacheReaderPool:
+    """A worker thread pool for cache reading."""
+
+    def __init__(
+        self,
+        *,
+        max_workers: int = cfg.CACHE_READ_WORKERS_NUM,
+        read_chunk_size: int = cfg.LOCAL_READ_SIZE,
+    ) -> None:
+        self.read_chunk_size = read_chunk_size
+        self._worker_thread_local = threading.local()
+        self._pool = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="cache_reader",
+            initializer=self._thread_worker_initializer,
+        )
+
+    def _thread_worker_initializer(self) -> None:
+        self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+        self._worker_thread_local.view = memoryview(buffer)
+
+    async def close(self) -> None:
+        await run_sync(self._pool.shutdown)
+
+    def _read_file_in_thread(
+        self,
+        fpath: StrOrPath,
+        output_que: asyncio.Queue[bytes | None],
+        ready_event: asyncio.Event,
+        interruption_even: threading.Event,
+    ) -> None:
+        try:
+            ready_event.set()  # indicate caller that task is handled
+            buffer, bufferview = (
+                self._worker_thread_local.buffer,
+                self._worker_thread_local.view,
+            )
+            with open(fpath, "rb") as f:
+                fd = f.fileno()
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+                try:
+                    while not interruption_even.is_set():
+                        _read_size = f.readinto(buffer)
+                        if _read_size == 0:
+                            return
+                        output_que.put_nowait(bufferview[:_read_size])
+                finally:
+                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        finally:
+            output_que.put_nowait(None)
+
+    async def read_file(self, fpath: StrOrPath) -> AsyncGenerator[bytes]:
+        interruption_event = threading.Event()
+        ready_event = asyncio.Event()
+
+        que = asyncio.Queue()
+        task = self._pool.submit(
+            self._read_file_in_thread,
+            fpath,
+            que,
+            ready_event,
+            interruption_event,
+        )
+
+        try:
+            try:
+                await asyncio.wait_for(ready_event.wait(), WAIT_READ_TIMEOUT)
+            except asyncio.TimeoutError:
+                task.cancel()
+                raise asyncio.TimeoutError(
+                    "timeout waiting for reader thread"
+                ) from None
+
+            try:
+                while data := await que.get():
+                    yield data
+            # in case the upper loop is interrupted
+            except StopAsyncIteration:
+                interruption_event.set()
+        finally:
+            del que, interruption_event, ready_event
