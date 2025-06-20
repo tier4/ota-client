@@ -253,6 +253,13 @@ def main() -> None:  # pragma: no cover
                 logger.info("cleaning up resources ...")
                 if _shm:
                     del _shm
+                if ecu_status_flags:
+                    del ecu_status_flags.any_child_ecu_in_update
+                    del ecu_status_flags.any_requires_network
+                    del ecu_status_flags.all_success
+                if client_update_control_flags:
+                    del client_update_control_flags.notify_data_ready_event
+                    del client_update_control_flags.request_shutdown_event
                 if local_otaclient_op_queue:
                     del local_otaclient_op_queue
                 if local_otaclient_resp_queue:
