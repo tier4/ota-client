@@ -23,8 +23,10 @@ class Config:
     CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
     LOCAL_READ_SIZE = 2 * 1024 * 1024  # 2MiB
 
-    # copied from ThreadPoolExecutor
-    CACHE_WRITE_WORKERS_NUM = min(32, (os.cpu_count() or 1) + 4)
+    # adjust from 8 ~ 16 threads
+    CACHE_WRITE_WORKERS_NUM = max(8, min(16, (os.cpu_count() or 1) + 4))
+    # adjust from 16 ~ 32 threads
+    CACHE_READ_WORKERS_NUM = max(16, min(32, (os.cpu_count() or 1) + 4))
 
     # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%

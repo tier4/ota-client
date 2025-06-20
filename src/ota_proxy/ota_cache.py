@@ -38,7 +38,12 @@ from .cache_control_header import (
     export_kwargs_as_header_string,
     parse_header,
 )
-from .cache_streaming import CacheTracker, CacheWriterPool, CachingRegister
+from .cache_streaming import (
+    CacheReaderPool,
+    CacheTracker,
+    CacheWriterPool,
+    CachingRegister,
+)
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
 from .errors import BaseOTACacheError, CacheCommitFailed
@@ -178,6 +183,7 @@ class OTACache:
             auto_decompress=False, raise_for_status=True, timeout=timeout
         )
 
+        self._read_pool = CacheReaderPool()
         if self._cache_enabled:
             # purge cache dir if requested(init_cache=True) or ota_cache invalid,
             #   and then recreate the cache folder and cache db file.
@@ -233,6 +239,7 @@ class OTACache:
 
                 if self._external_cache_mp:
                     await run_sync(umount_external_cache, self._external_cache_mp)
+                await self._read_pool.close()
 
         logger.info("shutdown ota-cache completed")
 
@@ -500,11 +507,13 @@ class OTACache:
             await self._lru_helper.remove_entry(cache_identifier)
             await (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
-        if (tracker := self._on_going_caching.get_tracker(cache_identifier)) and (
-            subscription := await tracker.subscribe_tracker()
-        ):
-            stream_fd, cache_meta = subscription
-            return stream_fd, cache_meta.export_headers_to_client()
+        if tracker := self._on_going_caching.get_tracker(cache_identifier):
+            _cache_meta = tracker.cache_meta
+            if _cache_meta and (
+                stream_fd := await self._read_pool.subscribe_tracker(tracker)
+            ):
+                return stream_fd, _cache_meta.export_headers_to_client()
+            return  # provider tracker might be blocked, fallback to direct download
 
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
@@ -524,19 +533,17 @@ class OTACache:
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
-
-            # start caching
-            wrapped_fd = self._cache_write_pool.cache_streaming(
-                remote_fd,
-                tracker,
-                cache_meta,
+            wrapped_fd = self._cache_write_pool.stream_writing_cache(
+                fd=remote_fd,
+                tracker=tracker,
+                cache_meta=cache_meta,
             )
             return wrapped_fd, resp_headers
         except Exception:
             tracker.set_writer_failed()
             raise
         finally:
-            tracker = None  # remove ref
+            del tracker  # prevent future subscribe to this tracker
 
     # exposed API
 
