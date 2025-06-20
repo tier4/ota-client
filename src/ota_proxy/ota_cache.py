@@ -440,12 +440,14 @@ class OTACache:
             await self._lru_helper.remove_entry(cache_identifier)
             return
 
-        # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
-        #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
-        #       directory to indicate invalid cache.
-        return (
-            read_file(cache_file),
-            meta_db_entry.export_headers_to_client(),
+        local_fd = await self._read_pool.read_file(cache_file)
+        if local_fd:
+            # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
+            #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
+            #       directory to indicate invalid cache.
+            return local_fd, meta_db_entry.export_headers_to_client()
+        burst_suppressed_logger.warning(
+            "reading cache aborted as no reader thread is available"
         )
 
     async def _retrieve_file_by_external_cache(

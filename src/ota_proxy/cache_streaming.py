@@ -423,7 +423,7 @@ class CacheReaderPool:
 
     def _read_file_in_thread(
         self,
-        fpath: StrOrPath,
+        fpath: StrOrPath | anyio.Path,
         output_que: asyncio.Queue[bytes | None | Any],
         *,
         ready_event: asyncio.Event,
@@ -478,7 +478,9 @@ class CacheReaderPool:
             interrupt_thread_worker.set()
             del que, self, interrupt_thread_worker
 
-    async def read_file(self, fpath: StrOrPath) -> AsyncGenerator[bytes] | None:
+    async def read_file(
+        self, fpath: StrOrPath | anyio.Path
+    ) -> AsyncGenerator[bytes] | None:
         interrupt_thread_worker = threading.Event()
         ready_event = asyncio.Event()
 
