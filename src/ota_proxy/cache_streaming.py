@@ -23,7 +23,7 @@ import time
 import weakref
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from typing import AsyncGenerator, Callable
+from typing import Any, AsyncGenerator, Callable
 
 import anyio
 from anyio.to_thread import run_sync
@@ -36,6 +36,7 @@ from .config import config as cfg
 from .db import CacheMeta
 from .errors import (
     CacheStreamingFailed,
+    CacheStreamingInterrupt,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ WAIT_READ_TIMEOUT = 8  # seconds
 # In case of all the writer threads are busy,
 #   not piling up pending data for too long.
 WAIT_WRITE_TIMEOUT = 16  # seconds
+
+_reader_failed_sentinel = object()
+_writer_failed_sentinel = object()
 
 # cache tracker
 
@@ -124,6 +128,8 @@ class CacheTracker:
         self._space_availability_event = below_hard_limit_event
 
         self._bytes_written = 0
+        self._loop = asyncio.get_event_loop()
+        self._acall_soon = self._loop.call_soon_threadsafe
 
     @property
     def writer_failed(self) -> bool:
@@ -139,12 +145,19 @@ class CacheTracker:
         self, cache_meta: CacheMeta, input_que: Queue[bytes | None]
     ) -> None:
         try:
-            self.cache_meta = cache_meta
-            weakref.finalize(self, _unlink_no_error, self.fpath)
             with open(self.fpath, "wb") as f:
+                fd = f.fileno()
                 # caller set failed flag, abort
                 if self.writer_failed:
                     return
+
+                # first create the file
+                f.write(b"")
+                f.flush()
+                os.fsync(fd)
+
+                self.cache_meta = cache_meta
+                weakref.finalize(self, _unlink_no_error, self.fpath)
 
                 try:
                     while data := input_que.get():
@@ -153,7 +166,6 @@ class CacheTracker:
                         f.write(data)
                 finally:
                     f.flush()
-                    fd = f.fileno()
                     os.fsync(fd)
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
@@ -175,11 +187,10 @@ class CacheTracker:
 
     def subscriber_stream_cache_in_thread(
         self,
-        output_que: asyncio.Queue[bytes | None],
+        output_que: asyncio.Queue[bytes | None | Any],
         *,
         reader_ready_event: asyncio.Event,
-        reader_failed_event: threading.Event,
-        upper_interrupt: threading.Event,
+        interrupt_thread_worker: threading.Event,
         thread_local,
     ) -> None:
         """Subscriber keeps polling chunks from ongoing tmp cache file.
@@ -187,18 +198,21 @@ class CacheTracker:
         Subscriber will keep polling until the provider fails or
         provider finished and subscriber has read <bytes_written> bytes.
         """
-        buffer, bufferview = thread_local.buffer, thread_local.view
         # first we wait for provider starts
         _wait_count = 0
-        while self._bytes_written <= 0 or self.cache_meta is None:
+        # NOTE: when cache_meta is bound to the tracker, the provider has
+        #       already create the cache file, see provider_write_file_in_thread
+        #       for more details.
+        while self.cache_meta is None:
             if (
                 _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY
                 or self.writer_failed
+                or interrupt_thread_worker.is_set()
             ):
                 burst_suppressed_logger.warning(
                     "timeout waiting provider starts caching or provider failed, abort"
                 )
-                reader_failed_event.set()
+                self._acall_soon(output_que.put_nowait, _reader_failed_sentinel)
                 return
 
             time.sleep(
@@ -210,8 +224,9 @@ class CacheTracker:
             )
             _wait_count += 1
 
+        buffer, bufferview = thread_local.buffer, thread_local.view
         # provider started, now we can actually subscribe the ongoing cache
-        reader_ready_event.set()  # indicate caller that this read task is handled
+        self._acall_soon(reader_ready_event.set)
         wait_data_count, bytes_read = 0, 0
         try:
             with open(self.fpath, "rb") as f:
@@ -219,13 +234,18 @@ class CacheTracker:
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 try:
                     while (
-                        not self.writer_failed and not upper_interrupt.is_set()
-                    ) or bytes_read < self._bytes_written:
+                        (not self.writer_failed)
+                        or bytes_read < self._bytes_written
+                        or not interrupt_thread_worker.is_set()
+                    ):
                         _read_size = f.readinto(buffer)
                         if _read_size > 0:
                             wait_data_count = 0
                             bytes_read += _read_size
-                            output_que.put_nowait(bufferview[:_read_size])  # type: ignore
+                            self._loop.call_soon_threadsafe(
+                                output_que.put_nowait,
+                                bufferview[:_read_size],  # type: ignore
+                            )
                         # no data chunk is read, wait with backoff for the next
                         #   data chunk written by the provider.
                         elif (
@@ -250,9 +270,9 @@ class CacheTracker:
                 finally:
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         except Exception:
-            reader_failed_event.set()
+            self._acall_soon(output_que.put_nowait, _reader_failed_sentinel)
         finally:
-            output_que.put_nowait(None)
+            self._acall_soon(output_que.put_nowait, None)
             del self, output_que  # del the ref to the tracker on finished
 
 
@@ -378,6 +398,8 @@ class CacheReaderPool:
             thread_name_prefix="cache_reader",
             initializer=self._thread_worker_initializer,
         )
+        self._loop = asyncio.get_event_loop()
+        self._acall_soon = self._loop.call_soon_threadsafe
 
     def _thread_worker_initializer(self) -> None:
         self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
@@ -389,12 +411,14 @@ class CacheReaderPool:
     def _read_file_in_thread(
         self,
         fpath: StrOrPath,
-        output_que: asyncio.Queue[bytes | None],
+        output_que: asyncio.Queue[bytes | None | Any],
+        *,
         ready_event: asyncio.Event,
-        upper_interrupt: threading.Event,
+        interrupt_thread_worker: threading.Event,
     ) -> None:
+        # indicate caller that task is handled
+        self._acall_soon(ready_event.set)
         try:
-            ready_event.set()  # indicate caller that task is handled
             buffer, bufferview = (
                 self._worker_thread_local.buffer,
                 self._worker_thread_local.view,
@@ -403,18 +427,39 @@ class CacheReaderPool:
                 fd = f.fileno()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 try:
-                    while not upper_interrupt.is_set():
+                    while not interrupt_thread_worker.is_set():
                         _read_size = f.readinto(buffer)
                         if _read_size == 0:
                             return
-                        output_que.put_nowait(bufferview[:_read_size])
+                        self._acall_soon(output_que.put_nowait, bufferview[:_read_size])
                 finally:
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        except Exception:
+            self._acall_soon(output_que.put_nowait, _reader_failed_sentinel)
         finally:
-            output_que.put_nowait(None)
+            self._acall_soon(output_que.put_nowait, None)
+            del self, output_que
 
-    async def read_file(self, fpath: StrOrPath) -> AsyncGenerator[bytes]:
-        upper_interrupt_event = threading.Event()
+    async def _stream_from_que(
+        self,
+        que: asyncio.Queue[bytes | None | Any],
+        interrupt_thread_worker: threading.Event,
+    ) -> AsyncGenerator[bytes]:
+        """
+        Raises:
+            CacheStreamingInterrupt on reader failed.
+        """
+        try:
+            while data := await que.get():
+                if data is _reader_failed_sentinel:
+                    raise CacheStreamingInterrupt("reader failed")
+                yield data
+        finally:
+            interrupt_thread_worker.set()
+            del que, self, interrupt_thread_worker
+
+    async def read_file(self, fpath: StrOrPath) -> AsyncGenerator[bytes] | None:
+        interrupt_thread_worker = threading.Event()
         ready_event = asyncio.Event()
 
         que = asyncio.Queue()
@@ -422,60 +467,35 @@ class CacheReaderPool:
             self._read_file_in_thread,
             fpath,
             que,
-            ready_event,
-            upper_interrupt_event,
+            ready_event=ready_event,
+            interrupt_thread_worker=interrupt_thread_worker,
         )
         try:
-            try:
-                await asyncio.wait_for(ready_event.wait(), self.wait_on_busy)
-            except asyncio.TimeoutError:
-                task.cancel()
-                raise asyncio.TimeoutError(
-                    "timeout waiting for reader thread"
-                ) from None
-
-            try:
-                while data := await que.get():
-                    yield data
-            # in case the upper loop is interrupted
-            except StopAsyncIteration:
-                upper_interrupt_event.set()
+            await asyncio.wait_for(ready_event.wait(), self.wait_on_busy)
+            return self._stream_from_que(que, interrupt_thread_worker)
+        except asyncio.TimeoutError:
+            task.cancel()
         finally:
-            del que, upper_interrupt_event, ready_event
+            del que, task
 
-    async def stream_ongoing_cache(
+    async def subscribe_tracker(
         self, tracker: CacheTracker
-    ) -> AsyncGenerator[bytes]:
-        upper_interrupt = threading.Event()
+    ) -> AsyncGenerator[bytes] | None:
+        interrupt_thread_worker = threading.Event()
         ready_event = asyncio.Event()
-        reader_failed_event = threading.Event()
 
         que = asyncio.Queue()
         task = self._pool.submit(
             tracker.subscriber_stream_cache_in_thread,
             que,
             reader_ready_event=ready_event,
-            reader_failed_event=reader_failed_event,
-            upper_interrupt=upper_interrupt,
+            interrupt_thread_worker=interrupt_thread_worker,
             thread_local=self._worker_thread_local,
         )
         try:
-            try:
-                await asyncio.wait_for(ready_event.wait(), self.wait_on_busy)
-            except asyncio.TimeoutError:
-                task.cancel()
-                raise asyncio.TimeoutError(
-                    "timeout waiting for reader thread"
-                ) from None
-
-            try:
-                while data := await que.get():
-                    yield data
-            # in case the upper loop is interrupted
-            except StopAsyncIteration:
-                upper_interrupt.set()
-
-            if reader_failed_event.is_set():
-                raise CacheStreamingFailed("reader failed during cache streaming")
+            await asyncio.wait_for(ready_event.wait(), self.wait_on_busy)
+            return self._stream_from_que(que, interrupt_thread_worker)
+        except asyncio.TimeoutError:
+            task.cancel()
         finally:
-            del que, upper_interrupt, ready_event
+            del que, task
