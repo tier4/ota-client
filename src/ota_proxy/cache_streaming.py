@@ -21,7 +21,7 @@ import os
 import threading
 import time
 import weakref
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from queue import Queue
 from typing import Any, AsyncGenerator, Callable
 
@@ -326,9 +326,24 @@ class CacheWriterPool:
         self._pool = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="cache_writer"
         )
+        self._loop = asyncio.get_event_loop()
 
     async def close(self) -> None:
         await run_sync(self._pool.shutdown)
+
+    @staticmethod
+    def _check_thread_worker_deadline(task: Future, tracker: CacheTracker):
+        """Cancel write task if not dispatched longer than deadline."""
+        try:
+            # NOTE: tracker will set cache_meta when write is handled.
+            if tracker.cache_meta is None:
+                tracker.set_writer_failed()
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+        finally:
+            del task, tracker
 
     async def stream_writing_cache(
         self,
@@ -349,24 +364,19 @@ class CacheWriterPool:
             CacheStreamingFailed if any exception happens.
         """
         tee_que: Queue[bytes | None] = Queue()
-        wait_write_deadline = time.time() + self.wait_on_busy
-        task = self._pool.submit(
-            tracker.provider_write_file_in_thread, cache_meta, tee_que
+        wait_deadline = time.time() + self.wait_on_busy
+        cancel_write_task_handler = self._loop.call_at(
+            wait_deadline,
+            self._check_thread_worker_deadline,
+            self._pool.submit(
+                tracker.provider_write_file_in_thread, cache_meta, tee_que
+            ),
+            tracker,
         )
+
         try:
             # tee the incoming chunk to two destinations
             async for chunk in fd:
-                # NOTE: tracker.cache_meta set means the caching starts
-                if tracker.cache_meta is None and time.time() > wait_write_deadline:
-                    _err_msg = f"timeout waiting an available write thread worker: {wait_write_deadline=}"
-                    burst_suppressed_logger.warning(_err_msg)
-                    tracker.set_writer_failed()
-                    try:
-                        if task:
-                            task.cancel()
-                    except Exception:
-                        pass
-
                 if not tracker.writer_failed:
                     tee_que.put_nowait(chunk)
 
@@ -378,8 +388,9 @@ class CacheWriterPool:
             burst_suppressed_logger.warning(_err_msg)
             raise CacheStreamingFailed(_err_msg) from e
         finally:
+            cancel_write_task_handler.cancel()
             tee_que.put_nowait(None)  # send sentinel to the caching task
-            del fd, tracker, tee_que  # remove the refs
+            del fd, tracker, tee_que, cancel_write_task_handler  # remove the refs
 
 
 class CacheReaderPool:
