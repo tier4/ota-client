@@ -502,20 +502,26 @@ class CacheReaderPool:
         self, tracker: CacheTracker
     ) -> AsyncGenerator[bytes] | None:
         interrupt_thread_worker = threading.Event()
-        ready_event = asyncio.Event()
-
+        reader_ready_event = asyncio.Event()
         que = asyncio.Queue()
+
         task = self._pool.submit(
             tracker.subscriber_stream_cache_in_thread,
             que,
-            reader_ready_event=ready_event,
+            reader_ready_event=reader_ready_event,
             interrupt_thread_worker=interrupt_thread_worker,
             thread_local=self._worker_thread_local,
         )
         try:
-            await asyncio.wait_for(ready_event.wait(), self.wait_on_busy)
+            # wait for task picked by reader thread worker pool
+            try:
+                await asyncio.wait_for(reader_ready_event.wait(), self.wait_on_busy)
+            except asyncio.TimeoutError:
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
+                return
             return self._stream_from_que(que, interrupt_thread_worker)
-        except asyncio.TimeoutError:
-            task.cancel()
         finally:
             del que, task
