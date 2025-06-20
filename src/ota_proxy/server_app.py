@@ -182,7 +182,7 @@ class App:
         await send({"type": RESP_TYPE_BODY, "body": msg.encode("utf8")})
 
     @staticmethod
-    async def _send_chunk(data: bytes, more: bool, send):
+    async def _stream_send_chunk(data: bytes, send):
         """Helper method for sending data chunks to client.
 
         Args:
@@ -190,10 +190,12 @@ class App:
             more bool: whether there will be a next chunk or not.
             send: ASGI send method.
         """
-        if more:
-            await send({"type": RESP_TYPE_BODY, "body": data, "more_body": True})
-        else:
-            await send({"type": RESP_TYPE_BODY, "body": b""})
+        await send({"type": RESP_TYPE_BODY, "body": data, "more_body": True})
+
+    @staticmethod
+    async def _send_chunk_one(data: bytes, send):
+        """Send only one chunk of data and finish."""
+        await send({"type": RESP_TYPE_BODY, "body": data})
 
     @staticmethod
     async def _init_response(
@@ -268,13 +270,13 @@ class App:
                 burst_suppressed_logger.error(
                     f"{_common_err_msg=} due to handled ota_cache internal error: {exc!r}"
                 )
-                await self._send_chunk(b"", False, send)
+                await self._send_chunk_one(b"", send)
             else:
                 # unexpected internal errors of ota_cache
                 burst_suppressed_logger.error(
                     f"{_common_err_msg=} due to unhandled ota_cache internal error: {exc!r}"
                 )
-                await self._send_chunk(b"", False, send)
+                await self._send_chunk_one(b"", send)
         finally:
             del exc  # break ref
 
@@ -313,9 +315,12 @@ class App:
             HTTPStatus.OK, encode_headers(headers_to_client), send
         )
         try:
-            async for chunk in fp:
-                await self._send_chunk(chunk, True, send)
-            await self._send_chunk(b"", False, send)
+            if isinstance(fp, bytes):
+                await self._send_chunk_one(fp, send)
+            else:
+                async for chunk in fp:
+                    await self._stream_send_chunk(chunk, send)
+                await self._send_chunk_one(b"", send)
         except Exception as e:
             await self._error_handling_during_transferring(e, url, send)
             return

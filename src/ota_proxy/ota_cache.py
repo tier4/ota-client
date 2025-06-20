@@ -28,6 +28,7 @@ import anyio
 from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient_common import EMPTY_FILE_SHA256
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -398,7 +399,7 @@ class OTACache:
 
     async def _retrieve_file_by_cache_lookup(
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str]] | None:
         """
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
@@ -418,6 +419,10 @@ class OTACache:
         meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
             return
+
+        # NOTE: handle empty file entry
+        if meta_db_entry.file_sha256 == EMPTY_FILE_SHA256:
+            return b"", meta_db_entry.export_headers_to_client()
 
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
@@ -440,7 +445,13 @@ class OTACache:
             await self._lru_helper.remove_entry(cache_identifier)
             return
 
-        local_fd = await self._read_pool.read_file(cache_file)
+        # fast path for small file, read one and directly return bytes
+        if meta_db_entry.cache_size <= self._chunk_size and (
+            local_fd := await self._read_pool.read_file_once(cache_file)
+        ):
+            return local_fd, meta_db_entry.export_headers_to_client()
+
+        local_fd = await self._read_pool.stream_read_file(cache_file)
         if local_fd:
             # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
             #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
@@ -489,7 +500,10 @@ class OTACache:
         raw_url: str,
         cache_policy: OTAFileCacheControl,
         headers_from_client: CIMultiDict[str],
-    ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str] | CIMultiDict[str]] | None:
+    ) -> (
+        tuple[AsyncGenerator[bytes] | bytes, CIMultiDictProxy[str] | CIMultiDict[str]]
+        | None
+    ):
         # NOTE(20241202): no new cache on hard limit being reached
         if (
             not self._cache_enabled
@@ -543,7 +557,7 @@ class OTACache:
             )
             return wrapped_fd, resp_headers
         except Exception:
-            tracker.set_writer_failed()
+            tracker._tracker_events.set_writer_failed()
             raise
         finally:
             del tracker  # prevent future subscribe to this tracker
@@ -552,7 +566,10 @@ class OTACache:
 
     async def retrieve_file(
         self, raw_url: str, headers_from_client: CIMultiDict[str]
-    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str] | CIMultiDictProxy[str]] | None:
+    ) -> (
+        tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str] | CIMultiDictProxy[str]]
+        | None
+    ):
         """Retrieve a file descriptor for the requested <raw_url>.
 
         This method retrieves a file descriptor for incoming client request.

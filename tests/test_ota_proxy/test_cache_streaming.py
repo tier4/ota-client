@@ -79,7 +79,7 @@ class TestOngoingCachingRegister:
             logger.debug(f"#{idx} is subscriber")
             await self.register_finish.acquire()
 
-            while not _tracker._writer_finished.is_set():  # simulating cache streaming
+            while not _tracker._tracker_events._writer_finished.is_set():  # simulating cache streaming
                 await asyncio.sleep(0.1)
             return False, _tracker.cache_meta
 
@@ -113,7 +113,7 @@ class TestOngoingCachingRegister:
         await self.writer_done_event.wait()
 
         # finished
-        _tracker._writer_finished.set()
+        _tracker._tracker_events._writer_finished.set()
         logger.info(f"writer #{idx} finished")
         return True, _tracker.cache_meta
 

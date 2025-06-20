@@ -6,7 +6,10 @@ from os import PathLike
 from typing import AsyncGenerator
 from urllib.parse import SplitResult, quote, urlsplit
 
+import anyio
 from anyio import open_file
+
+from otaclient_common._typing import StrOrPath
 
 from .config import config as cfg
 
@@ -21,6 +24,15 @@ async def read_file(
         while data := await f.read(chunk_size):
             yield data
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+def read_file_once(fpath: StrOrPath | anyio.Path) -> bytes:
+    with open(fpath, "rb") as f:
+        fd = f.fileno()
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+        data = f.read()
+        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+    return data
 
 
 def url_based_hash(raw_url: str) -> str:
