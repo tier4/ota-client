@@ -220,7 +220,11 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
 
-    def test_update_interrupted(self):
+    def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
+        mock_exit_from_dynamic_client = mocker.patch.object(
+            self.ota_client, "_exit_from_dynamic_client"
+        )
+
         # inject exception
         _error = OTAErrorRecoverable("interrupted by test as expected", module=__name__)
         self.ota_updater.execute.side_effect = _error
@@ -238,6 +242,9 @@ class TestOTAClient:
         # --- assertion on interrupted OTA update --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+
+        # Verify that _exit_from_dynamic_client was called
+        mock_exit_from_dynamic_client.assert_called_once()
 
     def test_client_update_normal_finished(self):
         """Test client update with normal completion."""
@@ -257,9 +264,13 @@ class TestOTAClient:
         self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.CLIENT_UPDATING
 
-    def test_client_update_interrupted(self):
+    def test_client_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         """Test client update with interruption."""
         from otaclient._types import ClientUpdateRequestV2
+
+        mock_exit_from_dynamic_client = mocker.patch.object(
+            self.ota_client, "_exit_from_dynamic_client"
+        )
 
         # inject exception
         _error = OTAErrorRecoverable(
@@ -279,7 +290,9 @@ class TestOTAClient:
 
         # --- assertion on interrupted client update --- #
         self.ota_client_updater.execute.assert_called_once()
-        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+
+        # Verify that _exit_from_dynamic_client was called
+        mock_exit_from_dynamic_client.assert_called_once()
 
 
 class TestOTAClientUpdater:
@@ -504,16 +517,13 @@ class TestOTAClientUpdater:
             "_copy_client_package",
             side_effect=Exception("Test exception"),
         )
-        mock_request_shutdown = mocker.patch.object(
-            client_updater, "_request_shutdown", return_value=False
-        )
 
         # Execute the client update
-        client_updater._execute_client_update()
+        with pytest.raises(Exception, match="Test exception"):
+            client_updater._execute_client_update()
 
         # Verify the flow of method calls
         mock_copy_client_package.assert_called_once()
-        mock_request_shutdown.assert_called_once()
 
     def test_execute_success(self, mocker: pytest_mock.MockerFixture):
         # Test successful execution
