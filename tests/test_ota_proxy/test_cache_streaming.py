@@ -98,6 +98,7 @@ class TestOngoingCachingRegister:
         # NOTE: use last_access field to store worker index
         # NOTE 2: bypass provider_start method, directly set tracker property
         cache_meta = CacheMeta(
+            url=self.URL,
             last_access=idx,
             file_sha256="some_filesha256_value",
         )

@@ -52,6 +52,7 @@ def setup_testdata() -> dict[str, CacheMeta]:
 
         entries[file_sha256] = CacheMeta(
             # see lru_cache_helper module for more details
+            url=mocked_url,
             bucket_idx=bisect.bisect_right(size_list, target_size),
             cache_size=target_size,
             file_sha256=file_sha256,
