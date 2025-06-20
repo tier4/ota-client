@@ -170,6 +170,7 @@ class CacheTracker:
                             )
                             return
                         f.write(data)
+                        self._bytes_written += len(data)
                 finally:
                     f.flush()
                     os.fsync(fd)
