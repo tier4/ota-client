@@ -130,7 +130,7 @@ class OTACache:
         self._shutdown_lock = asyncio.Lock()
 
         self.table_name = table_name = cfg.TABLE_NAME
-        self._chunk_size = cfg.CHUNK_SIZE
+        self._chunk_size = cfg.REMOTE_READ_CHUNK_SIZE
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https

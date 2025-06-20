@@ -364,9 +364,8 @@ class CacheWriterPool:
             CacheStreamingFailed if any exception happens.
         """
         tee_que: Queue[bytes | None] = Queue()
-        wait_deadline = time.time() + self.wait_on_busy
         cancel_write_task_handler = self._loop.call_at(
-            wait_deadline,
+            time.time() + self.wait_on_busy,
             self._check_thread_worker_deadline,
             self._pool.submit(
                 tracker.provider_write_file_in_thread, cache_meta, tee_que
@@ -415,7 +414,7 @@ class CacheReaderPool:
         self._acall_soon = self._loop.call_soon_threadsafe
 
     def _thread_worker_initializer(self) -> None:
-        self._worker_thread_local.buffer = buffer = bytearray(cfg.CHUNK_SIZE)
+        self._worker_thread_local.buffer = buffer = bytearray(self.read_chunk_size)
         self._worker_thread_local.view = memoryview(buffer)
 
     async def close(self) -> None:

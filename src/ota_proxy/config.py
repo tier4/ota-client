@@ -20,7 +20,8 @@ class Config:
     BASE_DIR = "/ota-cache"
 
     # ------ io config ------ #
-    CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
+    REMOTE_READ_CHUNK_SIZE = 1 * 1024 * 1024  # 1MiB
+    WRITE_CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     LOCAL_READ_SIZE = 2 * 1024 * 1024  # 2MiB
 
     # adjust from 8 ~ 16 threads
