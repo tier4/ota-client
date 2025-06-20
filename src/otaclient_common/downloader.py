@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 import time
 from abc import abstractmethod
@@ -401,6 +402,8 @@ class Downloader:
         with self._session.get(
             prepared_url, stream=True, headers=prepared_headers, timeout=timeout
         ) as resp, open(dst, "wb") as dst_fp:
+            dst_fd = dst_fp.fileno()
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
             resp.raise_for_status()
 
             digest, compression_alg = check_cache_policy_in_resp(
@@ -433,6 +436,10 @@ class Downloader:
                     _read_size = len(_chunk)
                     self._downloaded_bytes += _read_size
                     traffic_on_wire += _read_size
+
+            dst_fp.flush()
+            os.fsync(dst_fd)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
         if size and size != downloaded_file_size:
             _err_msg = (
