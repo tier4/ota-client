@@ -89,8 +89,8 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 4  # max wait: ~1s
-    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 4  # max wait: ~1s
+    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # max wait: ~9s
+    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # max wait: ~9s
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"

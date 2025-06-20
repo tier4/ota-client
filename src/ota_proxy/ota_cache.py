@@ -512,9 +512,9 @@ class OTACache:
 
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
             _cache_meta = tracker.cache_meta
-            if _cache_meta and (
+            if (
                 stream_fd := await self._read_pool.subscribe_tracker(tracker)
-            ):
+            ) and _cache_meta:
                 return stream_fd, _cache_meta.export_headers_to_client()
             return  # provider tracker might be blocked, fallback to direct download
 
