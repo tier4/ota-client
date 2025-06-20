@@ -122,7 +122,7 @@ class CacheTracker:
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
-        self._writer_finished = asyncio.Event()
+        self._writer_finished = threading.Event()
         self._writer_failed = threading.Event()
 
         self._space_availability_event = below_hard_limit_event
@@ -134,6 +134,10 @@ class CacheTracker:
     @property
     def writer_failed(self) -> bool:
         return self._writer_failed.is_set()
+
+    @property
+    def writer_finished(self) -> bool:
+        return self._writer_finished.is_set()
 
     def set_writer_failed(self) -> None:  # pragma: no cover
         self._writer_finished.set()
@@ -147,10 +151,6 @@ class CacheTracker:
         try:
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                # caller set failed flag, abort
-                if self.writer_failed:
-                    return
-
                 # first create the file
                 f.write(b"")
                 f.flush()
@@ -161,7 +161,13 @@ class CacheTracker:
 
                 try:
                     while data := input_que.get():
+                        # caller set failed flag, or space hard limit is reached, abort
+                        if self.writer_failed:
+                            return
                         if not self._space_availability_event.is_set():
+                            burst_suppressed_logger.warning(
+                                f"abort caching {cache_meta} on space hard limit reached"
+                            )
                             return
                         f.write(data)
                 finally:
@@ -174,16 +180,17 @@ class CacheTracker:
             #   doesn't matter here, the subscriber doesn't need to fail if caching
             #   finished but db commit failed.
             self._writer_finished.set()
-            self.cache_meta.cache_size = self._bytes_written
+            cache_meta.cache_size = self._bytes_written
 
             if not self.writer_failed:
                 os.link(self.fpath, self.save_path)
-                self._commit_cache_cb(self.cache_meta)
+                self._commit_cache_cb(cache_meta)
         except Exception as e:
             self.set_writer_failed()
-            burst_suppressed_logger.exception(f"cache writing failed: {e!r}")
+            burst_suppressed_logger.exception(f"caching {cache_meta} failed: {e!r}")
         finally:
-            del self, input_que
+            self._writer_finished.set()
+            del self, input_que, cache_meta
 
     def subscriber_stream_cache_in_thread(
         self,
@@ -233,11 +240,10 @@ class CacheTracker:
                 fd = f.fileno()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 try:
-                    while (
-                        (not self.writer_failed)
-                        or bytes_read < self._bytes_written
-                        or not interrupt_thread_worker.is_set()
-                    ):
+                    while not self.writer_finished or bytes_read < self._bytes_written:
+                        if interrupt_thread_worker.is_set() or self.writer_failed:
+                            return
+
                         _read_size = f.readinto(buffer)
                         if _read_size > 0:
                             wait_data_count = 0
@@ -263,10 +269,10 @@ class CacheTracker:
                             # abort caching due to potential dead streaming coro
                             _err_msg = (
                                 f"failed to read stream for {self.cache_meta}: "
-                                "timeout getting data, partial read might happen"
+                                "timeout getting data, potential partial read occurs"
                             )
                             burst_suppressed_logger.warning(_err_msg)
-                        return
+                            return
                 finally:
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         except Exception:
@@ -349,14 +355,11 @@ class CacheWriterPool:
         try:
             # tee the incoming chunk to two destinations
             async for chunk in fd:
-                # to caching task, if the tracker is still working
-                if tracker._bytes_written < 0 and time.time() > wait_write_deadline:
-                    _err_msg = (
-                        f"timeout waiting an available writer: {wait_write_deadline=}"
-                    )
+                # NOTE: tracker.cache_meta set means the caching starts
+                if tracker.cache_meta is None and time.time() > wait_write_deadline:
+                    _err_msg = f"timeout waiting an available write thread worker: {wait_write_deadline=}"
                     burst_suppressed_logger.warning(_err_msg)
                     tracker.set_writer_failed()
-
                     try:
                         if task:
                             task.cancel()
@@ -374,10 +377,8 @@ class CacheWriterPool:
             burst_suppressed_logger.warning(_err_msg)
             raise CacheStreamingFailed(_err_msg) from e
         finally:
-            # send sentinel to the caching task
-            tee_que.put_nowait(None)
-            # remove the refs
-            fd, tracker, tee_que = None, None, None  # type: ignore
+            tee_que.put_nowait(None)  # send sentinel to the caching task
+            del fd, tracker, tee_que  # remove the refs
 
 
 class CacheReaderPool:
@@ -416,21 +417,21 @@ class CacheReaderPool:
         ready_event: asyncio.Event,
         interrupt_thread_worker: threading.Event,
     ) -> None:
-        # indicate caller that task is handled
-        self._acall_soon(ready_event.set)
         try:
             buffer, bufferview = (
                 self._worker_thread_local.buffer,
                 self._worker_thread_local.view,
             )
             with open(fpath, "rb") as f:
+                # indicate caller that task is handled
+                self._acall_soon(ready_event.set)
+
                 fd = f.fileno()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 try:
-                    while not interrupt_thread_worker.is_set():
-                        _read_size = f.readinto(buffer)
-                        if _read_size == 0:
-                            return
+                    while not interrupt_thread_worker.is_set() and (
+                        (_read_size := f.readinto(buffer)) > 0
+                    ):
                         self._acall_soon(output_que.put_nowait, bufferview[:_read_size])
                 finally:
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
@@ -445,7 +446,14 @@ class CacheReaderPool:
         que: asyncio.Queue[bytes | None | Any],
         interrupt_thread_worker: threading.Event,
     ) -> AsyncGenerator[bytes]:
-        """
+        """Stream data coming from read worker to upper caller.
+
+        Read thread worker will use `_reader_failed_sentinel` to indicate this
+            generator to interrupt when it fails.
+
+        When this generator is interrupted by upper caller, it will on the other hand
+            set the `interrupt_thread_worker` event to indicate thread worker.
+
         Raises:
             CacheStreamingInterrupt on reader failed.
         """
