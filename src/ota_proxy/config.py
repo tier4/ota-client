@@ -61,8 +61,7 @@ class Config:
 
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
-    #   20250619 v5: remove the url field as not used
-    TABLE_DEFINITION_VERSION = "v5"
+    TABLE_DEFINITION_VERSION = "v4"
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
