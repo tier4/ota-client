@@ -21,6 +21,7 @@ import random
 from pathlib import Path
 from typing import Coroutine, Optional
 
+import anyio
 import pytest
 
 from ota_proxy.cache_streaming import CacheTracker, CachingRegister
@@ -42,8 +43,10 @@ class TestOngoingCachingRegister:
 
     @pytest.fixture(autouse=True)
     async def setup_test(self, tmp_path: Path):
-        self.base_dir = tmp_path / "base_dir"
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        _base_dir = tmp_path / "base_dir"
+        _base_dir.mkdir(parents=True, exist_ok=True)
+
+        self.base_dir = anyio.Path(_base_dir)
         self.register = CachingRegister()
 
         # events
@@ -76,7 +79,7 @@ class TestOngoingCachingRegister:
             logger.debug(f"#{idx} is subscriber")
             await self.register_finish.acquire()
 
-            while not _tracker.writer_finished:  # simulating cache streaming
+            while not _tracker._tracker_events._writer_finished.is_set():  # simulating cache streaming
                 await asyncio.sleep(0.1)
             return False, _tracker.cache_meta
 
@@ -95,8 +98,8 @@ class TestOngoingCachingRegister:
         # NOTE: use last_access field to store worker index
         # NOTE 2: bypass provider_start method, directly set tracker property
         cache_meta = CacheMeta(
+            url=self.URL,
             last_access=idx,
-            url="some_url",
             file_sha256="some_filesha256_value",
         )
         _tracker.cache_meta = cache_meta  # normally it was set by start_provider
@@ -105,15 +108,12 @@ class TestOngoingCachingRegister:
         #   executor, commit_cache_cb and below_hard_limit_event
         await self.register_finish.acquire()
 
-        # manually set the tracker to be started
-        _tracker._writer_ready.set()
-
         # simulate waiting for writer finished downloading
-        _tracker.fpath.touch()
+        await _tracker.fpath.touch()
         await self.writer_done_event.wait()
 
         # finished
-        _tracker._writer_finished.set()
+        _tracker._tracker_events._writer_finished.set()
         logger.info(f"writer #{idx} finished")
         return True, _tracker.cache_meta
 
@@ -132,7 +132,9 @@ class TestOngoingCachingRegister:
         # start all the worker, all the workers will now access the same resouce.
         self.sync_event.set()
         logger.info("all workers start to subscribe to the register")
-        await self._wait_for_registeration_finish()  # wait for all workers finish subscribing
+        await (
+            self._wait_for_registeration_finish()
+        )  # wait for all workers finish subscribing
         self.writer_done_event.set()  # writer finished
 
         ###### check the test result ######
@@ -156,5 +158,10 @@ class TestOngoingCachingRegister:
         # ensure that the entry in the register is garbage collected
         assert len(self.register._id_tracker) == 0
 
-        # ensure no tmp files are leftover
-        assert len(list(self.base_dir.glob("tmp_*"))) == 0
+        # NOTE(20250617): the tmp file clean up is done by os.replace now,
+        #                 this test doesn't cover actual caching, so skip here.
+        # # ensure no tmp files are leftover
+        # _count = 0
+        # async for _ in self.base_dir.glob("tmp_*"):
+        #     _count += 1
+        # assert _count == 0

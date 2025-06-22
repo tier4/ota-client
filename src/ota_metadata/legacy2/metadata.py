@@ -23,7 +23,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import contextlib
@@ -439,7 +438,6 @@ class OTAMetadata:
 
 
 class ResourceMeta:
-
     def __init__(
         self,
         *,
@@ -472,7 +470,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)
@@ -496,7 +494,7 @@ class ResourceMeta:
         )
 
         try:
-            _query = _orm.orm_execute(_sql_stmt)
+            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
             # NOTE: return value of fetchone will be a tuple, and here
             #   the first and only value of the tuple is the total nums of entries.
             assert _query  # should be something like ((<int>,),)

@@ -50,7 +50,7 @@ SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
-CLIENTS_NUM = 2
+CLIENTS_NUM = 3
 
 
 def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir: Path):
@@ -214,6 +214,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             ) as resp:
                 assert resp.status == 200
                 assert (resp_text := await resp.text(encoding="utf-8"))
+
         # --- assertion --- #
         # 1. assert the contents is the same across cache, response and original
         original = Path(SPECIAL_FILE_FPATH).read_text(encoding="utf-8")
@@ -257,14 +258,17 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             pass
 
     async def ota_image_downloader(
-        self, regular_entries: list[RegularInf], sync_event: asyncio.Event
+        self, worker_id: int, regular_entries: list[RegularInf], sync_event: asyncio.Event
     ):
         """Test single client download the whole ota image."""
         async with aiohttp.ClientSession() as session:
             await sync_event.wait()
             await asyncio.sleep(random.randrange(100, 200) // 100)
 
-            for entry in regular_entries:
+            for count, entry in enumerate(regular_entries, start=1):
+                if count % 1000 == 0:
+                    logger.info(f"worker#{worker_id}: {count} finished ...")
+
                 url = urljoin(
                     cfg.OTA_IMAGE_URL, quote(f"/data/{entry.relative_to('/')}")
                 )
@@ -281,10 +285,13 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                         cookies={"acookie": "acookie", "bcookie": "bcookie"},
                     ) as resp:
                         hash_f = sha256()
+                        read_size = 0
                         async for data, _ in resp.content.iter_chunks():
+                            read_size += len(data)
                             hash_f.update(data)
 
                         try:
+                            assert read_size == entry.size
                             assert hash_f.digest() == entry.sha256hash
                             break
                         except AssertionError:
@@ -295,6 +302,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                             logger.warning(
                                 f"failed on {entry}, {_retry_count=}, still retry..."
                             )
+            logger.info(f"worker#{worker_id} finished!")
 
     async def test_multiple_clients_download_ota_image(
         self, parse_regulars: list[RegularInf], launch_ota_proxy_server: SpawnProcess
@@ -304,10 +312,11 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         # --- execution --- #
         sync_event = asyncio.Event()
         tasks: list[asyncio.Task] = []
-        for _ in range(CLIENTS_NUM):
+        for worker_id in range(CLIENTS_NUM):
             tasks.append(
                 asyncio.create_task(
                     self.ota_image_downloader(
+                        worker_id,
                         parse_regulars,
                         sync_event,
                     )
@@ -327,4 +336,4 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
         # 2. check there is no tmp files left in the ota_cache dir
         #    ensure that the gc for multi-cache-streaming works
-        assert len(list(self.ota_cache_dir.glob("tmp_*"))) == 0
+        assert not list(self.ota_cache_dir.glob("tmp_*"))
