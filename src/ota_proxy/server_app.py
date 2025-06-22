@@ -42,7 +42,7 @@ from ._consts import (
     RESP_TYPE_START,
 )
 from .config import config as cfg
-from .errors import BaseOTACacheError
+from .errors import BaseOTACacheError, CacheProviderNotReady, ReaderPoolBusy
 from .ota_cache import OTACache
 
 logger = logging.getLogger(__name__)
@@ -221,29 +221,37 @@ class App:
     ) -> None:
         try:
             _common_err_msg = f"request for {url=} failed"
-            if isinstance(exc, aiohttp.ClientResponseError):
+            if isinstance(exc, (ReaderPoolBusy, CacheProviderNotReady)):
+                _err_msg = f"{_common_err_msg} due to otaproxy is busy: {exc!r}"
+                burst_suppressed_logger.error(_err_msg)
+                await self._respond_with_error(
+                    HTTPStatus.SERVICE_UNAVAILABLE, "otaproxy internal busy", send
+                )
+            elif isinstance(exc, aiohttp.ClientResponseError):
                 _err_msg = f"{_common_err_msg} due to HTTP error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 # passthrough 4xx(currently 403 and 404) to otaclient
                 await self._respond_with_error(
-                    exc.status, f"{_err_msg}: {exc.message}", send
+                    exc.status, f"HTTP status from remote: {exc.status}", send
                 )
             elif isinstance(exc, aiohttp.ClientConnectionError):
                 _err_msg = f"{_common_err_msg} due to connection error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
-                await self._respond_with_error(HTTPStatus.BAD_GATEWAY, _err_msg, send)
+                await self._respond_with_error(
+                    HTTPStatus.BAD_GATEWAY, "Failed to connect to remote", send
+                )
             elif isinstance(exc, aiohttp.ClientError):
                 _err_msg = f"{_common_err_msg} due to aiohttp client error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
-                    HTTPStatus.SERVICE_UNAVAILABLE, _err_msg, send
+                    HTTPStatus.SERVICE_UNAVAILABLE, "HTTP client error", send
                 )
             elif isinstance(exc, (BaseOTACacheError, StopAsyncIteration)):
                 _err_msg = f"{_common_err_msg} due to handled ota_cache internal error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
-                    f"internal error: {_err_msg}",
+                    "otaproxy internal error",
                     send,
                 )
             else:
@@ -252,7 +260,9 @@ class App:
                 _err_msg = f"{_common_err_msg} due to unhandled ota_cache internal error: {exc!r}"
                 burst_suppressed_logger.exception(_err_msg)
                 await self._respond_with_error(
-                    HTTPStatus.INTERNAL_SERVER_ERROR, _err_msg, send
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "unhandled internal server error",
+                    send,
                 )
         finally:
             del exc  # break ref
