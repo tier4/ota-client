@@ -450,9 +450,10 @@ class OTACache:
 
         # fast path for small file, read one and directly return bytes
         if meta_db_entry.cache_size <= self._chunk_size:
-            return await self._read_pool.read_file_once(
-                cache_file
-            ), meta_db_entry.export_headers_to_client()
+            return (
+                await self._read_pool.read_file_once(cache_file),
+                meta_db_entry.export_headers_to_client(),
+            )
 
         local_fd = await self._read_pool.stream_read_file(cache_file)
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
@@ -530,9 +531,10 @@ class OTACache:
 
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
             if _cache_meta := tracker.cache_meta:
-                return await self._read_pool.subscribe_tracker(
-                    tracker
-                ), _cache_meta.export_headers_to_client()
+                return (
+                    await self._read_pool.subscribe_tracker(tracker),
+                    _cache_meta.export_headers_to_client(),
+                )
 
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
