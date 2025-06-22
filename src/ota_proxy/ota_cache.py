@@ -28,7 +28,6 @@ import anyio
 from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
-from otaclient_common import EMPTY_FILE_SHA256
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -420,8 +419,9 @@ class OTACache:
         if not meta_db_entry:
             return
 
-        # NOTE: handle empty file entry
-        if meta_db_entry.file_sha256 == EMPTY_FILE_SHA256:
+        # NOTE: handle empty file entry, for empty file entry, we will not actually
+        #       create empty file in cache folder.
+        if meta_db_entry.cache_size == 0:
             return b"", meta_db_entry.export_headers_to_client()
 
         # NOTE: db_entry.file_sha256 can be either
