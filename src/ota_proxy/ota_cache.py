@@ -400,6 +400,9 @@ class OTACache:
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
     ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str]] | None:
         """
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+
         Returns:
             A tuple of bytes iterator and headers dict for back to client.
         """
@@ -446,20 +449,16 @@ class OTACache:
             return
 
         # fast path for small file, read one and directly return bytes
-        if meta_db_entry.cache_size <= self._chunk_size and (
-            local_fd := await self._read_pool.read_file_once(cache_file)
-        ):
-            return local_fd, meta_db_entry.export_headers_to_client()
+        if meta_db_entry.cache_size <= self._chunk_size:
+            return await self._read_pool.read_file_once(
+                cache_file
+            ), meta_db_entry.export_headers_to_client()
 
         local_fd = await self._read_pool.stream_read_file(cache_file)
-        if local_fd:
-            # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
-            #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
-            #       directory to indicate invalid cache.
-            return local_fd, meta_db_entry.export_headers_to_client()
-        burst_suppressed_logger.warning(
-            "reading cache aborted as no reader thread is available"
-        )
+        # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
+        #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
+        #       directory to indicate invalid cache.
+        return local_fd, meta_db_entry.export_headers_to_client()
 
     async def _retrieve_file_by_external_cache(
         self, client_cache_policy: OTAFileCacheControl
@@ -504,6 +503,11 @@ class OTACache:
         tuple[AsyncGenerator[bytes] | bytes, CIMultiDictProxy[str] | CIMultiDict[str]]
         | None
     ):
+        """
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+            Exceptions raised from opening remote connection.
+        """
         # NOTE(20241202): no new cache on hard limit being reached
         if (
             not self._cache_enabled
@@ -525,12 +529,10 @@ class OTACache:
             await (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
-            _cache_meta = tracker.cache_meta
-            if (
-                stream_fd := await self._read_pool.subscribe_tracker(tracker)
-            ) and _cache_meta:
-                return stream_fd, _cache_meta.export_headers_to_client()
-            return  # provider tracker might be blocked, fallback to direct download
+            if _cache_meta := tracker.cache_meta:
+                return await self._read_pool.subscribe_tracker(
+                    tracker
+                ), _cache_meta.export_headers_to_client()
 
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
