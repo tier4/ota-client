@@ -38,8 +38,10 @@ from .config import config as cfg
 from .db import CacheMeta
 from .errors import (
     CacheCommitFailed,
+    CacheProviderNotReady,
     CacheStreamingFailed,
     CacheStreamingInterrupt,
+    ReaderPoolBusy,
     StorageReachHardLimit,
 )
 
@@ -252,7 +254,11 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> bool:
+    async def subscriber_wait_for_provider(self) -> None:
+        """
+        Raises:
+            CacheProviderNotReady if timeout waiting cache provider.
+        """
         tracker_events = self._tracker_events
         _wait_count = 0
         try:
@@ -261,10 +267,9 @@ class CacheTracker:
                     _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY
                     or tracker_events.writer_failed
                 ):
-                    burst_suppressed_logger.warning(
-                        "timeout waiting provider starts caching or provider failed, abort"
-                    )
-                    return False
+                    _err_msg = "timeout waiting provider starts caching or provider failed, abort"
+                    burst_suppressed_logger.warning(_err_msg)
+                    raise CacheProviderNotReady
 
                 await asyncio.sleep(
                     get_backoff(
@@ -274,9 +279,8 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
-            return True
         finally:
-            del self
+            del self, tracker_events
 
     def subscriber_stream_cache_in_thread(
         self,
@@ -503,17 +507,22 @@ class CacheReaderPool:
 
     async def _read_dispatcher(
         self, fn: Callable[P, RT], *args: P.args, **kwargs: P.kwargs
-    ) -> Future[RT] | None:
+    ) -> Future[RT]:
+        """
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+        """
         try:
             if self._se.locked():
                 burst_suppressed_logger.warning(
                     "exceed pending read tasks threshold, dropping reading"
                 )
-            else:
-                await self._se.acquire()
-                _fut = self._pool.submit(fn, *args, **kwargs)
-                _fut.add_done_callback(self._release_se_cb)
-                return _fut
+                raise ReaderPoolBusy
+
+            await self._se.acquire()
+            _fut = self._pool.submit(fn, *args, **kwargs)
+            _fut.add_done_callback(self._release_se_cb)
+            return _fut
         finally:
             del self, fn, args, kwargs
 
@@ -571,37 +580,48 @@ class CacheReaderPool:
 
     async def stream_read_file(
         self, fpath: StrOrPath | anyio.Path
-    ) -> AsyncGenerator[bytes] | None:
-        """For larger cache file, streaming reading the file."""
+    ) -> AsyncGenerator[bytes]:
+        """For larger cache file, streaming reading the file.
+
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+        """
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
-        if await self._read_dispatcher(
+        await self._read_dispatcher(
             self._read_file_in_thread,
             fpath,
             que,
             interrupt_thread_worker=interrupt_thread_worker,
-        ):
-            return self._stream_from_que(que, interrupt_thread_worker)
+        )
+        return self._stream_from_que(que, interrupt_thread_worker)
 
-    async def read_file_once(self, fpath: StrOrPath | anyio.Path) -> bytes | None:
-        """For small cache file, directly read the whole file."""
-        if _fut := await self._read_dispatcher(read_file_once, fpath):
-            return await asyncio.wrap_future(_fut)
+    async def read_file_once(self, fpath: StrOrPath | anyio.Path) -> bytes:
+        """For small cache file, directly read the whole file.
 
-    async def subscribe_tracker(
-        self, tracker: CacheTracker
-    ) -> AsyncGenerator[bytes] | None:
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+        """
+        return await asyncio.wrap_future(
+            await self._read_dispatcher(read_file_once, fpath)
+        )
+
+    async def subscribe_tracker(self, tracker: CacheTracker) -> AsyncGenerator[bytes]:
+        """
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+            CacheProviderNotReady if timeout waiting cache provider ready.
+        """
         # first we wait for provider ready
-        if not await tracker.subscriber_wait_for_provider():
-            return
+        await tracker.subscriber_wait_for_provider()
 
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
         # then wait for task picked by reader thread worker pool
-        if await self._read_dispatcher(
+        await self._read_dispatcher(
             tracker.subscriber_stream_cache_in_thread,
             que,
             interrupt_thread_worker=interrupt_thread_worker,
             read_chunk_size=self.read_chunk_size,
-        ):
-            return self._stream_from_que(que, interrupt_thread_worker)
+        )
+        return self._stream_from_que(que, interrupt_thread_worker)
