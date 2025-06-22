@@ -258,7 +258,10 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             pass
 
     async def ota_image_downloader(
-        self, worker_id: int, regular_entries: list[RegularInf], sync_event: asyncio.Event
+        self,
+        worker_id: int,
+        regular_entries: list[RegularInf],
+        sync_event: asyncio.Event,
     ):
         """Test single client download the whole ota image."""
         async with aiohttp.ClientSession() as session:
