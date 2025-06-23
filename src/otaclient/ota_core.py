@@ -1208,9 +1208,9 @@ class OTAClient:
             ).execute()
         except ota_errors.OTAError:
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
-            self._exit_from_dynamic_client()
+            self._client_update_control_flags.request_shutdown_event.set()
         except Exception:
-            self._exit_from_dynamic_client()
+            self._client_update_control_flags.request_shutdown_event.set()
 
     def rollback(self, request: RollbackRequestV2) -> None:
         self._live_ota_status = OTAStatus.ROLLBACKING
