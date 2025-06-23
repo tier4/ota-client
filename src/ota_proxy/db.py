@@ -42,6 +42,8 @@ from .config import config as cfg
 logger = logging.getLogger(__name__)
 
 DB_TABLE_NAME = cfg.TABLE_NAME
+# RETURNING statement is available only after sqlite3 v3.35.0
+SQLITE3_SUPPORT_RETURNING = sqlite3.sqlite_version_info >= (3, 35, 0)
 
 
 class CacheMeta(TableSpec):
@@ -150,8 +152,7 @@ class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
             if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
                 return
 
-            # RETURNING statement is available only after sqlite3 v3.35.0
-            if sqlite3.sqlite_version_info < (3, 35, 0):
+            if not SQLITE3_SUPPORT_RETURNING:
                 # first select entries met the requirements
                 cur = con.execute(self.select_entries_with_limit, _params)
                 rows_to_remove = list(cur)
