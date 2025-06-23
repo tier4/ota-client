@@ -213,7 +213,7 @@ def subprocess_run_wrapper(
     )
 
 
-def _copyfileobj(fsrc, fdst, length=1024**2):
+def _copyfileobj(fsrc, fdst, length=8 * 1024**2):
     """Copied from shutil.copyfileobj."""
     fsrc_read = fsrc.read
     fdst_write = fdst.write
