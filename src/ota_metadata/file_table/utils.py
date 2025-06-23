@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import contextlib
@@ -105,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -149,7 +148,7 @@ def prepare_regular(
     #   Remember to always put chown before chmod !!!
     try:
         if prepare_method == "copy":
-            shutil.copy(_rs, _target_on_mnt)
+            shutil.copyfile(_rs, _target_on_mnt)
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
             return _target_on_mnt
@@ -157,14 +156,13 @@ def prepare_regular(
         if prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
             os.link(_rs, _target_on_mnt)
-
             if not hardlink_skip_apply_permission:
                 os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
                 os.chmod(_target_on_mnt, mode=entry["mode"])
             return _target_on_mnt
 
         if prepare_method == "move":
-            shutil.move(str(_rs), _target_on_mnt)
+            os.replace(str(_rs), _target_on_mnt)
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
             return _target_on_mnt
