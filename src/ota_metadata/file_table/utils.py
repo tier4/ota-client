@@ -17,7 +17,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import shutil
 import sqlite3
 import stat
 from contextlib import closing
@@ -35,6 +34,7 @@ from ota_metadata.file_table import (
 )
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
+from otaclient_common.linux import copyfile_nocache
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
@@ -148,7 +148,7 @@ def prepare_regular(
     #   Remember to always put chown before chmod !!!
     try:
         if prepare_method == "copy":
-            shutil.copyfile(_rs, _target_on_mnt)
+            copyfile_nocache(_rs, _target_on_mnt)
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
             return _target_on_mnt
