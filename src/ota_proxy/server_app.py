@@ -147,6 +147,7 @@ class App:
         self._closed = True
         self._ota_cache = ota_cache
 
+        self.max_concurrent_requests = max_concurrent_requests
         self._se = asyncio.Semaphore(max_concurrent_requests)
 
     async def start(self):
@@ -347,6 +348,13 @@ class App:
         if not _url.scheme or not _url.path:
             msg = f"INVALID URL {url}."
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
+            return
+
+        if self._se.locked():
+            burst_suppressed_logger.warning(
+                f"exceed max pending requests: {self.max_concurrent_requests}, respond with 429"
+            )
+            await self._respond_with_error(HTTPStatus.TOO_MANY_REQUESTS, "", send)
             return
 
         await self._se.acquire()
