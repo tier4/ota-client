@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 PartitionToken = Literal[
     "UUID", "PARTUUID",
     "LABEL", "PARTLABEL",
-    "TYPE", "FSTYPE"
+    "TYPE", "FSTYPE",
 ]
 # fmt: on
 

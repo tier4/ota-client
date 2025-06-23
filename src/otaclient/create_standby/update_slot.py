@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
@@ -31,8 +33,10 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
+from otaclient_common._logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
 
 class UpdateStandbySlot:
@@ -45,6 +49,8 @@ class UpdateStandbySlot:
         status_report_queue: Queue[StatusReport],
         session_id: str,
         status_report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
+        max_workers: int = 5,
+        concurrent_tasks: int = 1024,
     ) -> None:
         self.status_report_interval = status_report_interval
         self._ota_metadata = ota_metadata
@@ -55,49 +61,66 @@ class UpdateStandbySlot:
         self._standby_slot_mp = Path(standby_slot_mount_point)
         self._resource_dir = Path(resource_dir)
 
-    def _process_regular_file_entries(self) -> None:
-        """Yield a group of regular file entries which have the same digest each time.
+        self.max_workers = max_workers
+        self._se = threading.Semaphore(concurrent_tasks)
+        self._interrupted = threading.Event()
+        self._thread_local = threading.local()
 
-        NOTE: it depends on the regular file table is sorted by digest!
-        """
-        logger.info("start to process regular file entries ...")
-        hardlink_group: dict[int, Path] = {}
-        cur_digest: bytes = b""
-        cur_resource: Path = Path()
-
-        _next_report = 0
-        _merged_payload = UpdateProgressReport(
+    def _worker_initializer(self):
+        self._thread_local.merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.APPLY_DELTA
         )
+        self._thread_local.next_push = 0
 
+    def _worker_finalizer(self, post_workload_barrier: threading.Barrier) -> None:
+        """Let the thread worker push the final batch of report when finished."""
+        _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=_merged_payload,
+                session_id=self.session_id,
+            )
+        )
+        post_workload_barrier.wait()
+
+    def _process_one_files_group_workload(
+        self, cur_digest: bytes, entries: list[RegularFileTypedDict]
+    ) -> None:
+        hardlink_group: dict[int, Path] = {}
+        cur_resource = None
         try:
-            for _entry in self._ota_metadata.iter_regular_entries():
-                _this_digest, _inode_id = _entry["digest"], _entry["inode_id"]
-                _is_hardlinked = _entry["links_count"] is not None
+            _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
+            for entry in entries:
+                if self._interrupted.is_set():
+                    burst_suppressed_logger.warning(
+                        "workload skip on interrupted flag set, abort"
+                    )
+                    return
+
+                _inode_id = entry["inode_id"]
+                _size = entry["size"] or 0
+                _is_hardlinked = entry["links_count"] is not None
 
                 # NOTE that first copy will not be counted in report, as the first copy
                 #   is either prepared by download, or by local, both are already recorded.
-                if _this_digest != cur_digest:  # first copy
-                    cur_digest = _this_digest
-                    hardlink_group.clear()
+                if cur_resource is None:
                     cur_resource = prepare_regular(
-                        _entry,
+                        entry,
                         _rs=self._resource_dir / cur_digest.hex(),
                         target_mnt=self._standby_slot_mp,
                         prepare_method="move",
                     )
-
                     if _is_hardlinked:
                         hardlink_group[_inode_id] = cur_resource
                 # not the first copy in this digest group
                 elif _is_hardlinked:
                     _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += _entry["size"] or 0
+                    _merged_payload.processed_file_size += _size
 
                     # hardlinked entry shared the same inode, thus same permissions
                     if _inode_id in hardlink_group:
                         prepare_regular(
-                            _entry,
+                            entry,
                             _rs=hardlink_group[_inode_id],
                             target_mnt=self._standby_slot_mp,
                             prepare_method="hardlink",
@@ -105,7 +128,7 @@ class UpdateStandbySlot:
                         )
                     else:  # first entry in a hardlink group
                         hardlink_group[_inode_id] = prepare_regular(
-                            _entry,
+                            entry,
                             _rs=cur_resource,
                             target_mnt=self._standby_slot_mp,
                             prepare_method="copy",
@@ -113,39 +136,79 @@ class UpdateStandbySlot:
                 # normal multi copies
                 else:
                     _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += _entry["size"] or 0
+                    _merged_payload.processed_file_size += _size
 
                     prepare_regular(
-                        _entry,
+                        entry,
                         cur_resource,
                         target_mnt=self._standby_slot_mp,
                         prepare_method="copy",
                     )
 
-                if (_now := time.perf_counter()) > _next_report:
-                    _next_report = _now + self.status_report_interval
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload,
-                            session_id=self.session_id,
-                        )
+            # check if we need to do report after processing this group
+            _now = time.perf_counter()
+            if _now > self._thread_local.next_push:
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
                     )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.APPLY_DELTA
-                    )
-
-            # commit left-over items that cannot fill the batch
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=_merged_payload,
-                    session_id=self.session_id,
                 )
-            )
+
+                self._thread_local.next_push = _now + self.status_report_interval
+                self._thread_local.merged_payload = UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.APPLY_DELTA
+                )
         except Exception as e:
-            logger.exception(f"failed to update standby slot: {e!r}")
-            raise UpdateStandbySlotFailed(
-                f"failed to update standby slot: {e!r}"
-            ) from e
+            burst_suppressed_logger.exception(
+                f"file entries group process failed: {e!r}"
+            )
+            self._interrupted.set()
+        finally:
+            self._se.release()
+
+    def _process_regular_file_entries(self) -> None:
+        """Dispatch a group of regular file entries to thread pool which
+            have the same digest each time.
+
+        NOTE: it depends on the regular file table is sorted by digest!
+        """
+        logger.info("process regular file entries ...")
+        with ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="ota_update_slot",
+            initializer=self._worker_initializer,
+        ) as pool:
+            cur_digest: bytes = b""
+            cur_entries: list[RegularFileTypedDict] = []
+
+            for _entry in self._ota_metadata.iter_regular_entries():
+                if self._interrupted.is_set():
+                    logger.error("detect worker failed, abort!")
+                    return
+
+                _this_digest = _entry["digest"]
+                if _this_digest != cur_digest:
+                    if cur_entries:
+                        self._se.acquire()
+                        pool.submit(
+                            self._process_one_files_group_workload,
+                            cur_digest,
+                            cur_entries,
+                        )
+                    cur_digest = _this_digest
+                    cur_entries = [_entry]
+                else:
+                    cur_entries.append(_entry)
+
+            # remember the final group
+            pool.submit(self._process_one_files_group_workload, cur_digest, cur_entries)
+
+            # finalizing all the workers
+            barrier = threading.Barrier(self.max_workers + 1)
+            for _ in range(self.max_workers):
+                pool.submit(self._worker_finalizer, barrier)
+            barrier.wait()
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
@@ -181,4 +244,4 @@ class UpdateStandbySlot:
         self._process_regular_file_entries()
 
         # finally, cleanup the resource dir
-        shutil.rmtree(self._resource_dir)
+        shutil.rmtree(self._resource_dir, ignore_errors=True)

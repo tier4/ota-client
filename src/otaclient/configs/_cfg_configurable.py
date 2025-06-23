@@ -13,7 +13,6 @@
 # limitations under the License.
 """Runtime configurable configs for otaclient."""
 
-
 from __future__ import annotations
 
 import logging
@@ -28,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 ENV_PREFIX = "OTACLIENT_"
 LOG_LEVEL_LITERAL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-CREATE_STANDBY_METHOD_LTIERAL = Literal["REBUILD", "IN_PLACE"]
 
 
 class _OTAClientSettings(BaseModel):
@@ -62,8 +60,7 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ create standby settings ------ #
     #
-    CREATE_STANDBY_METHOD: CREATE_STANDBY_METHOD_LTIERAL = "REBUILD"
-    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 512
+    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 1024
     MAX_PROCESS_FILE_THREAD: int = 6
     CREATE_STANDBY_RETRY_MAX: int = 1024
 
