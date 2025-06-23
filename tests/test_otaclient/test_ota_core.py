@@ -268,15 +268,14 @@ class TestOTAClient:
         """Test client update with interruption."""
         from otaclient._types import ClientUpdateRequestV2
 
-        mock_exit_from_dynamic_client = mocker.patch.object(
-            self.ota_client, "_exit_from_dynamic_client"
-        )
-
         # inject exception
         _error = OTAErrorRecoverable(
             "client update interrupted by test as expected", module=__name__
         )
         self.ota_client_updater.execute.side_effect = _error
+        self.ota_client._client_update_control_flags.request_shutdown_event.set = (
+            mocker.MagicMock()
+        )
 
         # --- execution --- #
         self.ota_client.client_update(
@@ -291,8 +290,8 @@ class TestOTAClient:
         # --- assertion on interrupted client update --- #
         self.ota_client_updater.execute.assert_called_once()
 
-        # Verify that _exit_from_dynamic_client was called
-        mock_exit_from_dynamic_client.assert_called_once()
+        # Verify that request_shutdown_event was set
+        self.ota_client._client_update_control_flags.request_shutdown_event.set.assert_called_once()
 
 
 class TestOTAClientUpdater:
