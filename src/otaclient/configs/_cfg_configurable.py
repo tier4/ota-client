@@ -60,7 +60,7 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ create standby settings ------ #
     #
-    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 1024
+    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 256
     MAX_PROCESS_FILE_THREAD: int = 6
     CREATE_STANDBY_RETRY_MAX: int = 1024
 
@@ -74,7 +74,7 @@ class _OTAClientSettings(BaseModel):
     #
     PROCESS_FILES_REPORT_INTERVAL: int = 3  # seconds
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
-    READ_CHUNK_SIZE: int = 8 * 1024 * 1024  # 8MiB
+    READ_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MiB
 
 
 class _MultipleECUSettings(BaseModel):

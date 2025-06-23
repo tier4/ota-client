@@ -123,13 +123,14 @@ class ProcessFileHelper(Generic[T]):
         session_id: str,
         report_que: Queue[StatusReport],
         report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
+        buffer_size: int = cfg.READ_CHUNK_SIZE,
     ) -> None:
         self._que = _que
         self._status_report_queue = report_que
         self.session_id = session_id
         self.report_interval = report_interval
 
-        self._hash_buffer = hash_buffer = bytearray(cfg.READ_CHUNK_SIZE)
+        self._hash_buffer = hash_buffer = bytearray(buffer_size)
         self._hash_bufferview = memoryview(hash_buffer)
         self._next_report = 0
         self._merged_payload = UpdateProgressReport(
@@ -335,7 +336,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 #   to the copy_dir at standby slot for later use.
                 if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
-                    shutil.move(fpath, resource_save_dst)
+                    os.replace(fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
@@ -621,7 +622,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            shutil.move(fpath, resource_save_dst)
+                            os.replace(fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
@@ -722,7 +723,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            shutil.move(_tmp_fpath, resource_save_dst)
+                            os.replace(_tmp_fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
