@@ -33,6 +33,7 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
+from otaclient_common._io import _gen_tmp_fname
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -135,12 +136,46 @@ class ProcessFileHelper(Generic[T]):
             operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
         )
 
-    def process_one_file(self, fpath: StrOrPath) -> tuple[bytes, int]:
+    def verify_file(self, fpath: StrOrPath) -> tuple[bytes, int]:
         hash_f, file_size = sha256(), 0
         with open(fpath, "rb") as src:
+            src_fd = src.fileno()
+            # NOTE(20250616): hint kernel that we will read the whole file,
+            #                 kernel will enable read-ahead cache and discard
+            #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
             while read_size := src.readinto(self._hash_buffer):
                 file_size += read_size
                 hash_f.update(self._hash_bufferview[:read_size])
+            # NOTE(20250616): hint kernel to drop the file cache pages.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        return hash_f.digest(), file_size
+
+    def stream_and_verify_file(
+        self, fpath: StrOrPath, dst_fpath: StrOrPath
+    ) -> tuple[bytes, int]:
+        hash_f, file_size = sha256(), 0
+        with open(fpath, "rb") as src, open(dst_fpath, "wb") as dst:
+            src_fd, dst_fd = src.fileno(), dst.fileno()
+            # NOTE(20250616): hint kernel that we will read the whole file,
+            #                 kernel will enable read-ahead cache and discard
+            #                 file cache behind.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+            while read_size := src.readinto(self._hash_buffer):
+                file_size += read_size
+                hash_f.update(self._hash_bufferview[:read_size])
+                # zero-copy write
+                dst.write(self._hash_bufferview[:read_size])
+
+            dst.flush()
+            os.fsync(dst_fd)
+
+            # NOTE(20250616): hint kernel to drop the file cache pages.
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
         return hash_f.digest(), file_size
 
     def report_one_file(self, *file_size: int, force_report: bool = False) -> None:
@@ -194,7 +229,9 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
     # scanning in unknown large, deep folders in full
     # scan mode.
     # NOTE: the following settings are enough for most cases.
-    MAX_FOLDER_DEEPTH = 23
+    # NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
+    #       so extend the maximum folders depth.
+    MAX_FOLDER_DEEPTH = 27
     MAX_FILENUM_PER_FOLDER = 8192
 
     def _check_if_need_to_process_dir(
@@ -282,11 +319,9 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             report_que=self._status_report_queue,
         )
 
-        fpath = None
         while _input := self._que.get():
+            fpath, canonical_fpath, fully_scan = _input
             try:
-                fpath, canonical_fpath, fully_scan = _input
-
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -294,21 +329,20 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                calculated_digest, file_size = worker_helper.process_one_file(fpath)
+                calculated_digest, file_size = worker_helper.verify_file(fpath)
 
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
                 if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
-                    os.link(fpath, resource_save_dst, follow_symlinks=False)
+                    shutil.move(fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
-                # remove the original file as we will recreate file entries later
-                if fpath:
-                    fpath.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
+                # remove the original file as we will recreate file entries later
+                fpath.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
@@ -389,7 +423,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             _delta_src_dir = replace_root(
                 _canon_dir, CANONICAL_ROOT, self._delta_src_mount_point
             )
-            shutil.rmtree(_delta_src_dir)
+            shutil.rmtree(_delta_src_dir, ignore_errors=True)
 
 
 class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
@@ -406,9 +440,9 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
         )
 
         while _input := self._que.get():
+            tmp_dst_fpath = self._copy_dst / _gen_tmp_fname()
+            fpath, canonical_fpath, fully_scan = _input
             try:
-                fpath, canonical_fpath, fully_scan = _input
-
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly skip it.
                 if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
@@ -416,18 +450,25 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 ):
                     continue
 
-                calculated_digest, file_size = worker_helper.process_one_file(fpath)
-
                 # If the resource we scan here is listed in the resouce table, COPY it
                 #   to the copy_dir at standby slot for later use.
-                if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
-                    resource_save_dst = self._copy_dst / calculated_digest.hex()
-                    shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
+                calculated_digest, file_size = worker_helper.stream_and_verify_file(
+                    fpath, tmp_dst_fpath
+                )
+                resource_save_dst = self._copy_dst / calculated_digest.hex()
+
+                if (
+                    not resource_save_dst.is_file()
+                    and self._rst_orm_pool.orm_delete_entries(digest=calculated_digest)
+                    == 1
+                ):
+                    os.replace(tmp_dst_fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
                 self._max_pending_tasks.release()  # always release se first
+                tmp_dst_fpath.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
@@ -552,26 +593,23 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             report_que=self._status_report_queue,
         )
 
-        delta_src_fpaths = None
         while _input := self._que.get():
-            try:
-                expected_digest, fpaths = _input
-                delta_src_fpaths = [
-                    Path(
-                        replace_root(
-                            _fpath,
-                            CANONICAL_ROOT,
-                            self._delta_src_mount_point,
-                        )
+            expected_digest, canonical_fpaths = _input
+            delta_src_fpaths = [
+                Path(
+                    replace_root(
+                        _fpath,
+                        CANONICAL_ROOT,
+                        self._delta_src_mount_point,
                     )
-                    for _fpath in fpaths
-                ]
+                )
+                for _fpath in canonical_fpaths
+            ]
 
+            try:
                 for fpath in delta_src_fpaths:
                     try:
-                        calculated_digest, file_size = worker_helper.process_one_file(
-                            fpath
-                        )
+                        calculated_digest, file_size = worker_helper.verify_file(fpath)
                     except BaseException:
                         continue
 
@@ -583,7 +621,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            os.link(fpath, resource_save_dst, follow_symlinks=False)
+                            shutil.move(fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
@@ -591,11 +629,10 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             except BaseException:
                 continue
             finally:
-                # after the resource is collected, remove the original file
-                if delta_src_fpaths:
-                    for _f in delta_src_fpaths:
-                        _f.unlink(missing_ok=True)
                 self._max_pending_tasks.release()  # always release se first
+                # after the resource is collected, remove the original file
+                for _f in delta_src_fpaths:
+                    _f.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
@@ -626,7 +663,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 )
             ):
                 dirnames.clear()
-                shutil.rmtree(delta_src_curdir_path)
+                shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
                 continue
 
             # NOTE: remove the dir symlinks
@@ -654,15 +691,27 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         )
 
         while _input := self._que.get():
-            try:
-                expected_digest, fpaths = _input
+            expected_digest, canonical_fpaths = _input
+            delta_src_fpaths = {
+                Path(
+                    replace_root(
+                        _fpath,
+                        CANONICAL_ROOT,
+                        self._delta_src_mount_point,
+                    )
+                )
+                for _fpath in canonical_fpaths
+            }
 
-                for fpath in fpaths:
+            try:
+                for fpath in delta_src_fpaths:
+                    _tmp_fpath = self._copy_dst / _gen_tmp_fname()
                     try:
-                        calculated_digest, file_size = worker_helper.process_one_file(
-                            fpath
+                        calculated_digest, file_size = (
+                            worker_helper.stream_and_verify_file(fpath, _tmp_fpath)
                         )
                     except BaseException:
+                        _tmp_fpath.unlink(missing_ok=True)
                         continue
 
                     if calculated_digest == expected_digest:
@@ -673,7 +722,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                             == 1
                         ):
                             resource_save_dst = self._copy_dst / expected_digest.hex()
-                            shutil.copy(fpath, resource_save_dst, follow_symlinks=False)
+                            shutil.move(_tmp_fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
                         # directly break out once we found a valid resource, no matter
                         #   we finally need it or not.
