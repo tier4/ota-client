@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from contextlib import closing
+from pathlib import Path
 from typing import Optional
 
 from multidict import CIMultiDict
@@ -30,7 +31,6 @@ from simple_sqlite3_orm import (
     gen_sql_stmt,
     utils,
 )
-from simple_sqlite3_orm.utils import check_db_integrity
 from typing_extensions import Annotated
 
 from otaclient_common._typing import StrOrPath
@@ -184,8 +184,23 @@ def init_db(db_f: StrOrPath, table_name: str) -> None:
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
-    with closing(sqlite3.connect(db_f)) as con:
-        try:
-            return check_db_integrity(con, table_name)
-        except Exception:
+    """Check whether specific db is normal or not."""
+    if not Path(db_f).is_file():
+        logger.warning(f"{db_f} not found, will init db")
+        return False
+
+    # NOTE(20250624): For sqlite3 on Ubuntu 20.04, the PRAGMA integrity_check
+    #                 has an unexpected side_effect, which if the db file doesn't
+    #                 exist, the integrity_check will CREATE a db file for it!
+    #                 This unexpected behavior doesn't occur in Ubuntu 22.04.
+    con = sqlite3.connect(f"file:{db_f}?mode=ro", uri=True)
+    try:
+        if not utils.check_db_integrity(con):
+            logger.warning(f"{db_f} fails integrity check")
             return False
+        if not utils.lookup_table(con, table_name):
+            logger.warning(f"{table_name} not found in {db_f}")
+            return False
+    finally:
+        con.close()
+    return True
