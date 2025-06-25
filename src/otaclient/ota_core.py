@@ -233,9 +233,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -359,12 +359,10 @@ class _OTAUpdater:
 
                 if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
-                    # NOTE(20250604): filter out empty file
-                    if file_size > 0:
-                        _merged_payload.processed_file_num += 1
-                        _merged_payload.processed_file_size += file_size
-                        _merged_payload.errors += err_count
-                        _merged_payload.downloaded_bytes += downloaded_bytes
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += file_size
+                    _merged_payload.errors += err_count
+                    _merged_payload.downloaded_bytes += downloaded_bytes
                 else:
                     _merged_payload.errors += 1
 
