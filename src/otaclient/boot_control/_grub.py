@@ -741,7 +741,7 @@ class _GrubControl:
 class GrubController(BootControllerProtocol):
     def __init__(self) -> None:
         try:
-            self._update_version = "unknonw"
+            self._update_version = "unknown"
             self._boot_control = _GrubControl()
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=self._boot_control.standby_root_dev,
