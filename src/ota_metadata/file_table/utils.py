@@ -24,7 +24,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
-from simple_sqlite3_orm.utils import check_db_integrity
+from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
 from ota_metadata.file_table import (
     FILE_TABLE_FNAME,
@@ -104,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -192,9 +192,13 @@ def _check_base_filetable(db_f: StrOrPath) -> StrOrPath | None:
     with contextlib.suppress(Exception), contextlib.closing(
         sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
     ) as con:
+        if not check_db_integrity(con):
+            logger.warning(f"{db_f} fails integrity check")
+            return
+
         if not (
-            check_db_integrity(con, table_name=FT_REGULAR_TABLE_NAME)
-            and check_db_integrity(con, table_name=FT_RESOURCE_TABLE_NAME)
+            lookup_table(con, FT_REGULAR_TABLE_NAME)
+            and lookup_table(con, FT_RESOURCE_TABLE_NAME)
         ):
             logger.warning(
                 f"{db_f} presented, but either ft_regular or ft_resource tables missing"
