@@ -107,6 +107,11 @@ WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
+BASE_METADATA_FOLDER = "base"
+"""On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
+hold the OTA image metadata of standby slot itself.
+"""
+
 
 class OTAClientError(Exception): ...
 
@@ -597,12 +602,16 @@ class _OTAUpdater:
         try:
             if use_inplace_mode:
                 # try to use base file_table from standby slot itself
-                base_meta_dir_on_standby_slot = self._ota_tmp_meta_on_standby / "base"
+                base_meta_dir_on_standby_slot = (
+                    self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
+                )
                 # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
                 #       it is not included in the OTA image, thus also not in file_table.
                 if self._image_meta_dir_on_standby.is_dir():
-                    shutil.move(
-                        self._image_meta_dir_on_standby, base_meta_dir_on_standby_slot
+                    shutil.copytree(
+                        self._image_meta_dir_on_standby,
+                        base_meta_dir_on_standby_slot,
+                        dirs_exist_ok=True,
                     )
                 verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
 
