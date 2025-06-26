@@ -303,8 +303,8 @@ class OTAMetadata:
             symlink_save_fpath.unlink(missing_ok=True)
 
         # hint kernel to drop the file pages cache of just created db file
-        fadvice_drop_cache(self._fst_db)
-        fadvice_drop_cache(self._rst_db)
+        self.drop_fstable_cache()
+        self.drop_rstable_cache()
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
@@ -469,6 +469,12 @@ class OTAMetadata:
         )
         enable_wal_mode(_conn)
         return _conn
+
+    def drop_fstable_cache(self):
+        fadvice_drop_cache(self._fst_db)
+
+    def drop_rstable_cache(self):
+        fadvice_drop_cache(self._rst_db)
 
 
 class ResourceMeta:

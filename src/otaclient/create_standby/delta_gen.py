@@ -114,6 +114,10 @@ class _DeltaGeneratorBase:
             )
         )
 
+    def _on_finish(self):
+        self._ota_metadata.drop_fstable_cache()
+        self._ota_metadata.drop_rstable_cache()
+
 
 class ProcessFileHelper(Generic[T]):
     def __init__(
@@ -309,6 +313,7 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
             self._rst_orm_pool.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
+            self._on_finish()
 
 
 class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
@@ -591,6 +596,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
             self._rst_orm_pool.orm_pool_shutdown()
             self._ft_reg_orm.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
+            self._on_finish()
 
 
 class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
