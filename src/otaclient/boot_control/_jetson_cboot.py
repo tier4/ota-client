@@ -446,7 +446,6 @@ class JetsonCBootControl(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
-            self._update_version = "unknown"
             # startup boot controller
             self._cboot_control = cboot_control = _CBootControl()
 
@@ -588,10 +587,9 @@ class JetsonCBootControl(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
+    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("jetson-cboot: pre-update ...")
-            self._update_version = version
             # udpate active slot's ota_status
             self._ota_status_control.pre_update_current()
 
@@ -615,11 +613,11 @@ class JetsonCBootControl(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> None:
+    def post_update(self, update_version: str) -> None:
         try:
             logger.info("jetson-cboot: post-update ...")
             # ------ update standby slot's ota_status files ------ #
-            self._ota_status_control.post_update_standby(version=self._update_version)
+            self._ota_status_control.post_update_standby(version=update_version)
 
             # ------ update extlinux.conf ------ #
             update_standby_slot_extlinux_cfg(

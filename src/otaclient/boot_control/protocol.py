@@ -55,12 +55,10 @@ class BootControllerProtocol(Protocol):
     #
 
     @abstractmethod
-    def pre_update(
-        self, version: str, *, standby_as_ref: bool, erase_standby: bool
-    ): ...
+    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool): ...
 
     @abstractmethod
-    def post_update(self) -> None: ...
+    def post_update(self, update_version: str) -> None: ...
 
     @abstractmethod
     def finalizing_update(self) -> None:

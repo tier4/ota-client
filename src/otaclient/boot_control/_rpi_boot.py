@@ -428,7 +428,6 @@ class RPIBootController(BootControllerProtocol):
 
     def __init__(self) -> None:
         try:
-            self._update_version = "unknown"
             self._rpiboot_control = _RPIBootControl()
             # mount point prepare
             self._mp_control = SlotMountHelper(
@@ -485,10 +484,9 @@ class RPIBootController(BootControllerProtocol):
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
-    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby: bool):
+    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
         try:
             logger.info("rpi_boot: pre-update setup...")
-            self._update_version = version
             ### udpate active slot's ota_status ###
             self._ota_status_control.pre_update_current()
 
@@ -531,11 +529,11 @@ class RPIBootController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> None:
+    def post_update(self, update_version: str) -> None:
         try:
             logger.info("rpi_boot: post-update setup...")
             ### update standby slot's ota_status files ###
-            self._ota_status_control.post_update_standby(version=self._update_version)
+            self._ota_status_control.post_update_standby(version=update_version)
             self._mp_control.preserve_ota_folder_to_standby()
             self._write_standby_fstab()
             self._rpiboot_control.update_firmware(

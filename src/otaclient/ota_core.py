@@ -233,9 +233,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -560,7 +560,6 @@ class _OTAUpdater:
         )
 
         self._boot_controller.pre_update(
-            self.update_version,
             # NOTE: this option is deprecated and not used by bootcontroller
             # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
             #       we cannot do this for now, as some boot controller impl still refer to
@@ -750,7 +749,7 @@ class _OTAUpdater:
         shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
         shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
-        self._boot_controller.post_update()
+        self._boot_controller.post_update(self.update_version)
 
         # ------ finalizing update ------ #
         logger.info("local update finished, wait on all subecs...")
