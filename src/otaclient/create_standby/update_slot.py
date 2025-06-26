@@ -208,7 +208,6 @@ class UpdateStandbySlot:
                     self._process_one_files_group_workload, cur_digest, cur_entries
                 )
 
-
             # finalizing all the workers
             barrier = threading.Barrier(self.max_workers + 1)
             for _ in range(self.max_workers):
