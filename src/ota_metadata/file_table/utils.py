@@ -104,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -224,9 +224,10 @@ def save_fstable(
 
     dst = Path(dst)
     dst.mkdir(exist_ok=True, parents=True)
+    save_dst = dst / saved_name
 
     with closing(sqlite3.connect(db_f)) as _fs_conn, closing(
-        sqlite3.connect(dst / saved_name)
+        sqlite3.connect(save_dst)
     ) as _dst_conn:
         with _dst_conn as conn:
             _fs_conn.backup(conn)
@@ -235,6 +236,12 @@ def save_fstable(
             # change the journal_mode back to DELETE to make db file on read-only mount work.
             # see https://www.sqlite.org/wal.html#read_only_databases for more details.
             conn.execute("PRAGMA journal_mode=DELETE;")
+
+    with open(db_f) as src_f, open(save_dst) as save_dst_f:
+        _dbfd = src_f.fileno()
+        _dstfd = save_dst_f.fileno()
+        os.posix_fadvise(_dbfd, 0, 0, os.POSIX_FADV_DONTNEED)
+        os.posix_fadvise(_dstfd, 0, 0, os.POSIX_FADV_DONTNEED)
 
     media_type_f = dst / media_type_fname
     media_type_f.write_text(media_type)
