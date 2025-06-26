@@ -202,7 +202,11 @@ class UpdateStandbySlot:
                     cur_entries.append(_entry)
 
             # remember the final group
-            pool.submit(self._process_one_files_group_workload, cur_digest, cur_entries)
+            if cur_entries:
+                self._se.acquire()
+                pool.submit(
+                    self._process_one_files_group_workload, cur_digest, cur_entries
+                )
 
             # finalizing all the workers
             barrier = threading.Barrier(self.max_workers + 1)
