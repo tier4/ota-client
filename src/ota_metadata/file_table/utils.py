@@ -32,6 +32,7 @@ from ota_metadata.file_table import (
     FT_RESOURCE_TABLE_NAME,
     MEDIA_TYPE_FNAME,
 )
+from otaclient.configs.cfg import cfg
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import copyfile_nocache
@@ -39,7 +40,6 @@ from otaclient_common.linux import copyfile_nocache
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
-CANONICAL_ROOT = "/"
 
 #
 # ------ type hint helpers ------ #
@@ -82,7 +82,7 @@ class DirTypedDict(TypedDict):
 def fpath_on_target(_canonical_path: StrOrPath, target_mnt: StrOrPath) -> Path:
     """Return the fpath of self joined to <target_mnt>."""
     _canonical_path = Path(_canonical_path)
-    _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(CANONICAL_ROOT)
+    _target_on_mnt = Path(target_mnt) / _canonical_path.relative_to(cfg.CANONICAL_ROOT)
     return _target_on_mnt
 
 
@@ -104,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
