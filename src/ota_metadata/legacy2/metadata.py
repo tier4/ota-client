@@ -66,6 +66,7 @@ from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
+from otaclient_common.linux import fadvice_drop_cache
 
 from . import DIGEST_ALG, SUPORTED_COMPRESSION_TYPES
 from .csv_parser import (
@@ -300,6 +301,10 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
+
+        # hint kernel to drop the file pages cache of just created db file
+        fadvice_drop_cache(self._fst_db)
+        fadvice_drop_cache(self._rst_db)
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"

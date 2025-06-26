@@ -251,3 +251,8 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+def fadvice_drop_cache(f: StrOrPath) -> None:
+    with open(f, "rb") as _f:
+        os.posix_fadvise(_f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
