@@ -24,6 +24,11 @@ from typing import Any, Callable, Optional
 
 from otaclient_common._typing import StrOrPath
 
+try:
+    from shutil import _fastcopy_sendfile  # type: ignore
+except ImportError:
+    _fastcopy_sendfile = None
+
 #
 # ------ swapfile handling ------ #
 #
@@ -206,3 +211,43 @@ def subprocess_run_wrapper(
         preexec_fn=preexec_fn,
         env=env,
     )
+
+
+def _copyfileobj(fsrc, fdst, length=8 * 1024**2):
+    """Copied from shutil.copyfileobj."""
+    fsrc_read = fsrc.read
+    fdst_write = fdst.write
+    while buf := fsrc_read(length):
+        fdst_write(buf)
+
+
+def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
+    """Much simpler version of shutil.copyfile, but with configuring fadvise.
+
+    As our use case is simpler, this function skips many checks that
+        shutil.copyfile will do.
+    """
+    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        src_fd = fsrc.fileno()
+        dst_fd = fdst.fileno()
+        try:
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+            try:
+                if _fastcopy_sendfile:
+                    _fastcopy_sendfile(fsrc, fdst)
+                    fdst.flush()
+                    os.fsync(dst_fd)
+                    return
+            except OSError:
+                raise
+            except Exception:
+                # exceptions raised by _fastcopy_sendfile when it finds that
+                #   sendfile syscall is not supported.
+                pass
+
+            _copyfileobj(fsrc, fdst)
+            fdst.flush()
+            os.fsync(dst_fd)
+        finally:
+            os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
