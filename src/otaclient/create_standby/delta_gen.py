@@ -721,9 +721,9 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 for _fpath in canonical_fpaths
             }
 
+            _tmp_fpath = self._copy_dst / _gen_tmp_fname()
             try:
                 for fpath in delta_src_fpaths:
-                    _tmp_fpath = self._copy_dst / _gen_tmp_fname()
                     try:
                         calculated_digest, file_size = (
                             worker_helper.stream_and_verify_file(fpath, _tmp_fpath)
@@ -749,6 +749,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 continue
             finally:
                 self._max_pending_tasks.release()  # always release se first
+                _tmp_fpath.unlink(missing_ok=True)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
