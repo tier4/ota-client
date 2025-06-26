@@ -38,11 +38,6 @@ from otaclient_common._logging import get_burst_suppressed_logger
 
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
-CANONICAL_ROOT = "/"
-
-
-MAX_ENTRIES_PER_DIGEST = 10
-
 
 # ------ inode table ------ #
 

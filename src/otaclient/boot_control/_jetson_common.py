@@ -16,7 +16,6 @@
 This module is shared by jetson-cboot and jetson-uefi bootloader type.
 """
 
-
 from __future__ import annotations
 
 import logging
@@ -459,6 +458,8 @@ def update_standby_slot_extlinux_cfg(
         )
         src = active_slot_extlinux_fpath
 
+    # NOTE: ensure parent folder exists
+    standby_slot_extlinux_fpath.parent.mkdir(exist_ok=True, parents=True)
     write_str_to_file_atomic(
         standby_slot_extlinux_fpath,
         update_extlinux_cfg(
