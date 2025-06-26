@@ -267,7 +267,6 @@ class TestRPIBootControl:
 
         # ------ boot_controller_inst1.stage2: pre_update ------ #
         rpi_boot_controller.pre_update(
-            version=VERSION,
             standby_as_ref=False,
             erase_standby=False,
         )
@@ -301,7 +300,7 @@ class TestRPIBootControl:
 
         # ------ boot_controller_inst1.stage3: post_update, reboot switch boot ------ #
         rpi_boot_controller: Any  # for typing only
-        rpi_boot_controller.post_update()
+        rpi_boot_controller.post_update(version=VERSION)
         rpi_boot_controller.finalizing_update()
 
         # --- assertion --- #

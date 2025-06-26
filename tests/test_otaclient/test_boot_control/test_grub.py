@@ -356,7 +356,6 @@ class TestGrubControl:
 
         # test pre-update
         grub_controller.pre_update(
-            version=cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
@@ -374,7 +373,7 @@ class TestGrubControl:
 
         # test post-update
         grub_controller: Any  # for typing
-        grub_controller.post_update()
+        grub_controller.post_update(version=cfg.UPDATE_VERSION)
         grub_controller.finalizing_update()
 
         assert (
