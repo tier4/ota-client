@@ -246,6 +246,7 @@ class UpdateStandbySlot:
         self._process_dir_entries()
         self._process_non_regular_files()
         self._process_regular_file_entries()
+        self._ota_metadata.drop_fstable_cache()
 
         # finally, cleanup the resource dir
         shutil.rmtree(self._resource_dir, ignore_errors=True)
