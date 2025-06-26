@@ -234,16 +234,20 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
             try:
                 if _fastcopy_sendfile:
-                    return _fastcopy_sendfile(fsrc, fdst)
+                    _fastcopy_sendfile(fsrc, fdst)
+                    fdst.flush()
+                    os.fsync(dst_fd)
+                    return
             except OSError:
                 raise
             except Exception:
                 # exceptions raised by _fastcopy_sendfile when it finds that
                 #   sendfile syscall is not supported.
                 pass
-            return _copyfileobj(fsrc, fdst)
+
+            _copyfileobj(fsrc, fdst)
+            fdst.flush()
+            os.fsync(dst_fd)
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
-            fdst.flush()
-            os.fsync(fdst)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
