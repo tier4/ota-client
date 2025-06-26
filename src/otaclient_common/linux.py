@@ -254,5 +254,8 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
 
 
 def fadvice_drop_cache(f: StrOrPath) -> None:
-    with open(f, "rb") as _f:
-        os.posix_fadvise(_f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+    try:
+        with open(f, "rb") as _f:
+            os.posix_fadvise(_f.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+    except FileNotFoundError:
+        pass

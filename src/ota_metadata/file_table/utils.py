@@ -35,7 +35,7 @@ from ota_metadata.file_table import (
 from otaclient.configs.cfg import cfg
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
-from otaclient_common.linux import copyfile_nocache
+from otaclient_common.linux import copyfile_nocache, fadvice_drop_cache
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
@@ -189,27 +189,30 @@ def _check_base_filetable(db_f: StrOrPath) -> StrOrPath | None:
     if not db_f or not Path(db_f).is_file():
         return
 
-    with contextlib.suppress(Exception), contextlib.closing(
-        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
-    ) as con:
-        if not check_db_integrity(con):
-            logger.warning(f"{db_f} fails integrity check")
-            return
-
-        if not (
-            lookup_table(con, FT_REGULAR_TABLE_NAME)
-            and lookup_table(con, FT_RESOURCE_TABLE_NAME)
-        ):
-            logger.warning(
-                f"{db_f} presented, but either ft_regular or ft_resource tables missing"
-            )
-            return
     try:
-        with contextlib.closing(sqlite3.connect(":memory:")) as con:
-            con.execute(f"ATTACH '{db_f}' AS attach_test;")
-            return db_f
-    except Exception as e:
-        logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
+        with contextlib.suppress(Exception), contextlib.closing(
+            sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
+        ) as con:
+            if not check_db_integrity(con):
+                logger.warning(f"{db_f} fails integrity check")
+                return
+
+            if not (
+                lookup_table(con, FT_REGULAR_TABLE_NAME)
+                and lookup_table(con, FT_RESOURCE_TABLE_NAME)
+            ):
+                logger.warning(
+                    f"{db_f} presented, but either ft_regular or ft_resource tables missing"
+                )
+                return
+        try:
+            with contextlib.closing(sqlite3.connect(":memory:")) as con:
+                con.execute(f"ATTACH '{db_f}' AS attach_test;")
+                return db_f
+        except Exception as e:
+            logger.warning(f"{db_f} is valid, but cannot be attached: {e!r}, skip")
+    finally:
+        fadvice_drop_cache(db_f)
 
 
 def save_fstable(
