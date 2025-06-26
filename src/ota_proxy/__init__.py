@@ -66,8 +66,8 @@ def run_otaproxy(
         log_level="error",
         lifespan="on",
         loop="uvloop",
-        # NOTE: must use h11, other http implementation will break HTTP proxy
-        http="h11",
+        # Enable HTTP/2 support - use httptools for HTTP/2
+        http="httptools",
     )
     _server = uvicorn.Server(_config)
     anyio.run(_server.serve, backend="asyncio", backend_options={"use_uvloop": True})

@@ -24,9 +24,9 @@ from pathlib import Path
 from typing import AsyncIterator, Mapping, Optional
 from urllib.parse import SplitResult, quote, urlsplit
 
-import aiohttp
 import anyio
 import anyio.to_thread
+import httpx
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common._typing import StrOrPath
@@ -158,18 +158,21 @@ class OTACache:
         self._closed = False
         self._base_dir.mkdir(exist_ok=True, parents=True)
 
-        # NOTE: we configure aiohttp to not decompress the resp body(if content-encoding specified),
+        # NOTE: we configure httpx to not decompress the resp body(if content-encoding specified),
         #       we cache the contents as its original form, and send to the client with
         #       the same content-encoding headers to indicate the client to compress the
         #       resp body by their own.
-        # NOTE 2: disable aiohttp default timeout(5mins)
+        # NOTE 2: set reasonable timeout for httpx
         #       this timeout will be applied to the whole request, including downloading,
         #       preventing large files to be downloaded.
-        timeout = aiohttp.ClientTimeout(
-            total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
+        timeout = httpx.Timeout(
+            read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT,
+            connect=10.0,  # 10 seconds for connection
+            pool=5.0,  # 5 seconds for getting a connection from the pool
         )
-        self._session = aiohttp.ClientSession(
-            auto_decompress=False, raise_for_status=True, timeout=timeout
+
+        self._session = httpx.AsyncClient(
+            timeout=timeout, http2=True, follow_redirects=True  # Enable HTTP/2 support
         )
 
         if self._cache_enabled:
@@ -225,7 +228,7 @@ class OTACache:
         async with self._shutdown_lock:
             if not self._closed:
                 self._closed = True
-                await self._session.close()
+                await self._session.aclose()
 
                 if self._cache_enabled:
                     self._lru_helper.close()
@@ -384,23 +387,38 @@ class OTACache:
         headers: Mapping[str, str],
     ) -> tuple[AsyncIterator[bytes], CIMultiDictProxy[str]]:
         async def _do_request() -> AsyncIterator[bytes]:
-            async with self._session.get(
-                self._process_raw_url(raw_url),
-                proxy=self._upper_proxy,
-                headers=headers,
-            ) as response:
-                yield response.headers  # type: ignore
-                # NOTE(20230803): sometimes aiohttp will raises:
-                #                 "ClientPayloadError: Response payload is not completed" exception,
-                #                 according to some posts in related issues, add a asyncio.sleep(0)
-                #                 to make event loop switch to other task here seems mitigates the problem.
-                #                 check the following URLs for details:
-                #                 1. https://github.com/aio-libs/aiohttp/issues/4581
-                #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
-                await asyncio.sleep(0)
-                async for data, _ in response.content.iter_chunks():
-                    if data:  # only yield non-empty data chunk
-                        yield data
+            # Configure proxy if provided
+            proxy_client = self._session
+            if self._upper_proxy:
+                # Create a new client with proxy configuration for this request
+                proxy_client = httpx.AsyncClient(
+                    timeout=self._session.timeout,
+                    http2=True,
+                    follow_redirects=True,
+                    proxy=self._upper_proxy,
+                )
+
+            try:
+                async with proxy_client.stream(
+                    "GET",
+                    self._process_raw_url(raw_url),
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    # Convert httpx headers to multidict format compatible with existing code
+                    multidict_headers = CIMultiDict()
+                    for key, value in response.headers.items():
+                        multidict_headers.add(key, value)
+                    yield CIMultiDictProxy(multidict_headers)  # type: ignore
+
+                    # httpx streaming is more straightforward than aiohttp
+                    async for chunk in response.aiter_bytes():
+                        if chunk:  # only yield non-empty data chunk
+                            yield chunk
+            finally:
+                # Close proxy client if we created one
+                if proxy_client != self._session:
+                    await proxy_client.aclose()
 
         # open remote connection
         resp_headers: CIMultiDictProxy[str] = await (_remote_fd := _do_request()).__anext__()  # type: ignore

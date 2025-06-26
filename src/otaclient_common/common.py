@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urljoin
 
-import requests
+import httpx
 
 from otaclient_common.linux import subprocess_run_wrapper
 
@@ -266,7 +266,7 @@ def ensure_otaproxy_start(
     probing_timeout = (
         probing_timeout if probing_timeout and probing_timeout >= 0 else float("inf")
     )
-    with requests.Session() as session:
+    with httpx.Client(http2=True) as session:
         while start_time + probing_timeout > (cur_time := int(time.time())):
             try:
                 resp = session.get(otaproxy_url, timeout=connection_timeout)

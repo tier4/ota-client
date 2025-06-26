@@ -34,8 +34,8 @@ from queue import Empty, Queue
 from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
-import requests.exceptions as requests_exc
-from requests import Response
+import httpx
+from httpx import Response
 
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import (
@@ -132,9 +132,9 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
 
     try:
         # exceptions that cannot be handled by us
-        if isinstance(exc, requests_exc.HTTPError):
+        if isinstance(exc, httpx.HTTPStatusError):
             _response = exc.response
-            # NOTE(20241129): if somehow HTTPError doesn't contain response,
+            # NOTE(20241129): if somehow HTTPStatusError doesn't contain response,
             #       don't do anything but let upper retry.
             # NOTE: bool(Response) is False when status_code != 200.
             if not isinstance(_response, Response):
@@ -143,7 +143,7 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
             http_errcode = _response.status_code
             if http_errcode in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED]:
                 raise ota_errors.UpdateRequestCookieInvalid(
-                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
+                    f"download failed with critical HTTP error: {exc.response.status_code}, {exc!r}",
                     module=__name__,
                 )
             if http_errcode == HTTPStatus.NOT_FOUND:
@@ -385,7 +385,7 @@ class _OTAUpdateOperator:
                     continue
 
                 logger.warning(f"failed to download one file, keep retrying: {_exc!r}")
-                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
+                if isinstance(_exc, httpx.HTTPStatusError) and isinstance(
                     (_response := _exc.response), Response
                 ):
                     if _response.status_code == HTTPStatus.NOT_FOUND:

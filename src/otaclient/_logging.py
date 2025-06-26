@@ -28,7 +28,7 @@ from threading import Event, Thread
 from urllib.parse import urljoin, urlparse
 
 import grpc
-import requests
+import httpx
 from otaclient_iot_logging_server_pb2.v1 import (
     otaclient_iot_logging_server_v1_pb2 as log_pb2,
 )
@@ -101,11 +101,11 @@ class TransmitterHttp(Transmitter):
     def __init__(self, logging_upload_endpoint: AnyHttpUrl, ecu_id: str):
         _endpoint = f"{str(logging_upload_endpoint).strip('/')}/"
         self.log_upload_endpoint = urljoin(_endpoint, ecu_id)
-        self._session = requests.Session()
+        self._session = httpx.Client(http2=True)  # Enable HTTP/2
 
     def send(self, log_type: LogType, message: str, timeout: int) -> None:
         # support only LogType.LOG
-        self._session.post(self.log_upload_endpoint, data=message, timeout=timeout)
+        self._session.post(self.log_upload_endpoint, content=message, timeout=timeout)
 
     def check(self, timeout: int) -> None:
         resp = self._session.head(self.log_upload_endpoint, timeout=timeout)
@@ -169,8 +169,9 @@ class _LogTeeHandler(logging.Handler):
                 )
                 break
             except (
-                requests.HTTPError,
-                requests.ConnectionError,
+                httpx.HTTPStatusError,
+                httpx.ConnectError,
+                httpx.RequestError,
                 ConnectionRefusedError,
             ):
                 # ignore the such exceptions and continue

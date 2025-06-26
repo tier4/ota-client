@@ -20,7 +20,7 @@ from http import HTTPStatus
 from typing import Dict, List, Tuple, Union
 from urllib.parse import urlparse
 
-import aiohttp
+import httpx
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -210,11 +210,13 @@ class App:
         try:
             yield _is_succeeded
             _is_succeeded.set()
-        except aiohttp.ClientResponseError as e:
+        except httpx.HTTPStatusError as e:
             burst_suppressed_logger.error(f"{_common_err_msg} due to HTTP error: {e!r}")
             # passthrough 4xx(currently 403 and 404) to otaclient
-            await self._respond_with_error(e.status, e.message, send)
-        except aiohttp.ClientConnectionError as e:
+            await self._respond_with_error(
+                e.response.status_code, str(e.response.reason_phrase), send
+            )
+        except httpx.ConnectError as e:
             burst_suppressed_logger.error(
                 f"{_common_err_msg} due to connection error: {e!r}"
             )
@@ -223,9 +225,9 @@ class App:
                 "failed to connect to remote server",
                 send,
             )
-        except aiohttp.ClientError as e:
+        except httpx.RequestError as e:
             burst_suppressed_logger.error(
-                f"{_common_err_msg} due to aiohttp client error: {e!r}"
+                f"{_common_err_msg} due to httpx client error: {e!r}"
             )
             await self._respond_with_error(
                 HTTPStatus.SERVICE_UNAVAILABLE, f"client error: {e!r}", send
