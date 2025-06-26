@@ -172,6 +172,7 @@ class OTAMetadata:
 
         # get not yet verified parsed ota_metadata
         _metadata_jwt = _parser.metadata_jwt
+        fadvice_drop_cache(_metadata_jwt_fpath)
         _metadata_jwt_fpath.unlink(missing_ok=True)
 
         # ------ step 2: download the certificate itself ------ #
@@ -197,6 +198,7 @@ class OTAMetadata:
         # only after the verification, assign the jwt to self
         self._total_regulars_size = _metadata_jwt.total_regular_size
         self._metadata_jwt = _metadata_jwt
+        fadvice_drop_cache(_cert_fpath)
         _cert_fpath.unlink(missing_ok=True)
 
     def _prepare_ota_image_metadata(
@@ -284,6 +286,7 @@ class OTAMetadata:
                     inode_start=inode_start,
                 )
             )
+            fadvice_drop_cache(regular_save_fpath)
             regular_save_fpath.unlink(missing_ok=True)
 
             dirs_num, inode_start = parse_dirs_from_csv_file(
@@ -292,6 +295,7 @@ class OTAMetadata:
                 _inode_orm=ft_inode_orm,
                 inode_start=inode_start,
             )
+            fadvice_drop_cache(dir_save_fpath)
             dir_save_fpath.unlink(missing_ok=True)
 
             symlinks_num, _ = parse_symlinks_from_csv_file(
@@ -300,6 +304,7 @@ class OTAMetadata:
                 _inode_orm=ft_inode_orm,
                 inode_start=inode_start,
             )
+            fadvice_drop_cache(symlink_save_fpath)
             symlink_save_fpath.unlink(missing_ok=True)
 
         # hint kernel to drop the file pages cache of just created db file
@@ -381,6 +386,7 @@ class OTAMetadata:
                 )
             )
             # fmt: on
+        self.drop_fstable_cache()
 
     def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
         with FileTableNonRegularORM(self.connect_fstable()) as orm:
@@ -397,6 +403,7 @@ class OTAMetadata:
                 )
             )
             # fmt: on
+        self.drop_fstable_cache()
 
     def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
         with FileTableRegularORM(self.connect_fstable()) as orm:
@@ -413,6 +420,7 @@ class OTAMetadata:
                 _stmt=_stmt,
                 _row_factory=sqlite3.Row,
             )  # type: ignore
+        self.drop_fstable_cache()
 
     def iter_common_regular_entries_by_digest(
         self,
@@ -455,6 +463,9 @@ class OTAMetadata:
 
             if _cur:
                 yield _hash, _cur
+
+        fadvice_drop_cache(base_file_table)
+        self.drop_fstable_cache()
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(

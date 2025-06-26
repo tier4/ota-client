@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import stat
 from typing import NamedTuple
@@ -99,9 +98,6 @@ def parse_dirs_from_csv_file(
     _batch_cnt = 0
 
     with open(_fpath, "r") as f:
-        fd = f.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-
         _idx = 0
         for _idx, line in enumerate(f, start=1):
             _new, _new_inode = parse_dirs_csv_line(line, inode_start)
@@ -118,8 +114,6 @@ def parse_dirs_from_csv_file(
 
         _orm.orm_insert_mappings(_batch)
         _inode_orm.orm_insert_mappings(_inode_batch)
-
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         return _idx, inode_start
 
 
@@ -172,9 +166,6 @@ def parse_symlinks_from_csv_file(
     _batch_cnt = 0
 
     with open(_fpath, "r") as f:
-        fd = f.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-
         _idx = 0
         for _idx, line in enumerate(f, start=1):
             _new, _new_inode = parse_symlinks_csv_line(line, inode_start)
@@ -191,8 +182,6 @@ def parse_symlinks_from_csv_file(
 
         _orm.orm_insert_mappings(_batch)
         _inode_orm.orm_insert_mappings(_inode_batch)
-
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         return _idx, inode_start
 
 
@@ -302,9 +291,6 @@ def parse_regulars_from_csv_file(
     _batch_inode: list[FiletableInodeTypedDict] = []
 
     with open(_fpath, "r") as f:
-        fd = f.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-
         regular_file_entry_count = 0
         for regular_file_entry_count, line in enumerate(f, start=1):
             _line_match = parse_regular_csv_line(line)
@@ -357,8 +343,6 @@ def parse_regulars_from_csv_file(
 
         # insert hardlinked inode tables
         _orm_inode.orm_insert_mappings(hardlinked_inode.values())
-
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
     # prepare the ft_resource
     _orm_ft_resource.orm_insert_entries(
