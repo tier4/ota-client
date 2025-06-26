@@ -236,7 +236,7 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
                 if _fastcopy_sendfile:
                     _fastcopy_sendfile(fsrc, fdst)
                     fdst.flush()
-                    os.fsync(fdst)
+                    os.fsync(dst_fd)
                     return
             except OSError:
                 raise
@@ -247,7 +247,7 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
 
             _copyfileobj(fsrc, fdst)
             fdst.flush()
-            os.fsync(fdst)
+            os.fsync(dst_fd)
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
