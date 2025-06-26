@@ -312,6 +312,12 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
 
 
 class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
+    """Calculate delta with inplace mode + full disk scan.
+
+    We will generate delta from the standby slot and them clean up
+        unused files on the standby slot inplace.
+    """
+
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
         worker_helper = ProcessFileHelper(
@@ -428,8 +434,10 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
 
 class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
-    """
-    In rebuild mode, base will be the active slot, which we should not modify.
+    """Calculate delta with rebuild mode + full disk scan.
+
+    We will completely cleanup standby slot, generating delta from scanning active slot and
+        sending the delta to standby slot for rebuilding the whole standby slot.
     """
 
     def _process_file_thread_worker(self) -> None:
@@ -586,6 +594,12 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
 
 
 class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
+    """Calculate delta with inplace mode + standby slot file_table.
+
+    We will generate delta from the standby slot and them clean up
+        the unused files on the standby slot inplace.
+    """
+
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
         worker_helper = ProcessFileHelper(
@@ -679,8 +693,11 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
 
 class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
-    """
-    In rebuild mode, base will be the active slot, which we should not modify.
+    """Calculate delta with rebuild mode + active slot file_table.
+
+    We will completely cleanup standby slot, generating delta from scanning active slot with
+        assist of active slot's file_table and sending the delta to standby slot for rebuilding
+        the whole standby slot.
     """
 
     def _process_file_thread_worker(self) -> None:
