@@ -240,11 +240,8 @@ def save_fstable(
             # see https://www.sqlite.org/wal.html#read_only_databases for more details.
             conn.execute("PRAGMA journal_mode=DELETE;")
 
-    with open(db_f) as src_f, open(save_dst) as save_dst_f:
-        _dbfd = src_f.fileno()
-        _dstfd = save_dst_f.fileno()
-        os.posix_fadvise(_dbfd, 0, 0, os.POSIX_FADV_DONTNEED)
-        os.posix_fadvise(_dstfd, 0, 0, os.POSIX_FADV_DONTNEED)
+    fadvice_drop_cache(db_f)
+    fadvice_drop_cache(dst)
 
     media_type_f = dst / media_type_fname
     media_type_f.write_text(media_type)
