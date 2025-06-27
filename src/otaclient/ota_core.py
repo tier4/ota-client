@@ -198,7 +198,6 @@ class _OTAUpdater:
         # ------ mount session wd as a tmpfs ------ #
         self._session_workdir = session_wd
         session_wd.mkdir(exist_ok=True, parents=True)
-        mount_tmpfs(session_wd, cfg.SESSION_WD_TMPFS_SIZE_IN_MB)
 
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
@@ -847,6 +846,8 @@ class OTAClient:
         _runtime_dir.mkdir(exist_ok=True, parents=True)
         self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
         _update_session_dir.mkdir(exist_ok=True, parents=True)
+        mount_tmpfs(_update_session_dir, cfg.SESSION_WD_TMPFS_SIZE_IN_MB)
+
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
         except Exception as e:
