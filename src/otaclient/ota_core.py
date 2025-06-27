@@ -956,7 +956,7 @@ class OTAClient:
         )
         logger.info(f"start new OTA update session: {new_session_id=}")
 
-        session_wd = self._update_session_dir / f"update_session-{new_session_id}"
+        session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -985,6 +985,8 @@ class OTAClient:
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
+        finally:
+            shutil.rmtree(session_wd, ignore_errors=True)
 
     def rollback(self, request: RollbackRequestV2) -> None:
         self._live_ota_status = OTAStatus.ROLLBACKING
