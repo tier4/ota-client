@@ -356,13 +356,11 @@ class TestGrubControl:
 
         # test pre-update
         grub_controller.pre_update(
-            version=cfg.UPDATE_VERSION,
             standby_as_ref=False,  # NOTE: not used
             erase_standby=False,  # NOTE: not used
         )
         # update slot_b, slot_a_ota_status->FAILURE, slot_b_ota_status->UPDATING
         assert (slot_a_ota_partition_dir / "status").read_text() == OTAStatus.FAILURE
-        assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
         # NOTE: we have to copy the new kernel files to the slot_b's boot dir
         #       this is done by the create_standby module
         _kernel = f"{cfg.KERNEL_PREFIX}-{cfg.KERNEL_VERSION}"
@@ -374,9 +372,10 @@ class TestGrubControl:
 
         # test post-update
         grub_controller: Any  # for typing
-        grub_controller.post_update()
+        grub_controller.post_update(update_version=cfg.UPDATE_VERSION)
         grub_controller.finalizing_update()
 
+        assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
         assert (
             slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
         ).read_text().strip() == self.FSTAB_UPDATED.strip()

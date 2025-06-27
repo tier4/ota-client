@@ -17,7 +17,6 @@ TODO(20240603): the old otaclient.app.common, split it by functionalities in
     the future.
 """
 
-
 from __future__ import annotations
 
 import logging
