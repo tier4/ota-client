@@ -138,10 +138,18 @@ def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
 
 def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> None:
     """Verify that all resources are prepared."""
-
+    _errs = []
     with closing(_ota_metadata_inst.connect_fstable()) as ft_conn:
         orm = FileTableResourceORM(ft_conn)
         for entry in orm.orm_select_entries():
             _rs_f = resource_dir / entry.digest.hex()
-            assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
-            assert sha256(_rs_f.read_bytes()).digest() == entry.digest
+
+            try:
+                assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
+                assert sha256(_rs_f.read_bytes()).digest() == entry.digest
+            except AssertionError:
+                logger.error(f"resource not found: {entry}")
+                _errs.append(entry)
+
+    if _errs:
+        raise AssertionError(f"not all resources are collected: {_errs=}")
