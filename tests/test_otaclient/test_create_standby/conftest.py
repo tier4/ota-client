@@ -170,4 +170,4 @@ def resource_dir(tmp_path: Path):
         yield _rd
     finally:
         logger.info(f"cleanup function scrope resource dir: {_rd} ...")
-        shutil.rmtree(_rd)
+        shutil.rmtree(_rd, ignore_errors=True)
