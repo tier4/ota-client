@@ -21,6 +21,7 @@ When underlying subprocess call failed and <raise_exception> is True,
 from __future__ import annotations
 
 import logging
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -588,3 +589,17 @@ def ensure_mointpoint(
                 f"But still use {mnt_point} and override the previous mount"
             )
         )
+
+
+def mount_tmpfs(mnt_point: StrOrPath, size_in_mb: int) -> None:
+    # fmt: off
+    cmd = [
+        "mount", "-t", "tmpfs",
+        "-o", f"size={size_in_mb}M", "tmpfs", str(mnt_point)
+    ]
+    # fmt: on
+    try:
+        subprocess_call(cmd, raise_exception=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"failed to mount tmpfs with {size_in_mb}MB at {mnt_point}: {e!r}")
+        raise

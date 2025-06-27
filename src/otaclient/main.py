@@ -13,7 +13,6 @@
 # limitations under the License.
 """Entrypoint of otaclient."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -80,7 +79,7 @@ def _signal_handler(signal_value, _) -> None:  # pragma: no cover
 def main() -> None:  # pragma: no cover
     from otaclient._logging import configure_logging
     from otaclient._otaproxy_ctx import otaproxy_control_thread
-    from otaclient._utils import check_other_otaclient, create_otaclient_rundir
+    from otaclient._utils import check_other_otaclient
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
@@ -94,7 +93,6 @@ def main() -> None:  # pragma: no cover
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
 
     check_other_otaclient(cfg.OTACLIENT_PID_FILE)
-    create_otaclient_rundir(cfg.RUN_DIR)
 
     #
     # ------ start each processes ------ #

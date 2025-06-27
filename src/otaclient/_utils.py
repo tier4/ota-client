@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared utils, only used by otaclient package."""
 
-
 from __future__ import annotations
 
 import itertools
@@ -70,15 +69,6 @@ def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
         logger.warning(f"dangling otaclient lock file({pid=}) detected, cleanup")
         pid_fpath.unlink(missing_ok=True)
     write_str_to_file_atomic(pid_fpath, f"{os.getpid()}")
-
-
-def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient") -> None:
-    """Create the otaclient runtime working dir.
-
-    TODO: make a helper class for managing otaclient runtime dir.
-    """
-    run_dir = Path(run_dir)
-    run_dir.mkdir(exist_ok=True, parents=True)
 
 
 def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:  # pragma: no cover
