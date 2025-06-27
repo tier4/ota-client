@@ -31,17 +31,18 @@ from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Empty, Queue
+from tempfile import TemporaryDirectory
 from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
 from requests import Response
 
+from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import (
     OTAMetadata,
     ResourceMeta,
-    check_base_filetable,
 )
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
@@ -75,12 +76,15 @@ from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_an
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.create_standby import get_standby_slot_creator
-from otaclient.create_standby._delta_gen import (
-    DeltaGenFullDiskScan,
-    DeltaGenWithFileTable,
+from otaclient.create_standby.delta_gen import (
+    DeltaGenParams,
+    InPlaceDeltaGenFullDiskScan,
+    InPlaceDeltaWithBaseFileTable,
+    RebuildDeltaGenFullDiskScan,
+    RebuildDeltaWithBaseFileTable,
 )
-from otaclient.create_standby.rebuild_mode import RebuildMode
+from otaclient.create_standby.update_slot import UpdateStandbySlot
+from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.metrics import OTAMetricsData
 from otaclient_common import EMPTY_FILE_SHA256, _env, human_readable_size, replace_root
 from otaclient_common.common import ensure_otaproxy_start
@@ -107,6 +111,13 @@ DOWNLOAD_REPORT_INTERVAL = 1  # second
 OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
+
+STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
+
+BASE_METADATA_FOLDER = "base"
+"""On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
+hold the OTA image metadata of standby slot itself.
+"""
 
 
 class OTAClientError(Exception): ...
@@ -219,9 +230,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -537,20 +548,38 @@ class _OTAUpdater(_OTAUpdateOperator):
     def __init__(
         self,
         boot_controller: BootControllerProtocol,
-        create_standby_cls: type[RebuildMode],
         **kwargs,
     ) -> None:
         # ------ init base class ------ #
         super().__init__(**kwargs)
 
-        # ------ prepare runtime dirs ------ #
-        self._resource_dir_on_standby = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTA_TMP_STORE
-        ).relative_to("/")
-
         # ------ init updater implementation ------ #
         self._boot_controller = boot_controller
-        self._create_standby_cls = create_standby_cls
+
+        # ------ define runtime dirs ------ #
+        self._resource_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+        self._ota_tmp_meta_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_META_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+
+        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
+        self._image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                cfg.STANDBY_SLOT_MNT,
+            )
+        )
 
     def _execute_update(self):
         """Implementation of OTA updating."""
@@ -569,28 +598,9 @@ class _OTAUpdater(_OTAUpdateOperator):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
         self._boot_controller.pre_update(
-            self.update_version,
             standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
             erase_standby=True,  # NOTE: as of now, we only have rebuild mode, so always erase_standby
         )
-
-        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._resource_dir_on_standby.mkdir(exist_ok=True)
-
-        logger.info("save the OTA image file_table to standby slot ...")
-        _save_dst = replace_root(
-            cfg.IMAGE_META_DPATH,
-            cfg.CANONICAL_ROOT,
-            self._boot_controller.get_standby_slot_path(),
-        )
-        Path(_save_dst).mkdir(exist_ok=True, parents=True)
-        try:
-            self._ota_metadata.save_fstable(dst=_save_dst)
-        except Exception as e:
-            logger.error(f"failed to save OTA image file_table to {_save_dst}: {e!r}")
-
-        logger.info("prepare and optimize file_table ...")
-        self._ota_metadata.prepare_fstable()
 
     def _calculate_delta(self):
         """Calculate the delta bundle."""
@@ -607,45 +617,114 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._metrics.delta_calculation_start_timestamp = _current_time
 
-        # NOTE(20250205): for current rebuild-mode, we look at active slot's file_table.
-        # NOTE: get the db via active_slot mount_point
-        _base_ft_db = replace_root(
-            Path(cfg.IMAGE_META_DPATH) / OTAMetadata.FSTABLE_DB,
-            old_root="/",
-            new_root=Path(cfg.ACTIVE_SLOT_MNT),
+        with TemporaryDirectory() as _tmp_dir:
+            use_inplace_mode = can_use_in_place_mode(
+                dev=self._boot_controller.standby_slot_dev,
+                mnt_point=_tmp_dir,
+                threshold_in_bytes=int(
+                    self._ota_metadata.total_regulars_size
+                    * STANDBY_SLOT_USED_SIZE_THRESHOLD
+                ),
+            )
+        logger.info(
+            f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
 
+        self._boot_controller.pre_update(
+            # NOTE: this option is deprecated and not used by bootcontroller
+            # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
+            #       we cannot do this for now, as some boot controller impl still refer to
+            #       active_slot mounts.
+            standby_as_ref=use_inplace_mode,
+            erase_standby=not use_inplace_mode,
+        )
+        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
+        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
+
+        # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
+        #                 destination folder.
+        logger.info("save the OTA image file_table to standby slot ...")
         try:
-            if _verified_db := check_base_filetable(_base_ft_db):
-                logger.info(
-                    f"file_table for active_slot({_verified_db}) found and valid, use file_table to assist delta calculation!"
+            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
+        except Exception as e:
+            logger.error(
+                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
+            )
+
+        # ------ in-update: calculate delta ------ #
+        logger.info("start to calculate delta ...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+
+        base_meta_dir_on_standby_slot = None
+        try:
+            if use_inplace_mode:
+                # try to use base file_table from standby slot itself
+                base_meta_dir_on_standby_slot = (
+                    self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
                 )
-                delta_calculator = DeltaGenWithFileTable(
+                # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
+                #       it is not included in the OTA image, thus also not in file_table.
+                if self._image_meta_dir_on_standby.is_dir():
+                    shutil.copytree(
+                        self._image_meta_dir_on_standby,
+                        base_meta_dir_on_standby_slot,
+                        dirs_exist_ok=True,
+                    )
+                verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
+
+                _inplace_mode_params = DeltaGenParams(
                     ota_metadata=self._ota_metadata,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 )
-                delta_calculator.calculate_delta(base_file_table=_verified_db)
+
+                if verified_base_db:
+                    logger.info("use in-place mode with base file table assist ...")
+                    InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
+                else:
+                    logger.info("use in-place mode with full scanning ...")
+                    InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
-                logger.info(
-                    f"file_table for active_slot({_base_ft_db}) not found/invalid, use full disk scan for delta calculation!"
-                )
-                delta_calculator = DeltaGenFullDiskScan(
+                _rebuild_mode_params = DeltaGenParams(
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
                 )
-                delta_calculator.calculate_delta()
+
+                verified_base_db = find_saved_fstable(self._image_meta_dir_on_active)
+                if verified_base_db:
+                    logger.info("use rebuild mode with base file table assist ...")
+                    RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
+                else:
+                    logger.info("use rebuild mode with full scanning ...")
+                    RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+        finally:
+            # we don't need the copy of base file table after delta calculation
+            if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
+                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
     def _download_delta_resources(self) -> None:
         """Download all the resources needed for the OTA update."""
@@ -714,14 +793,19 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._metrics.apply_update_start_timestamp = _current_time
 
-        standby_slot_creator = self._create_standby_cls(
-            ota_metadata=self._ota_metadata,
-            standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
-            status_report_queue=self._status_report_queue,
-            session_id=self.session_id,
-            resource_dir=self._resource_dir_on_standby,
-        )
-        standby_slot_creator.rebuild_standby()
+        try:
+            standby_slot_creator = UpdateStandbySlot(
+                ota_metadata=self._ota_metadata,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+                resource_dir=self._resource_dir_on_standby,
+            )
+            standby_slot_creator.update_slot()
+        except Exception as e:
+            raise ota_errors.ApplyOTAUpdateFailed(
+                f"failed to apply update to standby slot: {e!r}", module=__name__
+            ) from e
 
     def _post_update(self) -> None:
         """Post-update phase."""
@@ -740,8 +824,22 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         # NOTE(20240219): move persist file handling here
         self._process_persistents(self._ota_metadata)
+
+        # save the OTA metadata to the actual location after
+        #   standby slot rootfs updated
+        ota_metadata_save_dst = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+        ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
+        shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
+        shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
+
         self._preserve_client_squashfs()
-        self._boot_controller.post_update()
+        self._boot_controller.post_update(self.update_version)
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
@@ -1007,9 +1105,6 @@ class OTAClient:
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
-            self.create_standby_cls = get_standby_slot_creator(
-                cfg.CREATE_STANDBY_METHOD
-            )
         except Exception as e:
             self._on_failure(
                 e,
@@ -1147,7 +1242,6 @@ class OTAClient:
                 cookies_json=request.cookies_json,
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
-                create_standby_cls=self.create_standby_cls,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
