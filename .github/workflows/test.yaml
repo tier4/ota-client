@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - main
+      - v*
     types:
       - opened
       - synchronize
@@ -15,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - v*
     paths:
       - "src/**"
       - "tests/**"
