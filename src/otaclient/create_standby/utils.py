@@ -50,11 +50,11 @@ class TopDownCommonShortestPath:
         yield from self._store
 
 
-def _check_if_ext4(dev: StrOrPath) -> bool:
+def _check_if_ext4(dev: StrOrPath) -> bool:  # pragma: no cover
     return get_attrs_by_dev("FSTYPE", dev) == "ext4"
 
 
-def _check_if_fs_healthy(dev: StrOrPath) -> bool:
+def _check_if_fs_healthy(dev: StrOrPath) -> bool:  # pragma: no cover
     _res = subprocess_run_wrapper(
         ["e2fsck", "-n", str(dev)],
         check=False,
@@ -63,7 +63,7 @@ def _check_if_fs_healthy(dev: StrOrPath) -> bool:
     return _res.returncode == 0
 
 
-def _get_fs_used_size(mnt_point: StrOrPath) -> int:
+def _get_fs_used_size(mnt_point: StrOrPath) -> int:  # pragma: no cover
     stats = os.statvfs(mnt_point)
     used_in_bytes = (stats.f_blocks - stats.f_bfree) * stats.f_frsize
     logger.info(f"fs on {mnt_point=} used size: {human_readable_size(used_in_bytes)}")
@@ -72,7 +72,7 @@ def _get_fs_used_size(mnt_point: StrOrPath) -> int:
 
 def _check_fs_used_size_reach_threshold(
     dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int
-) -> bool:
+) -> bool:  # pragma: no cover
     try:
         ensure_mount(dev, mnt_point, mount_func=mount_ro, raise_exception=True)
         return _get_fs_used_size(mnt_point) >= threshold_in_bytes
@@ -85,7 +85,7 @@ def _check_fs_used_size_reach_threshold(
 
 def can_use_in_place_mode(
     dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int
-) -> bool:
+) -> bool:  # pragma: no cover
     """
     Check whether target standby slot device is ready for in-place update mode.
 
