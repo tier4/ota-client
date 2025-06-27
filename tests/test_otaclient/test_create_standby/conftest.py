@@ -15,8 +15,12 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import sqlite3
 from contextlib import closing
+from hashlib import sha256
+from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -40,11 +44,13 @@ REGULARS_TXT = OTA_IMAGE_DIR / "regulars.txt"
 DIRS_TXT = OTA_IMAGE_DIR / "dirs.txt"
 SYMLINKS_TXT = OTA_IMAGE_DIR / "symlinks.txt"
 
+OTA_IMAGE_DATA_DIR = OTA_IMAGE_DIR / "data"
+
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="package")
-def file_table_db(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
+def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
     """
     Referring to metadata._prepare_ota_image_metadata method.
     """
@@ -101,3 +107,39 @@ def file_table_db(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
     ota_meta._fst_db = ft_dbf
     ota_meta._rst_db = rst_dbf
     return ota_meta
+
+
+class SlotAB(NamedTuple):
+    slot_a: Path
+    slot_b: Path
+
+
+@pytest.fixture
+def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
+    slot_a = tmp_path / "slot_a"
+    slot_b = tmp_path / "slot_b"
+
+    slot_a.mkdir(exist_ok=True, parents=True)
+    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b)
+    return SlotAB(slot_a, slot_b)
+
+
+@pytest.fixture
+def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
+    slot_a = tmp_path / "slot_a"
+    slot_b = tmp_path / "slot_b"
+
+    slot_b.mkdir(exist_ok=True, parents=True)
+    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_a)
+    return SlotAB(slot_a, slot_b)
+
+
+def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> None:
+    """Verify that all resources are prepared."""
+
+    with closing(_ota_metadata_inst.connect_fstable()) as ft_conn:
+        orm = FileTableResourceORM(ft_conn)
+        for entry in orm.orm_select_entries():
+            _rs_f = resource_dir / entry.digest.hex()
+            assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
+            assert sha256(_rs_f.read_bytes()).digest() == entry.digest
