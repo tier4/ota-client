@@ -15,9 +15,13 @@
 from __future__ import annotations
 
 import logging
+import queue
+import shutil
 from pathlib import Path
+from typing import cast
 
-from pytest_mock import MockerFixture
+import pytest
+import pytest_mock
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient.create_standby.delta_gen import (
@@ -29,24 +33,49 @@ from .conftest import SlotAB, verify_resources
 
 logger = logging.getLogger(__name__)
 
+DELTA_GEN_MODULE = "otaclient.create_standby.delta_gen"
+DELTA_GEN_FULL_DISK_SCAN_BASE = f"{DELTA_GEN_MODULE}.DeltaGenFullDiskScan"
+
+
+class _MockedQue:
+    @staticmethod
+    def put_nowait(_): ...
+
+
+MockedQue = cast(queue.Queue, _MockedQue)
+
+
+@pytest.fixture(autouse=True)
+def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
+    # NOTE: to let full disk scan mode can get all the resources, only for test
+    mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.EXCLUDE_PATHS", {})
+    mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FOLDER_DEEPTH", 2**32)
+    mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FILENUM_PER_FOLDER", 2**64)
+
+
+@pytest.fixture
+def resource_dir(tmp_path: Path):
+    _rd = tmp_path / ".ota-tmp"
+    logger.info(f"prepare function scrope resource dir: {_rd} ...")
+    try:
+        _rd.mkdir()
+        yield _rd
+    finally:
+        logger.info(f"cleanup function scrope resource dir: {_rd} ...")
+        shutil.rmtree(_rd)
+
 
 def test_rebuild_mode_with_base_file_table_assist(
     ab_slots_for_rebuild: SlotAB,
     ota_metadata_inst: OTAMetadata,
-    tmp_path: Path,
-    mocker: MockerFixture,
+    resource_dir: Path,
 ) -> None:
-    mocked_report_que = mocker.MagicMock()
-    mocked_report_que.put_nowait = lambda _: None
-    resource_dir = tmp_path / ".ota-tmp"
-    resource_dir.mkdir(exist_ok=True, parents=True)
-
     logger.info("start to test rebuild mode with base file_table assist ...")
     RebuildDeltaWithBaseFileTable(
         ota_metadata=ota_metadata_inst,
         delta_src=ab_slots_for_rebuild.slot_a,
         copy_dst=resource_dir,
-        status_report_queue=mocked_report_que,
+        status_report_queue=MockedQue,
         session_id="session_id",
     ).process_slot(str(ota_metadata_inst._fst_db))
     logger.info("verify resource folder ...")
@@ -56,20 +85,14 @@ def test_rebuild_mode_with_base_file_table_assist(
 def test_rebuild_mode_with_full_disk_scan(
     ab_slots_for_rebuild: SlotAB,
     ota_metadata_inst: OTAMetadata,
-    tmp_path: Path,
-    mocker: MockerFixture,
+    resource_dir: Path,
 ) -> None:
-    mocked_report_que = mocker.MagicMock()
-    mocked_report_que.put_nowait = lambda _: None
-    resource_dir = tmp_path / ".ota-tmp"
-    resource_dir.mkdir(exist_ok=True, parents=True)
-
     logger.info("start to test rebuild mode with full disk scan ...")
     RebuildDeltaGenFullDiskScan(
         ota_metadata=ota_metadata_inst,
         delta_src=ab_slots_for_rebuild.slot_a,
         copy_dst=resource_dir,
-        status_report_queue=mocked_report_que,
+        status_report_queue=MockedQue,
         session_id="session_id",
     ).process_slot()
     logger.info("verify resource folder ...")
@@ -79,20 +102,14 @@ def test_rebuild_mode_with_full_disk_scan(
 def test_inplace_mode_with_full_disk_scan(
     ab_slots_for_inplace: SlotAB,
     ota_metadata_inst: OTAMetadata,
-    tmp_path: Path,
-    mocker: MockerFixture,
+    resource_dir: Path,
 ) -> None:
-    mocked_report_que = mocker.MagicMock()
-    mocked_report_que.put_nowait = lambda _: None
-    resource_dir = tmp_path / ".ota-tmp"
-    resource_dir.mkdir(exist_ok=True, parents=True)
-
     logger.info("start to test inplace mode with full disk scan ...")
     RebuildDeltaGenFullDiskScan(
         ota_metadata=ota_metadata_inst,
         delta_src=ab_slots_for_inplace.slot_b,
         copy_dst=resource_dir,
-        status_report_queue=mocked_report_que,
+        status_report_queue=MockedQue,
         session_id="session_id",
     ).process_slot()
     logger.info("verify resource folder ...")

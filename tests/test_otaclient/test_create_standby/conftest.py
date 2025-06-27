@@ -49,7 +49,9 @@ OTA_IMAGE_DATA_DIR = OTA_IMAGE_DIR / "data"
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="package")
+# NOTE: during delta calculation, the ft_resource table will be altered, so
+#       this fixture needs to be function scope fixture.
+@pytest.fixture
 def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
     """
     Referring to metadata._prepare_ota_image_metadata method.
@@ -119,6 +121,7 @@ def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
     logger.info("prepare simple a/b slots for inplace update mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
+    logger.info(f"prepare simple a/b slots for rebuild mode: {slot_a=}, {slot_b=}")
 
     slot_a.mkdir(exist_ok=True, parents=True)
     shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b, symlinks=True)
@@ -127,9 +130,10 @@ def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
 
 @pytest.fixture
 def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
-    logger.info("prepare simple a/b slots for rebuild mode ...")
+    logger.info("prepare simple a/b slots for inplace update mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
+    logger.info(f"prepare simple a/b slots for rebuild mode: {slot_a=}, {slot_b=}")
 
     slot_b.mkdir(exist_ok=True, parents=True)
     shutil.copytree(OTA_IMAGE_DATA_DIR, slot_a, symlinks=True)
@@ -138,6 +142,7 @@ def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
 
 def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> None:
     """Verify that all resources are prepared."""
+    logger.info(f"verify against {resource_dir=} ...")
     _errs = []
     with closing(_ota_metadata_inst.connect_fstable()) as ft_conn:
         orm = FileTableResourceORM(ft_conn)
@@ -148,8 +153,9 @@ def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> Non
                 assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
                 assert sha256(_rs_f.read_bytes()).digest() == entry.digest
             except AssertionError:
-                logger.error(f"resource not found: {entry}")
                 _errs.append(entry)
 
     if _errs:
-        raise AssertionError(f"not all resources are collected: {_errs=}")
+        _err_msg = f"not all resources are collected: {len(_errs)=}"
+        logger.error(_err_msg)
+        raise AssertionError(_err_msg)
