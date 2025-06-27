@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import queue
-import shutil
 from pathlib import Path
 from typing import cast
 
@@ -51,18 +50,6 @@ def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
     mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.EXCLUDE_PATHS", {})
     mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FOLDER_DEEPTH", 2**32)
     mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FILENUM_PER_FOLDER", 2**64)
-
-
-@pytest.fixture
-def resource_dir(tmp_path: Path):
-    _rd = tmp_path / ".ota-tmp"
-    logger.info(f"prepare function scrope resource dir: {_rd} ...")
-    try:
-        _rd.mkdir()
-        yield _rd
-    finally:
-        logger.info(f"cleanup function scrope resource dir: {_rd} ...")
-        shutil.rmtree(_rd)
 
 
 def test_rebuild_mode_with_base_file_table_assist(

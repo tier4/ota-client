@@ -159,3 +159,15 @@ def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> Non
         _err_msg = f"not all resources are collected: {len(_errs)=}"
         logger.error(_err_msg)
         raise AssertionError(_err_msg)
+
+
+@pytest.fixture
+def resource_dir(tmp_path: Path):
+    _rd = tmp_path / ".ota-tmp"
+    logger.info(f"prepare function scrope resource dir: {_rd} ...")
+    try:
+        _rd.mkdir()
+        yield _rd
+    finally:
+        logger.info(f"cleanup function scrope resource dir: {_rd} ...")
+        shutil.rmtree(_rd)
