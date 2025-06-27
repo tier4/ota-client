@@ -1,0 +1,103 @@
+# Copyright 2022 TIER IV, INC. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+from contextlib import closing
+
+import pytest
+
+from ota_metadata.file_table.db import (
+    FileTableDirORM,
+    FileTableInodeORM,
+    FileTableNonRegularORM,
+    FileTableRegularORM,
+    FileTableResourceORM,
+)
+from ota_metadata.legacy2.csv_parser import (
+    parse_dirs_from_csv_file,
+    parse_regulars_from_csv_file,
+    parse_symlinks_from_csv_file,
+)
+from ota_metadata.legacy2.metadata import OTAMetadata
+from ota_metadata.legacy2.rs_table import ResourceTableORM
+from tests.conftest import OTA_IMAGE_DIR
+
+REGULARS_TXT = OTA_IMAGE_DIR / "regulars.txt"
+DIRS_TXT = OTA_IMAGE_DIR / "dirs.txt"
+SYMLINKS_TXT = OTA_IMAGE_DIR / "symlinks.txt"
+
+logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="package")
+def file_table_db(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
+    """
+    Referring to metadata._prepare_ota_image_metadata method.
+    """
+    image_meta_d = tmp_path_factory.mktemp(basename="image-meta")
+    ft_dbf = image_meta_d / "file_table.sqlite3"
+    rst_dbf = image_meta_d / "resource_table.sqlite3"
+
+    with closing(sqlite3.connect(ft_dbf)) as fst_conn, closing(
+        sqlite3.connect(rst_dbf)
+    ) as rst_conn:
+        # ------ bootstrap each tables in the file_table database ------ #
+        ft_regular_orm = FileTableRegularORM(fst_conn)
+        ft_regular_orm.orm_bootstrap_db()
+        ft_dir_orm = FileTableDirORM(fst_conn)
+        ft_dir_orm.orm_bootstrap_db()
+        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
+        ft_non_regular_orm.orm_bootstrap_db()
+        ft_resource_orm = FileTableResourceORM(fst_conn)
+        ft_resource_orm.orm_bootstrap_db()
+        ft_inode_orm = FileTableInodeORM(fst_conn)
+        ft_inode_orm.orm_bootstrap_db()
+        rs_orm = ResourceTableORM(rst_conn)
+        rs_orm.orm_bootstrap_db()
+
+        inode_start = 1
+        regulars_num, inode_start = parse_regulars_from_csv_file(
+            _fpath=REGULARS_TXT,
+            _orm=ft_regular_orm,
+            _orm_ft_resource=ft_resource_orm,
+            _orm_rs=rs_orm,
+            _orm_inode=ft_inode_orm,
+            inode_start=inode_start,
+        )
+
+        dirs_num, inode_start = parse_dirs_from_csv_file(
+            DIRS_TXT,
+            ft_dir_orm,
+            _inode_orm=ft_inode_orm,
+            inode_start=inode_start,
+        )
+
+        symlinks_num, _ = parse_symlinks_from_csv_file(
+            SYMLINKS_TXT,
+            ft_non_regular_orm,
+            _inode_orm=ft_inode_orm,
+            inode_start=inode_start,
+        )
+        logger.info(
+            f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
+        )
+
+    # NOTE: avoid calling __init__ of OTAMetadata
+    ota_meta = object.__new__(OTAMetadata)
+    ota_meta._fst_db = ft_dbf
+    ota_meta._rst_db = rst_dbf
+    return ota_meta
