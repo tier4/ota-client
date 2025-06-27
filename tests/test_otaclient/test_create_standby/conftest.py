@@ -116,21 +116,23 @@ class SlotAB(NamedTuple):
 
 @pytest.fixture
 def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
+    logger.info("prepare simple a/b slots for inplace update mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
 
     slot_a.mkdir(exist_ok=True, parents=True)
-    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b)
+    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b, symlinks=True)
     return SlotAB(slot_a, slot_b)
 
 
 @pytest.fixture
 def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
+    logger.info("prepare simple a/b slots for rebuild mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
 
     slot_b.mkdir(exist_ok=True, parents=True)
-    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_a)
+    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_a, symlinks=True)
     return SlotAB(slot_a, slot_b)
 
 
