@@ -13,7 +13,6 @@
 # limitations under the License.
 """Shared utils for boot_controller."""
 
-
 from __future__ import annotations
 
 import contextlib
@@ -241,11 +240,14 @@ class OTAStatusFilesControl:
         self._store_current_status(OTAStatus.FAILURE)
         self._store_current_slot_in_use(self.standby_slot)
 
-    def pre_update_standby(self, *, version: str):
+    def post_update_standby(self, *, version: str):
         """On pre_update stage, set standby slot's status to UPDATING,
         set slot_in_use to standby slot, and set version.
 
         NOTE: expecting standby slot to be mounted and ready for use!
+        NOTE(20250613): update standby slot at post-update phase, as
+            in in-place update mode, after pre-update phase, the standby slot
+            will be cleaned up.
         """
         # create the ota-status folder unconditionally
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
@@ -257,7 +259,7 @@ class OTAStatusFilesControl:
     def pre_rollback_current(self):
         self._store_current_status(OTAStatus.FAILURE)
 
-    def pre_rollback_standby(self):
+    def post_rollback_standby(self):
         # store ROLLBACKING status to standby
         self.standby_ota_status_dir.mkdir(exist_ok=True, parents=True)
         self._store_standby_status(OTAStatus.ROLLBACKING)
