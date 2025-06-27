@@ -24,6 +24,7 @@ import pytest_mock
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient.create_standby.delta_gen import (
+    InPlaceDeltaGenFullDiskScan,
     RebuildDeltaGenFullDiskScan,
     RebuildDeltaWithBaseFileTable,
 )
@@ -92,7 +93,7 @@ def test_inplace_mode_with_full_disk_scan(
     resource_dir: Path,
 ) -> None:
     logger.info("start to test inplace mode with full disk scan ...")
-    RebuildDeltaGenFullDiskScan(
+    InPlaceDeltaGenFullDiskScan(
         ota_metadata=ota_metadata_inst,
         delta_src=ab_slots_for_inplace.slot_b,
         copy_dst=resource_dir,
