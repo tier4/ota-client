@@ -273,7 +273,7 @@ class TestRPIBootControl:
 
         # --- assertion --- #
         assert (self.slot_a_ota_status_dir / "status").read_text() == OTAStatus.FAILURE
-        assert (self.slot_a_ota_status_dir / "slot_in_use").read_text()== SLOT_B
+        assert (self.slot_a_ota_status_dir / "slot_in_use").read_text() == SLOT_B
         self.mp_control_mock.prepare_standby_dev.assert_called_once_with(  # type: ignore
             erase_standby=mocker.ANY,
             fslabel=self.fsm.standby_slot,

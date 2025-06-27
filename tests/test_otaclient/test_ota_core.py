@@ -45,6 +45,7 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
         cfg.CERTS_DIR,
     )
 
+
 class TestOTAClient:
     """Testing on OTAClient workflow."""
 
