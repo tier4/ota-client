@@ -295,8 +295,8 @@ def ota_status_collector(
 
 
 @pytest.fixture(autouse=True)
-def mock_mount_tmpfs(mocker: pytest_mock.MockerFixture) -> None:
-    mocker.patch("otaclient.ota_core.mount_tmpfs")
+def mock_ensure_mount(mocker: pytest_mock.MockerFixture) -> None:
+    mocker.patch("otaclient.ota_core.ensure_mount")
 
 
 @pytest.fixture(autouse=True)
