@@ -591,7 +591,7 @@ class _OTAUpdater:
             )
 
         # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate delta ...")
+        logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
