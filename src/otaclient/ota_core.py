@@ -845,6 +845,8 @@ class OTAClient:
         self._runtime_dir = _runtime_dir = Path(cfg.RUN_DIR)
         _runtime_dir.mkdir(exist_ok=True, parents=True)
         self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
+
+        ensure_umount(_update_session_dir, ignore_error=True)
         _update_session_dir.mkdir(exist_ok=True, parents=True)
 
         # NOTE: for each otaclient instance lifecycle, only one tmpfs will be mounted.
