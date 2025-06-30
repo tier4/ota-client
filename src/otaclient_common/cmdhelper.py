@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import Literal, NoReturn, Protocol
+from typing import Any, Literal, NoReturn, Protocol
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call, subprocess_check_output
@@ -591,15 +591,24 @@ def ensure_mointpoint(
         )
 
 
-def mount_tmpfs(mnt_point: StrOrPath, size_in_mb: int) -> None:  # pragma: no cover
+def mount_tmpfs(
+    target: Any,
+    mount_point: StrOrPath,
+    *,
+    size_in_mb: int,
+    raise_exception: bool = True,
+) -> None:  # pragma: no cover
     # fmt: off
     cmd = [
         "mount", "-t", "tmpfs",
-        "-o", f"size={size_in_mb}M", "tmpfs", str(mnt_point)
+        "-o", f"size={size_in_mb}M", "tmpfs", str(mount_point)
     ]
     # fmt: on
     try:
         subprocess_call(cmd, raise_exception=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"failed to mount tmpfs with {size_in_mb}MB at {mnt_point}: {e!r}")
-        raise
+        logger.error(
+            f"failed to mount tmpfs with {size_in_mb}MB at {mount_point}: {e!r}"
+        )
+        if raise_exception:
+            raise
