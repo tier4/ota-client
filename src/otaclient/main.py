@@ -13,7 +13,6 @@
 # limitations under the License.
 """Entrypoint of otaclient."""
 
-
 from __future__ import annotations
 
 import atexit
@@ -33,6 +32,8 @@ from functools import partial
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
+from otaclient.configs.cfg import cfg
+from otaclient_common.cmdhelper import ensure_umount
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,15 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
         _shm = None
 
     if sys_exit:
-        sys.exit(1)
+        try:
+            logger.warning(
+                "otaclient will exit now, unconditionally umount all mount points ..."
+            )
+            ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
+            ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
+            ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
+        finally:
+            sys.exit(1)
 
 
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
@@ -85,7 +94,7 @@ def main() -> None:  # pragma: no cover
         otaproxy_control_thread,
         otaproxy_on_global_shutdown,
     )
-    from otaclient._utils import check_other_otaclient, create_otaclient_rundir
+    from otaclient._utils import check_other_otaclient
     from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
@@ -145,7 +154,6 @@ def main() -> None:  # pragma: no cover
     if not _env.is_dynamic_client_running():
         # in dynamic client, the pid file has already been created
         check_other_otaclient(cfg.OTACLIENT_PID_FILE)
-    create_otaclient_rundir(cfg.RUN_DIR)
 
     #
     # ------ start each processes ------ #
