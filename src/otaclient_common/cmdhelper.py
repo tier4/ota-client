@@ -591,7 +591,7 @@ def ensure_mointpoint(
         )
 
 
-def mount_tmpfs(mnt_point: StrOrPath, size_in_mb: int) -> None:
+def mount_tmpfs(mnt_point: StrOrPath, size_in_mb: int) -> None:  # pragma: no cover
     # fmt: off
     cmd = [
         "mount", "-t", "tmpfs",

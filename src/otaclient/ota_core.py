@@ -242,9 +242,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -846,6 +846,10 @@ class OTAClient:
         _runtime_dir.mkdir(exist_ok=True, parents=True)
         self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
         _update_session_dir.mkdir(exist_ok=True, parents=True)
+
+        # NOTE: for each otaclient instance lifecycle, only one tmpfs will be mounted.
+        #       If otaclient terminates by signal, umounting will be handled by _on_shutdown.
+        #       If otaclient exits on successful OTA, no need to umount it manually as we will reboot soon.
         mount_tmpfs(_update_session_dir, cfg.SESSION_WD_TMPFS_SIZE_IN_MB)
 
         try:
