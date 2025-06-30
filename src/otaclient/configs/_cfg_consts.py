@@ -13,7 +13,6 @@
 # limitations under the License.
 """otaclient internal uses consts, should not be changed from external."""
 
-
 from __future__ import annotations
 
 from otaclient_common import replace_root
@@ -29,7 +28,6 @@ class CreateStandbyMechanism(StrEnum):
 
 
 class Consts:
-
     CANONICAL_ROOT = CANONICAL_ROOT
 
     @property
@@ -43,7 +41,7 @@ class Consts:
     OTACLIENT_PID_FILE = "/run/otaclient.pid"
 
     # runtime folder for holding ota related files
-    RUNTIME_OTA_SESSION = "/run/otaclient/ota"
+    RUNTIME_OTA_SESSION = "/run/otaclient/update-session"
 
     MOUNT_SPACE = "/run/otaclient/mnt"
     ACTIVE_SLOT_MNT = "/run/otaclient/mnt/active_slot"
