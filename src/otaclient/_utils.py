@@ -87,7 +87,7 @@ class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
 
 SESSION_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars
 
-_illegal_chars_pattern = re.compile(r'[\/\0<>:"\\|?*\x00-\x1F]')
+_illegal_chars_pattern = re.compile(r'[\.\/\0<>:"\\|?*\x00-\x1F]')
 
 
 def gen_session_id(
@@ -102,4 +102,4 @@ def gen_session_id(
     _time_factor = str(int(time.time()))
     _random_factor = os.urandom(random_bytes_num).hex()
 
-    return f"{sanitized_version_str}-{_time_factor}-{_random_factor}"
+    return f"{_time_factor}-{sanitized_version_str}-{_random_factor}"
