@@ -851,12 +851,19 @@ class OTAClient:
         #       If otaclient exits on successful OTA, no need to umount it manually as we will reboot soon.
         ensure_umount(_update_session_dir, ignore_error=True)
         _update_session_dir.mkdir(exist_ok=True, parents=True)
-        ensure_mount(
-            "tmpfs",
-            _update_session_dir,
-            mount_func=partial(mount_tmpfs, size_in_mb=cfg.SESSION_WD_TMPFS_SIZE_IN_MB),
-            raise_exception=False,
-        )
+        try:
+            ensure_mount(
+                "tmpfs",
+                _update_session_dir,
+                mount_func=partial(
+                    mount_tmpfs, size_in_mb=cfg.SESSION_WD_TMPFS_SIZE_IN_MB
+                ),
+                raise_exception=True,
+            )
+        except Exception as e:
+            logger.warning(f"failed to mount tmpfs for OTA runtime use: {e!r}")
+            logger.warning("will directly use /run tmpfs for OTA runtime!")
+
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
         except Exception as e:
