@@ -242,9 +242,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -591,7 +591,7 @@ class _OTAUpdater:
             )
 
         # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate delta ...")
+        logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
