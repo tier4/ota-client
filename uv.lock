@@ -1656,7 +1656,7 @@ requires-dist = [
     { name = "simple-sqlite3-orm", specifier = ">=0.10,<0.11" },
     { name = "typing-extensions", specifier = ">=4.6.3" },
     { name = "urllib3", specifier = ">=2.2.2,<2.6" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<0.35" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<0.36" },
     { name = "zstandard", specifier = ">=0.22,<0.24" },
 ]
 
