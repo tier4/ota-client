@@ -87,6 +87,7 @@ from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.metrics import OTAMetricsData
 from otaclient_common import EMPTY_FILE_SHA256, _env, human_readable_size, replace_root
+from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
@@ -184,6 +185,7 @@ class _OTAUpdateOperator:
         version: str,
         raw_url_base: str,
         cookies_json: str,
+        session_wd: Path,
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
@@ -219,13 +221,6 @@ class _OTAUpdateOperator:
         )
         self._metrics.target_firmware_version = version
 
-        # ------ prepare runtime dirs ------ #
-        # TODO: use a tmpfs mount with 320MB in size for session workdir
-        self._session_workdir = session_wd = (
-            Path(cfg.RUN_DIR) / f"update_session-{session_id}"
-        )
-        session_wd.mkdir(exist_ok=True, parents=True)
-
         # ------ parse cookies ------ #
         logger.debug("process cookies_json...")
         try:
@@ -241,6 +236,10 @@ class _OTAUpdateOperator:
         # ------ parse upper proxy ------ #
         logger.debug("configure proxy setting...")
         self._upper_proxy = upper_otaproxy
+
+        # ------ mount session wd as a tmpfs ------ #
+        self._session_workdir = session_wd
+        session_wd.mkdir(exist_ok=True, parents=True)
 
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
@@ -953,6 +952,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
             self._metrics.publish()
+            ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
@@ -1106,6 +1106,28 @@ class OTAClient:
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
+        self._runtime_dir = _runtime_dir = Path(cfg.RUN_DIR)
+        _runtime_dir.mkdir(exist_ok=True, parents=True)
+        self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
+
+        # NOTE: for each otaclient instance lifecycle, only one tmpfs will be mounted.
+        #       If otaclient terminates by signal, umounting will be handled by _on_shutdown.
+        #       If otaclient exits on successful OTA, no need to umount it manually as we will reboot soon.
+        ensure_umount(_update_session_dir, ignore_error=True)
+        _update_session_dir.mkdir(exist_ok=True, parents=True)
+        try:
+            ensure_mount(
+                "tmpfs",
+                _update_session_dir,
+                mount_func=partial(
+                    mount_tmpfs, size_in_mb=cfg.SESSION_WD_TMPFS_SIZE_IN_MB
+                ),
+                raise_exception=True,
+            )
+        except Exception as e:
+            logger.warning(f"failed to mount tmpfs for OTA runtime use: {e!r}")
+            logger.warning("will directly use /run tmpfs for OTA runtime!")
+
         self._metrics = OTAMetricsData()
         self._metrics.ecu_id = self.my_ecu_id
 
@@ -1234,6 +1256,7 @@ class OTAClient:
         )
         logger.info(f"start new OTA update session: {new_session_id=}")
 
+        session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -1246,6 +1269,7 @@ class OTAClient:
                 version=request.version,
                 raw_url_base=request.url_base,
                 cookies_json=request.cookies_json,
+                session_wd=session_wd,
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 ecu_status_flags=self.ecu_status_flags,
@@ -1263,6 +1287,8 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
             self._exit_from_dynamic_client()
+        finally:
+            shutil.rmtree(session_wd, ignore_errors=True)
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
@@ -1286,6 +1312,7 @@ class OTAClient:
         )
         logger.info(f"start new OTA client update session: {new_session_id=}")
 
+        session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[client update] entering local update...")
             if not self.ca_chains_store:
@@ -1298,6 +1325,7 @@ class OTAClient:
                 version=request.version,
                 raw_url_base=request.url_base,
                 cookies_json=request.cookies_json,
+                session_wd=session_wd,
                 ca_chains_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,

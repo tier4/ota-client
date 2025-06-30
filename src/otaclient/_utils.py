@@ -13,12 +13,12 @@
 # limitations under the License.
 """Common shared utils, only used by otaclient package."""
 
-
 from __future__ import annotations
 
 import itertools
 import logging
 import os
+import re
 import sys
 import time
 import traceback
@@ -91,15 +91,6 @@ def check_other_otaclient(pid_fpath: StrOrPath) -> None:  # pragma: no cover
     write_str_to_file_atomic(pid_fpath, f"{os.getpid()}")
 
 
-def create_otaclient_rundir(run_dir: StrOrPath = "/run/otaclient") -> None:
-    """Create the otaclient runtime working dir.
-
-    TODO: make a helper class for managing otaclient runtime dir.
-    """
-    run_dir = Path(run_dir)
-    run_dir.mkdir(exist_ok=True, parents=True)
-
-
 def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:  # pragma: no cover
     """Format the <exc> traceback as string."""
     return splitter.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
@@ -115,6 +106,8 @@ class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
 
 SESSION_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars
 
+_illegal_chars_pattern = re.compile(r'[\.\/\0<>:"\\|?*\x00-\x1F]')
+
 
 def gen_session_id(
     update_version: str, *, random_bytes_num: int = SESSION_RANDOM_LEN
@@ -124,7 +117,8 @@ def gen_session_id(
     token schema:
         <update_version>-<unix_timestamp_in_sec_str>-<4bytes_hex>
     """
+    sanitized_version_str = _illegal_chars_pattern.sub("_", update_version)
     _time_factor = str(int(time.time()))
     _random_factor = os.urandom(random_bytes_num).hex()
 
-    return f"{update_version}-{_time_factor}-{_random_factor}"
+    return f"{_time_factor}-{sanitized_version_str}-{_random_factor}"

@@ -30,6 +30,9 @@ LOG_LEVEL_LITERAL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
 class _OTAClientSettings(BaseModel):
+    # ------ OTA session setting ------ #
+    SESSION_WD_TMPFS_SIZE_IN_MB: int = 700  # MB
+
     #
     # ------ logging settings ------ #
     #
