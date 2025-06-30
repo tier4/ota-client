@@ -85,7 +85,7 @@ from otaclient.create_standby import (
 )
 from otaclient.create_standby.delta_gen import DeltaGenParams
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
-from otaclient_common.cmdhelper import ensure_umount, mount_tmpfs
+from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     Downloader,
@@ -242,9 +242,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -846,14 +846,17 @@ class OTAClient:
         _runtime_dir.mkdir(exist_ok=True, parents=True)
         self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
 
-        ensure_umount(_update_session_dir, ignore_error=True)
-        _update_session_dir.mkdir(exist_ok=True, parents=True)
-
         # NOTE: for each otaclient instance lifecycle, only one tmpfs will be mounted.
         #       If otaclient terminates by signal, umounting will be handled by _on_shutdown.
         #       If otaclient exits on successful OTA, no need to umount it manually as we will reboot soon.
-        mount_tmpfs(_update_session_dir, cfg.SESSION_WD_TMPFS_SIZE_IN_MB)
-
+        ensure_umount(_update_session_dir, ignore_error=True)
+        _update_session_dir.mkdir(exist_ok=True, parents=True)
+        ensure_mount(
+            "tmpfs",
+            _update_session_dir,
+            mount_func=partial(mount_tmpfs, size_in_mb=cfg.SESSION_WD_TMPFS_SIZE_IN_MB),
+            raise_exception=False,
+        )
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
         except Exception as e:
