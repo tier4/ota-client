@@ -69,13 +69,15 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
         _shm = None
 
     if sys_exit:
-        logger.warning(
-            "otaclient will exit now, unconditionally umount all mount points ..."
-        )
-        ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
-        ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
-        ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
-        sys.exit(1)
+        try:
+            logger.warning(
+                "otaclient will exit now, unconditionally umount all mount points ..."
+            )
+            ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
+            ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
+            ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
+        finally:
+            sys.exit(1)
 
 
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
