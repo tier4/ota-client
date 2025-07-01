@@ -15,6 +15,7 @@ ln -s ${OTACLIENT_SRC}/.git ${TEST_ROOT}
 ln -s ${OTACLIENT_SRC}/pyproject.toml ${TEST_ROOT}
 ln -s ${OTACLIENT_SRC}/README.md ${TEST_ROOT}
 ln -s ${OTACLIENT_SRC}/LICENSE.md ${TEST_ROOT}
+ln -s ${OTACLIENT_SRC}/hatch_build_lock_deps.py ${TEST_ROOT} || true
 
 # exec the input params
 echo "execute test with coverage"
