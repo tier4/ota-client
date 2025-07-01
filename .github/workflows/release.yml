@@ -29,6 +29,9 @@ jobs:
           python -m pip install -U hatch
 
       - name: build otaclient package
+        env:
+          # NOTE: see hatch_build_lock_deps.py for more details
+          ENABLE_DEPS_LOCKED_BUILD: "yes"
         run: |
           hatch build -t wheel
 
