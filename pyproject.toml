@@ -50,6 +50,7 @@ urls.Source = "https://github.com/tier4/ota-client"
 dev = [
   "black>=24,<26",
   "coverage>=7,<8",
+  "hatch-vcs",
   "pre-commit>=3,<5",
   "pytest~=8.3",
   # pin pytest-asyncio to 0.23.8 for now,
@@ -68,6 +69,9 @@ allow-direct-references = true
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/_otaclient_version.py"
+
+[tool.hatch.metadata.hooks.custom]
+path = "hatch_build_lock_deps.py"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
