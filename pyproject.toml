@@ -50,7 +50,6 @@ urls.Source = "https://github.com/tier4/ota-client"
 dev = [
   "black>=24,<26",
   "coverage>=7,<8",
-  "hatchling>=1.20",
   "pre-commit>=3,<5",
   "pytest~=8.3",
   # pin pytest-asyncio to 0.23.8 for now,
