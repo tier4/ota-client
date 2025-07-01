@@ -70,7 +70,7 @@ allow-direct-references = true
 version-file = "src/_otaclient_version.py"
 
 [tool.hatch.metadata.hooks.custom]
-path = "hatch_build_lock_deps.py"
+path = "scripts/hatch_build_lock_deps.py"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
