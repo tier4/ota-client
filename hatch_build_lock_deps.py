@@ -15,7 +15,7 @@ from hatchling.metadata.plugin.interface import MetadataHookInterface
 #       We should ONLY enable dependencies overwrite when needed, otherwise
 #           `uv sync` or install project as editable will not work due to conflicts!
 HINT_ENV_NAME = "ENABLE_DEPS_LOCKED_BUILD"
-HINT_ENV_VALUE = "true"
+HINT_ENV_VALUE = "yes"
 
 # fmt: off
 UV_EXPORT_FREEZED_CMD = (
