@@ -24,7 +24,7 @@ from abc import abstractmethod
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import Generic, TypedDict, TypeVar
+from typing import Generic, NamedTuple, TypedDict, TypeVar
 
 from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
 from ota_metadata.legacy2.metadata import OTAMetadata
@@ -46,6 +46,15 @@ CANONICAL_ROOT_P = Path(CANONICAL_ROOT)
 DB_CONN_NUMS = 3
 
 PROCESS_FILES_REPORT_INTERVAL = cfg.PROCESS_FILES_REPORT_INTERVAL
+
+# introduce limitations here to prevent unexpected
+# scanning in unknown large, deep folders in full
+# scan mode.
+# NOTE: the following settings are enough for most cases.
+# NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
+#       so extend the maximum folders depth.
+MAX_FOLDER_DEEPTH = 27
+MAX_FILENUM_PER_FOLDER = 8192
 
 
 class UpdateStandbySlotFailed(Exception): ...
@@ -200,6 +209,19 @@ class ProcessFileHelper(Generic[T]):
 #
 
 
+class _CheckDirResult(NamedTuple):
+    dir_should_be_removed: bool
+    """Whether this folder presents in the new image."""
+
+    dir_should_be_process: bool
+    """Whether delta generator should look into this folder."""
+
+    dir_should_be_fully_scan: bool
+    """Whether delta generator should scan all files under this folder,
+    including files don't present in the new image.
+    """
+
+
 class DeltaGenFullDiskScan(_DeltaGeneratorBase):
     _que: Queue[tuple[Path, Path, bool] | None]
 
@@ -228,53 +250,49 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
         Path("/srv"),
     }
 
-    # introduce limitations here to prevent unexpected
-    # scanning in unknown large, deep folders in full
-    # scan mode.
-    # NOTE: the following settings are enough for most cases.
-    # NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
-    #       so extend the maximum folders depth.
-    MAX_FOLDER_DEEPTH = 27
-    MAX_FILENUM_PER_FOLDER = 8192
-
     def _check_if_need_to_process_dir(
         self, canonical_curdir_path: Path
-    ) -> tuple[bool, bool]:
-        """
-        Returns: dir_should_be_processed, dir_should_be_fully_scanned
-        """
+    ) -> _CheckDirResult:
         if canonical_curdir_path == CANONICAL_ROOT_P:
-            return True, False
+            return _CheckDirResult(
+                dir_should_be_removed=False,
+                dir_should_be_process=True,
+                dir_should_be_fully_scan=False,
+            )
 
         # ------ check dir search deepth ------ #
-        if len(canonical_curdir_path.parents) > self.MAX_FOLDER_DEEPTH:
+        if len(canonical_curdir_path.parents) > MAX_FOLDER_DEEPTH:
             logger.warning(
-                f"{canonical_curdir_path=} exceeds {self.MAX_FOLDER_DEEPTH=}, skip scan this folder"
+                f"{canonical_curdir_path=} exceeds {MAX_FOLDER_DEEPTH=}, skip scan this folder"
             )
-            return False, False
+            return _CheckDirResult(
+                dir_should_be_removed=True,
+                dir_should_be_process=False,
+                dir_should_be_fully_scan=False,
+            )
 
-        # ------ check dir should be skipped ------ #
-        dir_should_fully_scan = False
+        # ------ check dir should be skipped and/or removed ------ #
+        dir_should_be_fully_scan = False
         for _cur_parent in reversed(canonical_curdir_path.parents):
             if _cur_parent in self.FULL_SCAN_PATHS:
-                dir_should_fully_scan = True
+                dir_should_be_fully_scan = True
                 break
             if _cur_parent in self.EXCLUDE_PATHS:
-                return False, False
+                return _CheckDirResult(
+                    dir_should_be_removed=True,
+                    dir_should_be_process=False,
+                    dir_should_be_fully_scan=False,
+                )
 
-        # If current dir is not:
-        #   1. the root folder
-        #   2. should fully scan folder
-        #   3. folder existed in the new OTA image
-        # skip scanning this folder and its subfolders.
         _str_canon_fpath = str(canonical_curdir_path)
-        if (
-            _str_canon_fpath != CANONICAL_ROOT
-            and not dir_should_fully_scan
-            and not self._ft_dir_orm.orm_check_entry_exist(path=_str_canon_fpath)
-        ):
-            return False, dir_should_fully_scan
-        return True, dir_should_fully_scan
+        dir_should_be_removed = not self._ft_dir_orm.orm_check_entry_exist(
+            path=_str_canon_fpath
+        )
+        return _CheckDirResult(
+            dir_should_be_removed=dir_should_be_removed,
+            dir_should_be_process=dir_should_be_fully_scan or not dir_should_be_removed,
+            dir_should_be_fully_scan=dir_should_be_fully_scan,
+        )
 
     @abstractmethod
     def _process_file_thread_worker(self):
@@ -375,12 +393,13 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             if canonical_curdir_path in self.OTA_WORK_PATHS:
                 continue  # skip scanning OTA work paths
 
-            _dir_should_process, _dir_should_fully_scan = (
-                self._check_if_need_to_process_dir(canonical_curdir_path)
-            )
-            if not _dir_should_process:
+            _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
+            if _check_dir.dir_should_be_removed:
                 dirnames.clear()
                 self._dirs_to_remove.add_path(canonical_curdir_path)
+                continue
+            elif not _check_dir.dir_should_be_process:
+                dirnames.clear()
                 continue
 
             # remove any symlinks of directory under current dir
@@ -391,15 +410,15 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
             # skip files that over the max_filenum_per_folder,
             # and add these files to remove list
-            if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
+            if len(filenames) > MAX_FILENUM_PER_FOLDER:
                 logger.warning(
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be cleaned up unconditionally"
                 )
-                for _fname in filenames[self.MAX_FILENUM_PER_FOLDER :]:
+                for _fname in filenames[MAX_FILENUM_PER_FOLDER:]:
                     (delta_src_curdir_path / _fname).unlink(missing_ok=True)
 
-            for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
+            for fname in filenames[:MAX_FILENUM_PER_FOLDER]:
                 delta_src_fpath = delta_src_curdir_path / fname
 
                 # cleanup non-file file(include symlink)
@@ -419,7 +438,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                     (
                         delta_src_fpath,
                         canonical_curdir_path / fname,
-                        _dir_should_fully_scan,
+                        _check_dir.dir_should_be_fully_scan,
                     )
                 )
 
@@ -503,22 +522,20 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             if canonical_curdir_path in self.OTA_WORK_PATHS:
                 continue  # skip scanning OTA work paths
 
-            _dir_should_process, _dir_should_fully_scan = (
-                self._check_if_need_to_process_dir(canonical_curdir_path)
-            )
-            if not _dir_should_process:
+            _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
+            if not _check_dir.dir_should_be_process:
                 dirnames.clear()
                 continue
 
             # skip files that over the max_filenum_per_folder,
             # and add these files to remove list
-            if len(filenames) > self.MAX_FILENUM_PER_FOLDER:
+            if len(filenames) > MAX_FILENUM_PER_FOLDER:
                 logger.warning(
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be ignored silently"
                 )
 
-            for fname in filenames[: self.MAX_FILENUM_PER_FOLDER]:
+            for fname in filenames[:MAX_FILENUM_PER_FOLDER]:
                 delta_src_fpath = delta_src_curdir_path / fname
 
                 # ignore non-file file(include symlink)
@@ -534,7 +551,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                     (
                         delta_src_fpath,
                         canonical_curdir_path / fname,
-                        _dir_should_fully_scan,
+                        _check_dir.dir_should_be_fully_scan,
                     )
                 )
 
@@ -657,7 +674,6 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         self._que.put_nowait(None)
 
     def _cleanup_base(self):
-        _canonical_root = Path(CANONICAL_ROOT)
         for curdir, dirnames, filenames in os.walk(
             self._delta_src_mount_point, topdown=True, followlinks=False
         ):
@@ -666,32 +682,37 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 replace_root(
                     delta_src_curdir_path,
                     self._delta_src_mount_point,
-                    _canonical_root,
+                    CANONICAL_ROOT,
                 )
             )
+            if canonical_curdir_path == CANONICAL_ROOT_P:
+                continue
+
             # NOTE: DO NOT CLEANUP the OTA resource folder!
             if canonical_curdir_path in self.OTA_WORK_PATHS:
                 continue
 
-            if not (
-                canonical_curdir_path == _canonical_root
-                or self._ft_dir_orm.orm_check_entry_exist(
-                    path=str(canonical_curdir_path)
-                )
-            ):
+            # uncondtionally cleanup folders that exceeds maximum folder deepths.
+            if len(canonical_curdir_path.parents) > MAX_FOLDER_DEEPTH:
                 dirnames.clear()
                 shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
                 continue
 
-            # NOTE: remove the dir symlinks
-            for _dname in dirnames:
-                _dpath = delta_src_curdir_path / _dname
-                if _dpath.is_symlink():
-                    _dpath.unlink(missing_ok=True)
+            dir_should_be_kept = self._ft_dir_orm.orm_check_entry_exist(
+                path=str(canonical_curdir_path)
+            )
+            if dir_should_be_kept:  # preserve the dir, clean up the current folder
+                for _dname in dirnames:
+                    _dpath = delta_src_curdir_path / _dname
+                    if _dpath.is_symlink():
+                        _dpath.unlink(missing_ok=True)
 
-            for _fname in filenames:
-                _fpath = delta_src_curdir_path / _fname
-                _fpath.unlink(missing_ok=True)
+                for _fname in filenames:
+                    _fpath = delta_src_curdir_path / _fname
+                    _fpath.unlink(missing_ok=True)
+            else:  # this dir doesn't present in new image, fully remove
+                dirnames.clear()
+                shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
 
 
 class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
