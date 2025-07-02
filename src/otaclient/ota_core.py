@@ -577,6 +577,18 @@ class _OTAUpdater:
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
+
+        # ------ in-update: calculate delta ------ #
+        logger.info("start to calculate and prepare delta...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
         if use_inplace_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
                 "OTA resource dir found on standby slot, possible an interrupted OTA. \n"
@@ -603,18 +615,6 @@ class _OTAUpdater:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
-
-        # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate and prepare delta...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
-        )
 
         base_meta_dir_on_standby_slot = None
         try:
