@@ -401,11 +401,12 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             )
 
             _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
+            # NOTE: when dir doesn't exist in the new image, if it is a full_scan dir
+            #       we might still need to look into it.
             if _check_dir.dir_should_be_removed:
-                dirnames.clear()
                 self._dirs_to_remove.add_path(canonical_curdir_path)
-                continue
-            elif not _check_dir.dir_should_be_process:
+
+            if not _check_dir.dir_should_be_process:
                 dirnames.clear()
                 continue
 
