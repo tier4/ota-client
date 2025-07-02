@@ -395,6 +395,8 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                     CANONICAL_ROOT_P,
                 )
             )
+            if canonical_curdir_path in self.OTA_WORK_PATHS:
+                continue  # skip scanning OTA work paths
 
             _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
             # NOTE: when dir doesn't exist in the new image, if it is a full_scan dir
