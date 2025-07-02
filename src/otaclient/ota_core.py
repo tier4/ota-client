@@ -111,7 +111,7 @@ OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
-STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.9
+STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 BASE_METADATA_FOLDER = "base"
 """On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
