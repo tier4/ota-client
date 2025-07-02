@@ -22,9 +22,10 @@ import threading
 import time
 from abc import abstractmethod
 from hashlib import sha256
+from itertools import chain
 from pathlib import Path
 from queue import Queue
-from typing import Generic, NamedTuple, TypedDict, TypeVar
+from typing import Generic, Iterator, NamedTuple, TypedDict, TypeVar
 
 from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
 from ota_metadata.legacy2.metadata import OTAMetadata
@@ -122,6 +123,14 @@ class _DeltaGeneratorBase:
                 session_id=self.session_id,
             )
         )
+
+
+def _cleanup_all_files_under_folder(_dir: Path, _names: Iterator[str]) -> None:
+    """Cleanup all non-directory files under a folder."""
+    for _name in _names:
+        _f = _dir / _name
+        if _f.is_symlink() or not _f.is_dir():
+            _f.unlink(missing_ok=True)
 
 
 class ProcessFileHelper(Generic[T]):
@@ -421,26 +430,25 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             for fname in filenames[:MAX_FILENUM_PER_FOLDER]:
                 delta_src_fpath = delta_src_curdir_path / fname
 
-                # cleanup non-file file(include symlink)
+                # cleanup non-file file(include symlink) and empty file
                 # NOTE: we will recreate all the symlinks,
                 #       so we first remove all the symlinks
                 # NOTE: is_file also return True on symlink points to regular file!
-                if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                if (
+                    delta_src_fpath.is_symlink()
+                    or not delta_src_fpath.is_file()
+                    or delta_src_fpath.stat().st_size == 0
+                ):
                     delta_src_fpath.unlink(missing_ok=True)
-                    continue
-
-                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
-                    delta_src_fpath.unlink(missing_ok=True)
-                    continue  # skip empty file
-
-                self._max_pending_tasks.acquire()
-                self._que.put_nowait(
-                    (
-                        delta_src_fpath,
-                        canonical_curdir_path / fname,
-                        _check_dir.dir_should_be_fully_scan,
+                else:
+                    self._max_pending_tasks.acquire()
+                    self._que.put_nowait(
+                        (
+                            delta_src_fpath,
+                            canonical_curdir_path / fname,
+                            _check_dir.dir_should_be_fully_scan,
+                        )
                     )
-                )
 
     def _cleanup_base(self):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
@@ -685,11 +693,14 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                     CANONICAL_ROOT,
                 )
             )
-            if canonical_curdir_path == CANONICAL_ROOT_P:
-                continue
-
             # NOTE: DO NOT CLEANUP the OTA resource folder!
             if canonical_curdir_path in self.OTA_WORK_PATHS:
+                continue
+
+            if canonical_curdir_path == CANONICAL_ROOT_P:
+                _cleanup_all_files_under_folder(
+                    delta_src_curdir_path, chain(dirnames, filenames)
+                )
                 continue
 
             # uncondtionally cleanup folders that exceeds maximum folder deepths.
@@ -702,14 +713,9 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 path=str(canonical_curdir_path)
             )
             if dir_should_be_kept:  # preserve the dir, clean up the current folder
-                for _dname in dirnames:
-                    _dpath = delta_src_curdir_path / _dname
-                    if _dpath.is_symlink():
-                        _dpath.unlink(missing_ok=True)
-
-                for _fname in filenames:
-                    _fpath = delta_src_curdir_path / _fname
-                    _fpath.unlink(missing_ok=True)
+                _cleanup_all_files_under_folder(
+                    delta_src_curdir_path, chain(dirnames, filenames)
+                )
             else:  # this dir doesn't present in new image, fully remove
                 dirnames.clear()
                 shutil.rmtree(delta_src_curdir_path, ignore_errors=True)
