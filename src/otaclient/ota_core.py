@@ -242,9 +242,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -609,15 +609,17 @@ class _OTAUpdater:
                 base_meta_dir_on_standby_slot = (
                     self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
                 )
+                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
+
                 # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
                 #       it is not included in the OTA image, thus also not in file_table.
+                verified_base_db = None
                 if self._image_meta_dir_on_standby.is_dir():
-                    shutil.copytree(
+                    shutil.move(
                         self._image_meta_dir_on_standby,
                         base_meta_dir_on_standby_slot,
-                        dirs_exist_ok=True,
                     )
-                verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
+                    verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
 
                 _inplace_mode_params = DeltaGenParams(
                     ota_metadata=self._ota_metadata,
