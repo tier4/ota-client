@@ -244,8 +244,6 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
         Path("/usr"),
         Path("/opt/nvidia"),
         Path("/home/autoware/autoware.proj"),
-        # NOTE: for resume on previous failed inplace update mode
-        Path(cfg.OTA_TMP_STORE),
     }
 
     # entries start with the following paths will be ignored
