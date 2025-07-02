@@ -126,7 +126,7 @@ def prepare_non_regular(
         # NOTE: legacy OTA image doesn't support char dev, so not process char device
         # NOTE: just ignore unknown entries
     except Exception as e:
-        burst_suppressed_logger.exception(f"failed on preparing {dir(entry)}: {e!r}")
+        burst_suppressed_logger.exception(f"failed on preparing {dict(entry)}: {e!r}")
         raise
 
 
