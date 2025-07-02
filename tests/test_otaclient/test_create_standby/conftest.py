@@ -125,6 +125,13 @@ def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
 
     slot_a.mkdir(exist_ok=True, parents=True)
     shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b, symlinks=True)
+
+    # NOTE(20250702): edge condition found on bench test:
+    #   fpath of a folder in standby slot becomes symlink in the new image.
+    # in newer ubuntu, /sbin becomes a symlink points to /usr/sbin
+    sbin = slot_b / "sbin"
+    sbin.unlink(missing_ok=True)
+    sbin.mkdir(exist_ok=True, parents=True)
     return SlotAB(slot_a, slot_b)
 
 
