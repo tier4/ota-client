@@ -26,6 +26,7 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
+from otaclient_common import EMPTY_FILE_SHA256
 
 
 class ResourceScanner:
@@ -97,6 +98,9 @@ class ResourceScanner:
         ) as pool:
             for entry in os.scandir(self._resource_dir):
                 _fname = entry.name
+                if _fname == EMPTY_FILE_SHA256:
+                    continue
+
                 # NOTE: in resource dir, all files except tmp files are named
                 #       with its sha256 digest in hex string.
                 try:
