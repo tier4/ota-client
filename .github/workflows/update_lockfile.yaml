@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+      - v*
     paths:
       - 'pyproject.toml'
   # allow manual dispatch of this workflow
