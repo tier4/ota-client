@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared helper functions for IO."""
 
-
 from __future__ import annotations
 
 import hashlib
@@ -24,7 +23,6 @@ import shutil
 import sys
 from functools import partial
 from pathlib import Path
-from typing import TypeVar
 
 from otaclient_common._typing import StrOrPath
 
@@ -189,4 +187,16 @@ def copyfile_atomic(
         _tmp_file.unlink(missing_ok=True)
 
 
-_StrOrPath = TypeVar("_StrOrPath", str, Path)
+def remove_file(_fpath: StrOrPath, *, ignore_error: bool = True) -> None:
+    """Use proper way to remove <_fpath>."""
+    _fpath = Path(_fpath)
+    if not _fpath.exists():
+        return
+    if _fpath.is_dir():
+        return shutil.rmtree(_fpath, ignore_errors=ignore_error)
+
+    try:
+        _fpath.unlink(missing_ok=True)
+    except Exception:
+        if not ignore_error:
+            raise
