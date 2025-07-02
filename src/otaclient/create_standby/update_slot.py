@@ -220,7 +220,7 @@ class UpdateStandbySlot:
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                logger.exception(f"failed to process {entry=}: {e!r}")
+                logger.exception(f"failed to process {dict(entry)=}: {e!r}")
                 raise UpdateStandbySlotFailed(
                     f"failed to process {entry=}: {e!r}"
                 ) from e
@@ -231,7 +231,7 @@ class UpdateStandbySlot:
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
-                logger.exception(f"failed to process {entry=}: {e!r}")
+                logger.exception(f"failed to process {dict(entry)=}: {e!r}")
                 raise UpdateStandbySlotFailed(
                     f"failed to process {entry=}: {e!r}"
                 ) from e

@@ -49,8 +49,8 @@ MockedQue = cast(queue.Queue, _MockedQue)
 def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
     # NOTE: to let full disk scan mode can get all the resources, only for test
     mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.EXCLUDE_PATHS", {})
-    mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FOLDER_DEEPTH", 2**32)
-    mocker.patch(f"{DELTA_GEN_FULL_DISK_SCAN_BASE}.MAX_FILENUM_PER_FOLDER", 2**64)
+    mocker.patch(f"{DELTA_GEN_MODULE}.MAX_FOLDER_DEEPTH", 2**32)
+    mocker.patch(f"{DELTA_GEN_MODULE}.MAX_FILENUM_PER_FOLDER", 2**64)
 
 
 def test_rebuild_mode_with_base_file_table_assist(
