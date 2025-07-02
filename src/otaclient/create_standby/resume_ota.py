@@ -91,7 +91,10 @@ class ResourceScanner:
             self._se.release()
 
     def resume_ota(self) -> None:
-        with ThreadPoolExecutor(max_workers=cfg.MAX_PROCESS_FILE_THREAD) as pool:
+        with ThreadPoolExecutor(
+            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+            initializer=self._thread_initializer,
+        ) as pool:
             for entry in os.scandir(self._resource_dir):
                 _fname = entry.name
                 # NOTE: in resource dir, all files except tmp files are named
