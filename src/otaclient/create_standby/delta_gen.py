@@ -222,13 +222,15 @@ class _CheckDirResult(NamedTuple):
     dir_should_be_removed: bool
     """Whether this folder presents in the new image."""
 
-    dir_should_be_process: bool
-    """Whether delta generator should look into this folder."""
-
     dir_should_be_fully_scan: bool
     """Whether delta generator should scan all files under this folder,
     including files don't present in the new image.
     """
+
+    @property
+    def dir_should_be_process(self) -> bool:
+        """Whether delta generator should look into this folder."""
+        return self.dir_should_be_fully_scan or not self.dir_should_be_removed
 
 
 class DeltaGenFullDiskScan(_DeltaGeneratorBase):
@@ -265,7 +267,6 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
         if canonical_curdir_path == CANONICAL_ROOT_P:
             return _CheckDirResult(
                 dir_should_be_removed=False,
-                dir_should_be_process=True,
                 dir_should_be_fully_scan=False,
             )
 
@@ -276,7 +277,6 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
             )
             return _CheckDirResult(
                 dir_should_be_removed=True,
-                dir_should_be_process=False,
                 dir_should_be_fully_scan=False,
             )
 
@@ -289,7 +289,6 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
             if _cur_parent in self.EXCLUDE_PATHS:
                 return _CheckDirResult(
                     dir_should_be_removed=True,
-                    dir_should_be_process=False,
                     dir_should_be_fully_scan=False,
                 )
 
@@ -299,7 +298,6 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
         )
         return _CheckDirResult(
             dir_should_be_removed=dir_should_be_removed,
-            dir_should_be_process=dir_should_be_fully_scan or not dir_should_be_removed,
             dir_should_be_fully_scan=dir_should_be_fully_scan,
         )
 
