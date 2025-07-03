@@ -39,7 +39,6 @@ class TopDownCommonShortestPath:
         self._store: set[Path] = set()
 
     def add_path(self, _path: Path):
-        _path = Path(_path).resolve()
         for _parent in _path.parents:
             # this path is covered by a shorter common prefix
             if _parent in self._store:
