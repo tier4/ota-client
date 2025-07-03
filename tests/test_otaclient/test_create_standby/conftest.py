@@ -121,7 +121,7 @@ def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
     logger.info("prepare simple a/b slots for inplace update mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
-    logger.info(f"prepare simple a/b slots for rebuild mode: {slot_a=}, {slot_b=}")
+    logger.info(f"prepare simple a/b slots for inplace mode: {slot_a=}, {slot_b=}")
 
     slot_a.mkdir(exist_ok=True, parents=True)
     shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b, symlinks=True)
@@ -137,7 +137,7 @@ def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
 
 @pytest.fixture
 def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
-    logger.info("prepare simple a/b slots for inplace update mode ...")
+    logger.info("prepare simple a/b slots for rebuild mode ...")
     slot_a = tmp_path / "slot_a"
     slot_b = tmp_path / "slot_b"
     logger.info(f"prepare simple a/b slots for rebuild mode: {slot_a=}, {slot_b=}")

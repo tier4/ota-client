@@ -34,7 +34,7 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
-from otaclient_common._io import _gen_tmp_fname
+from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
@@ -647,6 +647,11 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
             try:
                 for fpath in delta_src_fpaths:
+                    # NOTE(20250703): a file recorded as regular file on base slot
+                    #                 might not be actually a regular file.
+                    if fpath.is_symlink() or not fpath.is_file():
+                        continue
+
                     try:
                         calculated_digest, file_size = worker_helper.verify_file(fpath)
                     except BaseException:
@@ -670,8 +675,10 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             finally:
                 self._max_pending_tasks.release()  # always release se first
                 # after the resource is collected, remove the original file
+                # NOTE(20250703): a file recorded as regular file on base slot
+                #                 might not be actually a regular file.
                 for _f in delta_src_fpaths:
-                    _f.unlink(missing_ok=True)
+                    remove_file(_f)
 
         # commit the final batch
         worker_helper.report_one_file(force_report=True)
