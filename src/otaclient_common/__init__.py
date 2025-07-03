@@ -13,7 +13,6 @@
 # limitations under the License.
 """Common shared libs for otaclient."""
 
-
 from __future__ import annotations
 
 import os
@@ -59,11 +58,7 @@ def replace_root(
     For example, if path="/abc", old_root="/", new_root="/new_root",
     then we will have "/new_root/abc".
     """
-    # normalize all the input args
-    path = os.path.normpath(path)
-    old_root = os.path.normpath(old_root)
-    new_root = os.path.normpath(new_root)
-
+    old_root, new_root = str(old_root), str(new_root)
     if not (old_root.startswith("/") and new_root.startswith("/")):
         raise ValueError(f"{old_root=} and/or {new_root=} is not valid root")
     if os.path.commonpath([path, old_root]) != old_root:
