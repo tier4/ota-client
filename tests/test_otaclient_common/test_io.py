@@ -30,6 +30,7 @@ from otaclient_common._io import (
     cal_file_digest,
     copyfile_atomic,
     file_sha256,
+    remove_file,
     symlink_atomic,
     write_str_to_file_atomic,
 )
@@ -60,7 +61,6 @@ def test_gen_file_digest(tmp_path: Path):
 
 
 class TestWriteStrToFileAtomic:
-
     @pytest.fixture(scope="class")
     def data(self):
         data_lens = [100, 500, 1000, 9000]  # bytes
@@ -163,3 +163,18 @@ def test_copyfile_atomic(tmp_path: Path):
     copyfile_atomic(_src, _dst)
     assert file_sha256(_dst) == file_sha256(_src) == _data_hash
     assert subprocess.check_output(["cat", str(_dst)]) == _data
+
+
+def test_remove_file(tmp_path: Path):
+    test_f = tmp_path / "test_f"
+    test_f.touch()
+    remove_file(test_f)
+    assert not test_f.is_file() and not test_f.exists()
+
+    test_f.mkdir()
+    remove_file(test_f)
+    assert not test_f.is_dir() and not test_f.exists()
+
+    test_f.symlink_to("abc")
+    remove_file(test_f)
+    assert not test_f.is_symlink() and not test_f.exists()
