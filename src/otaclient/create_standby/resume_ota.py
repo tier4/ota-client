@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Try to resume previously interrupted OTA which uses inplace update mode."""
+"""Try to re-use the OTA resources from previous interrupted OTA when using inplace update mode."""
 
 from __future__ import annotations
 
@@ -27,6 +27,8 @@ from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
+
+DB_CONN_NUMS = 1  # serializing write
 
 
 class ResourceScanner:
@@ -46,7 +48,7 @@ class ResourceScanner:
         self._ota_metadata = ota_metadata
 
         self._rst_orm_pool = ResourceTableORMPool(
-            con_factory=ota_metadata.connect_rstable, number_of_cons=3
+            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
         )
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
