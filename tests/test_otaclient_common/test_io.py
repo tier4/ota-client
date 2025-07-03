@@ -167,6 +167,16 @@ def test_copyfile_atomic(tmp_path: Path):
 
 def test_remove_file(tmp_path: Path):
     test_f = tmp_path / "test_f"
+    symlink_target = tmp_path / "symlink_target_dir"
+    symlink_target.mkdir()
+
+    # NOTE: we DON'T want to accidentally remove the symlink target!
+    test_f.symlink_to(symlink_target)
+    assert test_f.is_symlink()
+    remove_file(test_f)
+    assert symlink_target.is_dir()
+    assert not test_f.is_symlink() and not test_f.exists()
+
     test_f.touch()
     assert test_f.is_file()
     remove_file(test_f)
@@ -176,8 +186,3 @@ def test_remove_file(tmp_path: Path):
     assert test_f.is_dir()
     remove_file(test_f)
     assert not test_f.is_dir() and not test_f.exists()
-
-    test_f.symlink_to("abc")
-    assert test_f.is_symlink()
-    remove_file(test_f)
-    assert not test_f.is_symlink() and not test_f.exists()

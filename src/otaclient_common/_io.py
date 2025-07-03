@@ -190,7 +190,7 @@ def copyfile_atomic(
 def remove_file(_fpath: StrOrPath, *, ignore_error: bool = True) -> None:
     """Use proper way to remove <_fpath>."""
     _fpath = Path(_fpath)
-    if _fpath.is_dir():
+    if not _fpath.is_symlink() and _fpath.is_dir():
         return shutil.rmtree(_fpath, ignore_errors=ignore_error)
 
     try:
