@@ -84,6 +84,7 @@ from otaclient.create_standby import (
     can_use_in_place_mode,
 )
 from otaclient.create_standby.delta_gen import DeltaGenParams
+from otaclient.create_standby.resume_ota import ResourceScanner
 from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
@@ -110,7 +111,7 @@ OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
-STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.9
+STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 BASE_METADATA_FOLDER = "base"
 """On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
@@ -576,6 +577,31 @@ class _OTAUpdater:
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
+
+        # ------ in-update: calculate delta ------ #
+        logger.info("start to calculate and prepare delta...")
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=int(time.time()),
+                ),
+                session_id=self.session_id,
+            )
+        )
+        if use_inplace_mode and self._resource_dir_on_standby.is_dir():
+            logger.info(
+                "OTA resource dir found on standby slot, possible an interrupted OTA. \n"
+                "Try to resume previous OTA delta calculation progress ..."
+            )
+            ResourceScanner(
+                ota_metadata=self._ota_metadata,
+                resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish resuming previous OTA progress")
+
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
         self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
         self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
@@ -589,18 +615,6 @@ class _OTAUpdater:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
-
-        # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate and prepare delta...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
-        )
 
         base_meta_dir_on_standby_slot = None
         try:
