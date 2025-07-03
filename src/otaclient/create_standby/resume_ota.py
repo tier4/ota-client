@@ -107,6 +107,7 @@ class ResourceScanner:
                 max_workers=cfg.MAX_PROCESS_FILE_THREAD,
                 initializer=self._thread_initializer,
             ) as pool:
+                _count = 0
                 for entry in os.scandir(self._resource_dir):
                     _fname = entry.name
                     if _fname == EMPTY_FILE_SHA256:
@@ -120,10 +121,12 @@ class ResourceScanner:
                         continue
 
                     self._se.acquire()
+                    _count += 1
                     pool.submit(
                         self._process_resource_at_thread,
                         Path(entry.path),
                         expected_digest,
                     )
+            logger.info(f"totally {_count} of OTA resource files are scanned")
         except Exception as e:
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
