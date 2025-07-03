@@ -35,7 +35,11 @@ DB_CONN_NUMS = 1  # serializing write
 
 
 class ResourceScanner:
-    """Scan and verify OTA resource folder to resume previous OTA."""
+    """Scan and verify OTA resource folder leftover by previous interrupted OTA.
+
+    NOTE that this doesn't mean resuming the previous OTA, this helper only tries to
+        re-use the OTA resources generated in previous OTA to speed up current OTA.
+    """
 
     def __init__(
         self,
@@ -97,6 +101,7 @@ class ResourceScanner:
             self._se.release()
 
     def resume_ota(self) -> None:
+        """Scan the OTA resource folder leftover by previous interrupted OTA."""
         try:
             with ThreadPoolExecutor(
                 max_workers=cfg.MAX_PROCESS_FILE_THREAD,
