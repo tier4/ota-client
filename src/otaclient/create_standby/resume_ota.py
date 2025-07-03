@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -27,6 +28,8 @@ from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
+
+logger = logging.getLogger(__name__)
 
 DB_CONN_NUMS = 1  # serializing write
 
@@ -94,25 +97,28 @@ class ResourceScanner:
             self._se.release()
 
     def resume_ota(self) -> None:
-        with ThreadPoolExecutor(
-            max_workers=cfg.MAX_PROCESS_FILE_THREAD,
-            initializer=self._thread_initializer,
-        ) as pool:
-            for entry in os.scandir(self._resource_dir):
-                _fname = entry.name
-                if _fname == EMPTY_FILE_SHA256:
-                    continue
+        try:
+            with ThreadPoolExecutor(
+                max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+                initializer=self._thread_initializer,
+            ) as pool:
+                for entry in os.scandir(self._resource_dir):
+                    _fname = entry.name
+                    if _fname == EMPTY_FILE_SHA256:
+                        continue
 
-                # NOTE: in resource dir, all files except tmp files are named
-                #       with its sha256 digest in hex string.
-                try:
-                    expected_digest = bytes.fromhex(_fname)
-                except ValueError:
-                    continue
+                    # NOTE: in resource dir, all files except tmp files are named
+                    #       with its sha256 digest in hex string.
+                    try:
+                        expected_digest = bytes.fromhex(_fname)
+                    except ValueError:
+                        continue
 
-                self._se.acquire()
-                pool.submit(
-                    self._process_resource_at_thread,
-                    Path(entry.path),
-                    expected_digest,
-                )
+                    self._se.acquire()
+                    pool.submit(
+                        self._process_resource_at_thread,
+                        Path(entry.path),
+                        expected_digest,
+                    )
+        except Exception as e:
+            logger.warning(f"exception during scanning OTA resource dir: {e!r}")
