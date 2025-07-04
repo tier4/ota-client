@@ -1009,9 +1009,9 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             # ------ preserve /boot/ota folder to standby rootfs ------ #
             # NOTE(20250704): only copy /boot/ota folder to standby slot when
             #                 /boot/ota is not configured in the OTA image.
-            _standby_slot_boot_ota = (
-                self._mp_control.standby_slot_mount_point / "boot" / "ota"
-            )
+            _standby_slot_boot_ota = self._mp_control.standby_slot_mount_point / Path(
+                cfg.OTA_DPATH
+            ).relative_to("/")
             if not _standby_slot_boot_ota.is_dir():
                 logger.warning(
                     "standby slot /boot/ota folder is not configured, "
@@ -1019,8 +1019,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 )
                 preserve_ota_config_files_to_standby(
                     active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-                    / "boot"
-                    / "ota",
+                    / Path(cfg.OTA_DPATH).relative_to("/"),
                     standby_slot_ota_dirpath=_standby_slot_boot_ota,
                 )
 
