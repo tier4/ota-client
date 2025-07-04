@@ -38,6 +38,7 @@ from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_run_wrapper
 
+from . import preserve_ota_config_files_to_standby
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -51,7 +52,6 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
-    preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
 from ._ota_status_control import OTAStatusFilesControl
@@ -644,14 +644,21 @@ class JetsonCBootControl(BootControllerProtocol):
             self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
-            preserve_ota_config_files_to_standby(
-                active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-                / "boot"
-                / "ota",
-                standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot"
-                / "ota",
-            )
+            # NOTE(20250704): only copy /boot/ota folder to standby slot when
+            #                 /boot/ota is not configured in the OTA image.
+            _standby_slot_boot_ota = self._mp_control.standby_slot_mount_point / Path(
+                cfg.OTA_DPATH
+            ).relative_to("/")
+            if not _standby_slot_boot_ota.is_dir():
+                logger.warning(
+                    "standby slot /boot/ota folder is not configured, "
+                    "preserve active slot /boot/ota to standby slot ..."
+                )
+                preserve_ota_config_files_to_standby(
+                    active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+                    / Path(cfg.OTA_DPATH).relative_to("/"),
+                    standby_slot_ota_dirpath=_standby_slot_boot_ota,
+                )
 
             # ------ for external rootfs, preserve /boot folder to internal ------ #
             # NOTE: the copy must happen AFTER all the changes to active slot's /boot done.

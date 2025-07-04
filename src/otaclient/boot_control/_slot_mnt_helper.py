@@ -17,11 +17,9 @@ from __future__ import annotations
 
 import atexit
 import logging
-import shutil
 from functools import partial
 from pathlib import Path
 
-from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
 from otaclient_common._typing import StrOrPath
 
@@ -93,22 +91,6 @@ class SlotMountHelper:  # pragma: no cover
             mount_func=cmdhelper.bind_mount_ro,
             raise_exception=True,
         )
-
-    def preserve_ota_folder_to_standby(self):
-        """Copy the /boot/ota folder to standby slot to preserve it.
-
-        /boot/ota folder contains the ota setting for this device,
-        so we should preserve it for each slot, accross each update.
-        """
-        logger.debug("copy /boot/ota from active to standby.")
-        try:
-            _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            shutil.copytree(_src, _dst, dirs_exist_ok=True)
-        except Exception as e:
-            raise ValueError(
-                f"failed to copy /boot/ota from active to standby: {e!r}"
-            ) from e
 
     def prepare_standby_dev(
         self,
