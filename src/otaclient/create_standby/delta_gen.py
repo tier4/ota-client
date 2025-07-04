@@ -54,7 +54,7 @@ PROCESS_FILES_REPORT_INTERVAL = cfg.PROCESS_FILES_REPORT_INTERVAL
 # NOTE: the following settings are enough for most cases.
 # NOTE: since v3.9, we change the standby slot mount point to /run/otaclient/mnt/standby_slot,
 #       so extend the maximum folders depth.
-MAX_FOLDER_DEEPTH = 27
+MAX_FOLDER_DEEPTH = 35
 MAX_FILENUM_PER_FOLDER = 8192
 
 
