@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import logging
 from pathlib import Path
 
 from otaclient_common.common import copytree_identical
@@ -20,6 +21,8 @@ from otaclient_common.common import copytree_identical
 from .configs import BootloaderType
 from .protocol import BootControllerProtocol
 from .selecter import detect_bootloader, get_boot_controller
+
+logger = logging.getLogger(__name__)
 
 __all__ = (
     "get_boot_controller",
@@ -36,6 +39,16 @@ def preserve_ota_config_files_to_standby(
 
     Only called when standby slot doesn't have /boot/ota configured.
     """
-    if not active_slot_ota_dirpath.is_dir():
-        return
-    copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
+    try:
+        if not active_slot_ota_dirpath.is_dir():
+            _err_msg = f"try to copy /boot/ota, but {active_slot_ota_dirpath} is not a directory"
+            logger.error(_err_msg)
+            raise FileNotFoundError(_err_msg)
+        copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
+    except Exception as e:
+        logger.error(
+            f"failed preserve /boot/ota folder from active slot to standby slot: {e!r} ",
+            "this means neither active slot nor OTA image has /boot/ota configured, ",
+            "this is NOT expected, please check your OTA image",
+        )
+        raise
