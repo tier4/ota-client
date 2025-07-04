@@ -182,8 +182,13 @@ class PersistFilesHandler:
                 # NOTE that fnames also contain symlink to normal file
                 if _src_fpath.is_symlink():
                     self._prepare_symlink(_src_fpath, _dst_fpath)
-                else:
+                elif _src_fpath.is_file():
                     self._prepare_file(_src_fpath, _dst_fpath)
+                else:
+                    # Handle special files (sockets, FIFOs, etc.)
+                    logger.warning(
+                        f"skipping special file (socket/FIFO/device): {_src_fpath}"
+                    )
 
             # symlinks to dirs also included in dnames, we must handle it
             for _dname in dnames:
