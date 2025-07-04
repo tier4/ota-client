@@ -506,9 +506,9 @@ class UEFIFirmwareUpdater:
 
             try:
                 _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                assert (
-                    _digest == capsule_digest_value
-                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                assert _digest == capsule_digest_value, (
+                    f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(
                     src=capsule_fpath,
@@ -560,9 +560,9 @@ class UEFIFirmwareUpdater:
                 _digest = cal_file_digest(
                     ota_image_bootaa64, algorithm=payload_digest_alg
                 )
-                assert (
-                    _digest == payload_digest_value
-                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                assert _digest == payload_digest_value, (
+                    f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
@@ -1007,14 +1007,22 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
             # ------ preserve /boot/ota folder to standby rootfs ------ #
-            preserve_ota_config_files_to_standby(
-                active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-                / "boot"
-                / "ota",
-                standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot"
-                / "ota",
+            # NOTE(20250704): only copy /boot/ota folder to standby slot when
+            #                 /boot/ota is not configured in the OTA image.
+            _standby_slot_boot_ota = (
+                self._mp_control.standby_slot_mount_point / "boot" / "ota"
             )
+            if not _standby_slot_boot_ota.is_dir():
+                logger.warning(
+                    "standby slot /boot/ota folder is not configured, "
+                    "preserve active slot /boot/ota to standby slot ..."
+                )
+                preserve_ota_config_files_to_standby(
+                    active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+                    / "boot"
+                    / "ota",
+                    standby_slot_ota_dirpath=_standby_slot_boot_ota,
+                )
 
             # ------ firmware update & switch boot to standby ------ #
             if (
@@ -1023,7 +1031,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
                 != self._uefi_control.active_bootloader_slot
             ):
                 _err_msg = (
-                    "warning, active bootloader slot is mismatched with current slot: "
+                    "WARNING, active bootloader slot is mismatched with current slot: "
                     f"current_slot={self._uefi_control.current_slot}, "
                     f"active_bootloader_slot={self._uefi_control.active_bootloader_slot}. "
                     "this migth indicate an previous interrupted OTA, and this mismatch "
