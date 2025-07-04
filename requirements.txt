@@ -11,8 +11,8 @@ protobuf>=4.25.8,<6.32
 pydantic<3,>=2.10
 pydantic-settings<3,>=2.3
 pyyaml<7,>=6.0.1
-requests==2.32.4
-simple-sqlite3-orm<0.11,>=0.10
+requests~=2.32
+simple-sqlite3-orm~=0.12
 typing-extensions>=4.6.3
 urllib3>=2.2.2,<2.6
 uvicorn[standard]>=0.30,<0.35
