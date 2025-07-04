@@ -51,7 +51,11 @@ from otaclient_common._io import (
     symlink_atomic,
     write_str_to_file_atomic,
 )
-from otaclient_common.common import subprocess_call, subprocess_check_output
+from otaclient_common.common import (
+    copytree_identical,
+    subprocess_call,
+    subprocess_check_output,
+)
 
 from ._ota_status_control import OTAStatusFilesControl, cat_proc_cmdline
 from .configs import grub_cfg as boot_cfg
@@ -912,6 +916,17 @@ class GrubController(BootControllerProtocol):
 
             # ------ prepare boot files ------ #
             self._copy_boot_files_from_standby_slot()
+
+            # ------ copy up-to-date /boot/ota from standby slot ------ #
+            _standby_slot_boot_ota = self._mp_control.standby_slot_mount_point / Path(
+                cfg.OTA_DPATH
+            ).relative_to("/")
+            if _standby_slot_boot_ota.is_dir():
+                logger.info(
+                    f"copying up-to-date boot ota files from "
+                    f"{_standby_slot_boot_ota} to {cfg.BOOT_DPATH}"
+                )
+                copytree_identical(_standby_slot_boot_ota, Path(cfg.BOOT_DPATH))
 
             # ------ pre-reboot ------ #
             self._mp_control.umount_all(ignore_error=True)
