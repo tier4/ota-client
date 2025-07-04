@@ -17,10 +17,8 @@ from __future__ import annotations
 
 import logging
 import shutil
-import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from dataclasses import dataclass
 from multiprocessing import Process
 from pathlib import Path
@@ -30,14 +28,6 @@ from typing import Any, Generator
 import pytest
 import pytest_mock
 
-from ota_metadata.file_table._orm import (
-    FileTableDirORM,
-    FileTableNonRegularORM,
-    FileTableRegularORM,
-)
-from ota_metadata.legacy2 import csv_parser
-from ota_metadata.legacy2.metadata import OTAMetadata
-from ota_metadata.legacy2.rs_table import ResourceTableORM
 from otaclient._status_monitor import (
     TERMINATE_SENTINEL,
     OTAClientStatusCollector,
@@ -155,38 +145,6 @@ def run_http_server_subprocess():
     finally:
         logger.info("shutdown background ota-image server")
         _server_p.kill()
-
-
-@pytest.fixture(autouse=True, scope="session")
-def ota_image_ft_db() -> Path:
-    ota_image_dir = Path(OTA_IMAGE_DIR)
-    _ft_fpath = ota_image_dir / OTAMetadata.FSTABLE_DB
-    _rs_fpath = ota_image_dir / OTAMetadata.RSTABLE_DB
-
-    with closing(sqlite3.connect(_ft_fpath)) as fst_conn, closing(
-        sqlite3.connect(_rs_fpath)
-    ) as rst_conn:
-        ft_regular_orm = FileTableRegularORM(fst_conn)
-        ft_regular_orm.orm_bootstrap_db()
-        ft_dir_orm = FileTableDirORM(fst_conn)
-        ft_dir_orm.orm_bootstrap_db()
-        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
-        ft_non_regular_orm.orm_bootstrap_db()
-
-        rs_orm = ResourceTableORM(rst_conn)
-        rs_orm.orm_bootstrap_db()
-
-        csv_parser.parse_regulars_from_csv_file(
-            _fpath=ota_image_dir / "regulars.txt",
-            _orm=ft_regular_orm,
-            _orm_rs=rs_orm,
-        )
-        csv_parser.parse_dirs_from_csv_file(ota_image_dir / "dirs.txt", ft_dir_orm)
-        csv_parser.parse_symlinks_from_csv_file(
-            ota_image_dir / "symlinks.txt", ft_non_regular_orm
-        )
-
-    return _ft_fpath
 
 
 @pytest.fixture
@@ -334,3 +292,13 @@ def ota_status_collector(
     finally:
         _report_queue.put_nowait(TERMINATE_SENTINEL)
         _collector_thread.join()
+
+
+@pytest.fixture(autouse=True)
+def mock_ensure_mount(mocker: pytest_mock.MockerFixture) -> None:
+    mocker.patch("otaclient.ota_core.ensure_mount")
+
+
+@pytest.fixture(autouse=True)
+def mock_ensure_umount(mocker: pytest_mock.MockerFixture) -> None:
+    mocker.patch("otaclient.ota_core.ensure_umount")

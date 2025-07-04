@@ -864,6 +864,10 @@ class GrubController(BootControllerProtocol):
 
     # API
 
+    @property
+    def standby_slot_dev(self) -> Path:
+        return Path(self._mp_control.standby_slot_dev)
+
     def get_standby_slot_path(self) -> Path:  # pragma: no cover
         return self._mp_control.standby_slot_mount_point
 
@@ -882,7 +886,7 @@ class GrubController(BootControllerProtocol):
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
-    def pre_update(self, version: str, *, standby_as_ref: bool, erase_standby=False):
+    def pre_update(self, *, standby_as_ref: bool, erase_standby=False):
         try:
             logger.info("grub_boot: pre-update setup...")
             ### udpate active slot's ota_status ###
@@ -893,9 +897,6 @@ class GrubController(BootControllerProtocol):
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
 
-            ### update standby slot's ota_status files ###
-            self._ota_status_control.pre_update_standby(version=version)
-
             # remove old files under standby ota_partition folder
             self._cleanup_standby_ota_partition_folder()
         except Exception as e:
@@ -905,9 +906,12 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
-    def post_update(self) -> None:
+    def post_update(self, update_version: str) -> None:
         try:
             logger.info("grub_boot: post-update setup...")
+            # ------ update standby slot's ota_status files ------ #
+            self._ota_status_control.post_update_standby(version=update_version)
+
             # ------ update fstab ------ #
             active_fstab = self._mp_control.active_slot_mount_point / Path(
                 boot_cfg.FSTAB_FILE_PATH
@@ -941,7 +945,6 @@ class GrubController(BootControllerProtocol):
             logger.info("grub_boot: pre-rollback setup...")
             self._ota_status_control.pre_rollback_current()
             self._mp_control.mount_standby()
-            self._ota_status_control.pre_rollback_standby()
         except Exception as e:
             _err_msg = f"failed on pre_rollback: {e!r}"
             logger.error(_err_msg)
@@ -952,6 +955,7 @@ class GrubController(BootControllerProtocol):
     def post_rollback(self):
         try:
             logger.info("grub_boot: post-rollback setup...")
+            self._ota_status_control.post_rollback_standby()
             self._boot_control.grub_reboot_to_standby()
             self._mp_control.umount_all(ignore_error=True)
         except Exception as e:

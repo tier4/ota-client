@@ -13,22 +13,20 @@
 # limitations under the License.
 
 
-import logging
+from otaclient.create_standby.delta_gen import (
+    InPlaceDeltaGenFullDiskScan,
+    InPlaceDeltaWithBaseFileTable,
+    RebuildDeltaGenFullDiskScan,
+    RebuildDeltaWithBaseFileTable,
+)
+from otaclient.create_standby.update_slot import UpdateStandbySlot
+from otaclient.create_standby.utils import can_use_in_place_mode
 
-from otaclient.configs import CreateStandbyMechanism
-from otaclient.configs._cfg_configurable import CREATE_STANDBY_METHOD_LTIERAL
-
-logger = logging.getLogger(__name__)
-
-
-def get_standby_slot_creator(mode: CREATE_STANDBY_METHOD_LTIERAL):
-    logger.info(f"use slot update mechanism: {mode!r}")
-    if mode == CreateStandbyMechanism.REBUILD:
-        from .rebuild_mode import RebuildMode
-
-        return RebuildMode
-
-    raise NotImplementedError(f"slot update mechanism {mode!r} is not implemented")
-
-
-__all__ = ("get_standby_slot_creator",)
+__all__ = [
+    "can_use_in_place_mode",
+    "UpdateStandbySlot",
+    "InPlaceDeltaGenFullDiskScan",
+    "InPlaceDeltaWithBaseFileTable",
+    "RebuildDeltaGenFullDiskScan",
+    "RebuildDeltaWithBaseFileTable",
+]

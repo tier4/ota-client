@@ -267,19 +267,13 @@ class TestRPIBootControl:
 
         # ------ boot_controller_inst1.stage2: pre_update ------ #
         rpi_boot_controller.pre_update(
-            version=VERSION,
             standby_as_ref=False,
             erase_standby=False,
         )
 
         # --- assertion --- #
         assert (self.slot_a_ota_status_dir / "status").read_text() == OTAStatus.FAILURE
-        assert (self.slot_b_ota_status_dir / "status").read_text() == OTAStatus.UPDATING
-        assert (
-            (self.slot_a_ota_status_dir / "slot_in_use").read_text()
-            == (self.slot_b_ota_status_dir / "slot_in_use").read_text()
-            == SLOT_B
-        )
+        assert (self.slot_a_ota_status_dir / "slot_in_use").read_text() == SLOT_B
         self.mp_control_mock.prepare_standby_dev.assert_called_once_with(  # type: ignore
             erase_standby=mocker.ANY,
             fslabel=self.fsm.standby_slot,
@@ -291,6 +285,9 @@ class TestRPIBootControl:
         # this should be done by create_standby module, so we do it manually here instead
         self.slot_b_boot_dir = self.slot_b_mp / "boot"
         self.slot_a_boot_dir = self.slot_a_mp / "boot"
+        self.slot_a_boot_dir.mkdir(exist_ok=True, parents=True)
+        self.slot_b_boot_dir.mkdir(exist_ok=True, parents=True)
+
         # NOTE: copy slot_a's kernel and initrd.img to slot_b,
         #       because we skip the create_standby step
         # NOTE 2: not copy the symlinks
@@ -301,10 +298,12 @@ class TestRPIBootControl:
 
         # ------ boot_controller_inst1.stage3: post_update, reboot switch boot ------ #
         rpi_boot_controller: Any  # for typing only
-        rpi_boot_controller.post_update()
+        rpi_boot_controller.post_update(update_version=VERSION)
         rpi_boot_controller.finalizing_update()
 
         # --- assertion --- #
+        assert (self.slot_b_ota_status_dir / "status").read_text() == OTAStatus.UPDATING
+        assert (self.slot_b_ota_status_dir / "slot_in_use").read_text()
         self.reboot_tryboot_mock.assert_called_once()
         self.update_firmware_mock.assert_called_once()
         assert self.fsm.is_switched_boot

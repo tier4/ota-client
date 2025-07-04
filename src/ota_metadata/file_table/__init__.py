@@ -12,27 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from ._orm import (
-    FileTableDirORM,
-    FileTableNonRegularORM,
-    FileTableRegularORM,
-    FileTableRegularORMPool,
+FILE_TABLE_MEDIA_TYPE = (
+    "application/vnd.tier4.ota.file-based-ota-image.file_table.v1.sqlite3"
 )
-from ._table import (
-    FileTableDirectories,
-    FileTableNonRegularFiles,
-    FileTableRegularFiles,
-)
-from ._types import FileEntryAttrs
+"""The supported file_table version."""
 
-__all__ = [
-    "FileTableNonRegularORM",
-    "FileTableRegularORM",
-    "FileTableDirORM",
-    "FileTableRegularORMPool",
-    "FileTableNonRegularFiles",
-    "FileTableRegularFiles",
-    "FileTableDirectories",
-    "FileEntryAttrs",
-]
+FILE_TABLE_FNAME = "file_table.sqlite3"
+MEDIA_TYPE_FNAME = "mediaType"
+
+FT_REGULAR_TABLE_NAME = "ft_regular"
+FT_NON_REGULAR_TABLE_NAME = "ft_non_regular"
+FT_DIR_TABLE_NAME = "ft_dir"
+FT_INODE_TABLE_NAME = "ft_inode"
+FT_RESOURCE_TABLE_NAME = "ft_resource"

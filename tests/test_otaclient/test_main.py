@@ -58,7 +58,6 @@ class TestMain:
 
         # Mock the imported utility functions
         mocker.patch("otaclient._utils.check_other_otaclient")
-        mocker.patch("otaclient._utils.create_otaclient_rundir")
 
         # Mock processes
         self.mock_ota_core_p = mocker.MagicMock()
