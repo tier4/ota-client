@@ -27,6 +27,7 @@ from typing_extensions import Self
 
 import otaclient.errors as ota_errors
 from otaclient._types import OTAStatus
+from otaclient.boot_control import preserve_ota_config_files_to_standby
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
@@ -535,16 +536,21 @@ class RPIBootController(BootControllerProtocol):
             ### update standby slot's ota_status files ###
             self._ota_status_control.post_update_standby(version=update_version)
 
-            # NOTE(20250704): only copy /boot/ota from active to standby if
-            #                 standby slot doesn't have /boot/ota folder.
-            if not (
-                self._mp_control.standby_slot_mount_point
-                / Path(cfg.OTA_DPATH).relative_to("/")
-            ).is_dir():
-                logger.info(
-                    "standby slot doesn't have /boot/ota, copying from active slot."
+            # NOTE(20250704): only copy /boot/ota folder to standby slot when
+            #                 /boot/ota is not configured in the OTA image.
+            _standby_slot_boot_ota = self._mp_control.standby_slot_mount_point / Path(
+                cfg.OTA_DPATH
+            ).relative_to("/")
+            if not _standby_slot_boot_ota.is_dir():
+                logger.warning(
+                    "standby slot /boot/ota folder is not configured, "
+                    "preserve active slot /boot/ota to standby slot ..."
                 )
-                self._mp_control.preserve_ota_folder_to_standby()
+                preserve_ota_config_files_to_standby(
+                    active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+                    / Path(cfg.OTA_DPATH).relative_to("/"),
+                    standby_slot_ota_dirpath=_standby_slot_boot_ota,
+                )
 
             self._write_standby_fstab()
             self._rpiboot_control.update_firmware(

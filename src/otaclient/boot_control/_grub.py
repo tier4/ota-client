@@ -918,6 +918,8 @@ class GrubController(BootControllerProtocol):
             self._copy_boot_files_from_standby_slot()
 
             # ------ copy up-to-date /boot/ota from standby slot ------ #
+            # NOTE that in grub, we use shared boot partition, so we need to
+            #      copy the up-to-date boot ota files to boot partition.
             _standby_slot_boot_ota = self._mp_control.standby_slot_mount_point / Path(
                 cfg.OTA_DPATH
             ).relative_to("/")

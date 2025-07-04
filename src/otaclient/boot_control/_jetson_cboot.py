@@ -38,6 +38,7 @@ from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_run_wrapper
 
+from . import preserve_ota_config_files_to_standby
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -51,7 +52,6 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
-    preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
 from ._ota_status_control import OTAStatusFilesControl

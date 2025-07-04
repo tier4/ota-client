@@ -13,6 +13,10 @@
 # limitations under the License.
 
 
+from pathlib import Path
+
+from otaclient_common.common import copytree_identical
+
 from .configs import BootloaderType
 from .protocol import BootControllerProtocol
 from .selecter import detect_bootloader, get_boot_controller
@@ -23,3 +27,15 @@ __all__ = (
     "BootloaderType",
     "BootControllerProtocol",
 )
+
+
+def preserve_ota_config_files_to_standby(
+    *, active_slot_ota_dirpath: Path, standby_slot_ota_dirpath: Path
+) -> None:
+    """Preserve /boot/ota to standby /boot folder.
+
+    Only called when standby slot doesn't have /boot/ota configured.
+    """
+    if not active_slot_ota_dirpath.is_dir():
+        return
+    copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)

@@ -430,18 +430,6 @@ def copy_standby_slot_boot_to_internal_emmc(
         cmdhelper.umount(internal_emmc_mp, raise_exception=False)
 
 
-def preserve_ota_config_files_to_standby(
-    *, active_slot_ota_dirpath: Path, standby_slot_ota_dirpath: Path
-) -> None:
-    """Preserve /boot/ota to standby /boot folder."""
-    if not active_slot_ota_dirpath.is_dir():  # basically this should not happen
-        logger.warning(
-            f"{active_slot_ota_dirpath} doesn't exist, skip preserve /boot/ota folder."
-        )
-        return
-    copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
-
-
 def update_standby_slot_extlinux_cfg(
     *,
     active_slot_extlinux_fpath: Path,
