@@ -534,7 +534,18 @@ class RPIBootController(BootControllerProtocol):
             logger.info("rpi_boot: post-update setup...")
             ### update standby slot's ota_status files ###
             self._ota_status_control.post_update_standby(version=update_version)
-            self._mp_control.preserve_ota_folder_to_standby()
+
+            # NOTE(20250704): only copy /boot/ota from active to standby if
+            #                 standby slot doesn't have /boot/ota folder.
+            if not (
+                self._mp_control.standby_slot_mount_point
+                / Path(cfg.OTA_DPATH).relative_to("/")
+            ).is_dir():
+                logger.info(
+                    "standby slot doesn't have /boot/ota, copying from active slot."
+                )
+                self._mp_control.preserve_ota_folder_to_standby()
+
             self._write_standby_fstab()
             self._rpiboot_control.update_firmware(
                 target_slot=self._rpiboot_control.standby_slot,
