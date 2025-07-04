@@ -580,6 +580,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 cfg.STANDBY_SLOT_MNT,
             )
         )
+        self._can_use_in_place_mode = False
 
     def _execute_update(self):
         """Implementation of OTA updating."""
@@ -587,38 +588,18 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         self._handle_upper_proxy()
         self._process_metadata()
-        self._prepare_standby_slot()
+        self._pre_update()
         self._calculate_delta()
         self._download_delta_resources()
         self._apply_update()
         self._post_update()
         self._finalize_update()
 
-    def _prepare_standby_slot(self):
+    def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
-        self._boot_controller.pre_update(
-            standby_as_ref=False,  # NOTE: this option is deprecated and not used by bootcontroller
-            erase_standby=True,  # NOTE: as of now, we only have rebuild mode, so always erase_standby
-        )
-
-    def _calculate_delta(self):
-        """Calculate the delta bundle."""
-        logger.info("start to calculate delta ...")
-        _current_time = int(time.time())
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=_current_time,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._metrics.delta_calculation_start_timestamp = _current_time
-
         with TemporaryDirectory() as _tmp_dir:
-            use_inplace_mode = can_use_in_place_mode(
+            self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
                 threshold_in_bytes=int(
@@ -652,6 +633,31 @@ class _OTAUpdater(_OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
+    def _calculate_delta(self):
+        """Calculate the delta bundle."""
+        logger.info("start to calculate delta ...")
+        _current_time = int(time.time())
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=_current_time,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.delta_calculation_start_timestamp = _current_time
+
+        # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
+        #                 destination folder.
+        logger.info("save the OTA image file_table to standby slot ...")
+        try:
+            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
+        except Exception as e:
+            logger.error(
+                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
+            )
+
         # ------ in-update: calculate delta ------ #
         logger.info("start to calculate delta ...")
         self._status_report_queue.put_nowait(
@@ -666,7 +672,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         base_meta_dir_on_standby_slot = None
         try:
-            if use_inplace_mode:
+            if self._can_use_in_place_mode:
                 # try to use base file_table from standby slot itself
                 base_meta_dir_on_standby_slot = (
                     self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
