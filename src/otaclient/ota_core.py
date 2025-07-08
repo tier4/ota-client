@@ -1086,6 +1086,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             logger.error(f"client update failed: {e!r}")
             raise
         finally:
+            ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
@@ -1355,6 +1356,8 @@ class OTAClient:
             self._client_update_control_flags.request_shutdown_event.set()
         except Exception:
             self._client_update_control_flags.request_shutdown_event.set()
+        finally:
+            shutil.rmtree(session_wd, ignore_errors=True)
 
     def rollback(self, request: RollbackRequestV2) -> None:
         self._live_ota_status = OTAStatus.ROLLBACKING
