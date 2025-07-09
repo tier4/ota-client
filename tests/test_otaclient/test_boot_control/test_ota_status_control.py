@@ -158,7 +158,6 @@ class TestOTAStatusFilesControl:
 
         # ------ execution ------ #
         status_control.pre_update_current()
-        status_control.pre_update_standby(version="dummy_version")
 
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
@@ -169,6 +168,23 @@ class TestOTAStatusFilesControl:
             == status_control._load_current_slot_in_use()
             == self.slot_b
         )
+
+    def test_post_update(self):
+        # ------ direct init ------ #
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            force_initialize=False,
+        )
+
+        # ------ execution ------ #
+        status_control.post_update_standby(version="dummy_version")
+
+        # ------ assertion ------ #
+        assert not self.finalize_switch_boot_flag.is_set()
         # slot_b: standby slot
         assert read_str_from_file(self.slot_b_status_file) == OTAStatus.UPDATING
         assert read_str_from_file(self.slot_b_slot_in_use_file) == self.slot_b
