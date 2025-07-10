@@ -22,7 +22,6 @@ import shutil
 import sys
 from pathlib import Path
 from subprocess import CalledProcessError
-import time
 from typing import Callable, Literal, NoReturn, Optional, Union
 
 from otaclient.app.configs import config as cfg

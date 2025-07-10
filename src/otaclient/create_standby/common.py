@@ -18,11 +18,9 @@ from __future__ import annotations
 
 import contextlib
 import csv
-import glob
 import logging
 import os
 import random
-from tempfile import TemporaryDirectory
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -41,10 +39,8 @@ from otaclient.app.update_stats import (
     OTAUpdateStatsCollector,
     ProcessOperation,
 )
-
 from otaclient_common.common import (
     create_tmp_fname,
-    read_str_from_file,
 )
 
 logger = logging.getLogger(__name__)

@@ -63,7 +63,7 @@ class RebuildMode(StandbySlotCreatorProtocol):
 
     def _cal_and_prepare_delta(self):
         logger.info("generating delta...")
-        
+
         if not self.should_use_delta_v2():
             delta_calculator = DeltaGenerator(
                 ota_metadata=self._ota_metadata,
@@ -73,9 +73,13 @@ class RebuildMode(StandbySlotCreatorProtocol):
             )
             delta_bundle = delta_calculator.calculate_and_process_delta()
         else:
-            last_update_time="" # default 
+            last_update_time = ""  # default
             try:
-                with open(Path(cfg.MOUNT_POINT)/cfg.OTA_LAST_UPDATE_TIME, "r", encoding="utf-8") as file:
+                with open(
+                    Path(cfg.MOUNT_POINT) / cfg.OTA_LAST_UPDATE_TIME,
+                    "r",
+                    encoding="utf-8",
+                ) as file:
                     last_update_time = file.read()
             except Exception as e:
                 logger.error(f"Error reading last update time value: {e}")
@@ -85,11 +89,10 @@ class RebuildMode(StandbySlotCreatorProtocol):
                 delta_src=self.active_slot_mp,
                 local_copy_dir=self._ota_tmp,
                 stats_collector=self.stats_collector,
-                last_update_time=last_update_time
+                last_update_time=last_update_time,
             )
             delta_bundle = delta_calculator.calculate_and_process_delta_v2()
-        
-        
+
         logger.info(f"total_regular_files_num={delta_bundle.total_regular_num}")
         self.delta_bundle = delta_bundle
 
