@@ -581,7 +581,6 @@ class OTAStatusFilesControl:
             )
 
     # slot_in_use control
-
     def _store_current_slot_in_use(self, _slot: str):
         write_str_to_file_sync(
             self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
