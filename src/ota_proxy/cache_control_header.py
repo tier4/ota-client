@@ -27,9 +27,12 @@ logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.header_parse_error")
 
-VALID_DIRECTORIES = set(
-    ["no_cache", "retry_caching", "file_sha256", "file_compression_alg"]
-)
+VALID_DIRECTORIES = {
+    "no_cache",
+    "retry_caching",
+    "file_sha256",
+    "file_compression_alg"
+}
 HEADER_LOWERCASE = "ota-file-cache-control"
 HEADER_DIR_SEPARATOR = ","
 
