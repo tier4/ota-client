@@ -77,6 +77,10 @@ def create_files(tmp_path: Path):
     C = B / "C"
     C.mkdir()
 
+    # Create special files (FIFO)
+    special_fifo = B / "special_fifo"
+    os.mkfifo(special_fifo)
+
     os.chown(src, 0, 1, follow_symlinks=False)
     os.chown(a, 2, 3, follow_symlinks=False)
     os.chown(to_a, 4, 5, follow_symlinks=False)
@@ -90,6 +94,7 @@ def create_files(tmp_path: Path):
     os.chown(to_c, 12345678, 87654321, follow_symlinks=False)  # id can't be converted
     os.chown(to_broken_c, 104, 104, follow_symlinks=False)
     os.chown(C, 105, 105, follow_symlinks=False)
+    os.chown(special_fifo, 106, 106, follow_symlinks=False)
 
     os.chmod(src, 0o111)
     os.chmod(a, 0o112)
@@ -104,6 +109,7 @@ def create_files(tmp_path: Path):
     # os.chmod(to_c, 0o124)
     # os.chmod(to_broken_c, 0o125)
     os.chmod(C, 0o126)
+    os.chmod(special_fifo, 0o127)
 
     return (
         dst,
@@ -120,6 +126,7 @@ def create_files(tmp_path: Path):
         to_c,
         to_broken_c,
         C,
+        special_fifo,
     )
 
 
@@ -314,6 +321,7 @@ def test_copy_tree_src_dir(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        *_,
     ) = create_files(tmp_path)
 
     (
@@ -402,6 +410,7 @@ def test_copy_tree_src_file(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        special_fifo,
     ) = create_files(tmp_path)
 
     (
@@ -461,6 +470,9 @@ def test_copy_tree_src_file(mocker, tmp_path):
     # src/A/B/C/
     assert not (dst / C.relative_to(src)).exists()
     assert not (dst / C.relative_to(src)).is_symlink()
+    # Special files should NOT be copied
+    assert not (dst / special_fifo.relative_to(src)).exists()
+    assert not (dst / special_fifo.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_B_exists(mocker, tmp_path):
@@ -479,6 +491,7 @@ def test_copy_tree_B_exists(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        *_,
     ) = create_files(tmp_path)
 
     dst_A = dst / "A"
@@ -571,6 +584,7 @@ def test_copy_tree_with_symlink_overwrite(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        *_,
     ) = create_files(tmp_path)
 
     (
@@ -625,6 +639,7 @@ def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        special_fifo,
     ) = create_files(tmp_path)
 
     (
@@ -702,6 +717,9 @@ def test_copy_tree_src_dir_dst_file(mocker, tmp_path):
     # src/A/to_broken_b
     assert not (dst / to_broken_b.relative_to(src)).exists()
     assert not (dst / to_broken_b.relative_to(src)).is_symlink()
+    # Special files should NOT be copied
+    assert not (dst / special_fifo.relative_to(src)).exists()
+    assert not (dst / special_fifo.relative_to(src)).is_symlink()
 
 
 def test_copy_tree_src_file_dst_dir(mocker, tmp_path):
@@ -720,6 +738,7 @@ def test_copy_tree_src_file_dst_dir(mocker, tmp_path):
         to_c,
         to_broken_c,
         C,
+        *_,
     ) = create_files(tmp_path)
 
     (

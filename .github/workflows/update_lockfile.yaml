@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+      - v*
     paths:
       - 'pyproject.toml'
   # allow manual dispatch of this workflow
@@ -36,7 +37,7 @@ jobs:
 
       # see https://docs.astral.sh/uv/guides/integration/github/#setting-up-python for more details.
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v6
         with:
           version: "0.7.15"
 

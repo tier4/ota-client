@@ -13,7 +13,6 @@
 # limitations under the License.
 """Runtime configurable configs for otaclient."""
 
-
 from __future__ import annotations
 
 import logging
@@ -28,10 +27,12 @@ logger = logging.getLogger(__name__)
 
 ENV_PREFIX = "OTACLIENT_"
 LOG_LEVEL_LITERAL = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-CREATE_STANDBY_METHOD_LTIERAL = Literal["REBUILD", "IN_PLACE"]
 
 
 class _OTAClientSettings(BaseModel):
+    # ------ OTA session setting ------ #
+    SESSION_WD_TMPFS_SIZE_IN_MB: int = 700  # MB
+
     #
     # ------ logging settings ------ #
     #
@@ -63,8 +64,7 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ create standby settings ------ #
     #
-    CREATE_STANDBY_METHOD: CREATE_STANDBY_METHOD_LTIERAL = "REBUILD"
-    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 512
+    MAX_CONCURRENT_PROCESS_FILE_TASKS: int = 256
     MAX_PROCESS_FILE_THREAD: int = 6
     CREATE_STANDBY_RETRY_MAX: int = 1024
 
@@ -76,7 +76,9 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ IO settings ------ #
     #
+    PROCESS_FILES_REPORT_INTERVAL: int = 3  # seconds
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
+    READ_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MiB
 
 
 class _MultipleECUSettings(BaseModel):
