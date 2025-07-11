@@ -417,7 +417,7 @@ class OTAClientPackagePreparer:
                 )
 
         # bind necessary directories
-        # should not include /bin, /lib, /usr, /sbin because they are included in the squashfs
+        # should not include /bin, /lib, /sbin, /usr/bin, /usr/lib, /usr/sbin, because they are included in the squashfs
         RW_PATHS = [
             "/boot",
             "/boot/firmware",
@@ -433,7 +433,8 @@ class OTAClientPackagePreparer:
             "/run",
             "/sys",
             "/tmp",
-            "/usr/share/ca-certificates",
+            "/usr/share/ca-certificates",  # for CA certificates
+            "/usr/share/zoneinfo",  # for timezone information
             "/var",
         ]
 
