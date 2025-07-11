@@ -1663,7 +1663,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pydantic-settings", specifier = ">=2.3,<3" },
     { name = "pyyaml", specifier = ">=6.0.1,<7" },
-    { name = "requests", specifier = "==2.32.4" },
+    { name = "requests", specifier = "~=2.32" },
     { name = "simple-sqlite3-orm", specifier = "~=0.12" },
     { name = "typing-extensions", specifier = ">=4.6.3" },
     { name = "urllib3", specifier = ">=2.2.2,<2.6" },
