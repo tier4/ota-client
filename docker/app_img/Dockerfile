@@ -50,7 +50,7 @@ ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
 ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
 
 # Add necessary directories for OTA
-RUN mkdir -p /mnt /ota-cache /host_root
+RUN mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo
 
 RUN set -eux; \
     apt-get update -qq; \
