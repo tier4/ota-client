@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of mounting/umounting external cache."""
 
-
 from __future__ import annotations
 
 import logging
