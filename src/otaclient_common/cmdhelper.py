@@ -766,3 +766,16 @@ def mount_tmpfs(
         )
         if raise_exception:
             raise
+
+def get_kernel_version_via_uname() -> str | None:
+    """Get the kernel version via `uname -r`.
+
+    Returns:
+        str: The kernel version string.
+    """
+    cmd = ["uname", "-r"]
+    try:
+        return subprocess_check_output(cmd, raise_exception=True).strip()
+    except Exception as e:
+        logger.error(f"Failed to get kernel version via uname: {e!r}")
+        return

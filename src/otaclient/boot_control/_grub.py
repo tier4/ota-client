@@ -53,7 +53,7 @@ from otaclient_common._io import (
 )
 from otaclient_common.common import subprocess_call, subprocess_check_output
 
-from ._ota_status_control import OTAStatusFilesControl, cat_proc_cmdline
+from ._ota_status_control import OTAStatusFilesControl
 from .configs import grub_cfg as boot_cfg
 from .protocol import BootControllerProtocol
 
@@ -451,61 +451,36 @@ class _GrubControl:
         2. standby slot is not considered here!
         3. expected booted kernel/initrd located under /boot.
         """
-        # ------ check boot files ------ #
-        vmlinuz_active_slot = self.active_ota_partition_folder / GrubHelper.KERNEL_OTA
-        initrd_active_slot = self.active_ota_partition_folder / GrubHelper.INITRD_OTA
-        active_slot_ota_boot_files_missing = (
-            not vmlinuz_active_slot.is_file() or not initrd_active_slot.is_file()
-        )
+        kernel_fname, initrd_fname = self._get_current_booted_kernel_name()
+        configured_kernel = self.active_ota_partition_folder / kernel_fname
+        configured_initrd = self.active_ota_partition_folder / initrd_fname
 
-        try:
-            kernel_booted_fpath, initrd_booted_fpath = self._get_current_booted_files()
-            kernel_booted, initrd_booted = (
-                Path(kernel_booted_fpath).name,
-                Path(initrd_booted_fpath).name,
-            )
-
-            # NOTE: current slot might be booted with ota(normal), or ota.standby(during update)
-            not_booted_with_ota_mechanism = kernel_booted not in (
-                GrubHelper.KERNEL_OTA,
-                GrubHelper.KERNEL_OTA_STANDBY,
-            ) or initrd_booted not in (
-                GrubHelper.INITRD_OTA,
-                GrubHelper.INITRD_OTA_STANDBY,
-            )
-        except Exception as e:
-            logger.error(
-                f"failed to get current booted kernel and initrd.image: {e!r}, "
-                "try to use active slot ota-partition files"
-            )
-            kernel_booted, initrd_booted = vmlinuz_active_slot, initrd_active_slot
-            not_booted_with_ota_mechanism = True
-
-        ota_partition_symlink_missing = not self.ota_partition_symlink.is_symlink()
-
-        if (
-            not_booted_with_ota_mechanism
-            or active_slot_ota_boot_files_missing
-            or ota_partition_symlink_missing
-        ):
+        # if OTA boot control is configured, the booted kernel MUST be available at
+        #   the current slot's ota-partition folder.
+        if not (configured_kernel.is_file() and configured_initrd.is_file()):
             logger.warning(
-                "system is not booted with ota mechanism("
-                f"{not_booted_with_ota_mechanism=}, {active_slot_ota_boot_files_missing=}, {ota_partition_symlink_missing=}), "
+                "system is not booted with ota mechanism, "
                 f"migrating and initializing ota-partition files for {self.active_slot}@{self.active_root_dev}..."
             )
+            _booted_kernel = self.boot_dir / kernel_fname
+            _booted_initrd = self.boot_dir / initrd_fname
+            if not (_booted_kernel.is_file() and _booted_initrd.is_file()):
+                raise _GrubBootControllerError(
+                    f"failed to locate booted kernel/initrd files: {kernel_fname}, {initrd_fname}"
+                )
 
-            # NOTE: just copy but not cleanup the booted kernel/initrd files
-            if active_slot_ota_boot_files_missing:
-                shutil.copy(
-                    self.boot_dir / kernel_booted,
-                    self.active_ota_partition_folder,
-                    follow_symlinks=True,
+            # NOTE: we expect the booted kernel/initrd files either to be in ota-partition folders,
+            #       or directly listed under /boot folder.
+            shutil.copy(
+                    _booted_kernel,
+                    configured_kernel,
+                    follow_symlinks=False
                 )
-                shutil.copy(
-                    self.boot_dir / initrd_booted,
-                    self.active_ota_partition_folder,
-                    follow_symlinks=True,
-                )
+            shutil.copy(
+                _booted_initrd,
+                configured_initrd,
+                follow_symlinks=False,
+            )
 
             # recreate all ota-partition files for active slot
             self._prepare_kernel_initrd_links(self.active_ota_partition_folder)
@@ -519,26 +494,14 @@ class _GrubControl:
         logger.info(f"ota-partition files for {self.active_slot} are ready")
 
     @staticmethod
-    def _get_current_booted_files() -> Tuple[str, str]:
-        """Return the name of booted kernel and initrd.
-
-        Expected booted kernel and initrd are located under /boot.
-        """
-        boot_cmdline = cat_proc_cmdline()
-        if kernel_ma := re.search(
-            r"BOOT_IMAGE=.*(?P<kernel>vmlinuz-(?P<ver>[\w\.\-]*))",
-            boot_cmdline,
-        ):
-            kernel_ver = kernel_ma.group("ver")
-        else:
-            raise ValueError("failed to detect booted linux kernel")
-
-        # lookup the grub file and find the booted entry
-        # NOTE(20230905): use standard way to find initrd img
-        initrd_img = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
-        if not (Path(cfg.BOOT_DPATH) / initrd_img).is_file():
-            raise ValueError(f"failed to find booted initrd image({initrd_img})")
-        return kernel_ma.group("kernel"), initrd_img
+    def _get_current_booted_kernel_name() -> tuple[str, str]:
+        """Return the name of booted kernel and initrd."""
+        kernel_ver =cmdhelper.get_kernel_version_via_uname()
+        if not kernel_ver:
+            raise ValueError("failed to detect booted linux kernel version")
+        kernel_fname = f"{GrubHelper.VMLINUZ}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
+        initrd_fname = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
+        return kernel_fname, initrd_fname
 
     @staticmethod
     def _prepare_kernel_initrd_links(target_folder: Path):
