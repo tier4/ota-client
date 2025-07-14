@@ -115,10 +115,6 @@ class TestConfiguration:
     GRUB_FILE = "/boot/grub/grub.cfg"
     DEFAULT_GRUB_FILE = "/etc/default/grub"
     FSTAB_FILE = "/etc/fstab"
-    CMDLINE_SLOT_A = (
-        f"BOOT_IMAGE=/vmlinuz-{KERNEL_VERSION} root=UUID={SLOT_A_UUID} ro quiet splash"
-    )
-    CMDLINE_SLOT_B = f"BOOT_IMAGE=/vmlinuz-{OTA_STANDBY_KERNEL_LABEL} root=UUID={SLOT_B_UUID} ro quiet splash"
 
     # otaproxy settings
     OTA_PROXY_SERVER_ADDR = "127.0.0.1"

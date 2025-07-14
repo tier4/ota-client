@@ -287,7 +287,3 @@ class OTAStatusFilesControl:
         switch to use live_ota_status by otaclient after otaclient is running.
         """
         return self._ota_status
-
-
-def cat_proc_cmdline(target: str = "/proc/cmdline") -> str:
-    return read_str_from_file(target, _default="")
