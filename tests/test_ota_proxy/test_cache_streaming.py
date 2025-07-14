@@ -162,4 +162,3 @@ class TestOngoingCachingRegister:
 
         # NOTE(20250617): the tmp file clean up is done by os.replace now,
         #                 this test doesn't cover actual caching, so skip here.
-
