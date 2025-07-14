@@ -21,7 +21,7 @@ import logging
 from . import run_otaproxy
 from .config import config as cfg
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ota_proxy")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -74,6 +74,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # suppress logging from third-party deps
+    logging.basicConfig(level=logging.CRITICAL)
+    logger.setLevel(logging.INFO)
     logger.info(f"launch ota_proxy at {args.host}:{args.port}")
     run_otaproxy(
         host=args.host,

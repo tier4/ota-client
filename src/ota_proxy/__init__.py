@@ -45,8 +45,11 @@ def run_otaproxy(
     enable_https: bool,
     external_cache_mnt_point: str | None = None,
 ):
+    import asyncio
+
     import anyio
     import uvicorn
+    import uvloop
 
     from . import App, OTACache
 
@@ -70,4 +73,10 @@ def run_otaproxy(
         http="h11",
     )
     _server = uvicorn.Server(_config)
-    anyio.run(_server.serve, backend="asyncio", backend_options={"use_uvloop": True})
+
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    anyio.run(
+        _server.serve,
+        backend="asyncio",
+        backend_options={"loop_factory": uvloop.new_event_loop},
+    )

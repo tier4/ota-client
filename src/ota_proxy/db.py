@@ -12,33 +12,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
-import asyncio
 import logging
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
 from multidict import CIMultiDict
 from simple_sqlite3_orm import (
+    AsyncORMBase,
     ConstrainRepr,
+    CreateTableParams,
     ORMBase,
+    ORMThreadPoolBase,
     TableSpec,
-    TypeAffinityRepr,
+    gen_sql_stmt,
     utils,
 )
-from simple_sqlite3_orm._orm import AsyncORMBase
 from typing_extensions import Annotated
 
 from otaclient_common._typing import StrOrPath
 
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
-from .cache_control_header import OTAFileCacheControl
+from .cache_control_header import export_kwargs_as_header_string
 from .config import config as cfg
 
 logger = logging.getLogger(__name__)
+
+DB_TABLE_NAME = cfg.TABLE_NAME
+# RETURNING statement is available only after sqlite3 v3.35.0
+SQLITE3_SUPPORT_RETURNING = sqlite3.sqlite_version_info >= (3, 35, 0)
 
 
 class CacheMeta(TableSpec):
@@ -56,39 +61,13 @@ class CacheMeta(TableSpec):
     content_encoding: the content_encoding header string comes with resp from remote server.
     """
 
-    file_sha256: Annotated[
-        str,
-        TypeAffinityRepr(str),
-        ConstrainRepr("PRIMARY KEY"),
-    ]
-    url: Annotated[
-        str,
-        TypeAffinityRepr(str),
-        ConstrainRepr("NOT NULL"),
-    ]
-    bucket_idx: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    last_access: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    cache_size: Annotated[
-        int,
-        TypeAffinityRepr(int),
-        ConstrainRepr("NOT NULL"),
-    ] = 0
-    file_compression_alg: Annotated[
-        Optional[str],
-        TypeAffinityRepr(str),
-    ] = None
-    content_encoding: Annotated[
-        Optional[str],
-        TypeAffinityRepr(str),
-    ] = None
+    file_sha256: Annotated[str, ConstrainRepr("PRIMARY KEY")]
+    url: Annotated[str, ConstrainRepr("NOT NULL")]
+    bucket_idx: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    last_access: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    cache_size: Annotated[int, ConstrainRepr("NOT NULL")] = 0
+    file_compression_alg: Optional[str] = None
+    content_encoding: Optional[str] = None
 
     def __hash__(self) -> int:
         return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
@@ -106,105 +85,114 @@ class CacheMeta(TableSpec):
         if self.file_sha256 and not self.file_sha256.startswith(
             cfg.URL_BASED_HASH_PREFIX
         ):
-            res[HEADER_OTA_FILE_CACHE_CONTROL] = (
-                OTAFileCacheControl.export_kwargs_as_header(
-                    file_sha256=self.file_sha256,
-                    file_compression_alg=self.file_compression_alg or "",
-                )
+            res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+                file_sha256=self.file_sha256,
+                file_compression_alg=self.file_compression_alg or "",
             )
         return res
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
+    orm_bootstrap_table_name = DB_TABLE_NAME
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_indexes_params = [
+        CacheMeta.table_create_index_stmt(
+            table_name=DB_TABLE_NAME,
+            index_name="bucket_idx_index",
+            index_cols=("bucket_idx",),
+            if_not_exists=True,
+        ),
+        CacheMeta.table_create_index_stmt(
+            table_name=DB_TABLE_NAME,
+            index_name="last_access_index",
+            index_cols=("last_access",),
+            if_not_exists=True,
+        ),
+    ]
 
-    def cachemeta_create_indexes(self) -> None:
-        _indexes = {
-            "bucket_idx_index": CacheMeta.table_create_index_stmt(
-                table_name=self.orm_table_name,
-                index_name="bucket_idx_index",
-                index_cols=("bucket_idx",),
-                if_not_exists=True,
-            ),
-            "last_access_index": CacheMeta.table_create_index_stmt(
-                table_name=self.orm_table_name,
-                index_name="last_access_index",
-                index_cols=("last_access",),
-                if_not_exists=True,
-            ),
-        }
 
-        for sql_stmt in _indexes.values():
-            self.orm_execute(sql_stmt)
+class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
+    orm_bootstrap_table_name = DB_TABLE_NAME
+    bucket_fn, last_access_fn = "bucket_idx", "last_access"
+
+    # fmt: off
+    count_entries_with_limit = gen_sql_stmt(
+        "SELECT", "count(*)", "FROM", orm_bootstrap_table_name,
+        "WHERE", f"{bucket_fn}=:{bucket_fn}",
+        "ORDER BY", last_access_fn,
+        "LIMIT :limit"
+    )
+    select_entries_with_limit = gen_sql_stmt(
+        "SELECT", "*", "FROM", orm_bootstrap_table_name,
+        "WHERE", f"{bucket_fn}=:{bucket_fn}",
+        "ORDER BY", last_access_fn,
+        "LIMIT :limit"
+    )
+    delete_stmt = gen_sql_stmt(
+        "DELETE", "FROM", orm_bootstrap_table_name,
+        "WHERE", f"{bucket_fn}=:{bucket_fn}",
+        "ORDER BY", last_access_fn,
+        "LIMIT :limit"
+    )
+    rotate_stmt = gen_sql_stmt(
+        "DELETE", "FROM", orm_bootstrap_table_name,
+        "WHERE", f"{bucket_fn}=:{bucket_fn}",
+        "RETURNING", "*",
+        "ORDER BY", last_access_fn,
+        "LIMIT :limit"
+    )
+    # fmt: on
+
+    def _rotate_in_thread(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
+        _params = {self.bucket_fn: bucket_idx, "limit": num}
+        with self._thread_scope_orm._con as con:
+            # check if we have enough entries to rotate
+            cur = con.execute(self.count_entries_with_limit, _params)
+            cur.row_factory = None
+            if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
+                return
+
+            if not SQLITE3_SUPPORT_RETURNING:
+                # first select entries met the requirements
+                cur = con.execute(self.select_entries_with_limit, _params)
+                rows_to_remove = list(cur)
+
+                # delete the target entries
+                con.execute(self.delete_stmt, _params)
+                return rows_to_remove
+            else:
+                cur = con.execute(self.rotate_stmt, _params)
+                return list(cur)
+
+    def rotate_cache(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
+        """
+        NOTE: this is a blocking method.
+        """
+        return self._pool.submit(self._rotate_in_thread, bucket_idx, num).result()
 
 
 class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
+    orm_bootstrap_table_name = DB_TABLE_NAME
 
-    async def rotate_cache(
-        self, bucket_idx: int, num: int
-    ) -> Optional[list[CacheMeta]]:
-        bucket_fn, last_access_fn = "bucket_idx", "last_access"
 
-        def _in_thread():
-            with self._thread_scope_orm._con as con:
-                # check if we have enough entries to rotate
-                select_stmt = self.orm_table_spec.table_select_stmt(
-                    select_from=self.orm_table_name,
-                    select_cols="*",
-                    function="count",
-                    where_cols=(bucket_fn,),
-                    order_by=(last_access_fn,),
-                    limit=num,
-                )
-                cur = con.execute(select_stmt, {bucket_fn: bucket_idx})
-                # we don't have enough entries to delete
-                if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                    return
-
-                # RETURNING statement is available only after sqlite3 v3.35.0
-                if sqlite3.sqlite_version_info < (3, 35, 0):
-                    # first select entries met the requirements
-                    select_to_delete_stmt = self.orm_table_spec.table_select_stmt(
-                        select_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                    )
-                    cur = con.execute(select_to_delete_stmt, {bucket_fn: bucket_idx})
-                    rows_to_remove = list(cur)
-
-                    # delete the target entries
-                    delete_stmt = self.orm_table_spec.table_delete_stmt(
-                        delete_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                    )
-                    con.execute(delete_stmt, {bucket_fn: bucket_idx})
-
-                    return rows_to_remove
-                else:
-                    rotate_stmt = self.orm_table_spec.table_delete_stmt(
-                        delete_from=self.orm_table_name,
-                        where_cols=(bucket_fn,),
-                        order_by=(last_access_fn,),
-                        limit=num,
-                        returning_cols="*",
-                    )
-                    cur = con.execute(rotate_stmt, {bucket_fn: bucket_idx})
-                    return list(cur)
-
-        return await asyncio.wrap_future(
-            self._pool.submit(_in_thread),
-            loop=self._loop,
-        )
+def init_db(db_f: StrOrPath, table_name: str) -> None:
+    """Init the database."""
+    with closing(sqlite3.connect(db_f)) as con:
+        orm = CacheMetaORM(con, table_name)
+        orm.orm_bootstrap_db()
+        utils.enable_wal_mode(con, relax_sync_mode=True)
 
 
 def check_db(db_f: StrOrPath, table_name: str) -> bool:
     """Check whether specific db is normal or not."""
     if not Path(db_f).is_file():
-        logger.warning(f"{db_f} not found")
+        logger.warning(f"{db_f} not found, will init db")
         return False
 
+    # NOTE(20250624): For sqlite3 on Ubuntu 20.04, the PRAGMA integrity_check
+    #                 has an unexpected side_effect, which if the db file doesn't
+    #                 exist, the integrity_check will CREATE a db file for it!
+    #                 This unexpected behavior doesn't occur in Ubuntu 22.04.
     con = sqlite3.connect(f"file:{db_f}?mode=ro", uri=True)
     try:
         if not utils.check_db_integrity(con):
@@ -216,15 +204,3 @@ def check_db(db_f: StrOrPath, table_name: str) -> bool:
     finally:
         con.close()
     return True
-
-
-def init_db(db_f: StrOrPath, table_name: str) -> None:
-    """Init the database."""
-    con = sqlite3.connect(db_f)
-    orm = CacheMetaORM(con, table_name)
-    try:
-        orm.orm_create_table(without_rowid=True)
-        orm.cachemeta_create_indexes()
-        utils.enable_wal_mode(con, relax_sync_mode=True)
-    finally:
-        con.close()
