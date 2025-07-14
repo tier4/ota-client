@@ -468,6 +468,7 @@ class _GrubControl:
                 raise _GrubBootControllerError(
                     f"failed to locate booted kernel/initrd files: {kernel_fname}, {initrd_fname}"
                 )
+            self.active_ota_partition_folder.mkdir(exist_ok=True, parents=True)
 
             # NOTE: we expect the booted kernel/initrd files either to be in ota-partition folders,
             #       or directly listed under /boot folder.
