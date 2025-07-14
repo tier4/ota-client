@@ -162,8 +162,4 @@ class TestOngoingCachingRegister:
 
         # NOTE(20250617): the tmp file clean up is done by os.replace now,
         #                 this test doesn't cover actual caching, so skip here.
-        # # ensure no tmp files are leftover
-        # _count = 0
-        # async for _ in self.base_dir.glob("tmp_*"):
-        #     _count += 1
-        # assert _count == 0
+
