@@ -89,11 +89,8 @@ class GrubFSM:
         )
         self.is_boot_switched = True
 
-    def cat_proc_cmdline(self):
-        if self._current_slot == cfg.SLOT_A_ID_GRUB:
-            return cfg.CMDLINE_SLOT_A
-        else:
-            return cfg.CMDLINE_SLOT_B
+    def get_kernel_version(self):
+        return cfg.KERNEL_VERSION
 
 
 class GrubMkConfigFSM:
@@ -321,8 +318,8 @@ class TestGrubControl:
         mocker.patch(_slot_mount_helper_path, return_value=_mocked_slot_mount_helper)
         # patch reading from /proc/cmdline
         mocker.patch(
-            f"{cfg.GRUB_MODULE_PATH}.cat_proc_cmdline",
-            mocker.MagicMock(wraps=self._fsm.cat_proc_cmdline),
+            f"{cfg.GRUB_MODULE_PATH}.cmdhelper.get_kernel_version_via_uname",
+            mocker.MagicMock(wraps=self._fsm.get_kernel_version),
         )
 
     def test_grub_normal_update(
