@@ -426,18 +426,7 @@ class _GrubControl:
 
         # NOTE: standby slot will be prepared in an OTA, GrubControl init will not check
         #       standby slot's ota-partition folder.
-        self._grub_control_initialized = False
         self._check_active_slot_ota_partition_file()
-
-    @property
-    def initialized(self) -> bool:
-        """Indicates whether grub_control migrates itself from non-OTA booted system,
-        or recovered from a ota_partition files corrupted boot.
-
-        Normally this property should be false, if it is true, OTAStatusControl should also
-            initialize itself.
-        """
-        return self._grub_control_initialized
 
     def _check_active_slot_ota_partition_file(self):
         """Check and ensure active ota-partition files, init if needed.
@@ -514,7 +503,6 @@ class _GrubControl:
                 standby_slot=self.standby_slot
             )
             self._grub_update_on_booted_slot()
-            self._grub_control_initialized = True
 
         logger.info(f"ota-partition files for {self.active_slot} are ready")
 
@@ -765,9 +753,6 @@ class GrubController(BootControllerProtocol):
                 current_ota_status_dir=self._boot_control.active_ota_partition_folder,
                 standby_ota_status_dir=self._boot_control.standby_ota_partition_folder,
                 finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
-                # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
-                #                 force initialize the ota_status files.
-                force_initialize=self._boot_control.initialized,
             )
         except Exception as e:
             _err_msg = f"failed on start grub boot controller: {e!r}"

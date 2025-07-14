@@ -70,7 +70,7 @@ class TestOTAStatusFilesControl:
 
     @pytest.mark.parametrize(
         (
-            "test_case,input_slot_a_status,input_slot_a_slot_in_use,force_initialize,"
+            "test_case,input_slot_a_status,input_slot_a_slot_in_use,"
             "output_slot_a_status,output_slot_a_slot_in_use"
         ),
         (
@@ -79,17 +79,6 @@ class TestOTAStatusFilesControl:
                 # input
                 None,
                 "",
-                False,
-                # output
-                OTAStatus.INITIALIZED,
-                SLOT_A_ID,
-            ),
-            (
-                "test_force_initialize",
-                # input
-                OTAStatus.SUCCESS,
-                SLOT_A_ID,
-                True,
                 # output
                 OTAStatus.INITIALIZED,
                 SLOT_A_ID,
@@ -99,7 +88,6 @@ class TestOTAStatusFilesControl:
                 # input
                 OTAStatus.SUCCESS,
                 SLOT_A_ID,
-                False,
                 # output
                 OTAStatus.SUCCESS,
                 SLOT_A_ID,
@@ -111,7 +99,6 @@ class TestOTAStatusFilesControl:
         test_case: str,
         input_slot_a_status: Optional[OTAStatus],
         input_slot_a_slot_in_use: str,
-        force_initialize: bool,
         output_slot_a_status: OTAStatus,
         output_slot_a_slot_in_use: str,
     ):
@@ -130,7 +117,6 @@ class TestOTAStatusFilesControl:
             current_ota_status_dir=self.slot_a_ota_status_dir,
             standby_ota_status_dir=self.slot_b_ota_status_dir,
             finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=force_initialize,
         )
 
         # ------ assertion ------ #
@@ -153,7 +139,6 @@ class TestOTAStatusFilesControl:
             current_ota_status_dir=self.slot_a_ota_status_dir,
             standby_ota_status_dir=self.slot_b_ota_status_dir,
             finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
         )
 
         # ------ execution ------ #
@@ -177,7 +162,6 @@ class TestOTAStatusFilesControl:
             current_ota_status_dir=self.slot_a_ota_status_dir,
             standby_ota_status_dir=self.slot_b_ota_status_dir,
             finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
         )
 
         # ------ execution ------ #
@@ -225,7 +209,6 @@ class TestOTAStatusFilesControl:
             finalize_switching_boot=partial(
                 self.finalize_switch_boot_func, finalizing_result
             ),
-            force_initialize=False,
         )
 
         # ------ assertion ------ #
@@ -270,7 +253,6 @@ class TestOTAStatusFilesControl:
             current_ota_status_dir=self.slot_b_ota_status_dir,
             standby_ota_status_dir=self.slot_a_ota_status_dir,
             finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
         )
 
         # ------ assertion ------ #
@@ -304,7 +286,6 @@ class TestOTAStatusFilesControl:
             current_ota_status_dir=self.slot_a_ota_status_dir,
             standby_ota_status_dir=self.slot_b_ota_status_dir,
             finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
         )
 
         # ------ assertion ------ #
