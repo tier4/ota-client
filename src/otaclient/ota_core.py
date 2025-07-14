@@ -354,15 +354,21 @@ class _OTAUpdateOperator:
             self._downloader_pool.release_instance()
 
     def _download_and_parse_metadata(self) -> None:
+        # Determine only_metadata_verification value based on the current class type
+        only_metadata_verification = isinstance(self, _OTAClientUpdater)
+
         self._download_and_process_file_with_condition(
             thread_name_prefix="download_metadata_files",
             get_downloads_generator=self._ota_metadata.download_metafiles,
+            only_metadata_verification=only_metadata_verification,
         )
 
     def _download_and_process_file_with_condition(
         self,
         thread_name_prefix: str,
         get_downloads_generator: Callable,
+        *,
+        only_metadata_verification: bool = False,
     ) -> None:
         """
         Download and process a list of files with a condition.
@@ -385,7 +391,9 @@ class _OTAUpdateOperator:
         )
 
         _condition = threading.Condition()
-        _generator = get_downloads_generator(_condition)
+        _generator = get_downloads_generator(
+            condition=_condition, only_metadata_verification=only_metadata_verification
+        )
 
         try:
             for _fut in _mapper.ensure_tasks(

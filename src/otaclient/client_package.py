@@ -269,6 +269,8 @@ class OTAClientPackageDownloader:
     def download_client_package(
         self,
         condition: threading.Condition,
+        *,
+        only_metadata_verification: bool = False,  # TODO(20250714): Not used, keep only for compatibility. Should be refactored later.
     ) -> Generator[list[DownloadInfo]]:
         """Guide the caller to download ota client package by yielding the DownloadInfo instances.
         1. download and parse manifest.json
