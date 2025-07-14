@@ -472,11 +472,7 @@ class _GrubControl:
 
             # NOTE: we expect the booted kernel/initrd files either to be in ota-partition folders,
             #       or directly listed under /boot folder.
-            shutil.copy(
-                    _booted_kernel,
-                    configured_kernel,
-                    follow_symlinks=False
-                )
+            shutil.copy(_booted_kernel, configured_kernel, follow_symlinks=False)
             shutil.copy(
                 _booted_initrd,
                 configured_initrd,
@@ -497,10 +493,12 @@ class _GrubControl:
     @staticmethod
     def _get_current_booted_kernel_name() -> tuple[str, str]:
         """Return the name of booted kernel and initrd."""
-        kernel_ver =cmdhelper.get_kernel_version_via_uname()
+        kernel_ver = cmdhelper.get_kernel_version_via_uname()
         if not kernel_ver:
             raise ValueError("failed to detect booted linux kernel version")
-        kernel_fname = f"{GrubHelper.VMLINUZ}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
+        kernel_fname = (
+            f"{GrubHelper.VMLINUZ}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
+        )
         initrd_fname = f"{GrubHelper.INITRD}{GrubHelper.FNAME_VER_SPLITTER}{kernel_ver}"
         return kernel_fname, initrd_fname
 

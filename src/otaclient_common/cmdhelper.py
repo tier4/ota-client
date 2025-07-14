@@ -767,6 +767,7 @@ def mount_tmpfs(
         if raise_exception:
             raise
 
+
 def get_kernel_version_via_uname() -> str | None:
     """Get the kernel version via `uname -r`.
 
