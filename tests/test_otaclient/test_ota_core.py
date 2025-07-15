@@ -138,6 +138,7 @@ class TestOTAUpdater:
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
+            shm_metrics_reader=None,
         )
         _updater._process_persistents = process_persists_handler = mocker.MagicMock()
 
@@ -205,6 +206,7 @@ class TestOTAClient:
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
             client_update_control_flags=client_update_control_flags,
+            shm_metrics_reader=mocker.MagicMock(),
         )
 
     def test_update_normal_finished(self):
@@ -357,6 +359,7 @@ class TestOTAClientUpdater:
             client_update_control_flags=self.client_update_control_flags,
             upper_otaproxy=None,
             metrics=OTAMetricsData(),
+            shm_metrics_reader=None,
         )
 
         # Patch the _session_workdir attribute after instance creation

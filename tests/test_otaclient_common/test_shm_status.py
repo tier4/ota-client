@@ -25,10 +25,10 @@ from functools import partial
 
 import pytest
 
-from otaclient_common.shm_status import (
+from otaclient_common._shm import (
     DEFAULT_KEY_LEN,
-    MPSharedStatusReader,
-    MPSharedStatusWriter,
+    MPSharedMemoryReader,
+    MPSharedMemoryWriter,
     RWBusy,
 )
 
@@ -44,10 +44,10 @@ class InnerMsg:
     i_str: str
 
 
-class MsgReader(MPSharedStatusReader[OuterMsg]): ...
+class MsgReader(MPSharedMemoryReader[OuterMsg]): ...
 
 
-class MsgWriter(MPSharedStatusWriter[OuterMsg]): ...
+class MsgWriter(MPSharedMemoryWriter[OuterMsg]): ...
 
 
 DATA_ENTRIES_NUM = 20

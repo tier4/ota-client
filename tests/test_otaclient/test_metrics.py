@@ -19,7 +19,6 @@ import json
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
@@ -36,6 +35,66 @@ class TestOTAMetricsData:
         assert ota_metrics.otaclient_version == __version__
         assert ota_metrics.ecu_id == ecu_info.ecu_id
         assert ota_metrics._already_published is False
+
+    @patch("otaclient.metrics.logger")
+    def test_shm_merge_success(self, mock_logger):
+        """Test successful merge of shared memory data."""
+        ota_metrics = metrics.OTAMetricsData()
+
+        # Create mock shared memory data
+        shm_metrics = metrics.OTAMetricsSharedMemoryData()
+        shm_metrics.cache_total_requests = 100
+        shm_metrics.cache_external_hits = 50
+        shm_metrics.cache_local_hits = 30
+
+        # Test the merge
+        ota_metrics.shm_merge(shm_metrics)
+
+        # Verify the data was merged
+        assert ota_metrics.cache_total_requests == 100
+        assert ota_metrics.cache_external_hits == 50
+        assert ota_metrics.cache_local_hits == 30
+
+    @patch("otaclient.metrics.logger")
+    def test_shm_merge_no_data(self, mock_logger):
+        """Test merge when shared memory returns None."""
+        ota_metrics = metrics.OTAMetricsData()
+
+        # Store initial values
+        initial_cache_requests = ota_metrics.cache_total_requests
+        initial_cache_hits = ota_metrics.cache_external_hits
+
+        # Test the merge with None
+        ota_metrics.shm_merge(None)
+
+        # Verify the data was not changed
+        assert ota_metrics.cache_total_requests == initial_cache_requests
+        assert ota_metrics.cache_external_hits == initial_cache_hits
+
+    @patch("otaclient.metrics.logger")
+    def test_shm_merge_preserves_non_shared_fields(self, mock_logger):
+        """Test that merge preserves fields not in shared memory data."""
+        ota_metrics = metrics.OTAMetricsData()
+
+        # Set some initial values for non-shared fields
+        ota_metrics.session_id = "test_session"
+        ota_metrics.current_firmware_version = "1.0.0"
+        ota_metrics.downloaded_bytes = 1000
+
+        # Create mock shared memory data
+        shm_metrics = metrics.OTAMetricsSharedMemoryData()
+        shm_metrics.cache_total_requests = 100
+
+        # Test the merge
+        ota_metrics.shm_merge(shm_metrics)
+
+        # Verify shared fields were updated
+        assert ota_metrics.cache_total_requests == 100
+
+        # Verify non-shared fields were preserved
+        assert ota_metrics.session_id == "test_session"
+        assert ota_metrics.current_firmware_version == "1.0.0"
+        assert ota_metrics.downloaded_bytes == 1000
 
     @patch("otaclient.metrics.logger")
     def test_publish(self, mock_logger):

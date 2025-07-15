@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import atexit
 import errno
 import json
 import logging
@@ -72,7 +73,12 @@ from otaclient._types import (
     UpdatePhase,
     UpdateRequestV2,
 )
-from otaclient._utils import SharedOTAClientStatusWriter, get_traceback, wait_and_log
+from otaclient._utils import (
+    SharedOTAClientMetricsReader,
+    SharedOTAClientStatusWriter,
+    get_traceback,
+    wait_and_log,
+)
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -193,12 +199,14 @@ class _OTAUpdateOperator:
         status_report_queue: Queue[StatusReport],
         session_id: str,
         metrics: OTAMetricsData,
+        shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.update_version = version
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
         self._status_report_queue = status_report_queue
         self._metrics = metrics
+        self._shm_metrics_reader = shm_metrics_reader
 
         # ------ report INITIALIZING status ------ #
         status_report_queue.put_nowait(
@@ -941,6 +949,9 @@ class _OTAUpdater(_OTAUpdateOperator):
             )
         )
         self._metrics.finalizing_update_start_timestamp = _current_time
+        if self._shm_metrics_reader:
+            _shm_metrics = self._shm_metrics_reader.sync_msg()
+            self._metrics.shm_merge(_shm_metrics)
         self._metrics.publish()
 
         if proxy_info.enable_local_ota_proxy:
@@ -976,6 +987,9 @@ class _OTAUpdater(_OTAUpdateOperator):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
             self._metrics.publish()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
@@ -1122,6 +1136,7 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
+        shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
@@ -1129,6 +1144,10 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
+
+        self._shm_metrics_reader = shm_metrics_reader
+        atexit.register(shm_metrics_reader.atexit)
+
         self._live_ota_status = OTAStatus.INITIALIZED
         self.started = False
 
@@ -1156,6 +1175,9 @@ class OTAClient:
 
         self._metrics = OTAMetricsData()
         self._metrics.ecu_id = self.my_ecu_id
+        self._metrics.enable_local_ota_proxy_cache = (
+            proxy_info.enable_local_ota_proxy_cache
+        )
 
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
@@ -1303,6 +1325,7 @@ class OTAClient:
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 metrics=replace(self._metrics, session_id=new_session_id),
+                shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
@@ -1359,6 +1382,7 @@ class OTAClient:
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
+                shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError:
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
@@ -1491,6 +1515,7 @@ class OTAClient:
 def ota_core_process(
     *,
     shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
+    shm_metrics_reader_factory: Callable[[], SharedOTAClientMetricsReader],
     ecu_status_flags: MultipleECUStatusFlags,
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
@@ -1504,6 +1529,7 @@ def ota_core_process(
     configure_logging()
 
     shm_writer = shm_writer_factory()
+    shm_metrics_reader = shm_metrics_reader_factory()
 
     _local_status_report_queue = Queue()
     _status_monitor = OTAClientStatusCollector(
@@ -1519,5 +1545,6 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
+        shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

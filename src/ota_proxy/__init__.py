@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 
+from otaclient._utils import SharedOTAClientMetricsWriter
+
 from .cache_control_header import OTAFileCacheControl
 from .config import config
 from .ota_cache import OTACache
@@ -44,6 +46,7 @@ def run_otaproxy(
     enable_cache: bool,
     enable_https: bool,
     external_cache_mnt_point: str | None = None,
+    shm_metrics_writer: SharedOTAClientMetricsWriter | None = None,
 ):
     import asyncio
 
@@ -61,6 +64,7 @@ def run_otaproxy(
         enable_https=enable_https,
         init_cache=init_cache,
         external_cache_mnt_point=external_cache_mnt_point,
+        shm_metrics_writer=shm_metrics_writer,
     )
     _config = uvicorn.Config(
         App(_ota_cache),

@@ -28,11 +28,13 @@ import threading
 import time
 from functools import partial
 from pathlib import Path
+from typing import Callable
 
 from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
 from ota_proxy.config import config as otaproxy_cfg
 from otaclient._types import MultipleECUStatusFlags
+from otaclient._utils import SharedOTAClientMetricsWriter
 from otaclient.configs.cfg import cfg, proxy_info
 from otaclient_common.common import ensure_otaproxy_start
 
@@ -67,7 +69,11 @@ OTAPROXY_MIN_STARTUP_TIME = 120
 OTA_CACHE_DIR_CHECK_INTERVAL = 60
 
 
-def otaproxy_process(*, init_cache: bool) -> None:
+def otaproxy_process(
+    *,
+    init_cache: bool,
+    shm_metrics_writer_factory: Callable[[], SharedOTAClientMetricsWriter],
+) -> None:
     from otaclient._logging import configure_logging
 
     configure_logging()
@@ -88,6 +94,8 @@ def otaproxy_process(*, init_cache: bool) -> None:
         logger.info(f"wait for {upper_proxy=} online...")
         ensure_otaproxy_start(str(upper_proxy))
 
+    shm_metrics_writer = shm_metrics_writer_factory()
+
     run_otaproxy(
         host=host,
         port=port,
@@ -98,11 +106,13 @@ def otaproxy_process(*, init_cache: bool) -> None:
         enable_cache=proxy_info.enable_local_ota_proxy_cache,
         enable_https=proxy_info.gateway_otaproxy,
         external_cache_mnt_point=external_cache_mnt_point,
+        shm_metrics_writer=shm_metrics_writer,
     )
 
 
 def otaproxy_control_thread(
     ecu_status_flags: MultipleECUStatusFlags,
+    shm_metrics_writer_factory: Callable[[], SharedOTAClientMetricsWriter],
 ) -> None:  # pragma: no cover
     atexit.register(otaproxy_on_global_shutdown)
 
@@ -141,7 +151,11 @@ def otaproxy_control_thread(
             with _global_process_lock:
                 if not _global_shutdown.is_set():
                     _otaproxy_p = _mp_ctx.Process(
-                        target=partial(otaproxy_process, init_cache=False),
+                        target=partial(
+                            otaproxy_process,
+                            init_cache=False,
+                            shm_metrics_writer_factory=shm_metrics_writer_factory,
+                        ),
                         name="otaproxy",
                     )
                     _otaproxy_p.start()
