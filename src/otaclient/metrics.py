@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import (
     ecu_info,
@@ -58,6 +57,9 @@ class OTAMetricsData:
     failure_type: str = ""
     failure_reason: str = ""
     failed_at_phase: str = ""
+
+    # Mode
+    use_inplace_mode: bool = False
 
     # Metrics
     ota_image_total_files_size: int = 0

@@ -618,6 +618,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
         )
+        self._metrics.use_inplace_mode = use_inplace_mode
 
         self._boot_controller.pre_update(
             # NOTE: this option is deprecated and not used by bootcontroller
