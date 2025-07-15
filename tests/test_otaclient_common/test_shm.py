@@ -142,7 +142,7 @@ READ_FAST_INTERVAL = 0.01
         ),
     ),
 )
-def test_shm_status_read_fast(reader_func, read_interval, timeout):
+def test_shm_read_fast(reader_func, read_interval, timeout):
     _shm = mp_shm.SharedMemory(size=SHM_SIZE, create=True)
     _mp_ctx = mp.get_context("spawn")
     _key = secrets.token_bytes(DEFAULT_KEY_LEN)
