@@ -342,6 +342,8 @@ class OTAMetadata:
     def download_metafiles(
         self,
         condition: threading.Condition,
+        *,
+        only_metadata_verification: bool = False,
     ) -> Generator[list[DownloadInfo]]:
         """Guide the caller to download metadata files by yielding the DownloadInfo instances.
 
@@ -355,6 +357,9 @@ class OTAMetadata:
 
         try:
             yield from self._prepare_metadata(_download_dir, condition)
+            if only_metadata_verification:
+                # if only verification is requested, skip the rest of the steps.
+                return
             yield from self._prepare_ota_image_metadata(_download_dir, condition)
             yield from self._prepare_persist_meta(_download_dir, condition)
         except Exception as e:
