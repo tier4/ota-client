@@ -59,6 +59,9 @@ class OTAMetricsData:
     failure_reason: str = ""
     failed_at_phase: str = ""
 
+    # Mode
+    use_inplace_mode: bool = False
+
     # Metrics
     ota_image_total_files_size: int = 0
     ota_image_total_regulars_num: int = 0
