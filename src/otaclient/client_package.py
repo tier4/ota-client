@@ -286,6 +286,7 @@ class OTAClientPackageDownloader:
             logger.exception(
                 f"failure during downloading and verifying OTA client package: {e!r}"
             )
+            raise
 
     def is_same_client_package_version(self) -> bool:
         """Check if the current OTA client package version is the same as the target version in manifest"""
@@ -325,20 +326,14 @@ class OTAClientPackagePreparer:
 
     def _cleanup_mount_point(self) -> None:
         """Cleanup the mount point."""
-        try:
-            # unmount the dynamic client mount point
-            cmdhelper.ensure_mointpoint(self._mount_base, ignore_error=True)
-            cmdhelper.ensure_umount(
-                self._mount_base, ignore_error=False, max_retry=0, retry_interval=0
-            )
-        except Exception as e:
-            logger.warning(f"error while unmounting dynamic client mount point: {e}")
+        # unmount the dynamic client mount point
+        cmdhelper.ensure_mointpoint(self._mount_base, ignore_error=True)
+        cmdhelper.ensure_umount(
+            self._mount_base, ignore_error=True, max_retry=0, retry_interval=0
+        )
 
-        try:
-            # remove the dynamic client mount point
-            shutil.rmtree(self._mount_base, ignore_errors=False)
-        except Exception as e:
-            logger.warning(f"error while removing dynamic client mount point: {e}")
+        # remove the dynamic client mount point
+        shutil.rmtree(self._mount_base, ignore_errors=True)
 
     def _umount_standby_device(self) -> None:
         """Prepare the active and standby slots for the OTA update."""
