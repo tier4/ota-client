@@ -50,7 +50,7 @@ SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
-METRICS_SHM_SIZE = 512  # bytes
+METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
 MAX_TRACEBACK_SIZE = 2048  # bytes
 SHM_HMAC_KEY_LEN = 64  # bytes
 

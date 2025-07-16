@@ -678,7 +678,6 @@ class OTACache:
         This method runs in a background thread and periodically writes
         the current metrics data to shared memory using the SharedOTAClientMetricsWriter.
         """
-        METRICS_UPDATE_INTERVAL = 5
         while self._metrics_thread_running:
             try:
                 if self._shm_metrics_writer:
@@ -687,11 +686,14 @@ class OTACache:
                     logger.debug("Metrics data updated to shared memory")
 
                 # Wait for the specified interval before next update
-                time.sleep(METRICS_UPDATE_INTERVAL)
+                time.sleep(cfg.METRICS_UPDATE_INTERVAL)
             except Exception as e:
                 logger.error(f"Error updating metrics to shared memory: {e}")
                 # Continue running even if there's an error
-                time.sleep(METRICS_UPDATE_INTERVAL)
+                time.sleep(cfg.METRICS_UPDATE_INTERVAL)
 
-        if self._shm_metrics_writer:
-            self._shm_metrics_writer.write_msg(self._metrics_data)
+        try:
+            if self._shm_metrics_writer:
+                self._shm_metrics_writer.write_msg(self._metrics_data)
+        except Exception as e:
+            logger.error(f"Error updating metrics to shared memory: {e}")

@@ -37,6 +37,9 @@ class Config:
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
 
+    # ------ metrics config ------ #
+    METRICS_UPDATE_INTERVAL = 5  # in seconds
+
     # ------ LRU cache config ------ #
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
