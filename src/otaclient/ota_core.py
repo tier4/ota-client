@@ -949,9 +949,12 @@ class _OTAUpdater(_OTAUpdateOperator):
             )
         )
         self._metrics.finalizing_update_start_timestamp = _current_time
-        if self._shm_metrics_reader:
-            _shm_metrics = self._shm_metrics_reader.sync_msg()
-            self._metrics.shm_merge(_shm_metrics)
+        try:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
+        except Exception as e:
+            logger.error(f"failed to merge metrics: {e!r}")
         self._metrics.publish()
 
         if proxy_info.enable_local_ota_proxy:
@@ -987,9 +990,12 @@ class _OTAUpdater(_OTAUpdateOperator):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
+            try:
+                if self._shm_metrics_reader:
+                    _shm_metrics = self._shm_metrics_reader.sync_msg()
+                    self._metrics.shm_merge(_shm_metrics)
+            except Exception as e:
+                logger.error(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
