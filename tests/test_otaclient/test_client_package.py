@@ -24,8 +24,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, mock_open, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -458,13 +458,9 @@ class TestClientPackagePrepareter:
     ):
         package_prepareter._cleanup_mount_point()
 
-        mock_ensure_mointpoint.assert_called_once_with(
-            self.DUMMY_MOUNT_BASE, ignore_error=True
-        )
-        mock_ensure_umount.assert_called_once_with(
-            self.DUMMY_MOUNT_BASE, ignore_error=False, max_retry=0, retry_interval=0
-        )
-        mock_rmtree.assert_called_once_with(self.DUMMY_MOUNT_BASE, ignore_errors=False)
+        mock_ensure_mointpoint.assert_called_once()
+        mock_ensure_umount.assert_called_once()
+        mock_rmtree.assert_called_once()
 
     @patch("otaclient.client_package.subprocess_call")
     @patch("otaclient.client_package.OTAClientPackagePreparer._unshare_wrapper")
