@@ -474,9 +474,6 @@ class OTACache:
 
         # fast path for small file, read one and directly return bytes
         if meta_db_entry.cache_size <= self._chunk_size:
-            # Update metrics: increment local cache hits
-            self._metrics_data.cache_local_hits += 1
-
             return (
                 await self._read_pool.read_file_once(cache_file),
                 meta_db_entry.export_headers_to_client(),
@@ -487,8 +484,6 @@ class OTACache:
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
 
-        # Update metrics: increment local cache hits
-        self._metrics_data.cache_local_hits += 1
         return local_fd, meta_db_entry.export_headers_to_client()
 
     async def _retrieve_file_by_external_cache(
@@ -510,9 +505,6 @@ class OTACache:
         )
 
         if await cache_file_zst.is_file():
-            # Update metrics: increment external cache hits
-            self._metrics_data.cache_external_hits += 1
-
             _header = CIMultiDict()
             _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
                 file_sha256=cache_identifier,
@@ -521,9 +513,6 @@ class OTACache:
             return read_file(cache_file_zst), _header
 
         if await cache_file.is_file():
-            # Update metrics: increment external cache hits
-            self._metrics_data.cache_external_hits += 1
-
             _header = CIMultiDict()
             _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
                 file_sha256=cache_identifier
@@ -660,6 +649,7 @@ class OTACache:
         if self._external_cache_data_dir and (
             _res := await self._retrieve_file_by_external_cache(cache_policy)
         ):
+            self._metrics_data.cache_external_hits += 1
             return _res
 
         if not cache_policy.retry_caching and (
@@ -667,6 +657,7 @@ class OTACache:
                 raw_url=raw_url, cache_policy=cache_policy
             )
         ):
+            self._metrics_data.cache_local_hits += 1
             return _res
 
         if _res := await self._retrieve_file_by_new_caching(
@@ -701,3 +692,6 @@ class OTACache:
                 logger.error(f"Error updating metrics to shared memory: {e}")
                 # Continue running even if there's an error
                 time.sleep(METRICS_UPDATE_INTERVAL)
+
+        if self._shm_metrics_writer:
+            self._shm_metrics_writer.write_msg(self._metrics_data)
