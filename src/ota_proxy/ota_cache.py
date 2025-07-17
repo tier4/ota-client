@@ -28,6 +28,8 @@ import anyio
 from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
+from otaclient._utils import SharedOTAClientMetricsWriter
+from otaclient.metrics import OTAMetricsSharedMemoryData
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -102,13 +104,15 @@ class OTACache:
     If cache is available for specific URL, it will handle the request using local caches.
 
     Attributes:
-        upper_proxy: the upper proxy that ota_cache uses to send out request, default is None
         cache_enabled: when set to False, ota_cache will only relay requested data, default is False.
-        enable_https: whether the ota_cache should send out the requests with HTTPS,
-            default is False. NOTE: scheme change is applied unconditionally.
         init_cache: whether to clear the existed cache, default is True.
         base_dir: the location to store cached files.
         db_file: the location to store database file.
+        upper_proxy: the upper proxy that ota_cache uses to send out request, default is None
+        enable_https: whether the ota_cache should send out the requests with HTTPS,
+            default is False. NOTE: scheme change is applied unconditionally.
+        external_cache_mnt_point: the mount point of external cache, if any.
+        shm_metrics_writer: SharedOTAClientMetricsWriter instance to write metrics to shared memory.
     """
 
     def __init__(
@@ -121,6 +125,7 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
+        shm_metrics_writer: SharedOTAClientMetricsWriter | None = None,
     ):
         """Init ota_cache instance with configurations."""
         logger.info(
@@ -160,6 +165,11 @@ class OTACache:
         self._storage_below_hard_limit_event = threading.Event()
         self._storage_below_soft_limit_event = threading.Event()
         self._upper_proxy = upper_proxy
+
+        # Initialize metrics data
+        self._metrics_data = OTAMetricsSharedMemoryData()
+        self._shm_metrics_writer = shm_metrics_writer
+        self._metrics_thread_running = False
 
     async def start(self):
         """Start the ota_cache instance."""
@@ -220,6 +230,16 @@ class OTACache:
 
             self._cache_write_pool = CacheWriterPool()
 
+        # Start the background thread for updating metrics if writer is available
+        if self._shm_metrics_writer:
+            self._metrics_thread_running = True
+            _metrics_update_thread = threading.Thread(
+                target=self._background_update_metrics,
+                daemon=True,
+                name="ota_cache_metrics_updater",
+            )
+            _metrics_update_thread.start()
+
         logger.info("ota_cache started")
 
     async def close(self):
@@ -232,6 +252,10 @@ class OTACache:
         async with self._shutdown_lock:
             if not self._closed:
                 self._closed = True
+
+                # Stop the metrics update thread
+                self._metrics_thread_running = False
+
                 await self._session.close()
 
                 if self._cache_enabled:
@@ -459,6 +483,7 @@ class OTACache:
         # NOTE: we don't verify the cache here even cache is old, but let otaclient's hash verification
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
+
         return local_fd, meta_db_entry.export_headers_to_client()
 
     async def _retrieve_file_by_external_cache(
@@ -594,6 +619,9 @@ class OTACache:
         if self._closed:
             raise BaseOTACacheError("ota cache pool is closed")
 
+        # Update metrics: increment total requests
+        self._metrics_data.cache_total_requests += 1
+
         cache_policy = parse_header(
             headers_from_client.get(HEADER_OTA_FILE_CACHE_CONTROL, "")
         )
@@ -621,6 +649,7 @@ class OTACache:
         if self._external_cache_data_dir and (
             _res := await self._retrieve_file_by_external_cache(cache_policy)
         ):
+            self._metrics_data.cache_external_hits += 1
             return _res
 
         if not cache_policy.retry_caching and (
@@ -628,6 +657,7 @@ class OTACache:
                 raw_url=raw_url, cache_policy=cache_policy
             )
         ):
+            self._metrics_data.cache_local_hits += 1
             return _res
 
         if _res := await self._retrieve_file_by_new_caching(
@@ -641,3 +671,29 @@ class OTACache:
         return await self._retrieve_file_by_downloading(
             raw_url, headers=headers_from_client
         )
+
+    def _background_update_metrics(self):
+        """Constantly updates shared memory with metrics data.
+
+        This method runs in a background thread and periodically writes
+        the current metrics data to shared memory using the SharedOTAClientMetricsWriter.
+        """
+        while self._metrics_thread_running:
+            try:
+                if self._shm_metrics_writer:
+                    # Write current metrics data to shared memory
+                    self._shm_metrics_writer.write_msg(self._metrics_data)
+                    logger.debug("Metrics data updated to shared memory")
+
+                # Wait for the specified interval before next update
+                time.sleep(cfg.METRICS_UPDATE_INTERVAL)
+            except Exception as e:
+                logger.error(f"Error updating metrics to shared memory: {e}")
+                # Continue running even if there's an error
+                time.sleep(cfg.METRICS_UPDATE_INTERVAL)
+
+        try:
+            if self._shm_metrics_writer:
+                self._shm_metrics_writer.write_msg(self._metrics_data)
+        except Exception as e:
+            logger.error(f"Error updating metrics to shared memory: {e}")

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A lib for sharing status between processes.
+"""A lib for sharing memory between processes.
 
 shared memory layout:
 
@@ -84,7 +84,7 @@ def _ensure_connect_shm(
     raise ValueError(f"failed to connect share memory with {name=}")
 
 
-class MPSharedStatusReader(SHA512Verifier, Generic[T]):
+class MPSharedMemoryReader(SHA512Verifier, Generic[T]):
 
     def __init__(
         self,
@@ -139,7 +139,7 @@ class MPSharedStatusReader(SHA512Verifier, Generic[T]):
         raise ValueError("failed to validate input msg")
 
 
-class MPSharedStatusWriter(SHA512Verifier, Generic[T]):
+class MPSharedMemoryWriter(SHA512Verifier, Generic[T]):
 
     def __init__(
         self,

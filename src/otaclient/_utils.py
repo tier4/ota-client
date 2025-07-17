@@ -26,9 +26,10 @@ from pathlib import Path
 from typing import Callable, Literal
 
 from otaclient._types import OTAClientStatus
+from otaclient.metrics import OTAMetricsSharedMemoryData
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common._shm import MPSharedMemoryReader, MPSharedMemoryWriter
 from otaclient_common._typing import StrOrPath
-from otaclient_common.shm_status import MPSharedStatusReader, MPSharedStatusWriter
 
 logger = logging.getLogger(__name__)
 
@@ -96,12 +97,20 @@ def get_traceback(exc: Exception, *, splitter: str = "\n") -> str:  # pragma: no
     return splitter.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-class SharedOTAClientStatusWriter(MPSharedStatusWriter[OTAClientStatus]):
+class SharedOTAClientStatusWriter(MPSharedMemoryWriter[OTAClientStatus]):
     """Util for writing OTAClientStatus to shm."""
 
 
-class SharedOTAClientStatusReader(MPSharedStatusReader[OTAClientStatus]):
+class SharedOTAClientStatusReader(MPSharedMemoryReader[OTAClientStatus]):
     """Util for reading OTAClientStatus from shm."""
+
+
+class SharedOTAClientMetricsWriter(MPSharedMemoryWriter[OTAMetricsSharedMemoryData]):
+    """Util for writing OTAMetricsSharedMemoryData to shm."""
+
+
+class SharedOTAClientMetricsReader(MPSharedMemoryReader[OTAMetricsSharedMemoryData]):
+    """Util for reading OTAMetricsSharedMemoryData from shm."""
 
 
 SESSION_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars

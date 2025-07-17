@@ -25,10 +25,10 @@ from functools import partial
 
 import pytest
 
-from otaclient_common.shm_status import (
+from otaclient_common._shm import (
     DEFAULT_KEY_LEN,
-    MPSharedStatusReader,
-    MPSharedStatusWriter,
+    MPSharedMemoryReader,
+    MPSharedMemoryWriter,
     RWBusy,
 )
 
@@ -44,10 +44,10 @@ class InnerMsg:
     i_str: str
 
 
-class MsgReader(MPSharedStatusReader[OuterMsg]): ...
+class MsgReader(MPSharedMemoryReader[OuterMsg]): ...
 
 
-class MsgWriter(MPSharedStatusWriter[OuterMsg]): ...
+class MsgWriter(MPSharedMemoryWriter[OuterMsg]): ...
 
 
 DATA_ENTRIES_NUM = 20
@@ -142,7 +142,7 @@ READ_FAST_INTERVAL = 0.01
         ),
     ),
 )
-def test_shm_status_read_fast(reader_func, read_interval, timeout):
+def test_shm_read_fast(reader_func, read_interval, timeout):
     _shm = mp_shm.SharedMemory(size=SHM_SIZE, create=True)
     _mp_ctx = mp.get_context("spawn")
     _key = secrets.token_bytes(DEFAULT_KEY_LEN)

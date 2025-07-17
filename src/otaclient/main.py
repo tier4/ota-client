@@ -31,7 +31,12 @@ from functools import partial
 
 from otaclient import __version__
 from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
-from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
+from otaclient._utils import (
+    SharedOTAClientMetricsReader,
+    SharedOTAClientMetricsWriter,
+    SharedOTAClientStatusReader,
+    SharedOTAClientStatusWriter,
+)
 from otaclient.configs.cfg import cfg
 from otaclient_common.cmdhelper import ensure_umount
 
@@ -45,16 +50,18 @@ SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
+METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
 MAX_TRACEBACK_SIZE = 2048  # bytes
 SHM_HMAC_KEY_LEN = 64  # bytes
 
 _ota_core_p: mp_ctx.SpawnProcess | None = None
 _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
+_shm_metrics: mp_shm.SharedMemory | None = None
 
 
 def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
-    global _ota_core_p, _grpc_server_p, _shm
+    global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
     if _ota_core_p:
         _ota_core_p.terminate()
         _ota_core_p.join()
@@ -69,6 +76,11 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
         _shm.close()
         _shm.unlink()
         _shm = None
+
+    if _shm_metrics:
+        _shm_metrics.close()
+        _shm_metrics.unlink()
+        _shm_metrics = None
 
     if sys_exit:
         try:
@@ -158,12 +170,12 @@ def main() -> None:  # pragma: no cover
     #
     # ------ start each processes ------ #
     #
-    global _ota_core_p, _grpc_server_p, _shm
+    global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
 
     # NOTE: if the atexit hook is triggered by signal received,
     #   first the signal handler will be executed, and then atexit hook.
     #   At the time atexit hook is executed, the _ota_core_p, _grpc_server_p
-    #   and _shm are set to None by signal handler.
+    #   and _shm/_shm_metrics are set to None by signal handler.
     atexit.register(_on_shutdown)
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
@@ -171,6 +183,9 @@ def main() -> None:  # pragma: no cover
     mp_ctx = mp.get_context("spawn")
     _shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
     _key = secrets.token_bytes(SHM_HMAC_KEY_LEN)
+
+    _shm_metrics = mp_shm.SharedMemory(size=METRICS_SHM_SIZE, create=True)
+    _key_metrics = secrets.token_bytes(SHM_HMAC_KEY_LEN)
 
     # shared queues and flags
     local_otaclient_op_queue = mp_ctx.Queue()
@@ -190,6 +205,9 @@ def main() -> None:  # pragma: no cover
             ota_core_process,
             shm_writer_factory=partial(
                 SharedOTAClientStatusWriter, name=_shm.name, key=_key
+            ),
+            shm_metrics_reader_factory=partial(
+                SharedOTAClientMetricsReader, name=_shm_metrics.name, key=_key_metrics
             ),
             ecu_status_flags=ecu_status_flags,
             op_queue=local_otaclient_op_queue,
@@ -222,7 +240,15 @@ def main() -> None:  # pragma: no cover
     _otaproxy_control_t = None
     if proxy_info.enable_local_ota_proxy:
         _otaproxy_control_t = threading.Thread(
-            target=partial(otaproxy_control_thread, ecu_status_flags),
+            target=partial(
+                otaproxy_control_thread,
+                ecu_status_flags,
+                shm_metrics_writer_factory=partial(
+                    SharedOTAClientMetricsWriter,
+                    name=_shm_metrics.name,
+                    key=_key_metrics,
+                ),
+            ),
             daemon=True,
             name="otaclient_otaproxy_control_t",
         )
@@ -261,6 +287,8 @@ def main() -> None:  # pragma: no cover
                 logger.info("cleaning up resources ...")
                 if _shm:
                     del _shm
+                if _shm_metrics:
+                    del _shm_metrics
                 if ecu_status_flags:
                     del ecu_status_flags.any_child_ecu_in_update
                     del ecu_status_flags.any_requires_network

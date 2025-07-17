@@ -21,11 +21,21 @@ from dataclasses import asdict, dataclass
 from _otaclient_version import __version__
 
 from otaclient._logging import LogType
-from otaclient.configs.cfg import (
-    ecu_info,
-)
+from otaclient.configs.cfg import ecu_info
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class OTAMetricsSharedMemoryData:
+    """
+    Dataclass for storing metrics data in shared memory.
+    """
+
+    # Cache
+    cache_total_requests: int = 0
+    cache_external_hits: int = 0
+    cache_local_hits: int = 0
 
 
 @dataclass
@@ -72,9 +82,33 @@ class OTAMetricsData:
     downloaded_bytes: int = 0
     downloaded_errors: int = 0
 
+    # Cache settings
+    enable_local_ota_proxy_cache: bool = False
+
+    # Cache metrics
+    cache_total_requests: int = 0
+    cache_external_hits: int = 0
+    cache_local_hits: int = 0
+
     def __post_init__(self):
         # this variable will not be included in data fields
         self._already_published = False
+
+    def shm_merge(self, shm_data: OTAMetricsSharedMemoryData | None) -> None:
+        """
+        Merges OTAMetricsSharedMemoryData instance into this one.
+        This is useful for combining metrics from different phases of the OTA process.
+        """
+        try:
+            if shm_data is None:
+                return
+
+            # Merge the shared memory data into this instance
+            for field in asdict(self):
+                if hasattr(shm_data, field):
+                    setattr(self, field, getattr(shm_data, field))
+        except Exception as e:
+            logger.warning(f"Failed to read from shared memory: {e}")
 
     def publish(self):
         """
