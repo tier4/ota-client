@@ -79,7 +79,7 @@ class Config:
 
     # HTTP/2 optimization settings
     HTTP2_CONNECTION_POOL_SIZE = 5  # each connection can handle multiple streams
-    HTTP2_CONNECTION_OVERHEAD_FLOW_SIZE = 3  # allow some overhead for new connections
+    HTTP2_CONNECTION_OVERHEAD_POOL_SIZE = 3  # allow some overhead for new connections
     HTTP2_CONNECTION_KEEPALIVE = 120.0  # in seconds
 
     TMP_FILE_PREFIX = "tmp"

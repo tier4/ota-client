@@ -196,7 +196,7 @@ class OTACache:
         http2_limits = httpx.Limits(
             max_keepalive_connections=cfg.HTTP2_CONNECTION_POOL_SIZE,  # persistent connections
             max_connections=cfg.HTTP2_CONNECTION_POOL_SIZE
-            + cfg.HTTP2_CONNECTION_OVERHEAD_FLOW_SIZE,
+            + cfg.HTTP2_CONNECTION_OVERHEAD_POOL_SIZE,
             keepalive_expiry=cfg.HTTP2_CONNECTION_KEEPALIVE,
         )
 
