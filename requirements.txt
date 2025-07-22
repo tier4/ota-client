@@ -1,7 +1,7 @@
 # Automatically generated from pyproject.toml by gen_requirements_txt.py script.
 # DO NOT EDIT! Only for reference use.
 anyio>=4.5.1,<5
-aiohttp>=3.10.11,<3.13
+httpx[http2]>=0.24.0,<1.0
 cryptography==45.0.5
 grpcio==1.70.0
 multidict<7.0,>=4.5
