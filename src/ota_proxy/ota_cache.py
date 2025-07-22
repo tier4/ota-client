@@ -48,7 +48,7 @@ from .cache_streaming import (
 )
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError, CacheCommitFailed
+from .errors import BaseOTACacheError, CacheCommitFailed, CacheMaxRetriesExceeded
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
@@ -184,17 +184,17 @@ class OTACache:
         #       we cache the contents as its original form, and send to the client with
         #       the same content-encoding headers to indicate the client to compress the
         #       resp body by their own.
-        # NOTE 2: disable default timeout for large files
+        # NOTE 2: disable default timeout
         #       this timeout will be applied to the whole request, including downloading,
         #       preventing large files to be downloaded.
         timeout = httpx.Timeout(None, read=cfg.HTTPX_SOCKET_READ_TIMEOUT)
 
         # HTTP/2 high-performance connection limits
         http2_limits = httpx.Limits(
-            max_keepalive_connections=cfg.HTTP2_CONNECTION_POOL_SIZE,  # 5 persistent connections
+            max_keepalive_connections=cfg.HTTP2_CONNECTION_POOL_SIZE,  # persistent connections
             max_connections=cfg.HTTP2_CONNECTION_POOL_SIZE
-            + 3,  # Allow some overhead for new connections
-            keepalive_expiry=cfg.HTTP2_CONNECTION_KEEPALIVE,  # Long keepalive for HTTP/2 efficiency
+            + cfg.HTTP2_CONNECTION_OVERHEAD_FLOW_SIZE,
+            keepalive_expiry=cfg.HTTP2_CONNECTION_KEEPALIVE,
         )
 
         self._session = httpx.AsyncClient(
@@ -408,7 +408,7 @@ class OTACache:
         headers: Mapping[str, str],
         max_retries: Optional[int] = None,
     ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
-        """Make HTTP request with retry logic for HTTP/2 protocol errors."""
+        """Make HTTP request with retry logic for HTTP/2 errors."""
         if max_retries is None:
             max_retries = cfg.HTTPX_MAX_RETRIES_ON_ERROR
 
@@ -417,12 +417,8 @@ class OTACache:
                 async for item in self._do_request(raw_url, headers):
                     yield item
                 return  # Success, exit retry loop
-
             except (httpx.RemoteProtocolError, httpx.LocalProtocolError) as e:
                 if attempt < max_retries:
-                    burst_suppressed_logger.warning(
-                        f"HTTP/2 error on attempt {attempt + 1}/{max_retries + 1} for {raw_url}: {e!r}, retrying with exponential backoff..."
-                    )
                     # Exponential backoff
                     await asyncio.sleep(
                         min(
@@ -432,11 +428,12 @@ class OTACache:
                     )
                     continue
                 else:
-                    burst_suppressed_logger.error(
-                        f"HTTP/2 protocol error after {max_retries + 1} attempts for {raw_url}: {e!r}"
-                    )
-                    raise
-            except Exception:
+                    _error_msg = f"HTTP/2 protocol error for {raw_url} after {max_retries + 1} attempts: {e!r}"
+                    burst_suppressed_logger.error(_error_msg)
+                    raise CacheMaxRetriesExceeded(_error_msg) from e
+            except Exception as e:
+                _error_msg = f"Unexpected error during request to {raw_url}: {e!r}"
+                burst_suppressed_logger.error(_error_msg)
                 raise
 
     async def _do_request(
