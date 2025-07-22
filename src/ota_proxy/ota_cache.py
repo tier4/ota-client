@@ -23,8 +23,8 @@ import time
 from pathlib import Path
 from typing import AsyncGenerator, Mapping, Optional, cast
 
-import aiohttp
 import anyio
+import httpx
 from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
@@ -180,18 +180,29 @@ class OTACache:
         self._closed = False
         await self._base_dir.mkdir(exist_ok=True, parents=True)
 
-        # NOTE: we configure aiohttp to not decompress the resp body(if content-encoding specified),
+        # NOTE: we configure httpx to not decompress the resp body(if content-encoding specified),
         #       we cache the contents as its original form, and send to the client with
         #       the same content-encoding headers to indicate the client to compress the
         #       resp body by their own.
-        # NOTE 2: disable aiohttp default timeout(5mins)
+        # NOTE 2: disable default timeout for large files
         #       this timeout will be applied to the whole request, including downloading,
         #       preventing large files to be downloaded.
-        timeout = aiohttp.ClientTimeout(
-            total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
+        timeout = httpx.Timeout(None, read=cfg.HTTPX_SOCKET_READ_TIMEOUT)
+
+        # HTTP/2 high-performance connection limits
+        http2_limits = httpx.Limits(
+            max_keepalive_connections=cfg.HTTP2_CONNECTION_POOL_SIZE,  # 5 persistent connections
+            max_connections=cfg.HTTP2_CONNECTION_POOL_SIZE
+            + 3,  # Allow some overhead for new connections
+            keepalive_expiry=cfg.HTTP2_CONNECTION_KEEPALIVE,  # Long keepalive for HTTP/2 efficiency
         )
-        self._session = aiohttp.ClientSession(
-            auto_decompress=False, raise_for_status=True, timeout=timeout
+
+        self._session = httpx.AsyncClient(
+            http2=True,
+            timeout=timeout,
+            follow_redirects=True,
+            limits=http2_limits,
+            verify=True,
         )
 
         self._read_pool = CacheReaderPool()
@@ -256,7 +267,7 @@ class OTACache:
                 # Stop the metrics update thread
                 self._metrics_thread_running = False
 
-                await self._session.close()
+                await self._session.aclose()
 
                 if self._cache_enabled:
                     await self._lru_helper.close()
@@ -391,32 +402,73 @@ class OTACache:
 
     # retrieve_file handlers
 
+    async def _do_request_with_retry(
+        self,
+        raw_url: str,
+        headers: Mapping[str, str],
+        max_retries: Optional[int] = None,
+    ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
+        """Make HTTP request with retry logic for HTTP/2 protocol errors."""
+        if max_retries is None:
+            max_retries = cfg.HTTPX_MAX_RETRIES_ON_ERROR
+
+        for attempt in range(max_retries + 1):
+            try:
+                async for item in self._do_request(raw_url, headers):
+                    yield item
+                return  # Success, exit retry loop
+
+            except (httpx.RemoteProtocolError, httpx.LocalProtocolError) as e:
+                if attempt < max_retries:
+                    burst_suppressed_logger.warning(
+                        f"HTTP/2 error on attempt {attempt + 1}/{max_retries + 1} for {raw_url}: {e!r}, retrying with exponential backoff..."
+                    )
+                    # Exponential backoff
+                    await asyncio.sleep(
+                        min(
+                            (cfg.HTTPX_RETRY_DELAY_BASE * (2**attempt)),
+                            cfg.HTTPX_RETRY_DELAY_MAX,
+                        )
+                    )
+                    continue
+                else:
+                    burst_suppressed_logger.error(
+                        f"HTTP/2 protocol error after {max_retries + 1} attempts for {raw_url}: {e!r}"
+                    )
+                    raise
+            except Exception:
+                raise
+
     async def _do_request(
         self, raw_url: str, headers: Mapping[str, str]
     ) -> AsyncGenerator[bytes | CIMultiDictProxy[str]]:
-        async with self._session.get(
+        kwargs = {}
+        if self._upper_proxy:
+            kwargs["proxy"] = self._upper_proxy
+
+        async with self._session.stream(
+            "GET",
             process_raw_url(raw_url, self._enable_https),
-            proxy=self._upper_proxy,
             headers=headers,
+            **kwargs,
         ) as response:
-            yield response.headers
-            # NOTE(20230803): sometimes aiohttp will raises:
-            #                 "ClientPayloadError: Response payload is not completed" exception,
-            #                 according to some posts in related issues, add a asyncio.sleep(0)
-            #                 to make event loop switch to other task here seems mitigates the problem.
-            #                 check the following URLs for details:
-            #                 1. https://github.com/aio-libs/aiohttp/issues/4581
-            #                 2. https://docs.python.org/3/library/asyncio-task.html#sleeping
-            # NOTE(20250616): the original issue is closed as fixed since 3.10.
-            # await asyncio.sleep(0)
-            while data := await response.content.read(self._chunk_size):
-                yield data
+            response.raise_for_status()
+            # Convert httpx.Headers to CIMultiDictProxy-like format for compatibility
+            multidict_headers = CIMultiDict()
+            for key, value in response.headers.items():
+                multidict_headers.add(key, value)
+            yield CIMultiDictProxy(multidict_headers)
+
+            async for chunk in response.aiter_bytes(chunk_size=self._chunk_size):
+                yield chunk
 
     async def _retrieve_file_by_downloading(
         self, raw_url: str, headers: Mapping[str, str]
     ) -> tuple[AsyncGenerator[bytes], CIMultiDictProxy[str]]:
-        # open remote connection
-        _remote_fd = cast("AsyncGenerator[bytes]", self._do_request(raw_url, headers))
+        # open remote connection with retry logic
+        _remote_fd = cast(
+            "AsyncGenerator[bytes]", self._do_request_with_retry(raw_url, headers)
+        )
         resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
         return _remote_fd, resp_headers
 

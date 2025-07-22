@@ -27,7 +27,7 @@ from multiprocessing.context import SpawnProcess
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin
 
-import aiohttp
+import httpx
 import pytest
 import uvicorn
 
@@ -208,12 +208,10 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
 
         # ------ get the special file via otaproxy from the ota image server ------ #
         # --- execution --- #
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                url=SPECIAL_FILE_URL, proxy=self.OTA_PROXY_URL
-            ) as resp:
-                assert resp.status == 200
-                assert (resp_text := await resp.text(encoding="utf-8"))
+        async with httpx.AsyncClient(proxy=self.OTA_PROXY_URL) as session:
+            resp = await session.get(url=SPECIAL_FILE_URL)
+            assert resp.status_code == 200
+            assert (resp_text := resp.text)
 
         # --- assertion --- #
         # 1. assert the contents is the same across cache, response and original
@@ -264,7 +262,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         sync_event: asyncio.Event,
     ):
         """Test single client download the whole ota image."""
-        async with aiohttp.ClientSession() as session:
+        async with httpx.AsyncClient(proxy=self.OTA_PROXY_URL) as session:
             await sync_event.wait()
             await asyncio.sleep(random.randrange(100, 200) // 100)
 
@@ -282,14 +280,14 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 #       it is normal that transition is interrupted when
                 #       space_availability status transfered.
                 while True:
-                    async with session.get(
+                    async with session.stream(
+                        "GET",
                         url,
-                        proxy=self.OTA_PROXY_URL,
                         cookies={"acookie": "acookie", "bcookie": "bcookie"},
                     ) as resp:
                         hash_f = sha256()
                         read_size = 0
-                        async for data, _ in resp.content.iter_chunks():
+                        async for data in resp.aiter_bytes():
                             read_size += len(data)
                             hash_f.update(data)
 
