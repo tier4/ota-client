@@ -19,7 +19,7 @@ import logging
 from http import HTTPStatus
 from urllib.parse import urlparse
 
-import aiohttp
+import httpx
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -228,21 +228,29 @@ class App:
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "otaproxy internal busy", send
                 )
-            elif isinstance(exc, aiohttp.ClientResponseError):
+            elif isinstance(exc, httpx.HTTPStatusError):
                 _err_msg = f"{_common_err_msg} due to HTTP error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 # passthrough 4xx(currently 403 and 404) to otaclient
                 await self._respond_with_error(
-                    exc.status, f"HTTP status from remote: {exc.status}", send
+                    exc.response.status_code,
+                    f"HTTP status from remote: {exc.response.status_code}",
+                    send,
                 )
-            elif isinstance(exc, aiohttp.ClientConnectionError):
+            elif isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
                 _err_msg = f"{_common_err_msg} due to connection error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.BAD_GATEWAY, "Failed to connect to remote", send
                 )
-            elif isinstance(exc, aiohttp.ClientError):
-                _err_msg = f"{_common_err_msg} due to aiohttp client error: {exc!r}"
+            elif isinstance(exc, (httpx.RemoteProtocolError, httpx.LocalProtocolError)):
+                _err_msg = f"{_common_err_msg} due to HTTP/2 protocol error: {exc!r}"
+                burst_suppressed_logger.error(_err_msg)
+                await self._respond_with_error(
+                    HTTPStatus.BAD_GATEWAY, "HTTP protocol error from remote", send
+                )
+            elif isinstance(exc, httpx.RequestError):
+                _err_msg = f"{_common_err_msg} due to httpx client error: {exc!r}"
                 burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "HTTP client error", send
@@ -256,7 +264,7 @@ class App:
                     send,
                 )
             else:
-                # exceptions rather than aiohttp error indicates
+                # exceptions rather than httpx error indicates
                 # internal errors of ota_cache
                 _err_msg = f"{_common_err_msg} due to unhandled ota_cache internal error: {exc!r}"
                 burst_suppressed_logger.exception(_err_msg)

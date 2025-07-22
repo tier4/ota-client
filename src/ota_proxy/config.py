@@ -72,7 +72,16 @@ class Config:
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
-    AIOHTTP_SOCKET_READ_TIMEOUT = 16  # second
+    HTTPX_SOCKET_READ_TIMEOUT = 16  # second
+    HTTPX_MAX_RETRIES_ON_ERROR = 3  # retry count for HTTP/2 stream limit errors
+    HTTPX_RETRY_DELAY_BASE = 0.05  # base delay in seconds for retry backoff
+    HTTPX_RETRY_DELAY_MAX = 2.0  # backoff max delay in seconds
+
+    # HTTP/2 optimization settings
+    HTTP2_CONNECTION_POOL_SIZE = (
+        10  # each connection can handle multiple streams(about 200 streams)
+    )
+    HTTP2_CONNECTION_KEEPALIVE = 300.0  # 5 minutes - longer keepalive for HTTP/2
 
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"
