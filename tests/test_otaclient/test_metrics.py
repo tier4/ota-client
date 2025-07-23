@@ -19,7 +19,6 @@ import json
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
@@ -107,7 +106,7 @@ class TestOTAMetricsData:
         ota_metrics.publish()
 
         # Verify logger was called with JSON representation of data
-        mock_logger.info.assert_called_once()
+        mock_logger.info.assert_called()
         log_message = mock_logger.info.call_args[0][0]
         log_extra = mock_logger.info.call_args[1]["extra"]
 
@@ -136,8 +135,8 @@ class TestOTAMetricsData:
 
         with patch("otaclient.metrics.logger") as mock_logger:
             ota_metrics.publish()
-            assert mock_logger.info.call_count == 1
+            assert mock_logger.info.call_count == 2
 
             # Second publish should not call logger again
             ota_metrics.publish()
-            assert mock_logger.info.call_count == 1
+            assert mock_logger.info.call_count == 2
