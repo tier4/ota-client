@@ -118,5 +118,8 @@ class OTAMetricsData:
             # metrics data has already been published.
             return
 
+        # TODO: currently, metrics(LogType.METRICS) might not be published into CloudWatch in sub ECUs, because we can't update persistents.txt and can't add gRPC endpoint for metrics.
+        # The following code is a workaround to log metrics data into CloudWatch. Once we can update persistents.txt and add gRPC endpoint for metrics, we should remove this workaround.
+        logger.info("[METRICS]" + json.dumps(asdict(self)))
         logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
         self._already_published = True
