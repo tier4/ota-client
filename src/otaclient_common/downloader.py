@@ -476,6 +476,7 @@ class DownloaderPool:
         cookies: dict[str, str] | None = None,
         proxies: dict[str, str] | None = None,
     ) -> None:
+        self.instance_num = instance_num
         self._instances: list[Downloader] = [
             Downloader(
                 hash_func=hash_func,
