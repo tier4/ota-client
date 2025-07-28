@@ -176,7 +176,12 @@ class FileTableResourceORM(ORMBase[FileTableResource]):
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="frs_digest_index", index_cols=("digest",))
     ]
-
+    
+    def select_all_digests(self) -> list[bytes]:
+        """Select all resource digests from the resource table."""
+        stmt = f"SELECT digest FROM {self.orm_table_name}"
+        _cursor = self.orm_con.execute(stmt)
+        return [row[0] for row in _cursor.fetchall()]
 
 class FileTableResourceORMPool(ORMThreadPoolBase[FileTableResource]):
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
