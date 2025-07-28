@@ -137,6 +137,11 @@ class _DeltaGeneratorBase:
         )
 
     @property
+    def num_of_resources_to_download(self) -> int:
+        """Number of resources to download."""
+        return len(self._all_resource_digests)
+
+    @property
     def resources_to_download(self) -> Iterable[bytes]:
         return iter(self._all_resource_digests)
 
