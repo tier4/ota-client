@@ -98,27 +98,31 @@ class DownloadResources:
             yield from _cur_batch
 
     def download_resources(self) -> Generator[Future[DownloadResult]]:
-        with ThreadPoolExecutorWithRetry(
-            max_concurrent=self._max_concurrent,
-            max_workers=self._downloader_threads,
-            thread_name_prefix="download_ota_files",
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=DownloadPoolWatchdogFuncContext(
-                    downloaded_bytes=0,
-                    previous_active_timestamp=int(time.time()),
+        try:
+            with ThreadPoolExecutorWithRetry(
+                max_concurrent=self._max_concurrent,
+                max_workers=self._downloader_threads,
+                thread_name_prefix="download_ota_files",
+                initializer=self._downloader_worker_initializer,
+                watchdog_func=partial(
+                    self._downloader_pool.downloading_watchdog,
+                    ctx=DownloadPoolWatchdogFuncContext(
+                        downloaded_bytes=0,
+                        previous_active_timestamp=int(time.time()),
+                    ),
+                    max_idle_timeout=self._download_inactive_timeout,
                 ),
-                max_idle_timeout=self._download_inactive_timeout,
-            ),
-        ) as _mapper, ResourceTableORMPool(
-            con_factory=self._ota_metadata.connect_rstable,
-            number_of_cons=self._db_conns_num,
-        ) as _rst_orm_pool:
-            _bound_download_func = partial(
-                self._download_single_resource_at_thread, _rst_orm_pool=_rst_orm_pool
-            )
-            for _fut in _mapper.ensure_tasks(
-                _bound_download_func, self._iter_digests_with_shuffle()
-            ):
-                yield _fut
+            ) as _mapper, ResourceTableORMPool(
+                con_factory=self._ota_metadata.connect_rstable,
+                number_of_cons=self._db_conns_num,
+            ) as _rst_orm_pool:
+                _bound_download_func = partial(
+                    self._download_single_resource_at_thread,
+                    _rst_orm_pool=_rst_orm_pool,
+                )
+                for _fut in _mapper.ensure_tasks(
+                    _bound_download_func, self._iter_digests_with_shuffle()
+                ):
+                    yield _fut
+        finally:
+            self._downloader_pool.release_all_instances()
