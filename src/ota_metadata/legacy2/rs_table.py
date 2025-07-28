@@ -16,8 +16,7 @@
 
 from __future__ import annotations
 
-import random
-from typing import Any, ClassVar, Generator, Literal, Optional
+from typing import Any, ClassVar, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -75,21 +74,6 @@ class ResourceTableORM(ORMBase[ResourceTable]):
 
     orm_bootstrap_table_name = RSTABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
-
-    def iter_all_with_shuffle(self, *, batch_size: int) -> Generator[ResourceTable]:
-        """Iter all entries with seek method by rowid, shuffle each batch before yield.
-
-        NOTE: the target table must has rowid defined!
-        """
-        _this_batch = []
-        for _entry in self.orm_select_entries():
-            _this_batch.append(_entry)
-            if len(_this_batch) >= batch_size:
-                random.shuffle(_this_batch)
-                yield from _this_batch
-                _this_batch = []
-        random.shuffle(_this_batch)
-        yield from _this_batch
 
 
 class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
