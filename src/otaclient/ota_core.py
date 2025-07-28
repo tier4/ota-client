@@ -48,6 +48,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
+from otaclient._download_resources import DownloadResources
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -243,9 +244,9 @@ class _OTAUpdater:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -261,10 +262,6 @@ class _OTAUpdater:
         self.url_base = _url_base._replace(path=_path).geturl()
 
         # ------ setup downloader ------ #
-        self._download_watchdog_ctx = DownloadPoolWatchdogFuncContext(
-            downloaded_bytes=0,
-            previous_active_timestamp=0,
-        )
         self._downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
@@ -338,65 +335,38 @@ class _OTAUpdater:
             self._downloader_pool.get_instance()
         )
 
-    def _download_resources(self, resource_meta: ResourceMeta) -> None:
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
-        _mapper = ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            thread_name_prefix="download_ota_files",
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=DownloadPoolWatchdogFuncContext(
-                    downloaded_bytes=0,
-                    previous_active_timestamp=int(time.time()),
-                ),
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
+    def _download_resources(self, _resource_downloader: DownloadResources) -> None:
+        _next_commit_before = 0
+        _merged_payload = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
         )
-        try:
-            _next_commit_before = 0
-            _merged_payload = UpdateProgressReport(
-                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-            )
-            for _fut in _mapper.ensure_tasks(
-                self._download_file,
-                resource_meta.iter_resources(
-                    batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
-                ),
-            ):
-                _now = time.perf_counter()
+        for _fut in _resource_downloader.download_resources():
+            _now = time.perf_counter()
+            if _download_exception_handler(_fut):
+                err_count, file_size, downloaded_bytes = _fut.result()
+                _merged_payload.processed_file_num += 1
+                _merged_payload.processed_file_size += file_size
+                _merged_payload.errors += err_count
+                _merged_payload.downloaded_bytes += downloaded_bytes
+            else:
+                _merged_payload.errors += 1
 
-                if _download_exception_handler(_fut):
-                    err_count, file_size, downloaded_bytes = _fut.result()
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.errors += err_count
-                    _merged_payload.downloaded_bytes += downloaded_bytes
-                else:
-                    _merged_payload.errors += 1
-
-                if _now > _next_commit_before:
-                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload,
-                            session_id=self.session_id,
-                        )
+            if _now > _next_commit_before:
+                _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
                     )
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-                    )
+                )
+                _merged_payload = UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+                )
 
-            # for left-over items that cannot fill up the batch
-            self._status_report_queue.put_nowait(
-                StatusReport(payload=_merged_payload, session_id=self.session_id)
-            )
-        finally:
-            _mapper.shutdown(wait=True)
-            # release the downloader instances
-            self._downloader_pool.release_all_instances()
-            self._downloader_pool.shutdown()
+        # for left-over items that cannot fill up the batch
+        self._status_report_queue.put_nowait(
+            StatusReport(payload=_merged_payload, session_id=self.session_id)
+        )
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
@@ -434,7 +404,6 @@ class _OTAUpdater:
                 logger.warning(_err_msg)
 
     def _download_and_parse_metadata(self) -> None:
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
@@ -443,7 +412,10 @@ class _OTAUpdater:
             initializer=self._downloader_worker_initializer,
             watchdog_func=partial(
                 self._downloader_pool.downloading_watchdog,
-                ctx=self._download_watchdog_ctx,
+                ctx=DownloadPoolWatchdogFuncContext(
+                    downloaded_bytes=0,
+                    previous_active_timestamp=int(time.time()),
+                ),
                 max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
             ),
         )
@@ -645,12 +617,12 @@ class _OTAUpdater:
 
                 if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
-                    InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
-                        str(verified_base_db)
-                    )
+                    delta_gen = InPlaceDeltaWithBaseFileTable(**_inplace_mode_params)
+                    delta_gen.process_slot(str(verified_base_db))
                 else:
                     logger.info("use in-place mode with full scanning ...")
-                    InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
+                    delta_gen = InPlaceDeltaGenFullDiskScan(**_inplace_mode_params)
+                    delta_gen.process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
                     ota_metadata=self._ota_metadata,
@@ -663,12 +635,12 @@ class _OTAUpdater:
                 verified_base_db = find_saved_fstable(self._image_meta_dir_on_active)
                 if verified_base_db:
                     logger.info("use rebuild mode with base file table assist ...")
-                    RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(
-                        str(verified_base_db)
-                    )
+                    delta_gen = RebuildDeltaWithBaseFileTable(**_rebuild_mode_params)
+                    delta_gen.process_slot(str(verified_base_db))
                 else:
                     logger.info("use rebuild mode with full scanning ...")
-                    RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
+                    delta_gen = RebuildDeltaGenFullDiskScan(**_rebuild_mode_params)
+                    delta_gen.process_slot()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
@@ -696,16 +668,21 @@ class _OTAUpdater:
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
         )
+        download_files_num = delta_gen.num_of_resources_to_download
+        download_files_size = resource_meta.get_resources_size(
+            delta_gen.resources_to_download
+        )
+
         logger.info(
             f"delta calculation finished: \n"
-            f"download_list len: {resource_meta.resources_count} \n"
-            f"sum of original size of all resources to be downloaded: {human_readable_size(resource_meta.resources_size_sum)}"
+            f"download_list len: {download_files_num} \n"
+            f"sum of original size of all resources to be downloaded: {human_readable_size(download_files_size)}"
         )
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
-                    total_download_files_num=resource_meta.resources_count,
-                    total_download_files_size=resource_meta.resources_size_sum,
+                    total_download_files_num=download_files_num,
+                    total_download_files_size=download_files_size,
                 ),
                 session_id=self.session_id,
             )
@@ -713,7 +690,14 @@ class _OTAUpdater:
 
         logger.info("start to download resources ...")
         try:
-            self._download_resources(resource_meta)
+            _resource_downloader = DownloadResources(
+                resource_meta=resource_meta,
+                downloader_pool=self._downloader_pool,
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+                resources_to_download=delta_gen.resources_to_download,
+            )
+            self._download_resources(_resource_downloader)
         except TasksEnsureFailed:
             _err_msg = (
                 "download aborted due to download stalls longer than "
@@ -723,6 +707,8 @@ class _OTAUpdater:
             raise ota_errors.NetworkError(_err_msg, module=__name__) from None
         finally:
             # NOTE: after this point, we don't need downloader anymore
+            # release the downloader instances
+            self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
 
         # ------ apply update ------ #
