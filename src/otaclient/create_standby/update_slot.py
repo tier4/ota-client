@@ -103,12 +103,14 @@ class UpdateStandbySlot:
 
                 # NOTE that first copy will not be counted in report, as the first copy
                 #   is either prepared by download, or by local, both are already recorded.
+                # NOTE(20250728): not alter the resource_dir to avoid extra inode metadata
+                #                 operations due to removing entries from the resource dir.
                 if cur_resource is None:
                     cur_resource = prepare_regular(
                         entry,
                         _rs=self._resource_dir / cur_digest.hex(),
                         target_mnt=self._standby_slot_mp,
-                        prepare_method="move",
+                        prepare_method="hardlink",
                     )
                     if _is_hardlinked:
                         hardlink_group[_inode_id] = cur_resource
