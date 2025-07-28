@@ -33,7 +33,7 @@ import threading
 import typing
 from contextlib import closing
 from pathlib import Path
-from typing import Callable, Generator
+from typing import Callable, Generator, Iterable
 from urllib.parse import quote
 
 from simple_sqlite3_orm import gen_sql_stmt
@@ -489,51 +489,18 @@ class ResourceMeta:
 
         self._copy_dst = copy_dst
 
-    @property
-    def resources_count(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            function="count",
-        )
-
+    def get_resources_size(self, _digests: Iterable[bytes]) -> int:
         try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
-        except Exception as e:
-            logger.warning(f"failed to get resources_count: {e!r}")
-            return 0
-        finally:
-            _conn.close()
-
-    @property
-    def resources_size_sum(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            select_cols=("original_size",),
-            function="sum",
-        )
-
-        try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
+            _count = 0
+            with closing(self._ota_metadata.connect_rstable()) as _conn:
+                _orm = ResourceTableORM(_conn)
+                for _digest in _digests:
+                    _entry = _orm.orm_select_entry(digest=_digest)
+                    _count += _entry.original_size
+            return _count
         except Exception as e:
             logger.warning(f"failed to get resources_size_sum: {e!r}")
             return 0
-        finally:
-            _conn.close()
 
     # API
 
@@ -579,9 +546,3 @@ class ResourceMeta:
             digest=_digest_str,
             digest_alg=DIGEST_ALG,
         )
-
-    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
-        """Iter through the resource table and yield DownloadInfo for every resource."""
-        with ResourceTableORM(self._ota_metadata.connect_rstable()) as orm:
-            for entry in orm.iter_all_with_shuffle(batch_size=batch_size):
-                yield self.get_download_info(entry)
