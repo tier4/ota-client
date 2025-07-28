@@ -32,6 +32,9 @@ from otaclient_common.downloader import (
 )
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
+DEFAULT_SHUFFLE_BATCH_SIZE = 256
+RST_DB_CONNS_NUM = 3
+
 
 class DownloadResources:
     def __init__(
@@ -40,43 +43,34 @@ class DownloadResources:
         resource_meta: ResourceMeta,
         resources_to_download: Iterable[bytes],
         downloader_pool: DownloaderPool,
-        db_conns_num: int = 3,
+        db_conns_num: int = RST_DB_CONNS_NUM,
         max_concurrent: int,
         download_inactive_timeout: int,
-        shuffle_batch_size: int = 1024,
+        shuffle_batch_size: int = DEFAULT_SHUFFLE_BATCH_SIZE,
     ) -> None:
-        self._downloader_pool = downloader_pool
-        self._resources_to_download = resources_to_download
-        self._shuffle_batch_size = shuffle_batch_size
-
+        self._db_conns_num = db_conns_num
         self._download_inactive_timeout = download_inactive_timeout
+        self._shuffle_batch_size = shuffle_batch_size
         self._max_concurrent = max_concurrent
 
+        self._downloader_pool = downloader_pool
+        self._resources_to_download = resources_to_download
         self._resource_meta = resource_meta
         self._ota_metadata = resource_meta._ota_metadata
-        self._rst_orm_pool = ResourceTableORMPool(
-            con_factory=self._ota_metadata.connect_rstable,
-            number_of_cons=db_conns_num,
-        )
 
         self._downloader_threads = downloader_pool.instance_num
         # for worker thread local downloader
         self._downloader_mapper: dict[int, Downloader] = {}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._rst_orm_pool.orm_pool_shutdown()
-        return False
 
     def _downloader_worker_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
             self._downloader_pool.get_instance()
         )
 
-    def _download_single_resource_at_thread(self, _digest: bytes):
-        _entry: ResourceTable = self._rst_orm_pool.orm_select_entry(digest=_digest)
+    def _download_single_resource_at_thread(
+        self, _digest: bytes, _rst_orm_pool: ResourceTableORMPool
+    ) -> DownloadResult:
+        _entry: ResourceTable = _rst_orm_pool.orm_select_entry(digest=_digest)
         _download_info = self._resource_meta.get_download_info(_entry)
         if (_digest := _entry.digest) == EMPTY_FILE_SHA256:
             return DownloadResult(0, 0, 0)
@@ -117,9 +111,14 @@ class DownloadResources:
                 ),
                 max_idle_timeout=self._download_inactive_timeout,
             ),
-        ) as _mapper:
+        ) as _mapper, ResourceTableORMPool(
+            con_factory=self._ota_metadata.connect_rstable,
+            number_of_cons=self._db_conns_num,
+        ) as _rst_orm_pool:
+            _bound_download_func = partial(
+                self._download_single_resource_at_thread, _rst_orm_pool=_rst_orm_pool
+            )
             for _fut in _mapper.ensure_tasks(
-                self._download_single_resource_at_thread,
-                self._iter_digests_with_shuffle(),
+                _bound_download_func, self._iter_digests_with_shuffle()
             ):
                 yield _fut
