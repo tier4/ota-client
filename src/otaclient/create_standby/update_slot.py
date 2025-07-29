@@ -87,7 +87,9 @@ class UpdateStandbySlot:
         self, cur_digest: bytes, entries: list[RegularFileTypedDict]
     ) -> None:
         hardlink_group: dict[int, Path] = {}
-        cur_resource = None
+        cur_resource = self._resource_dir / cur_digest.hex()
+        first_entry_prepared = False
+
         try:
             _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
             for entry in entries:
@@ -104,21 +106,9 @@ class UpdateStandbySlot:
                 # NOTE that first copy will not be counted in report, as the first copy
                 #   is either prepared by download, or by local, both are already recorded.
                 # NOTE(20250728): not alter the resource_dir to avoid extra inode metadata
-                #                 operations due to removing entries from the resource dir.
-                if cur_resource is None:
-                    cur_resource = prepare_regular(
-                        entry,
-                        _rs=self._resource_dir / cur_digest.hex(),
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="hardlink",
-                    )
-                    if _is_hardlinked:
-                        hardlink_group[_inode_id] = cur_resource
-                # not the first copy in this digest group
-                elif _is_hardlinked:
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += _size
-
+                #                 operations due to removing entries from the resource dir,
+                #                 use hardlink to prepare the first entry.
+                if _is_hardlinked:
                     # hardlinked entry shared the same inode, thus same permissions
                     if _inode_id in hardlink_group:
                         prepare_regular(
@@ -128,15 +118,17 @@ class UpdateStandbySlot:
                             prepare_method="hardlink",
                             hardlink_skip_apply_permission=True,
                         )
-                    else:  # first entry in a hardlink group
+                    else:
                         hardlink_group[_inode_id] = prepare_regular(
                             entry,
                             _rs=cur_resource,
                             target_mnt=self._standby_slot_mp,
-                            prepare_method="copy",
+                            prepare_method="copy"
+                            if first_entry_prepared
+                            else "hardlink",
+                            hardlink_skip_apply_permission=True,
                         )
-                # normal multi copies
-                else:
+                else:  # normal multi copies
                     _merged_payload.processed_file_num += 1
                     _merged_payload.processed_file_size += _size
 
@@ -144,8 +136,14 @@ class UpdateStandbySlot:
                         entry,
                         cur_resource,
                         target_mnt=self._standby_slot_mp,
-                        prepare_method="copy",
+                        prepare_method="copy" if first_entry_prepared else "hardlink",
                     )
+
+                if not first_entry_prepared:
+                    first_entry_prepared = True
+                else:
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += _size
 
             # check if we need to do report after processing this group
             _now = time.perf_counter()
