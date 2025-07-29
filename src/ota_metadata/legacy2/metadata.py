@@ -496,6 +496,8 @@ class ResourceMeta:
                 _orm = ResourceTableORM(_conn)
                 for _digest in _digests:
                     _entry = _orm.orm_select_entry(digest=_digest)
+                    if not _entry:
+                        continue
                     _count += _entry.original_size
             return _count
         except Exception as e:

@@ -387,7 +387,7 @@ def mount_rw(
     # fmt: off
     cmd = [
         "mount",
-        "-o", "rw,noatime,commit=120",
+        "-o", "rw,noatime,commit=20",
         "--make-private", "--make-unbindable",
         str(target),
         str(mount_point),
