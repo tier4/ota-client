@@ -31,7 +31,6 @@ from typing import Generic, Iterable, Iterator, NamedTuple, TypedDict, TypeVar
 from ota_metadata.file_table.db import (
     FileTableDirORM,
     FileTableRegularORMPool,
-    FileTableResourceORM,
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -69,6 +68,7 @@ class UpdateStandbySlotFailed(Exception): ...
 
 
 class DeltaGenParams(TypedDict):
+    all_resource_digests: ShardedThreadSafeSet[bytes]
     ota_metadata: OTAMetadata
     delta_src: Path
     copy_dst: Path
@@ -90,6 +90,7 @@ class _DeltaGeneratorBase:
     def __init__(
         self,
         *,
+        all_resource_digests: ShardedThreadSafeSet[bytes],
         ota_metadata: OTAMetadata,
         delta_src: Path,
         copy_dst: Path,
@@ -108,12 +109,7 @@ class _DeltaGeneratorBase:
 
         fst_conn = ota_metadata.connect_fstable()
         self._ft_dir_orm = FileTableDirORM(fst_conn)
-
-        # get all unique resources digests from file_table db ft_resource table
-        self._all_resource_digests = ShardedThreadSafeSet.from_iterable(
-            FileTableResourceORM(fst_conn).select_all_digests(),
-            num_of_shards=DIGESTS_SET_SHARD_NUMS,
-        )
+        self._all_resource_digests = all_resource_digests
 
         self._que = Queue()
         self._max_pending_tasks = threading.Semaphore(
