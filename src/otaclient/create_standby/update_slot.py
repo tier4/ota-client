@@ -129,9 +129,6 @@ class UpdateStandbySlot:
                             hardlink_skip_apply_permission=True,
                         )
                 else:  # normal multi copies
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += _size
-
                     prepare_regular(
                         entry,
                         cur_resource,
