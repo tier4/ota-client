@@ -22,10 +22,11 @@ from typing_extensions import Self
 
 T = TypeVar("T")
 
+DEFAULT_SET_SHARD_NUMS = 128
 
 
 class ShardedThreadSafeSet(Generic[T]):
-    def __init__(self, num_of_shards: int) -> None:
+    def __init__(self, num_of_shards: int = DEFAULT_SET_SHARD_NUMS) -> None:
         self._num_of_shards = num_of_shards
         self._shards: list[set[T]] = [set() for _ in range(num_of_shards)]
         self._locks: list[threading.Lock] = [
@@ -52,7 +53,9 @@ class ShardedThreadSafeSet(Generic[T]):
             self._shards[shard_index].add(key)
 
     @classmethod
-    def from_iterable(cls, _in: Iterable[T], *, num_of_shards: int) -> Self:
+    def from_iterable(
+        cls, _in: Iterable[T], *, num_of_shards: int = DEFAULT_SET_SHARD_NUMS
+    ) -> Self:
         instance = cls(num_of_shards)
         for item in _in:
             instance.add(item)
