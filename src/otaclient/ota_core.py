@@ -38,6 +38,7 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+from ota_metadata.file_table.db import FileTableResourceORM
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
@@ -100,6 +101,7 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
+from otaclient_common.sharded_set import ShardedThreadSafeSet
 
 logger = logging.getLogger(__name__)
 
@@ -551,6 +553,11 @@ class _OTAUpdater:
         )
 
         # ------ in-update: calculate delta ------ #
+        all_resource_digests = ShardedThreadSafeSet.from_iterable(
+            FileTableResourceORM(
+                self._ota_metadata.connect_fstable()
+            ).select_all_digests(),
+        )
         logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -567,6 +574,7 @@ class _OTAUpdater:
                 "Try to resume previous OTA delta calculation progress ..."
             )
             ResourceScanner(
+                all_resource_digests=all_resource_digests,
                 ota_metadata=self._ota_metadata,
                 resource_dir=self._resource_dir_on_standby,
                 status_report_queue=self._status_report_queue,
@@ -608,6 +616,7 @@ class _OTAUpdater:
                     verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
 
                 _inplace_mode_params = DeltaGenParams(
+                    all_resource_digests=all_resource_digests,
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
@@ -625,6 +634,7 @@ class _OTAUpdater:
                     delta_gen.process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
+                    all_resource_digests=all_resource_digests,
                     ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
