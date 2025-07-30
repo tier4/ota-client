@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
@@ -28,12 +27,14 @@ from ota_metadata.file_table.utils import (
     prepare_dir,
     prepare_non_regular,
     prepare_regular,
+    prepare_regular_write_file,
 )
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
+from otaclient_common.thread_safe_container import ShardedThreadSafeSet, ThreadSafeDict
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
@@ -66,6 +67,9 @@ class UpdateStandbySlot:
         self._interrupted = threading.Event()
         self._thread_local = threading.local()
 
+        self._hardlink_group = ThreadSafeDict[int, Path]()
+        self._first_prepared_digest = ShardedThreadSafeSet[bytes]()
+
     def _worker_initializer(self):
         self._thread_local.merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.APPLY_DELTA
@@ -83,83 +87,55 @@ class UpdateStandbySlot:
         )
         post_workload_barrier.wait()
 
-    def _process_one_files_group_workload(
-        self, cur_digest: bytes, entries: list[RegularFileTypedDict]
-    ) -> None:
-        hardlink_group: dict[int, Path] = {}
-        cur_resource = self._resource_dir / cur_digest.hex()
-        first_entry_prepared = False
+    def _process_one_file_at_thread(self, entry: RegularFileTypedDict) -> None:
+        if self._interrupted.is_set():
+            burst_suppressed_logger.warning(
+                "workload skip on interrupted flag set, abort"
+            )
+            return
 
         try:
-            _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
-            for entry in entries:
-                if self._interrupted.is_set():
-                    burst_suppressed_logger.warning(
-                        "workload skip on interrupted flag set, abort"
-                    )
-                    return
+            _digest = entry["digest"]
+            _digest_hex = _digest.hex()
+            _inode_id = entry["inode_id"]
+            _is_hardlinked = entry["links_count"] is not None
 
-                _inode_id = entry["inode_id"]
-                _size = entry["size"] or 0
-                _is_hardlinked = entry["links_count"] is not None
+            if entry["size"] == 0:
+                prepare_regular_write_file(entry, b"", target_mnt=self._standby_slot_mp)
+                return
 
-                # NOTE that first copy will not be counted in report, as the first copy
-                #   is either prepared by download, or by local, both are already recorded.
-                # NOTE(20250728): not alter the resource_dir to avoid extra inode metadata
-                #                 operations due to removing entries from the resource dir,
-                #                 use hardlink to prepare the first entry.
-                if _is_hardlinked:
+            if _is_hardlinked:
+                with self._hardlink_group:
                     # hardlinked entry shared the same inode, thus same permissions
-                    if _inode_id in hardlink_group:
+                    if _inode_id in self._hardlink_group:
                         prepare_regular(
                             entry,
-                            _rs=hardlink_group[_inode_id],
+                            _rs=self._hardlink_group[_inode_id],
                             target_mnt=self._standby_slot_mp,
                             prepare_method="hardlink",
                             hardlink_skip_apply_permission=True,
                         )
                     else:
-                        hardlink_group[_inode_id] = prepare_regular(
+                        self._hardlink_group[_inode_id] = prepare_regular(
                             entry,
-                            _rs=cur_resource,
+                            _rs=self._resource_dir / _digest_hex,
                             target_mnt=self._standby_slot_mp,
                             prepare_method="copy"
-                            if first_entry_prepared
+                            if not self._first_prepared_digest.check_and_add(_digest)
                             else "hardlink",
                             hardlink_skip_apply_permission=True,
                         )
-                else:  # normal multi copies
-                    prepare_regular(
-                        entry,
-                        cur_resource,
-                        target_mnt=self._standby_slot_mp,
-                        prepare_method="copy" if first_entry_prepared else "hardlink",
-                    )
-
-                if not first_entry_prepared:
-                    first_entry_prepared = True
-                else:
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += _size
-
-            # check if we need to do report after processing this group
-            _now = time.perf_counter()
-            if _now > self._thread_local.next_push:
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
-
-                self._thread_local.next_push = _now + self.status_report_interval
-                self._thread_local.merged_payload = UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.APPLY_DELTA
+            else:  # normal multi copies
+                prepare_regular(
+                    entry,
+                    _rs=self._resource_dir / _digest_hex,
+                    target_mnt=self._standby_slot_mp,
+                    prepare_method="copy"
+                    if not self._first_prepared_digest.check_and_add(_digest)
+                    else "hardlink",
                 )
         except Exception as e:
-            burst_suppressed_logger.exception(
-                f"file entries group process failed: {e!r}"
-            )
+            burst_suppressed_logger.exception(f"file({entry}) process failed: {e}")
             self._interrupted.set()
         finally:
             self._se.release()
@@ -176,34 +152,12 @@ class UpdateStandbySlot:
             thread_name_prefix="ota_update_slot",
             initializer=self._worker_initializer,
         ) as pool:
-            cur_digest: bytes = b""
-            cur_entries: list[RegularFileTypedDict] = []
-
             for _entry in self._ota_metadata.iter_regular_entries():
                 if self._interrupted.is_set():
                     logger.error("detect worker failed, abort!")
                     return
-
-                _this_digest = _entry["digest"]
-                if _this_digest != cur_digest:
-                    if cur_entries:
-                        self._se.acquire()
-                        pool.submit(
-                            self._process_one_files_group_workload,
-                            cur_digest,
-                            cur_entries,
-                        )
-                    cur_digest = _this_digest
-                    cur_entries = [_entry]
-                else:
-                    cur_entries.append(_entry)
-
-            # remember the final group
-            if cur_entries:
                 self._se.acquire()
-                pool.submit(
-                    self._process_one_files_group_workload, cur_digest, cur_entries
-                )
+                pool.submit(self._process_one_file_at_thread, _entry)
 
             # finalizing all the workers
             barrier = threading.Barrier(self.max_workers + 1)
