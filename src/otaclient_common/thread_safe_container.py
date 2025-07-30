@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import itertools
 import threading
-from typing import Generic, Iterable, Iterator, TypeVar
+from typing import Dict, Generic, Iterable, Iterator, TypeVar
 
 from typing_extensions import Self
 
 T = TypeVar("T")
+KT = TypeVar("KT")
+VT = TypeVar("VT")
 
 DEFAULT_SET_SHARD_NUMS = 128
 
@@ -52,6 +54,19 @@ class ShardedThreadSafeSet(Generic[T]):
         with self._locks[shard_index]:
             self._shards[shard_index].add(key)
 
+    def check_and_add(self, key: T) -> bool:
+        """Check if the key is already in the set, and add it if not.
+
+        Returns:
+            True is added, False if the key is already present.
+        """
+        shard_index = self._shard_index(key)
+        with self._locks[shard_index]:
+            if key in self._shards[shard_index]:
+                return False
+            self._shards[shard_index].add(key)
+            return True
+
     @classmethod
     def from_iterable(
         cls, _in: Iterable[T], *, num_of_shards: int = DEFAULT_SET_SHARD_NUMS
@@ -75,3 +90,17 @@ class ShardedThreadSafeSet(Generic[T]):
         for i in range(self._num_of_shards):
             with self._locks[i]:
                 self._shards[i].clear()
+
+
+class ThreadSafeDict(Dict[KT, VT]):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._lock = threading.Lock()
+
+    def __enter__(self) -> Self:
+        self._lock.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self._lock.release()
+        return False
