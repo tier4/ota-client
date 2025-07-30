@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
 
@@ -82,6 +81,9 @@ class OTAMetricsData:
     delta_download_files_size: int = 0
     downloaded_bytes: int = 0
     downloaded_errors: int = 0
+
+    # Boot controller type
+    bootcontroller_type: str = ""
 
     # Cache settings
     enable_local_ota_proxy_cache: bool = False

@@ -1191,6 +1191,7 @@ class OTAClient:
                 failure_reason=f"failed to determine boot controller or create_standby mode: {e!r}",
             )
             return
+        self._metrics.bootcontroller_type = _boot_controller_type.__name__
 
         try:
             self.boot_controller = _boot_controller_type()
