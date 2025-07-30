@@ -213,3 +213,29 @@ class TestLogClient:
             assert _response.message == log_message
         else:
             pytest.fail(f"Unexpected log type: {_response.log_type}")
+
+    @pytest.mark.parametrize(
+        "logging_server, logging_server_grpc, expected_url",
+        [
+            (
+                AnyHttpUrl("http://127.0.0.1:8083"),
+                AnyHttpUrl("http://127.0.0.2:8084"),
+                AnyHttpUrl("http://127.0.0.1:8084"),
+            ),
+            (
+                AnyHttpUrl("https://127.0.0.1:8083"),
+                AnyHttpUrl("http://127.0.0.2:8084"),
+                AnyHttpUrl("https://127.0.0.1:8084"),
+            ),
+            (
+                AnyHttpUrl("http://127.0.0.1:8083"),
+                None,
+                None,
+            ),
+        ],
+    )
+    def test_get_grpc_endpoint(self, logging_server, logging_server_grpc, expected_url):
+        from otaclient._logging import get_grpc_endpoint
+
+        endpoint = get_grpc_endpoint(logging_server, logging_server_grpc)
+        assert endpoint == expected_url

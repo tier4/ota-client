@@ -223,6 +223,27 @@ class _LogTeeHandler(logging.Handler):
         atexit.register(_thread_exit)
 
 
+def get_grpc_endpoint(
+    logging_server: AnyHttpUrl, logging_server_grpc: AnyHttpUrl | None
+) -> AnyHttpUrl | None:
+    """Get the gRPC endpoint from proxy_info."""
+
+    # TODO: Currently, we cannot update /boot/ota/proxy_info.yaml because it is not included in the OTA image.
+    # As a workaround, we use the HTTP host with the gRPC port for gRPC communication,
+    # since their hosts are essentially the same.
+    # In the future, once we can update proxy_info.yaml, we should switch to using the dedicated gRPC endpoint in proxy_info.yaml.
+    if logging_server_grpc is None:
+        return None
+
+    port = urlparse(str(logging_server_grpc).rstrip("/")).port
+
+    parsed_http = urlparse(str(logging_server))
+    scheme = parsed_http.scheme
+    host = parsed_http.hostname
+
+    return AnyHttpUrl(f"{scheme}://{host}:{port}")
+
+
 def configure_logging() -> None:
     """Configure logging with http/gRPC handler."""
     # ------ suppress logging from non-first-party modules ------ #
@@ -235,7 +256,9 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-        logging_upload_grpc_endpoint = proxy_info.logging_server_grpc
+        logging_upload_grpc_endpoint = get_grpc_endpoint(
+            proxy_info.logging_server, proxy_info.logging_server_grpc
+        )
 
         log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)
