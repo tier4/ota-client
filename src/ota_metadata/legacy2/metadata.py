@@ -37,9 +37,6 @@ from typing import Callable, Generator, Iterable
 from urllib.parse import quote
 
 from simple_sqlite3_orm import gen_sql_stmt
-from simple_sqlite3_orm.utils import (
-    enable_wal_mode,
-)
 
 from ota_metadata.file_table import (
     FT_DIR_TABLE_NAME,
@@ -452,14 +449,12 @@ class OTAMetadata:
         _conn = sqlite3.connect(
             self._fst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        enable_wal_mode(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
             self._rst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        enable_wal_mode(_conn)
         return _conn
 
 
