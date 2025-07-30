@@ -937,25 +937,17 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
-        _current_time = int(time.time())
+        _current_finalizing_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.FINALIZING_UPDATE,
-                    trigger_timestamp=_current_time,
+                    trigger_timestamp=_current_finalizing_time,
                 ),
                 session_id=self.session_id,
             )
         )
-        self._metrics.finalizing_update_start_timestamp = _current_time
-        try:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
-        except Exception as e:
-            logger.error(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
-
+        self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
         if proxy_info.enable_local_ota_proxy:
             wait_and_log(
                 check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
@@ -963,6 +955,18 @@ class _OTAUpdater(_OTAUpdateOperator):
                 message="permit reboot flag",
                 log_func=logger.info,
             )
+
+        _current_reboot_time = int(time.time())
+        self._metrics.reboot_start_timestamp = _current_reboot_time
+
+        # publish the metrics before rebooting
+        try:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
+        except Exception as e:
+            logger.error(f"failed to merge metrics: {e!r}")
+        self._metrics.publish()
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)

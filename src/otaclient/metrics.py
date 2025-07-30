@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
 
@@ -54,6 +53,7 @@ class OTAMetricsData:
     apply_update_start_timestamp: int = 0
     post_update_start_timestamp: int = 0
     finalizing_update_start_timestamp: int = 0
+    reboot_start_timestamp: int = 0
 
     # ECU and Firmware
     ecu_id: str = ecu_info.ecu_id
