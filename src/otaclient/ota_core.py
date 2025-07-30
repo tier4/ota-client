@@ -1258,7 +1258,7 @@ class OTAClient:
             )
             self._metrics.failure_type = failure_type
             self._metrics.failure_reason = failure_reason
-            self._metrics.failed_at_phase = ota_status
+            self._metrics.failed_status = ota_status
         finally:
             del exc  # prevent ref cycle
 
