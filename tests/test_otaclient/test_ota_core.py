@@ -187,6 +187,7 @@ class TestOTAClient:
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
 
         # patch boot_controller for otaclient initializing
+        self.boot_controller.__name__ = "BootControllerProtocol"
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
         self.boot_controller.get_booted_ota_status = mocker.MagicMock(
             return_value=OTAStatus.SUCCESS
