@@ -153,12 +153,6 @@ class UpdateStandbySlot:
                 self._thread_local.merged_payload = UpdateProgressReport(
                     operation=UpdateProgressReport.Type.APPLY_DELTA
                 )
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
         except Exception as e:
             burst_suppressed_logger.exception(f"file({entry}) process failed: {e}")
             self._interrupted.set()
