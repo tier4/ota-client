@@ -40,6 +40,8 @@ from otaclient_common.linux import copyfile_nocache
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
+DEFAULT_PERMISSIONS = 0o100644
+
 
 #
 # ------ type hint helpers ------ #
@@ -143,28 +145,40 @@ def prepare_regular(
         The path to the prepared file on target mount point.
     """
     _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
 
     # NOTE(20241213): chown will reset the sticky bit of the file!!!
     #   Remember to always put chown before chmod !!!
     try:
         if prepare_method == "copy":
+            _target_on_mnt.touch(DEFAULT_PERMISSIONS, exist_ok=True)
             copyfile_nocache(_rs, _target_on_mnt)
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
+            if not (_uid == 0 and _gid == 0):
+                os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+            if _mode != DEFAULT_PERMISSIONS:
+                os.chmod(_target_on_mnt, mode=_mode)
             return _target_on_mnt
 
         if prepare_method == "hardlink":
             # NOTE: os.link will make dst a hardlink to src.
             os.link(_rs, _target_on_mnt)
             if not hardlink_skip_apply_permission:
-                os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-                os.chmod(_target_on_mnt, mode=entry["mode"])
+                _src_stat = Path(_rs).stat()
+                _src_uid, _src_gid, _src_mode = (
+                    _src_stat.st_uid,
+                    _src_stat.st_gid,
+                    _src_stat.st_mode,
+                )
+                if _src_uid != _uid or _src_gid != _gid:
+                    os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+                if _src_mode != _mode:
+                    os.chmod(_target_on_mnt, mode=_mode)
             return _target_on_mnt
 
         if prepare_method == "move":
             os.replace(str(_rs), _target_on_mnt)
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
+            os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+            os.chmod(_target_on_mnt, mode=_mode)
             return _target_on_mnt
     except Exception as e:
         burst_suppressed_logger.exception(
@@ -185,15 +199,20 @@ def prepare_regular_write_file(
         The path to the prepared file on target mount point.
     """
     _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
 
     # NOTE(20241213): chown will reset the sticky bit of the file!!!
     #   Remember to always put chown before chmod !!!
-    if len(contents) == 0:
-        _target_on_mnt.touch()
-    else:
+    _target_on_mnt.touch(DEFAULT_PERMISSIONS, exist_ok=True)
+    if len(contents) > 0:
         _target_on_mnt.write_bytes(contents)
-    os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-    os.chmod(_target_on_mnt, mode=entry["mode"])
+
+    # NOTE(20250730): only update permissions when needed
+    # NOTE: as otaclient is running as root
+    if not (_uid == 0 and _gid == 0):
+        os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+    if _mode != DEFAULT_PERMISSIONS:
+        os.chmod(_target_on_mnt, mode=_mode)
     return _target_on_mnt
 
 

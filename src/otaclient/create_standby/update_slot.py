@@ -51,7 +51,7 @@ class UpdateStandbySlot:
         status_report_queue: Queue[StatusReport],
         session_id: str,
         status_report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
-        max_workers: int = 5,
+        max_workers: int = cfg.UPDATE_SLOT_THREADS,
         concurrent_tasks: int = 1024,
     ) -> None:
         self.status_report_interval = status_report_interval
