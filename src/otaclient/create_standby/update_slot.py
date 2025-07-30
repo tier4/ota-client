@@ -103,10 +103,14 @@ class UpdateStandbySlot:
             _size = entry["size"]
             _is_hardlinked = entry["links_count"] is not None
 
-            _first_to_prepare = self._first_prepared_digest.check_and_add(_digest)
             if _size == 0:
+                _merged_payload.processed_file_num += 1
+                _merged_payload.processed_file_size += _size
                 prepare_regular_write_file(entry, b"", target_mnt=self._standby_slot_mp)
-            elif _is_hardlinked:
+                return
+
+            _first_to_prepare = self._first_prepared_digest.check_and_add(_digest)
+            if _is_hardlinked:
                 with self._hardlink_group:
                     # hardlinked entry shared the same inode, thus same permissions
                     if _inode_id in self._hardlink_group:

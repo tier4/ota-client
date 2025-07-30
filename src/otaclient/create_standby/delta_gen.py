@@ -119,18 +119,8 @@ class _DeltaGeneratorBase:
         for _p in self.CLEANUP_ENTRY:
             dtr.add_path(Path(_p))
 
-        # put the empty file into copy_dst, remember to commit a record for preparing the empty file
         (copy_dst / EMPTY_FILE_SHA256).touch()
         self._all_resource_digests.discard(EMPTY_FILE_SHA256_BYTE)
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                    processed_file_num=1,
-                ),
-                session_id=self.session_id,
-            )
-        )
 
     @property
     def num_of_resources_to_download(self) -> int:
