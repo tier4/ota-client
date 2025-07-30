@@ -74,9 +74,9 @@ class FileTableInodeORM(ORMBase[FileTableInode]):
 class FileTableRegularFiles(TableSpec):
     """DB table for regular file entries."""
 
-    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
+    path: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
-    resource_id: Annotated[int, SkipValidation]
+    resource_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
 
 
 class FileTableRegularTypedDict(TypedDict, total=False):
