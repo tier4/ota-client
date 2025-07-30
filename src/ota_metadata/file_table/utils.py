@@ -274,11 +274,6 @@ def save_fstable(
         with _dst_conn as conn:
             _fs_conn.backup(conn)
 
-        with _dst_conn as conn:
-            # change the journal_mode back to DELETE to make db file on read-only mount work.
-            # see https://www.sqlite.org/wal.html#read_only_databases for more details.
-            conn.execute("PRAGMA journal_mode=DELETE;")
-
     media_type_f = dst / media_type_fname
     media_type_f.write_text(media_type)
 
