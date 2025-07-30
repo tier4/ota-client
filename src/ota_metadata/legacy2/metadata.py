@@ -373,7 +373,6 @@ class OTAMetadata:
                     "SELECT", "path,uid,gid,mode",
                     "FROM", FT_DIR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
-                    "ORDER BY", "rowid"
                 )
             )
             # fmt: on
@@ -390,7 +389,6 @@ class OTAMetadata:
                     "SELECT", "path,uid,gid,mode,meta",
                     "FROM", FT_NON_REGULAR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
-                    "ORDER BY", "rowid"
                 )
             )
             # fmt: on
@@ -403,7 +401,6 @@ class OTAMetadata:
                 "FROM", FT_REGULAR_TABLE_NAME,
                 "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
                 "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
-                "ORDER BY", "rowid"
             )
             # fmt: on
             yield from orm.orm_select_entries(
