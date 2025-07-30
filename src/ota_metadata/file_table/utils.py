@@ -104,9 +104,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -171,6 +171,30 @@ def prepare_regular(
             f"failed on preparing {entry!r}, {_rs=}: {e!r}"
         )
         raise
+
+
+def prepare_regular_write_file(
+    entry: RegularFileTypedDict,
+    contents: bytes,
+    *,
+    target_mnt: StrOrPath,
+) -> Path:
+    """Directly write file contents to the target.
+
+    Returns:
+        The path to the prepared file on target mount point.
+    """
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+
+    # NOTE(20241213): chown will reset the sticky bit of the file!!!
+    #   Remember to always put chown before chmod !!!
+    if len(contents) == 0:
+        _target_on_mnt.touch()
+    else:
+        _target_on_mnt.write_bytes(contents)
+    os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+    os.chmod(_target_on_mnt, mode=entry["mode"])
+    return _target_on_mnt
 
 
 #
