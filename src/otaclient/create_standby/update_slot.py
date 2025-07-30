@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import shutil
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
@@ -95,15 +96,18 @@ class UpdateStandbySlot:
             return
 
         try:
+            _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
             _digest = entry["digest"]
             _digest_hex = _digest.hex()
             _inode_id = entry["inode_id"]
+            _size = entry["size"]
             _is_hardlinked = entry["links_count"] is not None
 
-            if entry["size"] == 0:
+            if _size == 0:
                 prepare_regular_write_file(entry, b"", target_mnt=self._standby_slot_mp)
                 return
 
+            _first_to_prepare = self._first_prepared_digest.check_and_add(_digest)
             if _is_hardlinked:
                 with self._hardlink_group:
                     # hardlinked entry shared the same inode, thus same permissions
@@ -120,9 +124,7 @@ class UpdateStandbySlot:
                             entry,
                             _rs=self._resource_dir / _digest_hex,
                             target_mnt=self._standby_slot_mp,
-                            prepare_method="copy"
-                            if not self._first_prepared_digest.check_and_add(_digest)
-                            else "hardlink",
+                            prepare_method="hardlink" if _first_to_prepare else "copy",
                             hardlink_skip_apply_permission=True,
                         )
             else:  # normal multi copies
@@ -130,9 +132,34 @@ class UpdateStandbySlot:
                     entry,
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
-                    prepare_method="copy"
-                    if not self._first_prepared_digest.check_and_add(_digest)
-                    else "hardlink",
+                    prepare_method="hardlink" if _first_to_prepare else "copy",
+                )
+
+            # NOTE that first copy will not be counted in report, as the first copy
+            #   is either prepared by download, or by local, both are already recorded.
+            if not _first_to_prepare:
+                _merged_payload.processed_file_num += 1
+                _merged_payload.processed_file_size += _size
+
+            # check if we need to do report after processing this group
+            _now = time.perf_counter()
+            if _now > self._thread_local.next_push:
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
+                    )
+                )
+
+                self._thread_local.next_push = _now + self.status_report_interval
+                self._thread_local.merged_payload = UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.APPLY_DELTA
+                )
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_payload,
+                        session_id=self.session_id,
+                    )
                 )
         except Exception as e:
             burst_suppressed_logger.exception(f"file({entry}) process failed: {e}")
