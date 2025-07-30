@@ -266,8 +266,13 @@ def save_fstable(
 
     dst = Path(dst)
     dst.mkdir(exist_ok=True, parents=True)
-    os.sync()  # ensure the db file is committed before copying
-    copyfile_nocache(db_f, dst / saved_name)
+
+    with contextlib.closing(sqlite3.connect(db_f)) as _fs_conn, contextlib.closing(
+        sqlite3.connect(dst / saved_name)
+    ) as _dst_conn:
+        with _dst_conn as conn:
+            _fs_conn.backup(conn)
+
     media_type_f = dst / media_type_fname
     media_type_f.write_text(media_type)
 
