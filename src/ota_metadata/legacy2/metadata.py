@@ -409,6 +409,22 @@ class OTAMetadata:
                 _row_factory=sqlite3.Row,
             )  # type: ignore
 
+    def iter_regular_entries2(self) -> Generator[RegularFileTypedDict]:
+        with FileTableRegularORM(self.connect_fstable()) as orm:
+            # fmt: off
+            _stmt = gen_sql_stmt(
+                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
+                "FROM", FT_REGULAR_TABLE_NAME,
+                "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
+                "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
+                "ORDER BY", "rowid"
+            )
+            # fmt: on
+            yield from orm.orm_select_entries(
+                _stmt=_stmt,
+                _row_factory=sqlite3.Row,
+            )  # type: ignore
+
     def iter_common_regular_entries_by_digest(
         self,
         base_file_table: StrOrPath,

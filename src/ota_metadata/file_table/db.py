@@ -87,7 +87,7 @@ class FileTableRegularTypedDict(TypedDict, total=False):
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(
             index_name="fr_resource_id_index", index_cols=("resource_id",)
