@@ -65,7 +65,6 @@ class FiletableInodeTypedDict(TypedDict, total=False):
 
 class FileTableInodeORM(ORMBase[FileTableInode]):
     orm_bootstrap_table_name = FT_INODE_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
 
 
 # ------ regular file table ------ #
@@ -87,7 +86,6 @@ class FileTableRegularTypedDict(TypedDict, total=False):
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):
     orm_bootstrap_table_name = FT_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(
             index_name="fr_resource_id_index", index_cols=("resource_id",)
@@ -129,7 +127,6 @@ class FileTableNonRegularTypedDict(TypedDict, total=False):
 
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="fnr_inode_id_index", index_cols=("inode_id",)),
     ]
@@ -173,7 +170,6 @@ class FileTableResourceTypedDict(TypedDict, total=False):
 
 class FileTableResourceORM(ORMBase[FileTableResource]):
     orm_bootstrap_table_name = FT_RESOURCE_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="frs_digest_index", index_cols=("digest",))
     ]
