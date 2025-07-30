@@ -74,7 +74,7 @@ class FileTableInodeORM(ORMBase[FileTableInode]):
 class FileTableRegularFiles(TableSpec):
     """DB table for regular file entries."""
 
-    path: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
     resource_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
 
@@ -115,7 +115,7 @@ class FileTableNonRegularFiles(TableSpec):
     NOTE: chardev is not supported by legacy OTA image, so just ignore it.
     """
 
-    path: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
     meta: Annotated[Optional[bytes], SkipValidation] = None
     """The contents of the file. Currently only used by symlink."""
@@ -129,7 +129,7 @@ class FileTableNonRegularTypedDict(TypedDict, total=False):
 
 class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
     orm_bootstrap_table_name = FT_NON_REGULAR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="fnr_inode_id_index", index_cols=("inode_id",)),
     ]
@@ -139,7 +139,7 @@ class FileTableNonRegularORM(ORMBase[FileTableNonRegularFiles]):
 
 
 class FileTableDirectories(TableSpec):
-    path: Annotated[str, ConstrainRepr("NOT NULL"), SkipValidation]
+    path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
 
 
@@ -150,7 +150,7 @@ class FileTableDirectoryTypedDict(TypedDict, total=False):
 
 class FileTableDirORM(ORMBase[FileTableDirectories]):
     orm_bootstrap_table_name = FT_DIR_TABLE_NAME
-    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=False)
+    orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
     orm_bootstrap_indexes_params = [
         CreateIndexParams(index_name="fd_inode_id_index", index_cols=("inode_id",)),
     ]
