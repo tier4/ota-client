@@ -39,7 +39,6 @@ from urllib.parse import quote
 from simple_sqlite3_orm import gen_sql_stmt
 from simple_sqlite3_orm.utils import (
     enable_wal_mode,
-    wrap_value,
 )
 
 from ota_metadata.file_table import (
@@ -63,7 +62,6 @@ from ota_metadata.file_table.utils import (
 )
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import CAChainStore
-from otaclient_common import EMPTY_FILE_SHA256_BYTE
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 
@@ -424,7 +422,7 @@ class OTAMetadata:
             f"FROM base.{FT_REGULAR_TABLE_NAME}",
             f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
             f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
-            f"WHERE base.{FT_RESOURCE_TABLE_NAME}.digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}"
+            f"WHERE base.{FT_RESOURCE_TABLE_NAME}.size != 0",
             f"ORDER BY base.{FT_RESOURCE_TABLE_NAME}.digest"
         )
         # fmt: on
