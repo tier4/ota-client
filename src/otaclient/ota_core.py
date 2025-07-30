@@ -101,7 +101,7 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.sharded_set import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeSet
 
 logger = logging.getLogger(__name__)
 

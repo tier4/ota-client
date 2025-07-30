@@ -39,7 +39,7 @@ from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
-from otaclient_common.sharded_set import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeSet
 
 logger = logging.getLogger(__name__)
 

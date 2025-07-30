@@ -28,7 +28,7 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
-from otaclient_common.sharded_set import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeSet
 
 logger = logging.getLogger(__name__)
 
