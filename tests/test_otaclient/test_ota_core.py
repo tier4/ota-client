@@ -209,7 +209,9 @@ class TestOTAClient:
             shm_metrics_reader=mocker.MagicMock(),
         )
 
-    def test_update_normal_finished(self):
+    def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
+        mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
+
         # --- execution --- #
         self.ota_client.update(
             request=UpdateRequestV2(
@@ -224,10 +226,13 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
 
+        mock_publish.assert_called_once()
+
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         mock_exit_from_dynamic_client = mocker.patch.object(
             self.ota_client, "_exit_from_dynamic_client"
         )
+        mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
 
         # inject exception
         _error = OTAErrorRecoverable("interrupted by test as expected", module=__name__)
@@ -247,8 +252,8 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
 
-        # Verify that _exit_from_dynamic_client was called
         mock_exit_from_dynamic_client.assert_called_once()
+        mock_publish.assert_called_once()
 
     def test_client_update_normal_finished(self):
         """Test client update with normal completion."""

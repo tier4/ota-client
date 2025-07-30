@@ -19,7 +19,6 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
 
@@ -118,5 +117,8 @@ class OTAMetricsData:
             # metrics data has already been published.
             return
 
-        logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
-        self._already_published = True
+        try:
+            logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
+            self._already_published = True
+        except Exception as e:
+            logger.error(f"Failed to publish metrics: {e}")
