@@ -373,6 +373,7 @@ class OTAMetadata:
                     "SELECT", "path,uid,gid,mode",
                     "FROM", FT_DIR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                    "ORDER BY", "rowid"
                 )
             )
             # fmt: on
@@ -389,27 +390,12 @@ class OTAMetadata:
                     "SELECT", "path,uid,gid,mode,meta",
                     "FROM", FT_NON_REGULAR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                    "ORDER BY", "rowid"
                 )
             )
             # fmt: on
 
     def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            # fmt: off
-            _stmt = gen_sql_stmt(
-                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
-                "FROM", FT_REGULAR_TABLE_NAME,
-                "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
-                "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
-                "ORDER BY", "digest"
-            )
-            # fmt: on
-            yield from orm.orm_select_entries(
-                _stmt=_stmt,
-                _row_factory=sqlite3.Row,
-            )  # type: ignore
-
-    def iter_regular_entries2(self) -> Generator[RegularFileTypedDict]:
         with FileTableRegularORM(self.connect_fstable()) as orm:
             # fmt: off
             _stmt = gen_sql_stmt(
