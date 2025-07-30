@@ -19,7 +19,6 @@ import json
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
@@ -45,6 +44,7 @@ class TestOTAMetricsData:
         # Create mock shared memory data
         shm_metrics = metrics.OTAMetricsSharedMemoryData()
         shm_metrics.cache_total_requests = 100
+        shm_metrics.cache_cdn_hits = 20
         shm_metrics.cache_external_hits = 50
         shm_metrics.cache_local_hits = 30
 
@@ -53,6 +53,7 @@ class TestOTAMetricsData:
 
         # Verify the data was merged
         assert ota_metrics.cache_total_requests == 100
+        assert ota_metrics.cache_cdn_hits == 20
         assert ota_metrics.cache_external_hits == 50
         assert ota_metrics.cache_local_hits == 30
 

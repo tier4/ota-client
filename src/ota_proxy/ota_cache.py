@@ -418,6 +418,9 @@ class OTACache:
         # open remote connection
         _remote_fd = cast("AsyncGenerator[bytes]", self._do_request(raw_url, headers))
         resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
+        _x_cache = (resp_headers or {}).get("X-Cache", "").lower()
+        if _x_cache.startswith("hit"):
+            self._metrics_data.cache_cdn_hits += 1
         return _remote_fd, resp_headers
 
     async def _retrieve_file_by_cache_lookup(
