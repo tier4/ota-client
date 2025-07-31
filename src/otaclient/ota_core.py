@@ -25,7 +25,6 @@ import shutil
 import threading
 import time
 from concurrent.futures import Future
-from dataclasses import replace
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
@@ -938,25 +937,17 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
-        _current_time = int(time.time())
+        _current_finalizing_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
                     new_update_phase=UpdatePhase.FINALIZING_UPDATE,
-                    trigger_timestamp=_current_time,
+                    trigger_timestamp=_current_finalizing_time,
                 ),
                 session_id=self.session_id,
             )
         )
-        self._metrics.finalizing_update_start_timestamp = _current_time
-        try:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
-        except Exception as e:
-            logger.error(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
-
+        self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
         if proxy_info.enable_local_ota_proxy:
             wait_and_log(
                 check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
@@ -964,6 +955,18 @@ class _OTAUpdater(_OTAUpdateOperator):
                 message="permit reboot flag",
                 log_func=logger.info,
             )
+
+        _current_reboot_time = int(time.time())
+        self._metrics.reboot_start_timestamp = _current_reboot_time
+
+        # publish the metrics before rebooting
+        try:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
+        except Exception as e:
+            logger.error(f"failed to merge metrics: {e!r}")
+        self._metrics.publish()
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
@@ -990,13 +993,6 @@ class _OTAUpdater(_OTAUpdateOperator):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            try:
-                if self._shm_metrics_reader:
-                    _shm_metrics = self._shm_metrics_reader.sync_msg()
-                    self._metrics.shm_merge(_shm_metrics)
-            except Exception as e:
-                logger.error(f"failed to merge metrics: {e!r}")
-            self._metrics.publish()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
@@ -1206,6 +1202,7 @@ class OTAClient:
                 failure_reason=f"boot controller startup failed: {e!r}",
             )
             return
+        self._metrics.bootloader_type = self.boot_controller.bootloader_type
 
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
@@ -1266,7 +1263,7 @@ class OTAClient:
             )
             self._metrics.failure_type = failure_type
             self._metrics.failure_reason = failure_reason
-            self._metrics.failed_at_phase = ota_status
+            self._metrics.failed_status = ota_status
         finally:
             del exc  # prevent ref cycle
 
@@ -1311,6 +1308,7 @@ class OTAClient:
         logger.info(f"start new OTA update session: {new_session_id=}")
 
         session_wd = self._update_session_dir / new_session_id
+        self._metrics.session_id = new_session_id
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -1330,7 +1328,7 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
-                metrics=replace(self._metrics, session_id=new_session_id),
+                metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError as e:
@@ -1344,6 +1342,13 @@ class OTAClient:
             self._exit_from_dynamic_client()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
+            try:
+                if self._shm_metrics_reader:
+                    _shm_metrics = self._shm_metrics_reader.sync_msg()
+                    self._metrics.shm_merge(_shm_metrics)
+            except Exception as e:
+                logger.error(f"failed to merge metrics: {e!r}")
+            self._metrics.publish()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
