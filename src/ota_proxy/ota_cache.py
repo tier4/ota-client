@@ -115,6 +115,9 @@ class OTACache:
         shm_metrics_writer: SharedOTAClientMetricsWriter instance to write metrics to shared memory.
     """
 
+    CDN_HEADER_CACHE_KEY = "X-Cache"
+    CDN_HEADER_CACHE_HIT_VALUE = "Hit"
+
     def __init__(
         self,
         *,
@@ -418,8 +421,8 @@ class OTACache:
         # open remote connection
         _remote_fd = cast("AsyncGenerator[bytes]", self._do_request(raw_url, headers))
         resp_headers = cast("CIMultiDictProxy[str]", await _remote_fd.__anext__())
-        _x_cache = (resp_headers or {}).get("X-Cache", "").lower()
-        if _x_cache.startswith("hit"):
+        _x_cache = (resp_headers or {}).get(self.CDN_HEADER_CACHE_KEY, "").lower()
+        if _x_cache.startswith(self.CDN_HEADER_CACHE_HIT_VALUE.lower()):
             self._metrics_data.cache_cdn_hits += 1
         return _remote_fd, resp_headers
 
