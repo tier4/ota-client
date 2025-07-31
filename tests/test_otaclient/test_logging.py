@@ -103,7 +103,7 @@ class TestLogClient:
         self._ecu_info = ECUInfo(ecu_id=TestLogClient.ECU_ID)
         mocker.patch(f"{MODULE}.ecu_info", self._ecu_info)
 
-    @pytest.fixture
+    @pytest.fixture(autouse=True)
     def mock_proxy_info(self, mocker: MockerFixture):
         self._proxy_info = ProxyInfo(
             logging_server=AnyHttpUrl(TestLogClient.OTA_CLIENT_LOGGING_SERVER),
@@ -167,7 +167,6 @@ class TestLogClient:
     )
     async def test_grpc_logging(
         self,
-        mock_proxy_info,
         launch_grpc_server,
         restore_logging,
         log_message,
@@ -215,7 +214,7 @@ class TestLogClient:
         else:
             pytest.fail(f"Unexpected log type: {_response.log_type}")
 
-    def test_configure_logging(self, mock_proxy_info, mocker: MockerFixture):
+    def test_configure_logging(self, restore_logging, mocker: MockerFixture):
         mock_start_upload_thread = mocker.patch.object(
             _logging._LogTeeHandler, "start_upload_thread"
         )
