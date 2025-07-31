@@ -54,6 +54,7 @@ class OTAMetricsData:
     apply_update_start_timestamp: int = 0
     post_update_start_timestamp: int = 0
     finalizing_update_start_timestamp: int = 0
+    reboot_start_timestamp: int = 0
 
     # ECU and Firmware
     ecu_id: str = ecu_info.ecu_id
@@ -81,6 +82,9 @@ class OTAMetricsData:
     delta_download_files_size: int = 0
     downloaded_bytes: int = 0
     downloaded_errors: int = 0
+
+    # Bootloader type
+    bootloader_type: str = ""
 
     # Cache settings
     enable_local_ota_proxy_cache: bool = False
