@@ -1336,6 +1336,7 @@ class OTAClient:
             )
             self._exit_from_dynamic_client()
         finally:
+            shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()
@@ -1343,7 +1344,6 @@ class OTAClient:
             except Exception as e:
                 logger.error(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
-            shutil.rmtree(session_wd, ignore_errors=True)
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
