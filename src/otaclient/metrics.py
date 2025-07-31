@@ -67,7 +67,7 @@ class OTAMetricsData:
     # Status
     failure_type: str = ""
     failure_reason: str = ""
-    failed_at_phase: str = ""
+    failed_status: str = ""
 
     # Mode
     use_inplace_mode: bool = False
@@ -118,5 +118,8 @@ class OTAMetricsData:
             # metrics data has already been published.
             return
 
-        logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
-        self._already_published = True
+        try:
+            logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
+            self._already_published = True
+        except Exception as e:
+            logger.error(f"Failed to publish metrics: {e}")
