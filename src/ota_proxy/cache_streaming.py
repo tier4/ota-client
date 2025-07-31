@@ -22,6 +22,7 @@ import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -147,7 +148,7 @@ class CacheTracker:
         self,
         cache_identifier: str,
         *,
-        base_dir: anyio.Path,
+        base_dir: Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
@@ -208,7 +209,14 @@ class CacheTracker:
 
             try:
                 if not tracker_events.writer_failed:
-                    os.link(self.fpath, self.save_path)
+                    # NOTE(20250731): when otaproxy starts with previous cache files existed,
+                    #                 the `save_path` might already exist.
+                    #                 If that file is broken, let otaclient reports it with
+                    #                 OTA cache file protocol in next OTA download request.
+                    # NOTE(20250831): not considering the case that /ota-cache folder is tampered
+                    #                 or poluted intentionally, assume that all files are normal files.
+                    if not self.save_path.exists():
+                        os.link(self.fpath, self.save_path)
                     self._commit_cache_cb(cache_meta)
             except Exception as e:
                 raise CacheCommitFailed(
@@ -241,7 +249,8 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
             try:
-                os.link(self.fpath, self.save_path)
+                if not self.save_path.exists():
+                    os.link(self.fpath, self.save_path)
                 self._commit_cache_cb(cache_meta)
             except Exception as e:
                 raise CacheCommitFailed(
