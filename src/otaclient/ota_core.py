@@ -612,7 +612,7 @@ class _OTAUpdater:
                 if base_meta_dir_on_standby_slot.is_dir():
                     verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
                 else:
-                    shutil.rmtree(base_meta_dir_on_standby_slot)
+                    shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
                     if self._image_meta_dir_on_standby.is_dir():
                         shutil.move(
                             self._image_meta_dir_on_standby,
