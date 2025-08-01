@@ -235,7 +235,16 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-        logging_upload_grpc_endpoint = proxy_info.logging_server_grpc
+
+        # TODO: Currently, we cannot update /boot/ota/proxy_info.yaml because it is not included in the OTA image.
+        # As a workaround, we use the HTTP host with the gRPC port for gRPC communication,
+        # since their hosts are essentially the same.
+        # In the future, once we can update proxy_info.yaml, we should switch to using the dedicated gRPC endpoint in proxy_info.yaml.
+        _parsed_http = urlparse(str(logging_upload_endpoint))
+        _scheme = _parsed_http.scheme
+        _host = _parsed_http.hostname
+        _port = urlparse(str(proxy_info.logging_server_grpc).rstrip("/")).port
+        logging_upload_grpc_endpoint = AnyHttpUrl(f"{_scheme}://{_host}:{_port}")
 
         log_upload_handler = _LogTeeHandler()
         fmt = logging.Formatter(fmt=cfg.LOG_FORMAT)

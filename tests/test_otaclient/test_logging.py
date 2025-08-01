@@ -81,7 +81,7 @@ class DummyLogServerService(log_v1_grpc.OTAClientIoTLoggingServiceServicer):
 
 class TestLogClient:
     OTA_CLIENT_LOGGING_SERVER = "http://127.0.0.1:8083"
-    OTA_CLIENT_LOGGING_SERVER_GRPC = "http://127.0.0.1:8084"
+    OTA_CLIENT_LOGGING_SERVER_GRPC = "http://192.168.0.1:8084"
     ECU_ID = "testclient"
 
     @pytest.fixture(autouse=True)
@@ -120,7 +120,7 @@ class TestLogClient:
             servicer=DummyLogServerService(self.test_queue, self.data_ready),
             server=server,
         )
-        parsed_url = urlparse(TestLogClient.OTA_CLIENT_LOGGING_SERVER_GRPC)
+        parsed_url = urlparse("http://127.0.0.1:8084")
         server.add_insecure_port(parsed_url.netloc)
         try:
             await server.start()
@@ -213,3 +213,16 @@ class TestLogClient:
             assert _response.message == log_message
         else:
             pytest.fail(f"Unexpected log type: {_response.log_type}")
+
+    def test_configure_logging(self, restore_logging, mocker: MockerFixture):
+        mock_start_upload_thread = mocker.patch.object(
+            _logging._LogTeeHandler, "start_upload_thread"
+        )
+
+        configure_logging()
+
+        mock_start_upload_thread.assert_called_once_with(
+            logging_upload_endpoint=self._proxy_info.logging_server,
+            logging_upload_grpc_endpoint=AnyHttpUrl("http://127.0.0.1:8084"),
+            ecu_id=self._ecu_info.ecu_id,
+        )
