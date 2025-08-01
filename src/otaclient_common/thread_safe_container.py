@@ -14,28 +14,30 @@
 
 from __future__ import annotations
 
-import itertools
 import threading
-from typing import Dict, Generic, Iterable, Iterator, TypeVar
+from typing import Any, Dict, Generic, Iterable, Iterator, TypeVar
 
 from typing_extensions import Self
 
-T = TypeVar("T")
 KT = TypeVar("KT")
 VT = TypeVar("VT")
 
 DEFAULT_SET_SHARD_NUMS = 128
+_NOT_SET = object()
 
 
-class ShardedThreadSafeSet(Generic[T]):
+class ShardedThreadSafeDict(Generic[KT, VT]):
     def __init__(self, num_of_shards: int = DEFAULT_SET_SHARD_NUMS) -> None:
         self._num_of_shards = num_of_shards
-        self._shards: list[set[T]] = [set() for _ in range(num_of_shards)]
+        self._shards: list[dict[KT, VT]] = [{} for _ in range(num_of_shards)]
         self._locks: list[threading.Lock] = [
             threading.Lock() for _ in range(num_of_shards)
         ]
 
-    def __contains__(self, key: T) -> bool:
+    def _shard_index(self, key: KT) -> int:
+        return hash(key) % self._num_of_shards
+
+    def __contains__(self, key: KT) -> bool:
         shard_index = self._shard_index(key)
         with self._locks[shard_index]:
             return key in self._shards[shard_index]
@@ -43,19 +45,30 @@ class ShardedThreadSafeSet(Generic[T]):
     def __len__(self) -> int:
         return sum(len(shard) for shard in self._shards)
 
-    def __iter__(self) -> Iterator[T]:
-        return itertools.chain(*self._shards)
+    def __iter__(self) -> Iterator[KT]:
+        for i in range(self._num_of_shards):
+            with self._locks[i]:
+                yield from self._shards[i]
 
-    def _shard_index(self, key: T) -> int:
-        return hash(key) % self._num_of_shards
-
-    def add(self, key: T) -> None:
+    def __setitem__(self, key: KT, value: VT) -> None:
         shard_index = self._shard_index(key)
         with self._locks[shard_index]:
-            self._shards[shard_index].add(key)
+            self._shards[shard_index][key] = value
 
-    def check_and_add(self, key: T) -> bool:
-        """Check if the key is already in the set, and add it if not.
+    def __getitem__(self, key: KT) -> VT:
+        shard_index = self._shard_index(key)
+        with self._locks[shard_index]:
+            return self._shards[shard_index][key]
+
+    def items(self) -> Iterator[tuple[KT, VT]]:
+        for i in range(self._num_of_shards):
+            with self._locks[i]:
+                yield from self._shards[i].items()
+
+    keys = __iter__
+
+    def check_and_add(self, key: KT, value: VT) -> bool:
+        """Check if the key is already presented, and add it if not.
 
         Returns:
             True is added, False if the key is already present.
@@ -64,27 +77,27 @@ class ShardedThreadSafeSet(Generic[T]):
         with self._locks[shard_index]:
             if key in self._shards[shard_index]:
                 return False
-            self._shards[shard_index].add(key)
+            self._shards[shard_index][key] = value
             return True
 
     @classmethod
     def from_iterable(
-        cls, _in: Iterable[T], *, num_of_shards: int = DEFAULT_SET_SHARD_NUMS
+        cls,
+        _in: Iterable[tuple[KT, VT]],
+        *,
+        num_of_shards: int = DEFAULT_SET_SHARD_NUMS,
     ) -> Self:
         instance = cls(num_of_shards)
-        for item in _in:
-            instance.add(item)
+        for key, value in _in:
+            instance[key] = value
         return instance
 
-    def remove(self, key: T) -> None:
+    def pop(self, key: KT, default: VT | Any = _NOT_SET) -> VT | Any:
         shard_index = self._shard_index(key)
         with self._locks[shard_index]:
-            self._shards[shard_index].remove(key)
-
-    def discard(self, key: T) -> None:
-        shard_index = self._shard_index(key)
-        with self._locks[shard_index]:
-            self._shards[shard_index].discard(key)
+            if default is _NOT_SET:
+                return self._shards[shard_index].pop(key)
+            return self._shards[shard_index].pop(key, default)
 
     def clear(self) -> None:
         for i in range(self._num_of_shards):
