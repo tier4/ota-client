@@ -19,7 +19,7 @@ import logging
 import shutil
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
@@ -35,7 +35,7 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
-from otaclient_common.thread_safe_container import ShardedThreadSafeSet, ThreadSafeDict
+from otaclient_common.thread_safe_container import ThreadSafeDict
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
@@ -69,7 +69,6 @@ class UpdateStandbySlot:
         self._thread_local = threading.local()
 
         self._hardlink_group = ThreadSafeDict[int, Path]()
-        self._first_prepared_digest = ShardedThreadSafeSet[bytes]()
 
     def _worker_initializer(self):
         self._thread_local.merged_payload = UpdateProgressReport(
@@ -88,80 +87,73 @@ class UpdateStandbySlot:
         )
         post_workload_barrier.wait()
 
-    def _process_one_file_at_thread(self, entry: RegularFileTypedDict) -> None:
-        if self._interrupted.is_set():
-            burst_suppressed_logger.warning(
-                "workload skip on interrupted flag set, abort"
+    def _task_done_cb(self, _fut: Future):
+        self._se.release()  # release se first
+        if _exc := _fut.exception():
+            burst_suppressed_logger.error(
+                f"failure during processing: {_exc}", exc_info=_exc
             )
-            return
+            self._interrupted.set()
 
-        try:
-            _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
-            _digest = entry["digest"]
-            _digest_hex = _digest.hex()
-            _inode_id = entry["inode_id"]
-            _size = entry["size"]
-            _is_hardlinked = entry["links_count"] is not None
-
-            if _size == 0:
-                _merged_payload.processed_file_num += 1
-                _merged_payload.processed_file_size += _size
-                prepare_regular_write_file(entry, b"", target_mnt=self._standby_slot_mp)
-                return
-
-            _first_to_prepare = self._first_prepared_digest.check_and_add(_digest)
-            if _is_hardlinked:
-                with self._hardlink_group:
-                    # hardlinked entry shared the same inode, thus same permissions
-                    if _inode_id in self._hardlink_group:
-                        prepare_regular(
-                            entry,
-                            _rs=self._hardlink_group[_inode_id],
-                            target_mnt=self._standby_slot_mp,
-                            prepare_method="hardlink",
-                            hardlink_skip_apply_permission=True,
-                        )
-                    else:
-                        self._hardlink_group[_inode_id] = prepare_regular(
-                            entry,
-                            _rs=self._resource_dir / _digest_hex,
-                            target_mnt=self._standby_slot_mp,
-                            prepare_method="hardlink" if _first_to_prepare else "copy",
-                            hardlink_skip_apply_permission=True,
-                        )
-            else:  # normal multi copies
+    def _process_hardlinked_file_at_thread(
+        self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
+    ):
+        _inode_id = _entry["inode_id"]
+        with self._hardlink_group:
+            _link_group_head = self._hardlink_group.get(_inode_id)
+            if _link_group_head is not None:
                 prepare_regular(
-                    entry,
+                    _entry,
+                    _rs=_link_group_head,
+                    target_mnt=self._standby_slot_mp,
+                    prepare_method="hardlink",
+                    hardlink_skip_apply_permission=True,
+                )
+            else:
+                self._hardlink_group[_inode_id] = prepare_regular(
+                    _entry,
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink" if _first_to_prepare else "copy",
+                    prepare_method="hardlink" if first_to_prepare else "copy",
+                    hardlink_skip_apply_permission=True,
                 )
 
-            # NOTE that first copy will not be counted in report, as the first copy
-            #   is either prepared by download, or by local, both are already recorded.
-            if not _first_to_prepare:
-                _merged_payload.processed_file_num += 1
-                _merged_payload.processed_file_size += _size
+        if not first_to_prepare:
+            self._post_regular_file_process(_entry)
 
-            # check if we need to do report after processing this group
-            _now = time.perf_counter()
-            if _now > self._thread_local.next_push:
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
+    def _process_normal_file_at_thread(
+        self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
+    ):
+        if _entry["size"] == 0:
+            prepare_regular_write_file(_entry, b"", target_mnt=self._standby_slot_mp)
+            self._post_regular_file_process(_entry)
+        else:
+            prepare_regular(
+                _entry,
+                _rs=self._resource_dir / _digest_hex,
+                target_mnt=self._standby_slot_mp,
+                prepare_method="hardlink" if first_to_prepare else "copy",
+            )
+            if not first_to_prepare:
+                self._post_regular_file_process(_entry)
 
-                self._thread_local.next_push = _now + self.status_report_interval
-                self._thread_local.merged_payload = UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.APPLY_DELTA
+    def _post_regular_file_process(self, _entry: RegularFileTypedDict):
+        _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
+        _merged_payload.processed_file_num += 1
+        _merged_payload.processed_file_size += _entry["size"]
+
+        _now = time.perf_counter()
+        if _now > self._thread_local.next_push:
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
                 )
-        except Exception as e:
-            burst_suppressed_logger.exception(f"file({entry}) process failed: {e}")
-            self._interrupted.set()
-        finally:
-            self._se.release()
+            )
+            self._thread_local.next_push = _now + self.status_report_interval
+            self._thread_local.merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.APPLY_DELTA
+            )
 
     def _process_regular_file_entries(self) -> None:
         """Dispatch a group of regular file entries to thread pool which
@@ -170,6 +162,8 @@ class UpdateStandbySlot:
         NOTE: it depends on the regular file table is sorted by digest!
         """
         logger.info("process regular file entries ...")
+        _first_prepared_digest: set[bytes] = set()
+
         with ThreadPoolExecutor(
             max_workers=self.max_workers,
             thread_name_prefix="ota_update_slot",
@@ -180,7 +174,30 @@ class UpdateStandbySlot:
                     logger.error("detect worker failed, abort!")
                     return
                 self._se.acquire()
-                pool.submit(self._process_one_file_at_thread, _entry)
+
+                _digest = _entry["digest"]
+                _digest_hex = _digest.hex()
+
+                _first_to_prepare = False
+                if _digest not in _first_prepared_digest:
+                    _first_to_prepare = True
+                    _first_prepared_digest.add(_digest)
+
+                _links_count = _entry["links_count"]
+                if _links_count is not None and _links_count > 1:
+                    pool.submit(
+                        self._process_hardlinked_file_at_thread,
+                        _digest_hex,
+                        _entry,
+                        _first_to_prepare,
+                    ).add_done_callback(self._task_done_cb)
+                else:
+                    pool.submit(
+                        self._process_normal_file_at_thread,
+                        _digest_hex,
+                        _entry,
+                        _first_to_prepare,
+                    ).add_done_callback(self._task_done_cb)
 
             # finalizing all the workers
             barrier = threading.Barrier(self.max_workers + 1)
