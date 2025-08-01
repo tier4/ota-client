@@ -103,11 +103,10 @@ def otaproxy_process(
         cache_db_f=local_otaproxy_cfg.DB_FILE,
         upper_proxy=upper_proxy,
         # NOTE(20250801): Starting from otaclient v3.9.1, we have inplace update mode with OTA resume,
-        #                   on child ECU, we don't need rely on OTA cache to speed up the OTA retry anymore.
-        # NOTE(20250801): Due to proxy_info.yaml is forced preserved across each OTA,
-        #                   (multiple methods are used to ensure that, unfortunately),
-        #                   currently there is no way to update the proxy_info.yaml file on
-        #                   the ECU via OTA.
+        #                   on child ECU, we don't need to rely on OTA cache to speed up OTA retry anymore.
+        # NOTE(20250801): Due to proxy_info.yaml is forced preserved across each OTA(multiple methods are used
+        #                   to ensure that, unfortunately), currently there is no way to update the proxy_info.yaml
+        #                   file on the ECU via OTA.
         #                 For now, hardcoded to disable OTA cache on the child ECU.
         #                 To be noticed that, otaproxy OTA cache on main ECU is still needed for streaming
         #                   the same requests from multiple child ECUs to reduce duplicate downloads.
