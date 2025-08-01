@@ -16,7 +16,6 @@
 The API exposed by this module is meant to be controlled by otaproxy managing thread only.
 """
 
-
 from __future__ import annotations
 
 import atexit
@@ -103,7 +102,16 @@ def otaproxy_process(
         cache_dir=local_otaproxy_cfg.BASE_DIR,
         cache_db_f=local_otaproxy_cfg.DB_FILE,
         upper_proxy=upper_proxy,
-        enable_cache=proxy_info.enable_local_ota_proxy_cache,
+        # NOTE(20250801): Starting from otaclient v3.9.1, we have inplace update mode with OTA resume,
+        #                   on child ECU, we don't need to rely on OTA cache to speed up OTA retry anymore.
+        # NOTE(20250801): Due to proxy_info.yaml is forced preserved across each OTA(multiple methods are used
+        #                   to ensure that, unfortunately), currently there is no way to update the proxy_info.yaml
+        #                   file on the ECU via OTA.
+        #                 For now, hardcoded to disable OTA cache on the child ECU.
+        #                 To be noticed that, otaproxy OTA cache on main ECU is still needed for streaming
+        #                   the same requests from multiple child ECUs to reduce duplicate downloads.
+        enable_cache=proxy_info.enable_local_ota_proxy_cache
+        and proxy_info.upper_ota_proxy is None,
         enable_https=proxy_info.gateway_otaproxy,
         external_cache_mnt_point=external_cache_mnt_point,
         shm_metrics_writer=shm_metrics_writer,
