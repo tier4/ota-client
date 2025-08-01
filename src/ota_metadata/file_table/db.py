@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Optional, TypedDict
+from typing import Callable, Generator, Optional, TypedDict, cast
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -174,12 +174,13 @@ class FileTableResourceORM(ORMBase[FileTableResource]):
         CreateIndexParams(index_name="frs_digest_index", index_cols=("digest",))
     ]
 
-    def select_all_digests(self) -> list[bytes]:
+    def select_all_digests_with_size(self) -> Generator[tuple[bytes, int]]:
         """Select all resource digests from the resource table."""
-        stmt = f"SELECT digest FROM {self.orm_table_name}"
-        _cursor = self.orm_con.execute(stmt)
-        _cursor.row_factory = sqlite3.Row  # type: ignore[assignment]
-        return [row[0] for row in _cursor.fetchall()]
+        stmt = f"SELECT digest,size FROM {self.orm_table_name}"
+        with self.orm_con:
+            _cursor = self.orm_con.execute(stmt)
+            _cursor.row_factory = cast("Callable[..., tuple[bytes, int]]", sqlite3.Row)
+            yield from _cursor.execute(stmt)
 
 
 class FileTableResourceORMPool(ORMThreadPoolBase[FileTableResource]):
