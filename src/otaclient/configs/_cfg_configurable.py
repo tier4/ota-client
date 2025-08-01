@@ -79,7 +79,8 @@ class _OTAClientSettings(BaseModel):
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
     READ_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MiB
 
-    UPDATE_SLOT_THREADS: int = 8
+    UPDATE_SLOT_WORKER_THREADS: int = 16
+    UPDATE_SLOT_MAX_CONCURRENT: int = 2048
 
 
 class _MultipleECUSettings(BaseModel):
