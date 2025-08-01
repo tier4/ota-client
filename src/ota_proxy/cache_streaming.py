@@ -22,6 +22,7 @@ import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
+from pathlib import Path
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -37,7 +38,6 @@ from otaclient_common.common import get_backoff
 from .config import config as cfg
 from .db import CacheMeta
 from .errors import (
-    CacheCommitFailed,
     CacheProviderNotReady,
     CacheStreamingFailed,
     CacheStreamingInterrupt,
@@ -147,7 +147,7 @@ class CacheTracker:
         self,
         cache_identifier: str,
         *,
-        base_dir: anyio.Path,
+        base_dir: Path,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
@@ -161,6 +161,39 @@ class CacheTracker:
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
+
+    def _finalize_cache(self) -> None:
+        """Finalize the caching, commit the cache entry to db.
+
+        At this point, the cache entry is already downloaded and complete.
+
+        NOTE(20250731): when otaproxy starts with previous cache files existed,
+                            there is chance that the `save_path` might already exist,
+                            while not committed to the database.
+                        Still commit the cache, if that file is broken, let otaclient
+                            reports it with OTA cache file protocol in next OTA download request.
+        NOTE(20250731): not considering the case that /ota-cache folder is tampered
+                            or poluted intentionally, assume that all files are normal files.
+                        If `save_dst` exists and is not a regular file, we just give up caching this file.
+        """
+        if not self.cache_meta:
+            return
+
+        if self.save_path.is_symlink():
+            self.save_path.unlink()
+        if self.save_path.exists():
+            if not self.save_path.is_file():
+                burst_suppressed_logger.warning(
+                    f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
+                )
+                return
+        else:
+            os.link(self.fpath, self.save_path)
+
+        try:
+            self._commit_cache_cb(self.cache_meta)
+        except Exception as e:
+            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
 
     # exposed API
 
@@ -206,14 +239,8 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written
 
-            try:
-                if not tracker_events.writer_failed:
-                    os.link(self.fpath, self.save_path)
-                    self._commit_cache_cb(cache_meta)
-            except Exception as e:
-                raise CacheCommitFailed(
-                    f"failed to commit cache to db, or finalize cache file: {e!r}"
-                ) from e
+            if not tracker_events.writer_failed:
+                self._finalize_cache()
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
@@ -240,13 +267,7 @@ class CacheTracker:
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
             tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
-            try:
-                os.link(self.fpath, self.save_path)
-                self._commit_cache_cb(cache_meta)
-            except Exception as e:
-                raise CacheCommitFailed(
-                    f"failed to commit cache to db, or finalize cache file: {e!r}"
-                ) from e
+            self._finalize_cache()
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
