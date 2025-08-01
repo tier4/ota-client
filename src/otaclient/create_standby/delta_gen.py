@@ -577,6 +577,11 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
         for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
             base_fst
         ):
+            _digest, *_ = _input
+            # if we do OTA resume, some of the resources may have already been processed
+            if _digest not in self._all_resource_digests:
+                continue
+
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
