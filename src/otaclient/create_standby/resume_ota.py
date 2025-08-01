@@ -28,7 +28,7 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
-from otaclient_common.thread_safe_container import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ResourceScanner:
     def __init__(
         self,
         *,
-        all_resource_digests: ShardedThreadSafeSet[bytes],
+        all_resource_digests: ShardedThreadSafeDict[bytes, int],
         ota_metadata: OTAMetadata,
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
@@ -92,7 +92,7 @@ class ResourceScanner:
                     os.unlink(expected_digest_hex, dir_fd=self._resource_dir_fd)
             else:
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.remove(calculated_digest)
+                    self._all_resource_digests.pop(calculated_digest)
                     self._status_report_queue.put_nowait(
                         StatusReport(
                             payload=UpdateProgressReport(
