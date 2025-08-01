@@ -91,7 +91,7 @@ class TestOngoingCachingRegister:
         # NOTE: register the tracker before open the remote fd!
         _tracker = CacheTracker(
             cache_identifier=self.URL,
-            base_dir=self.base_dir,
+            base_dir=Path(self.base_dir),
             commit_cache_cb=None,  # type: ignore
             below_hard_limit_event=None,  # type: ignore
         )
@@ -111,7 +111,7 @@ class TestOngoingCachingRegister:
         await self.register_finish.acquire()
 
         # simulate waiting for writer finished downloading
-        await _tracker.fpath.touch()
+        _tracker.fpath.touch()
         await self.writer_done_event.wait()
 
         # finished
