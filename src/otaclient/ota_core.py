@@ -101,7 +101,7 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.thread_safe_container import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -553,10 +553,10 @@ class _OTAUpdater:
         )
 
         # ------ in-update: calculate delta ------ #
-        all_resource_digests = ShardedThreadSafeSet.from_iterable(
+        all_resource_digests = ShardedThreadSafeDict.from_iterable(
             FileTableResourceORM(
                 self._ota_metadata.connect_fstable()
-            ).select_all_digests(),
+            ).select_all_digests_with_size(),
         )
         logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
@@ -679,9 +679,7 @@ class _OTAUpdater:
             copy_dst=self._resource_dir_on_standby,
         )
         download_files_num = delta_gen.num_of_resources_to_download
-        download_files_size = resource_meta.get_resources_size(
-            delta_gen.resources_to_download
-        )
+        download_files_size = sum(all_resource_digests.values())
 
         logger.info(
             f"delta calculation finished: \n"

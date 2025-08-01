@@ -33,7 +33,7 @@ import threading
 import typing
 from contextlib import closing
 from pathlib import Path
-from typing import Callable, Generator, Iterable
+from typing import Callable, Generator
 from urllib.parse import quote
 
 from simple_sqlite3_orm import gen_sql_stmt
@@ -480,21 +480,6 @@ class ResourceMeta:
             )
 
         self._copy_dst = copy_dst
-
-    def get_resources_size(self, _digests: Iterable[bytes]) -> int:
-        try:
-            _count = 0
-            with closing(self._ota_metadata.connect_rstable()) as _conn:
-                _orm = ResourceTableORM(_conn)
-                for _digest in _digests:
-                    _entry = _orm.orm_select_entry(digest=_digest)
-                    if not _entry:
-                        continue
-                    _count += _entry.original_size
-            return _count
-        except Exception as e:
-            logger.warning(f"failed to get resources_size_sum: {e!r}")
-            return 0
 
     # API
 
