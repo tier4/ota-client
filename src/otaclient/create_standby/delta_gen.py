@@ -26,7 +26,7 @@ from hashlib import sha256
 from itertools import chain
 from pathlib import Path
 from queue import Queue
-from typing import Generic, Iterable, Iterator, NamedTuple, TypedDict, TypeVar
+from typing import Generic, Iterator, NamedTuple, TypedDict, TypeVar
 
 from ota_metadata.file_table.db import (
     FileTableDirORM,
@@ -120,15 +120,6 @@ class _DeltaGeneratorBase:
             dtr.add_path(Path(_p))
 
         (copy_dst / EMPTY_FILE_SHA256).touch()
-
-    @property
-    def num_of_resources_to_download(self) -> int:
-        """Number of resources to download."""
-        return len(self._all_resource_digests)
-
-    @property
-    def resources_to_download(self) -> Iterable[bytes]:
-        return iter(self._all_resource_digests)
 
 
 def _cleanup_all_files_under_folder(_dir: Path, _names: Iterator[str]) -> None:

@@ -553,7 +553,7 @@ class _OTAUpdater:
         )
 
         # ------ in-update: calculate delta ------ #
-        all_resource_digests = ShardedThreadSafeDict.from_iterable(
+        all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
             FileTableResourceORM(
                 self._ota_metadata.connect_fstable()
             ).select_all_digests_with_size(),
@@ -626,12 +626,12 @@ class _OTAUpdater:
 
                 if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
-                    delta_gen = InPlaceDeltaWithBaseFileTable(**_inplace_mode_params)
-                    delta_gen.process_slot(str(verified_base_db))
+                    InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
                 else:
                     logger.info("use in-place mode with full scanning ...")
-                    delta_gen = InPlaceDeltaGenFullDiskScan(**_inplace_mode_params)
-                    delta_gen.process_slot()
+                    InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
                     all_resource_digests=all_resource_digests,
@@ -645,12 +645,12 @@ class _OTAUpdater:
                 verified_base_db = find_saved_fstable(self._image_meta_dir_on_active)
                 if verified_base_db:
                     logger.info("use rebuild mode with base file table assist ...")
-                    delta_gen = RebuildDeltaWithBaseFileTable(**_rebuild_mode_params)
-                    delta_gen.process_slot(str(verified_base_db))
+                    RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(
+                        str(verified_base_db)
+                    )
                 else:
                     logger.info("use rebuild mode with full scanning ...")
-                    delta_gen = RebuildDeltaGenFullDiskScan(**_rebuild_mode_params)
-                    delta_gen.process_slot()
+                    RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
@@ -678,7 +678,7 @@ class _OTAUpdater:
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
         )
-        download_files_num = delta_gen.num_of_resources_to_download
+        download_files_num = len(all_resource_digests)
         download_files_size = sum(all_resource_digests.values())
 
         logger.info(
@@ -703,7 +703,7 @@ class _OTAUpdater:
                 downloader_pool=self._downloader_pool,
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-                resources_to_download=delta_gen.resources_to_download,
+                resources_to_download=all_resource_digests,
             )
             self._download_resources(_resource_downloader)
         except TasksEnsureFailed:
