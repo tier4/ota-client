@@ -19,9 +19,13 @@ import os
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+import pytest_mock
+
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaWithBaseFileTable,
+    UpdateStandbySlotFailed,
 )
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient_common import replace_root
@@ -104,3 +108,28 @@ def test_update_slot_with_inplace_mode_with_full_disk_scan(
     ).update_slot()
     logger.info("verify the updated slot against file_table ...")
     verify_slot(ota_metadata_inst, ab_slots_for_inplace.slot_b)
+
+
+def test_update_slot_interrupted(
+    mocker: pytest_mock.MockerFixture,
+) -> None:
+    logger.info("start to test inplace mode with base file_table assist ...")
+    mocker.patch.object(UpdateStandbySlot, "_process_dir_entries")
+    mocker.patch.object(UpdateStandbySlot, "_process_non_regular_files")
+
+    def _dummy_process_regular_file_entries(self, *args, **kwargs):
+        self._interrupted.set()
+
+    _test_inst = UpdateStandbySlot(
+        ota_metadata=None,  # type: ignore
+        standby_slot_mount_point="/non_exist",
+        status_report_queue=MockedQue,
+        resource_dir=Path("/non_exist"),
+        session_id="session_id",
+    )
+    _test_inst._process_regular_file_entries = (
+        _dummy_process_regular_file_entries.__get__(_test_inst)
+    )
+
+    with pytest.raises(UpdateStandbySlotFailed):
+        _test_inst.update_slot()

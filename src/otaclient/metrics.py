@@ -34,6 +34,7 @@ class OTAMetricsSharedMemoryData:
 
     # Cache
     cache_total_requests: int = 0
+    cache_cdn_hits: int = 0
     cache_external_hits: int = 0
     cache_local_hits: int = 0
 
@@ -91,6 +92,7 @@ class OTAMetricsData:
 
     # Cache metrics
     cache_total_requests: int = 0
+    cache_cdn_hits: int = 0
     cache_external_hits: int = 0
     cache_local_hits: int = 0
 
