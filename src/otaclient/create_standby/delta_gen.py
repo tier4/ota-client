@@ -36,10 +36,10 @@ from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
-from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
+from otaclient_common import EMPTY_FILE_SHA256, replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
-from otaclient_common.thread_safe_container import ShardedThreadSafeSet
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class UpdateStandbySlotFailed(Exception): ...
 
 
 class DeltaGenParams(TypedDict):
-    all_resource_digests: ShardedThreadSafeSet[bytes]
+    all_resource_digests: ShardedThreadSafeDict[bytes, int]
     ota_metadata: OTAMetadata
     delta_src: Path
     copy_dst: Path
@@ -90,7 +90,7 @@ class _DeltaGeneratorBase:
     def __init__(
         self,
         *,
-        all_resource_digests: ShardedThreadSafeSet[bytes],
+        all_resource_digests: ShardedThreadSafeDict[bytes, int],
         ota_metadata: OTAMetadata,
         delta_src: Path,
         copy_dst: Path,
@@ -120,7 +120,6 @@ class _DeltaGeneratorBase:
             dtr.add_path(Path(_p))
 
         (copy_dst / EMPTY_FILE_SHA256).touch()
-        self._all_resource_digests.discard(EMPTY_FILE_SHA256_BYTE)
 
     @property
     def num_of_resources_to_download(self) -> int:
@@ -369,7 +368,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.remove(calculated_digest)
+                    self._all_resource_digests.pop(calculated_digest)
 
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
                     os.replace(fpath, resource_save_dst)
@@ -498,7 +497,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 resource_save_dst = self._copy_dst / calculated_digest.hex()
 
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.remove(calculated_digest)
+                    self._all_resource_digests.pop(calculated_digest)
 
                     if not resource_save_dst.is_file():
                         os.replace(tmp_dst_fpath, resource_save_dst)
@@ -659,7 +658,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.remove(expected_digest)
+                            self._all_resource_digests.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(fpath, resource_save_dst)
@@ -764,7 +763,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.remove(expected_digest)
+                            self._all_resource_digests.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(_tmp_fpath, resource_save_dst)
