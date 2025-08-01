@@ -39,6 +39,11 @@ class BootControllerProtocol(Protocol):
 
     @property
     @abstractmethod
+    def bootloader_type(self) -> str:
+        """The type of bootloader."""
+
+    @property
+    @abstractmethod
     def standby_slot_dev(self) -> Path:
         """The device of the standby slot."""
 

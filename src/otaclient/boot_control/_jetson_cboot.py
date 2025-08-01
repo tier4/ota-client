@@ -609,6 +609,10 @@ class JetsonCBootControl(BootControllerProtocol):
     # APIs
 
     @property
+    def bootloader_type(self) -> str:
+        return boot_cfg.BOOTLOADER
+
+    @property
     def standby_slot_dev(self) -> Path:
         return Path(self._mp_control.standby_slot_dev)
 
