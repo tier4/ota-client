@@ -603,17 +603,24 @@ class _OTAUpdater:
                 base_meta_dir_on_standby_slot = (
                     self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
                 )
-                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
                 # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
                 #       it is not included in the OTA image, thus also not in file_table.
                 verified_base_db = None
-                if self._image_meta_dir_on_standby.is_dir():
-                    shutil.move(
-                        self._image_meta_dir_on_standby,
-                        base_meta_dir_on_standby_slot,
-                    )
+                # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
+                #       try to keep using the file_table.
+                if base_meta_dir_on_standby_slot.is_dir():
                     verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
+                else:
+                    shutil.rmtree(base_meta_dir_on_standby_slot)
+                    if self._image_meta_dir_on_standby.is_dir():
+                        shutil.move(
+                            self._image_meta_dir_on_standby,
+                            base_meta_dir_on_standby_slot,
+                        )
+                        verified_base_db = find_saved_fstable(
+                            base_meta_dir_on_standby_slot
+                        )
 
                 _inplace_mode_params = DeltaGenParams(
                     all_resource_digests=all_resource_digests,
