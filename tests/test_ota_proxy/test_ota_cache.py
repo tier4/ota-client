@@ -19,14 +19,16 @@ import bisect
 import logging
 import random
 import sqlite3
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
+from multidict import CIMultiDict, CIMultiDictProxy
 from simple_sqlite3_orm import ORMBase
 
 from ota_proxy import config as cfg
 from ota_proxy.db import CacheMeta
-from ota_proxy.ota_cache import LRUCacheHelper
+from ota_proxy.ota_cache import LRUCacheHelper, OTACache
 from ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
@@ -132,3 +134,32 @@ class TestLRUCacheHelper:
         for target_bucket in list(cfg.BUCKET_FILE_SIZE_DICT)[1:-1]:
             entries_to_be_removed = lru_helper.rotate_cache(target_bucket)
             assert entries_to_be_removed is not None and len(entries_to_be_removed) != 0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "x_cache_value, expected_hits",
+        [
+            ("Hit from CloudFront", 1),
+            ("hit from cloudfront", 1),
+            ("Miss from CloudFront", 0),
+            ("miss from cloudfront", 0),
+        ],
+    )
+    async def test_retrieve_file_by_downloading_cdn_cache(
+        self, x_cache_value, expected_hits
+    ):
+        cache = OTACache(
+            cache_enabled=False,
+            init_cache=False,
+            shm_metrics_writer=None,
+        )
+
+        async def mock_do_request(raw_url, headers):
+            yield CIMultiDictProxy(CIMultiDict({"X-Cache": x_cache_value}))
+            yield b"data"
+
+        cache._do_request = MagicMock(side_effect=mock_do_request)
+
+        remote_fd, _ = await cache._retrieve_file_by_downloading("dummy_url", {})
+        [chunk async for chunk in remote_fd]  # consume
+        assert cache._metrics_data.cache_cdn_hits == expected_hits
