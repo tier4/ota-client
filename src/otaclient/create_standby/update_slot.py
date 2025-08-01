@@ -247,5 +247,8 @@ class UpdateStandbySlot:
         self._process_non_regular_files()
         self._process_regular_file_entries()
 
+        if self._interrupted.is_set():
+            raise UpdateStandbySlotFailed("failure during regular files processing!")
+
         # finally, cleanup the resource dir
         shutil.rmtree(self._resource_dir, ignore_errors=True)
