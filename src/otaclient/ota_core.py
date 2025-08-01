@@ -25,7 +25,6 @@ import shutil
 import threading
 import time
 from concurrent.futures import Future
-from dataclasses import replace
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
@@ -990,13 +989,6 @@ class _OTAUpdater(_OTAUpdateOperator):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            try:
-                if self._shm_metrics_reader:
-                    _shm_metrics = self._shm_metrics_reader.sync_msg()
-                    self._metrics.shm_merge(_shm_metrics)
-            except Exception as e:
-                logger.error(f"failed to merge metrics: {e!r}")
-            self._metrics.publish()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
@@ -1266,7 +1258,7 @@ class OTAClient:
             )
             self._metrics.failure_type = failure_type
             self._metrics.failure_reason = failure_reason
-            self._metrics.failed_at_phase = ota_status
+            self._metrics.failed_status = ota_status
         finally:
             del exc  # prevent ref cycle
 
@@ -1311,6 +1303,7 @@ class OTAClient:
         logger.info(f"start new OTA update session: {new_session_id=}")
 
         session_wd = self._update_session_dir / new_session_id
+        self._metrics.session_id = new_session_id
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -1330,7 +1323,7 @@ class OTAClient:
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
-                metrics=replace(self._metrics, session_id=new_session_id),
+                metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError as e:
@@ -1344,6 +1337,13 @@ class OTAClient:
             self._exit_from_dynamic_client()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
+            try:
+                if self._shm_metrics_reader:
+                    _shm_metrics = self._shm_metrics_reader.sync_msg()
+                    self._metrics.shm_merge(_shm_metrics)
+            except Exception as e:
+                logger.error(f"failed to merge metrics: {e!r}")
+            self._metrics.publish()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
