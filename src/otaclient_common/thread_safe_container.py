@@ -67,6 +67,11 @@ class ShardedThreadSafeDict(Generic[KT, VT]):
 
     keys = __iter__
 
+    def values(self) -> Iterator[VT]:
+        for i in range(self._num_of_shards):
+            with self._locks[i]:
+                yield from self._shards[i].values()
+
     def check_and_add(self, key: KT, value: VT) -> bool:
         """Check if the key is already presented, and add it if not.
 
