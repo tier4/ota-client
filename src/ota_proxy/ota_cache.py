@@ -570,7 +570,7 @@ class OTACache:
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
-            base_dir=self._base_dir,
+            base_dir=Path(self._base_dir),
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
