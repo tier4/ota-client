@@ -79,7 +79,7 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
 
 
 class RPIBootControlConfig:
-    BBOOTLOADER = BootloaderType.RPI_BOOT
+    BOOTLOADER = BootloaderType.RPI_BOOT
     RPI_MODEL_FILE = "/proc/device-tree/model"
     RPI_MODEL_HINT = "Raspberry Pi 4 Model B"
 
