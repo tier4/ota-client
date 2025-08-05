@@ -117,6 +117,7 @@ DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
+HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
@@ -1031,13 +1032,24 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             self._wait_sub_ecus()
             if self._is_same_client_package_version():
                 # to notify the status report after reboot
-                self._request_shutdown()
+                _err_msg = "client package version is the same, skip client update"
+                logger.info(_err_msg)
+                raise ota_errors.ClientUpdateSameVersions(
+                    _err_msg,
+                    module=__name__,
+                )
             else:
                 self._copy_client_package()
                 self._notify_data_ready()
-        except Exception as e:
-            logger.warning(f"failed to run squashfs: {e!r}")
+        except ota_errors.ClientUpdateSameVersions:
             raise
+        except Exception as e:
+            _err_msg = f"client update failed: {e!r}"
+            logger.warning(_err_msg)
+            raise ota_errors.ClientUpdateFailed(
+                _err_msg,
+                module=__name__,
+            ) from e
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
@@ -1095,11 +1107,6 @@ class _OTAClientUpdater(_OTAUpdateOperator):
         """Notify the main process that the client package is ready."""
         logger.info("notify main process that the client package is ready..")
         self.client_update_control_flags.notify_data_ready_event.set()
-
-    def _request_shutdown(self):
-        """Request shutdown."""
-        # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
-        self.client_update_control_flags.request_shutdown_event.set()
 
     # API
 
@@ -1396,8 +1403,18 @@ class OTAClient:
                 shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError:
+            logger.warning("client update failed")
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
-            self._client_update_control_flags.request_shutdown_event.set()
+            # As temporary workaround, we set the status to SUCCESS here when current process is dynamic client.
+            self._live_ota_status = OTAStatus.SUCCESS
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.SUCCESS,
+                    ),
+                    session_id=new_session_id,
+                )
+            )
         except Exception:
             self._client_update_control_flags.request_shutdown_event.set()
         finally:
@@ -1490,7 +1507,9 @@ class OTAClient:
                         session_id=request.session_id,
                     )
                 )
-                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+                _allow_request_after = (
+                    _now + HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST
+                )
 
             elif (
                 isinstance(request, RollbackRequestV2)
