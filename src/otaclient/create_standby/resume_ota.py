@@ -24,7 +24,6 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
@@ -46,7 +45,6 @@ class ResourceScanner:
         self,
         *,
         all_resource_digests: ShardedThreadSafeDict[bytes, int],
-        ota_metadata: OTAMetadata,
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -54,7 +52,6 @@ class ResourceScanner:
         self._status_report_queue = status_report_queue
         self.session_id = session_id
         self._resource_dir = resource_dir
-        self._ota_metadata = ota_metadata
         self._all_resource_digests = all_resource_digests
 
         self._resource_dir_fd = os.open(resource_dir, os.O_RDONLY)
