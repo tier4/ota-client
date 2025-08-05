@@ -28,11 +28,10 @@ from pathlib import Path
 from queue import Queue
 from typing import Generic, Iterator, NamedTuple, TypedDict, TypeVar
 
-from ota_metadata.file_table.db import (
-    FileTableDirORM,
-    FileTableRegularORMPool,
+from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
 )
-from ota_metadata.legacy2.metadata import OTAMetadata
+
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
@@ -68,8 +67,8 @@ class UpdateStandbySlotFailed(Exception): ...
 
 
 class DeltaGenParams(TypedDict):
+    file_table_db_helper: FileTableDBHelper
     all_resource_digests: ShardedThreadSafeDict[bytes, int]
-    ota_metadata: OTAMetadata
     delta_src: Path
     copy_dst: Path
     status_report_queue: Queue[StatusReport]
@@ -90,25 +89,23 @@ class _DeltaGeneratorBase:
     def __init__(
         self,
         *,
+        file_table_db_helper: FileTableDBHelper,
         all_resource_digests: ShardedThreadSafeDict[bytes, int],
-        ota_metadata: OTAMetadata,
         delta_src: Path,
         copy_dst: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
+        self._fst_db_helper = file_table_db_helper
         self._status_report_queue = status_report_queue
         self.session_id = session_id
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
-        self._ota_metadata = ota_metadata
 
-        self._ft_reg_orm = FileTableRegularORMPool(
-            con_factory=ota_metadata.connect_fstable, number_of_cons=DB_CONN_NUMS
+        self._ft_reg_orm_pool = file_table_db_helper.get_regular_file_orm_pool(
+            db_conn_num=DB_CONN_NUMS
         )
-
-        fst_conn = ota_metadata.connect_fstable()
-        self._ft_dir_orm = FileTableDirORM(fst_conn)
+        self._ft_dir_orm = file_table_db_helper.get_dir_orm()
         self._all_resource_digests = all_resource_digests
 
         self._que = Queue()
@@ -325,7 +322,7 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
                     _t.join()
             self._cleanup_base()
         finally:
-            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_reg_orm_pool.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
 
 
@@ -349,7 +346,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             try:
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
-                if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
+                if not fully_scan and not self._ft_reg_orm_pool.orm_check_entry_exist(
                     path=str(canonical_fpath)
                 ):
                     continue
@@ -475,7 +472,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             try:
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly skip it.
-                if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
+                if not fully_scan and not self._ft_reg_orm_pool.orm_check_entry_exist(
                     path=str(canonical_fpath)
                 ):
                     continue
@@ -574,7 +571,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     def _calculate_delta(self, base_fst: str):
         logger.debug("process delta src and generate delta...")
 
-        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
+        for _input in self._fst_db_helper.iter_common_regular_entries_by_digest(
             base_fst
         ):
             _digest, *_ = _input
@@ -608,7 +605,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                     _t.join()
             self._cleanup_base()
         finally:
-            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_reg_orm_pool.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
 
 
