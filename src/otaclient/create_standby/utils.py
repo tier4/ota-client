@@ -27,9 +27,12 @@ from otaclient_common.cmdhelper import (
     get_attrs_by_dev,
     mount_ro,
 )
+from otaclient_common.common import subprocess_call
 from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
+
+FSTRIM_TIMEOUT = 120  # seconds
 
 
 class TopDownCommonShortestPath:
@@ -82,6 +85,21 @@ def _check_fs_used_size_reach_threshold(
         ensure_umount(mnt_point, ignore_error=True)
 
 
+def _do_fstrim(
+    dev: StrOrPath,
+    mnt_point: StrOrPath,
+    *,
+    timeout: float = FSTRIM_TIMEOUT,  # seconds
+) -> None:  # pragma: no cover
+    try:
+        ensure_mount(dev, mnt_point, mount_func=mount_ro, raise_exception=True)
+        subprocess_call(["fstrim", str(mnt_point)], timeout=timeout)
+    except Exception as e:
+        logger.warning(f"failed to mount standby slot ({dev=}: {e!r}")
+    finally:
+        ensure_umount(mnt_point, ignore_error=True)
+
+
 def can_use_in_place_mode(
     dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int
 ) -> bool:  # pragma: no cover
@@ -93,6 +111,14 @@ def can_use_in_place_mode(
     2. standby slot's fs is healthy.
     3. standby slot's used size reaches threshold.
     """
+    _res = False
     if not (_check_if_ext4(dev) and _check_if_fs_healthy(dev)):
-        return False
-    return _check_fs_used_size_reach_threshold(dev, mnt_point, threshold_in_bytes)
+        _res = False
+    _res = _check_fs_used_size_reach_threshold(dev, mnt_point, threshold_in_bytes)
+
+    if _res:
+        logger.info(
+            f"on using in-place update mode, do fstrim to the standby slot(maximum run time: {FSTRIM_TIMEOUT}s) ..."
+        )
+        _do_fstrim(dev, mnt_point)
+    return _res
