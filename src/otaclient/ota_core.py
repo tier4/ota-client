@@ -36,12 +36,14 @@ from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
 from requests import Response
 
-from ota_metadata.file_table.db import FileTableResourceORM
-from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
-from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
+from ota_metadata.legacy2.metadata import (
+    LegacyOTAImageOTAMetadata,
+    LegacyOTAImageResourceMeta,
+)
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
@@ -49,7 +51,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
-from otaclient._download_resources import DownloadResources
+from otaclient._download_resources import DownloadResourcesFromLegacyOTAImage
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -284,11 +286,12 @@ class _OTAUpdater:
                 cfg.STANDBY_SLOT_MNT,
             )
         )
-        self._ota_metadata = OTAMetadata(
+        self._ota_metadata = LegacyOTAImageOTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
             ca_chains_store=ca_chains_store,
         )
+        self._fst_db_helper = FileTableDBHelper(self._ota_metadata.file_table_dbf)
 
     def _download_file(self, entry: DownloadInfo) -> DownloadResult:
         """Download a single file.
@@ -337,7 +340,9 @@ class _OTAUpdater:
             self._downloader_pool.get_instance()
         )
 
-    def _download_resources(self, _resource_downloader: DownloadResources) -> None:
+    def _download_resources(
+        self, _resource_downloader: DownloadResourcesFromLegacyOTAImage
+    ) -> None:
         _next_commit_before = 0
         _merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
@@ -370,7 +375,7 @@ class _OTAUpdater:
             StatusReport(payload=_merged_payload, session_id=self.session_id)
         )
 
-    def _process_persistents(self, ota_metadata: OTAMetadata):
+    def _process_persistents(self, ota_metadata: LegacyOTAImageOTAMetadata):
         logger.info("start persist files handling...")
         standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
 
@@ -554,9 +559,7 @@ class _OTAUpdater:
 
         # ------ in-update: calculate delta ------ #
         all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
-            FileTableResourceORM(
-                self._ota_metadata.connect_fstable()
-            ).select_all_digests_with_size(),
+            self._fst_db_helper.select_all_digests_with_size(),
         )
         logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
@@ -575,7 +578,6 @@ class _OTAUpdater:
             )
             ResourceScanner(
                 all_resource_digests=all_resource_digests,
-                ota_metadata=self._ota_metadata,
                 resource_dir=self._resource_dir_on_standby,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -623,8 +625,8 @@ class _OTAUpdater:
                         )
 
                 _inplace_mode_params = DeltaGenParams(
+                    file_table_db_helper=self._fst_db_helper,
                     all_resource_digests=all_resource_digests,
-                    ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -641,8 +643,8 @@ class _OTAUpdater:
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
+                    file_table_db_helper=self._fst_db_helper,
                     all_resource_digests=all_resource_digests,
-                    ota_metadata=self._ota_metadata,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -680,7 +682,7 @@ class _OTAUpdater:
             )
         )
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        resource_meta = ResourceMeta(
+        resource_meta = LegacyOTAImageResourceMeta(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
@@ -705,7 +707,7 @@ class _OTAUpdater:
 
         logger.info("start to download resources ...")
         try:
-            _resource_downloader = DownloadResources(
+            _resource_downloader = DownloadResourcesFromLegacyOTAImage(
                 resource_meta=resource_meta,
                 downloader_pool=self._downloader_pool,
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
@@ -740,7 +742,7 @@ class _OTAUpdater:
 
         try:
             standby_slot_creator = UpdateStandbySlot(
-                ota_metadata=self._ota_metadata,
+                file_table_db_helper=self._fst_db_helper,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
