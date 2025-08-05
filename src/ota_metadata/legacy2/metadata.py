@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""OTA metadata version1 implementation.
+"""OTA metadata implementation for legacy OTA image.
 
 OTA metadata format definition: https://tier4.atlassian.net/l/cp/PCvwC6qk
 
-Version1 OTA metafiles list:
+OTA metafiles list:
 - directory: all directories in the image,
 - symboliclink: all symlinks in the image,
 - regular: all normal/regular files in the image,
@@ -70,7 +70,7 @@ MAX_ENTRIES_PER_DIGEST = 10
 """How many entries to scan through for each unique digest."""
 
 
-class OTAMetadata:
+class LegacyOTAImageOTAMetadata:
     """
     OTA session_dir layout:
     session_<session_id> /
@@ -115,6 +115,14 @@ class OTAMetadata:
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
         assert self._metadata_jwt, "metadata_jwt is not ready yet!"
         return self._metadata_jwt
+
+    @property
+    def file_table_dbf(self) -> Path:
+        return self._fst_db
+
+    @property
+    def resource_table_dbf(self) -> Path:
+        return self._rst_db
 
     @property
     def total_regulars_num(self) -> int:
@@ -357,12 +365,12 @@ class OTAMetadata:
         return _conn
 
 
-class ResourceMeta:
+class LegacyOTAImageResourceMeta:
     def __init__(
         self,
         *,
         base_url: str,
-        ota_metadata: OTAMetadata,
+        ota_metadata: LegacyOTAImageOTAMetadata,
         copy_dst: Path,
     ) -> None:
         self._ota_metadata = ota_metadata
