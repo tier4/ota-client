@@ -30,7 +30,9 @@ from ota_image_libs.v1.resource_table.db import (
 )
 from ota_image_libs.v1.resource_table.schema import ResourceTableManifest
 
-from ota_metadata.legacy2.metadata import ResourceMeta as _legacy_ResourceMeta
+from ota_metadata.legacy2.metadata import (
+    LegacyOTAImageResourceMeta as _legacy_ResourceMeta,
+)
 from ota_metadata.legacy2.rs_table import ResourceTable as _legacy_ResourceTable
 from ota_metadata.legacy2.rs_table import (
     ResourceTableORMPool as _legacy_ResourceTableORMPool,
@@ -48,7 +50,31 @@ DEFAULT_SHUFFLE_BATCH_SIZE = 256
 RST_DB_CONNS_NUM = 3
 
 
-class DownloadResourcesFromLegacyOTAImage:
+class _BaseDownloader:
+    _downloader_pool: DownloaderPool
+    _downloader_mapper: dict[int, Downloader]
+    _resources_to_download: Iterable[bytes]
+    _shuffle_batch_size: int
+
+    def _downloader_worker_initializer(self) -> None:
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
+        )
+
+    def _iter_digests_with_shuffle(self) -> Generator[bytes]:
+        _cur_batch = []
+        for _digest in self._resources_to_download:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
+
+
+class DownloadResourcesFromLegacyOTAImage(_BaseDownloader):
     def __init__(
         self,
         *,
@@ -74,11 +100,6 @@ class DownloadResourcesFromLegacyOTAImage:
         # for worker thread local downloader
         self._downloader_mapper: dict[int, Downloader] = {}
 
-    def _downloader_worker_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
-        )
-
     def _download_single_resource_at_thread(
         self, _digest: bytes, _rst_orm_pool: _legacy_ResourceTableORMPool
     ) -> DownloadResult:
@@ -96,18 +117,6 @@ class DownloadResourcesFromLegacyOTAImage:
             size=_download_info.original_size,
             compression_alg=_download_info.compression_alg,
         )
-
-    def _iter_digests_with_shuffle(self) -> Generator[bytes]:
-        _cur_batch = []
-        for _digest in self._resources_to_download:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
 
     def download_resources(self) -> Generator[Future[DownloadResult]]:
         try:
@@ -140,7 +149,7 @@ class DownloadResourcesFromLegacyOTAImage:
             self._downloader_pool.release_all_instances()
 
 
-class DownloadResourcesFromNewOTAImage:
+class DownloadResourcesFromNewOTAImage(_BaseDownloader):
     def __init__(
         self,
         resource_db_helper: ResourceTableDBHelper,
@@ -168,7 +177,7 @@ class DownloadResourcesFromNewOTAImage:
 
         self._downloader_threads = downloader_pool.instance_num
         # for worker thread local downloader
-        self._downloader_mapper: dict[int, Downloader] = {}
+        self._downloader_mapper = {}
 
     def _downloader_worker_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
@@ -193,18 +202,6 @@ class DownloadResourcesFromNewOTAImage:
             # NOTE: OTA image version1 is using zstd compression.
             compression_alg=ZSTD_COMPRESSION_ALG,
         )
-
-    def _iter_digests_with_shuffle(self) -> Generator[bytes]:
-        _cur_batch = []
-        for _digest in self._resources_to_download:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
 
     def download_resources(self) -> Generator[Future[DownloadResult]]:
         try:
