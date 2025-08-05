@@ -23,14 +23,14 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table.utils import (
-    RegularFileTypedDict,
+from ota_image_libs.v1.file_table.db import FileTableDBHelper, RegularFileTypedDict
+from ota_image_libs.v1.file_table.utils import (
     prepare_dir,
     prepare_non_regular,
-    prepare_regular,
-    prepare_regular_write_file,
+    prepare_regular_copy,
+    prepare_regular_hardlink,
 )
-from ota_metadata.legacy2.metadata import OTAMetadata
+
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
@@ -45,7 +45,7 @@ class UpdateStandbySlot:
     def __init__(
         self,
         *,
-        ota_metadata: OTAMetadata,
+        file_table_db_helper: FileTableDBHelper,
         standby_slot_mount_point: str,
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
@@ -54,8 +54,8 @@ class UpdateStandbySlot:
         max_workers: int = cfg.UPDATE_SLOT_WORKER_THREADS,
         concurrent_tasks: int = cfg.UPDATE_SLOT_MAX_CONCURRENT,
     ) -> None:
+        self._fst_db_helper = file_table_db_helper
         self.status_report_interval = status_report_interval
-        self._ota_metadata = ota_metadata
         self._status_report_queue = status_report_queue
         self.session_id = session_id
         self._que: Queue[tuple[bytes, list[RegularFileTypedDict]] | None] = Queue()
@@ -102,20 +102,23 @@ class UpdateStandbySlot:
         with self._hardlink_group:
             _link_group_head = self._hardlink_group.get(_inode_id)
             if _link_group_head is not None:
-                prepare_regular(
+                prepare_regular_hardlink(
                     _entry,
                     _rs=_link_group_head,
                     target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink",
                     hardlink_skip_apply_permission=True,
                 )
-            else:
-                self._hardlink_group[_inode_id] = prepare_regular(
+            elif first_to_prepare:
+                self._hardlink_group[_inode_id] = prepare_regular_hardlink(  # type: ignore[assignment]
                     _entry,
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink" if first_to_prepare else "copy",
-                    hardlink_skip_apply_permission=True,
+                )
+            else:
+                self._hardlink_group[_inode_id] = prepare_regular_copy(  # type: ignore[assignment]
+                    _entry,
+                    _rs=self._resource_dir / _digest_hex,
+                    target_mnt=self._standby_slot_mp,
                 )
 
         if not first_to_prepare:
@@ -124,18 +127,20 @@ class UpdateStandbySlot:
     def _process_normal_file_at_thread(
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
-        if _entry["size"] == 0:
-            prepare_regular_write_file(_entry, b"", target_mnt=self._standby_slot_mp)
-            self._post_regular_file_process(_entry)
-        else:
-            prepare_regular(
+        # NOTE: zero size files handling is down by prepare_regular_copy and prepare_regular_hardlink
+        if first_to_prepare:
+            prepare_regular_hardlink(
                 _entry,
                 _rs=self._resource_dir / _digest_hex,
                 target_mnt=self._standby_slot_mp,
-                prepare_method="hardlink" if first_to_prepare else "copy",
             )
-            if not first_to_prepare:
-                self._post_regular_file_process(_entry)
+        else:
+            prepare_regular_copy(
+                _entry,
+                _rs=self._resource_dir / _digest_hex,
+                target_mnt=self._standby_slot_mp,
+            )
+            self._post_regular_file_process(_entry)
 
     def _post_regular_file_process(self, _entry: RegularFileTypedDict):
         _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
@@ -169,7 +174,7 @@ class UpdateStandbySlot:
             thread_name_prefix="ota_update_slot",
             initializer=self._worker_initializer,
         ) as pool:
-            for _entry in self._ota_metadata.iter_regular_entries():
+            for _entry in self._fst_db_helper.iter_regular_entries():
                 if self._interrupted.is_set():
                     logger.error("detect worker failed, abort!")
                     return
@@ -207,7 +212,7 @@ class UpdateStandbySlot:
 
     def _process_dir_entries(self) -> None:
         logger.info("start to process directory entries ...")
-        for entry in self._ota_metadata.iter_dir_entries():
+        for entry in self._fst_db_helper.iter_dir_entries():
             try:
                 prepare_dir(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
@@ -218,7 +223,7 @@ class UpdateStandbySlot:
 
     def _process_non_regular_files(self) -> None:
         logger.info("start to process non-regular entries ...")
-        for entry in self._ota_metadata.iter_non_regular_entries():
+        for entry in self._fst_db_helper.iter_non_regular_entries():
             try:
                 prepare_non_regular(entry, target_mnt=self._standby_slot_mp)
             except Exception as e:
