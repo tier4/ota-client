@@ -365,7 +365,7 @@ class OTAMetadata:
             yield from orm.orm_select_entries(
                 _row_factory=_row_factory,
                 _stmt = gen_sql_stmt(
-                    "SELECT", "path,uid,gid,mode",
+                    "SELECT", "path,uid,gid,mode,xattrs",
                     "FROM", FT_DIR_TABLE_NAME,
                     "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
                 )
@@ -392,7 +392,7 @@ class OTAMetadata:
         with FileTableRegularORM(self.connect_fstable()) as orm:
             # fmt: off
             _stmt = gen_sql_stmt(
-                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
+                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,contents,inode_id",
                 "FROM", FT_REGULAR_TABLE_NAME,
                 "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
                 "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",

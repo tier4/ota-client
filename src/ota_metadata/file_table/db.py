@@ -76,12 +76,16 @@ class FileTableRegularFiles(TableSpec):
     path: Annotated[str, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     inode_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
     resource_id: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    # NOTE: just for forward compatibility with new OTA image, this field
+    #       is not used by the legacy OTA image.
+    contents: Annotated[Optional[bytes], SkipValidation] = None
 
 
 class FileTableRegularTypedDict(TypedDict, total=False):
     path: str
     inode_id: int
     resource_id: int
+    contents: Optional[bytes]
 
 
 class FileTableRegularORM(ORMBase[FileTableRegularFiles]):

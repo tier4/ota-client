@@ -62,6 +62,7 @@ class RegularFileTypedDict(FileTableEntryTypedDict):
     digest: bytes
     size: int
     inode_id: int
+    contents: Optional[bytes]
 
 
 class NonRegularFileTypedDict(FileTableEntryTypedDict):
