@@ -58,14 +58,16 @@ def generate_manifest(input_dir: str):
             if file_type == "squashfs":
                 # squashfs file name format: otaclient-${architecture}-v${version}.squashfs
                 # Supports pre-release versions like: v0.1.dev1, v3.10.0rc1, etc.
-                match = re.search(r"v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)", file)
+                match = re.search(
+                    r"v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)\.squashfs", file
+                )
                 _base_version = None
                 version = match.group(1) if match else "unknown"
             else:
                 # patch file name format: otaclient-${architecture}_v${BASE_VERSION}-v${VERSION}.patch
                 # Supports pre-release versions in both base and target versions
                 match = re.search(
-                    r"v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)-v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)",
+                    r"v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)-v(\d+\.\d+(?:\.\d+)?(?:\.[a-zA-Z0-9]+)?)\.patch",
                     file,
                 )
                 _base_version = match.group(1) if match else "unknown"

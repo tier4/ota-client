@@ -32,7 +32,7 @@ from otaclient._status_monitor import (
 from otaclient._types import OTAStatus, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
-from otaclient.errors import OTAErrorRecoverable
+from otaclient.errors import ClientUpdateSameVersions, OTAErrorRecoverable
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAClient, _OTAClientUpdater, _OTAUpdater
 from tests.conftest import TestConfiguration as cfg
@@ -298,9 +298,7 @@ class TestOTAClient:
 
         # --- assertion on interrupted client update --- #
         self.ota_client_updater.execute.assert_called_once()
-
-        # Verify that request_shutdown_event was set
-        self.ota_client._client_update_control_flags.request_shutdown_event.set.assert_called_once()
+        assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
 
 
 class TestOTAClientUpdater:
@@ -508,15 +506,14 @@ class TestOTAClientUpdater:
         mock_notify_data_ready = mocker.patch.object(
             client_updater, "_notify_data_ready"
         )
-        mock_request_shutdown = mocker.patch.object(client_updater, "_request_shutdown")
 
-        # Execute the client update
-        client_updater._execute_client_update()
+        # Execute the client update and expect ClientUpdateSameVersions exception
+        with pytest.raises(ClientUpdateSameVersions):
+            client_updater._execute_client_update()
 
         # Verify the flow of method calls
         mock_is_same_version.assert_called_once()
         mock_notify_data_ready.assert_not_called()  # Should not be called for the same version
-        mock_request_shutdown.assert_called_once()
 
     def test_execute_client_update_failure(
         self, setup_client_updater, mocker: pytest_mock.MockerFixture
