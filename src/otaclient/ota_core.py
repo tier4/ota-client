@@ -592,7 +592,7 @@ class _OTAUpdater:
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
         try:
-            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
+            self._fst_db_helper.save_fstable(self._ota_tmp_meta_on_standby)
         except Exception as e:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
@@ -612,7 +612,9 @@ class _OTAUpdater:
                 # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
                 #       try to keep using the file_table.
                 if base_meta_dir_on_standby_slot.is_dir():
-                    verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
+                    verified_base_db = self._fst_db_helper.find_saved_fstable(
+                        base_meta_dir_on_standby_slot
+                    )
                 else:
                     shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
                     if self._image_meta_dir_on_standby.is_dir():
@@ -620,7 +622,7 @@ class _OTAUpdater:
                             self._image_meta_dir_on_standby,
                             base_meta_dir_on_standby_slot,
                         )
-                        verified_base_db = find_saved_fstable(
+                        verified_base_db = self._fst_db_helper.find_saved_fstable(
                             base_meta_dir_on_standby_slot
                         )
 
@@ -651,7 +653,9 @@ class _OTAUpdater:
                     session_id=self.session_id,
                 )
 
-                verified_base_db = find_saved_fstable(self._image_meta_dir_on_active)
+                verified_base_db = self._fst_db_helper.find_saved_fstable(
+                    self._image_meta_dir_on_active
+                )
                 if verified_base_db:
                     logger.info("use rebuild mode with base file table assist ...")
                     RebuildDeltaWithBaseFileTable(**_rebuild_mode_params).process_slot(

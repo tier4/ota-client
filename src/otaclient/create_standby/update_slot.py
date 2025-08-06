@@ -109,13 +109,13 @@ class UpdateStandbySlot:
                     hardlink_skip_apply_permission=True,
                 )
             elif first_to_prepare:
-                self._hardlink_group[_inode_id] = prepare_regular_hardlink(  # type: ignore[assignment]
+                self._hardlink_group[_inode_id] = prepare_regular_hardlink(
                     _entry,
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
                 )
             else:
-                self._hardlink_group[_inode_id] = prepare_regular_copy(  # type: ignore[assignment]
+                self._hardlink_group[_inode_id] = prepare_regular_copy(
                     _entry,
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
