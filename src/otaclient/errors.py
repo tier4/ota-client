@@ -41,6 +41,8 @@ class OTAErrorCode(int, Enum):
     E_INVALID_STATUS_FOR_OTAROLLBACK = 202
     E_OTA_IMAGE_INVALID = 203
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
+    E_CLIENT_UPDATE_SAME_VERSIONS = 205
+    E_CLIENT_UPDATE_FAILED = 206
 
     #
     # ------ unrecoverable errors ------
@@ -167,6 +169,18 @@ class OTAImageInvalid(OTAErrorRecoverable):
 class UpdateRequestCookieInvalid(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATE_REQUEST_COOKIE_INVALID
     failure_description: str = "failed to complete OTA as cookie is invalid"
+
+
+class ClientUpdateSameVersions(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_CLIENT_UPDATE_SAME_VERSIONS
+    failure_description: str = "client package version is the same, skip client update"
+
+
+class ClientUpdateFailed(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_CLIENT_UPDATE_FAILED
+    failure_description: str = (
+        "failed to update client package, please check the log for more details"
+    )
 
 
 #
