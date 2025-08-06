@@ -36,7 +36,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import base64
@@ -50,7 +49,7 @@ from cryptography.x509 import load_pem_x509_certificate
 from pydantic import BaseModel
 from typing_extensions import Self
 
-from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.utils.cert_store import CAChainStoreWithPrefix
 from otaclient_common._typing import StrEnum
 
 from ._errors import MetadataJWTPayloadInvalid, MetadataJWTVerificationFailed
@@ -99,7 +98,7 @@ class MetadataJWTParser:
 
     ES256 = ECDSA(algorithm=hashes.SHA256())
 
-    def __init__(self, metadata_jwt: str, *, ca_chains_store: CAChainStore):
+    def __init__(self, metadata_jwt: str, *, ca_chains_store: CAChainStoreWithPrefix):
         self.ca_chains_store = ca_chains_store
 
         # pre_parse metadata_jwt
@@ -137,7 +136,12 @@ class MetadataJWTParser:
             logger.exception(_err_msg)
             raise MetadataJWTVerificationFailed(_err_msg) from e
 
-        hit_cachain = self.ca_chains_store.verify(cert_to_verify)
+        hit_cachain = self.ca_chains_store.verify(cert_to_verify, interms=[])
+        # if the cert cannot be verified with cryptography x509 routine,
+        # try the legacy manual implementation of cert verification.
+        if not hit_cachain:
+            hit_cachain = self.ca_chains_store.legacy_verify(cert_to_verify)
+
         if hit_cachain:
             return
 
