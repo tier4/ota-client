@@ -19,12 +19,14 @@ import os
 from hashlib import sha256
 from pathlib import Path
 
-from ota_metadata.legacy2.metadata import OTAMetadata
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaWithBaseFileTable,
 )
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient_common import replace_root
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 from .conftest import SlotAB, verify_resources
 from .test_delta_gen_e2e import MockedQue
@@ -32,9 +34,9 @@ from .test_delta_gen_e2e import MockedQue
 logger = logging.getLogger(__name__)
 
 
-def verify_slot(_ota_metadata_inst: OTAMetadata, slot: Path):
+def verify_slot(_fst_db_helper: FileTableDBHelper, slot: Path):
     logger.info("verify all regular files ...")
-    for _entry in _ota_metadata_inst.iter_regular_entries():
+    for _entry in _fst_db_helper.iter_regular_entries():
         _f_at_slot = Path(
             replace_root(
                 _entry["path"],
@@ -49,7 +51,7 @@ def verify_slot(_ota_metadata_inst: OTAMetadata, slot: Path):
         assert _f_at_slot.stat().st_mode == _entry["mode"]
 
     logger.info("verify all directories ...")
-    for _entry in _ota_metadata_inst.iter_dir_entries():
+    for _entry in _fst_db_helper.iter_dir_entries():
         _d_at_slot = Path(
             replace_root(
                 _entry["path"],
@@ -63,7 +65,7 @@ def verify_slot(_ota_metadata_inst: OTAMetadata, slot: Path):
         assert _d_at_slot.stat().st_mode == _entry["mode"]
 
     logger.info("verify all non-regular files ...")
-    for _entry in _ota_metadata_inst.iter_non_regular_entries():
+    for _entry in _fst_db_helper.iter_non_regular_entries():
         _f_at_slot = Path(
             replace_root(
                 _entry["path"],
@@ -80,27 +82,32 @@ def verify_slot(_ota_metadata_inst: OTAMetadata, slot: Path):
 
 def test_update_slot_with_inplace_mode_with_full_disk_scan(
     ab_slots_for_inplace: SlotAB,
-    ota_metadata_inst: OTAMetadata,
+    fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
 ) -> None:
     logger.info("start to test inplace mode with base file_table assist ...")
+    _all_digests = ShardedThreadSafeDict.from_iterable(
+        fst_db_helper.select_all_digests_with_size()
+    )
+
     InPlaceDeltaWithBaseFileTable(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
+        all_resource_digests=_all_digests,
         delta_src=ab_slots_for_inplace.slot_b,
         copy_dst=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",
-    ).process_slot(str(ota_metadata_inst._fst_db))
+    ).process_slot(str(fst_db_helper.db_f))
     logger.info("verify resource folder ...")
-    verify_resources(ota_metadata_inst, resource_dir)
+    verify_resources(fst_db_helper, resource_dir)
 
     logger.info("start to update slot ...")
     UpdateStandbySlot(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
         standby_slot_mount_point=str(ab_slots_for_inplace.slot_b),
         status_report_queue=MockedQue,
         resource_dir=resource_dir,
         session_id="session_id",
     ).update_slot()
     logger.info("verify the updated slot against file_table ...")
-    verify_slot(ota_metadata_inst, ab_slots_for_inplace.slot_b)
+    verify_slot(fst_db_helper, ab_slots_for_inplace.slot_b)
