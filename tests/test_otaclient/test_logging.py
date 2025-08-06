@@ -94,7 +94,6 @@ class TestLogClient:
     def mock_cfg(self, mocker: MockerFixture):
         self._cfg = _OTAClientSettings(
             LOG_LEVEL_TABLE={__name__: "INFO"},
-            LOG_FORMAT='{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","function":"%(funcName)s","line":%(lineno)d,"message":"%(message)s"}',
         )
         mocker.patch(f"{MODULE}.cfg", self._cfg)
 
