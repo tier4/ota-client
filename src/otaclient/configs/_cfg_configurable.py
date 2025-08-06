@@ -45,7 +45,7 @@ class _OTAClientSettings(BaseModel):
         "ota_proxy": "INFO",
     }
     LOG_FORMAT: str = (
-        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
+        '{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","function":"%(funcName)s","line":%(lineno)d,"message":"%(message)s"}'
     )
 
     #

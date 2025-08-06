@@ -15,8 +15,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import re
 from dataclasses import dataclass
 from queue import Queue
 from urllib.parse import urlparse
@@ -94,7 +94,7 @@ class TestLogClient:
     def mock_cfg(self, mocker: MockerFixture):
         self._cfg = _OTAClientSettings(
             LOG_LEVEL_TABLE={__name__: "INFO"},
-            LOG_FORMAT="[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s",
+            LOG_FORMAT='{"timestamp":"%(asctime)s","level":"%(levelname)s","logger":"%(name)s","function":"%(funcName)s","line":%(lineno)d,"message":"%(message)s"}',
         )
         mocker.patch(f"{MODULE}.cfg", self._cfg)
 
@@ -201,12 +201,13 @@ class TestLogClient:
         assert _response.log_type == expected_log_type
 
         if _response.log_type == log_pb2.LogType.LOG:
-            # Extract the message part from the log format
-            # e.g. [2022-01-01 00:00:00,000][ERROR]-test_log_client:test_log_client:123,some log message
-            log_format_regex = r"\[.*?\]\[.*?\]-.*?:.*?:\d+,(.*)"
-            match = re.match(log_format_regex, _response.message)
-            assert match is not None, "Log message format does not match"
-            extracted_message = match.group(1)
+            # Extract the message part from the JSON log format
+            # e.g. {"timestamp":"2022-01-01 00:00:00,000","level":"ERROR","logger":"test_log_client","function":"test_log_client","line":123,"message":"some log message"}
+            try:
+                log_data = json.loads(_response.message)
+                extracted_message = log_data["message"]
+            except (json.JSONDecodeError, KeyError) as e:
+                pytest.fail(f"Failed to parse JSON log message: {e}")
             assert extracted_message == log_message
         elif _response.log_type == log_pb2.LogType.METRICS:
             # Expect the message to be the same as the input
