@@ -23,20 +23,20 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
-
-from ota_metadata.file_table.db import (
+from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
 )
+
 from ota_metadata.legacy2.csv_parser import (
     parse_dirs_from_csv_file,
     parse_regulars_from_csv_file,
     parse_symlinks_from_csv_file,
 )
-from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORM
 from tests.conftest import OTA_IMAGE_DIR
 
@@ -52,7 +52,9 @@ logger = logging.getLogger(__name__)
 # NOTE: during delta calculation, the ft_resource table will be altered, so
 #       this fixture needs to be function scope fixture.
 @pytest.fixture
-def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
+def fst_db_helper(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> FileTableDBHelper:
     """
     Referring to metadata._prepare_ota_image_metadata method.
     """
@@ -103,12 +105,7 @@ def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
         )
-
-    # NOTE: avoid calling __init__ of OTAMetadata
-    ota_meta = object.__new__(OTAMetadata)
-    ota_meta._fst_db = ft_dbf
-    ota_meta._rst_db = rst_dbf
-    return ota_meta
+    return FileTableDBHelper(ft_dbf)
 
 
 class SlotAB(NamedTuple):
@@ -147,11 +144,11 @@ def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
     return SlotAB(slot_a, slot_b)
 
 
-def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> None:
+def verify_resources(_fst_db_helper: FileTableDBHelper, resource_dir: Path) -> None:
     """Verify that all resources are prepared."""
     logger.info(f"verify against {resource_dir=} ...")
     _errs = []
-    with closing(_ota_metadata_inst.connect_fstable()) as ft_conn:
+    with closing(_fst_db_helper.connect_fstable_db()) as ft_conn:
         orm = FileTableResourceORM(ft_conn)
         for entry in orm.orm_select_entries():
             _rs_f = resource_dir / entry.digest.hex()
