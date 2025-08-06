@@ -1596,8 +1596,8 @@ wheels = [
 
 [[package]]
 name = "ota-image-libs"
-version = "0.0.33.dev2"
-source = { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.0.22-dev0/ota_image_libs-0.0.33.dev2-py3-none-any.whl" }
+version = "0.0.34.dev0"
+source = { git = "https://github.com/tier4/ota-image-libs?branch=refinement%2Ffile_entries_prepare#ea0913e0aa4353b8cb27e23d4b34b8458447acc3" }
 dependencies = [
     { name = "cryptography" },
     { name = "msgpack" },
@@ -1610,39 +1610,6 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "zstandard" },
 ]
-wheels = [
-    { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.0.22-dev0/ota_image_libs-0.0.33.dev2-py3-none-any.whl", hash = "sha256:1fdc01144701a053d79c15028291c01f479d328a880a70a23405af4d2ea6e003" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "annotated-types", marker = "extra == 'pinned'", specifier = "==0.7.0" },
-    { name = "cffi", marker = "extra == 'pinned'", specifier = "==1.17.1" },
-    { name = "cryptography", specifier = "~=45.0" },
-    { name = "cryptography", marker = "extra == 'pinned'", specifier = "==45.0.5" },
-    { name = "msgpack", specifier = "~=1.1" },
-    { name = "msgpack", marker = "extra == 'pinned'", specifier = "==1.1.1" },
-    { name = "pycparser", marker = "extra == 'pinned'", specifier = "==2.22" },
-    { name = "pydantic", specifier = ">=2.10,<3" },
-    { name = "pydantic", marker = "python_full_version >= '3.9' and extra == 'pinned'", specifier = "==2.11.7" },
-    { name = "pydantic", marker = "python_full_version < '3.9' and extra == 'pinned'", specifier = "==2.10.6" },
-    { name = "pydantic-core", marker = "python_full_version >= '3.9' and extra == 'pinned'", specifier = "==2.33.2" },
-    { name = "pydantic-core", marker = "python_full_version < '3.9' and extra == 'pinned'", specifier = "==2.27.2" },
-    { name = "pyjwt", specifier = ">=2.9.0,<3" },
-    { name = "pyjwt", marker = "python_full_version >= '3.9' and extra == 'pinned'", specifier = "==2.10.1" },
-    { name = "pyjwt", marker = "python_full_version < '3.9' and extra == 'pinned'", specifier = "==2.9.0" },
-    { name = "pyyaml", specifier = ">=6.0.1,<7" },
-    { name = "pyyaml", marker = "extra == 'pinned'", specifier = "==6.0.2" },
-    { name = "simple-sqlite3-orm", specifier = "~=0.12" },
-    { name = "simple-sqlite3-orm", marker = "extra == 'pinned'", specifier = "==0.12.0" },
-    { name = "typing-extensions", specifier = ">=4.6.3" },
-    { name = "typing-extensions", marker = "python_full_version >= '3.9' and extra == 'pinned'", specifier = "==4.14.0" },
-    { name = "typing-extensions", marker = "python_full_version < '3.9' and extra == 'pinned'", specifier = "==4.13.2" },
-    { name = "typing-inspection", marker = "python_full_version >= '3.9' and extra == 'pinned'", specifier = "==0.4.1" },
-    { name = "zstandard", specifier = ">=0.22,<0.24" },
-    { name = "zstandard", marker = "extra == 'pinned'", specifier = "==0.23.0" },
-]
-provides-extras = ["pinned"]
 
 [[package]]
 name = "otaclient"
@@ -1697,7 +1664,7 @@ requires-dist = [
     { name = "grpcio", specifier = "==1.70.0" },
     { name = "msgpack", specifier = ">=1,<1.2" },
     { name = "multidict", specifier = ">=4.5,<7.0" },
-    { name = "ota-image-libs", url = "https://github.com/tier4/ota-image-libs/releases/download/v0.0.22-dev0/ota_image_libs-0.0.33.dev2-py3-none-any.whl" },
+    { name = "ota-image-libs", git = "https://github.com/tier4/ota-image-libs?branch=refinement%2Ffile_entries_prepare" },
     { name = "protobuf", specifier = ">=4.21.12,<5.29" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pydantic-settings", specifier = ">=2.3,<3" },

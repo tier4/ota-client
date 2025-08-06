@@ -33,7 +33,7 @@ dependencies = [
   "grpcio==1.70.0",
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
-  "ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.0.22-dev0/ota_image_libs-0.0.33.dev2-py3-none-any.whl#sha256:1fdc01144701a053d79c15028291c01f479d328a880a70a23405af4d2ea6e003#",
+  "ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.0.34-dev0/ota_image_libs-0.0.34.dev0-py3-none-any.whl",
   "protobuf>=4.21.12,<5.29",
   "pydantic<3,>=2.10",
   "pydantic-settings<3,>=2.3",
@@ -60,6 +60,10 @@ dev = [
   "requests-mock~=1.12",
   "ruff",
 ]
+
+# TODO: using dev branch of ota-image-libs
+[tool.uv.sources]
+ota-image-libs = { git = "https://github.com/tier4/ota-image-libs", branch = "refinement/file_entries_prepare" }
 
 [tool.hatch.version]
 source = "vcs"
