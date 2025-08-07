@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Dict, Literal
 
@@ -44,9 +45,19 @@ class _OTAClientSettings(BaseModel):
         "otaclient_common": "INFO",
         "ota_proxy": "INFO",
     }
-    LOG_FORMAT: str = (
-        "[%(asctime)s][%(levelname)s]-%(name)s:%(funcName)s:%(lineno)d,%(message)s"
-    )
+
+    @property
+    def LOG_FORMAT(self) -> str:
+        """Generate JSON log format string dynamically."""
+        log_fields = {
+            "timestamp": "%(asctime)s",
+            "level": "%(levelname)s",
+            "logger": "%(name)s",
+            "function": "%(funcName)s",
+            "line": "%(lineno)d",
+            "message": "%(message)s",
+        }
+        return json.dumps(log_fields, separators=(",", ":"))
 
     #
     # ------ downloading settings ------ #
