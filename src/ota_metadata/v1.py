@@ -53,8 +53,8 @@ class OTAImageHelper:
         self, *, session_dir: Path, base_url: str, ca_store: CACertStore
     ) -> None:
         self._session_dir = session_dir
-        self._base_url = base_url
-        self._resource_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
+        self.base_url = base_url
+        self.resource_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
         self._ca_store = ca_store
 
         # NOTE: to be downloaded
@@ -91,7 +91,7 @@ class OTAImageHelper:
         _index_jwt_fpath = self._index_jwt_fpath
         with condition:
             yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, INDEX_JWT_FNAME),
+                url=urljoin_ensure_base(self.base_url, INDEX_JWT_FNAME),
                 dst=_index_jwt_fpath,
             )
             condition.wait()  # wait for upper download the file
@@ -108,7 +108,7 @@ class OTAImageHelper:
         _index_json_fpath = self._image_index_fpath
         with condition:
             yield DownloadInfo(
-                url=urljoin_ensure_base(self._base_url, IMAGE_INDEX_FNAME),
+                url=urljoin_ensure_base(self.base_url, IMAGE_INDEX_FNAME),
                 dst=_index_json_fpath,
                 original_size=_index_json_descriptor.size,
                 digest=_index_json_descriptor.digest.digest_hex,
@@ -228,7 +228,7 @@ class OTAImageHelper:
             condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:
-        return urljoin_ensure_base(self._resource_url, digest_hex)
+        return urljoin_ensure_base(self.resource_url, digest_hex)
 
     def download_from_descriptor(
         self, save_dst: Path, oci_descriptor: OCIDescriptor
@@ -240,7 +240,7 @@ class OTAImageHelper:
         """
         digest_hex = oci_descriptor.digest.digest_hex
         return DownloadInfo(
-            url=urljoin_ensure_base(self._resource_url, digest_hex),
+            url=urljoin_ensure_base(self.resource_url, digest_hex),
             dst=save_dst,
             original_size=oci_descriptor.size,
             digest=digest_hex,

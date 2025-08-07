@@ -28,6 +28,7 @@ from concurrent.futures import Future
 from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
+from itertools import chain
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Empty, Queue
@@ -36,22 +37,20 @@ from typing import Any, Callable, NoReturn, Optional
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
-from ota_image_libs.v1.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from requests import Response
 
-from ota_metadata.legacy2 import _errors as ota_metadata_error
-from ota_metadata.legacy2.metadata import (
-    LegacyOTAImageOTAMetadata,
-    LegacyOTAImageResourceMeta,
-)
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
+    CACertStore,
     CACertStoreInvalid,
-    CAChainStoreWithPrefix,
-    load_ca_cert_chains_with_prefix,
+    load_ca_store,
 )
+from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
-from otaclient._download_resources import DownloadResourcesFromLegacyOTAImage
+from otaclient._download_resources import (
+    DownloadResources,
+)
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -189,7 +188,7 @@ class _OTAUpdater:
         raw_url_base: str,
         cookies_json: str,
         session_wd: Path,
-        ca_chains_store: CAChainStoreWithPrefix,
+        ca_chains_store: CACertStore,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         ecu_status_flags: MultipleECUStatusFlags,
@@ -286,12 +285,11 @@ class _OTAUpdater:
                 cfg.STANDBY_SLOT_MNT,
             )
         )
-        self._ota_metadata = LegacyOTAImageOTAMetadata(
-            base_url=self.url_base,
+        self._ota_image_helper = OTAImageHelper(
             session_dir=self._session_workdir,
-            ca_chains_store=ca_chains_store,
+            base_url=self.url_base,
+            ca_store=ca_chains_store,
         )
-        self._fst_db_helper = FileTableDBHelper(self._ota_metadata.file_table_dbf)
 
     def _download_file(self, entry: DownloadInfo) -> DownloadResult:
         """Download a single file.
@@ -315,7 +313,10 @@ class _OTAUpdater:
         )
 
     def _download_metadata_file(
-        self, entries: list[DownloadInfo], *, condition: threading.Condition
+        self,
+        entries: DownloadInfo | list[DownloadInfo],
+        *,
+        condition: threading.Condition,
     ) -> DownloadResult:
         """Download a single OTA image metadata file.
 
@@ -325,6 +326,9 @@ class _OTAUpdater:
             Retry counts, downloaded files size and traffic on wire.
         """
         _retry_count, _download_size, _traffic_on_wire = 0, 0, 0
+        if not isinstance(entries, list):
+            entries = [entries]
+
         with condition:
             for entry in entries:
                 _res = self._download_file(entry)
@@ -340,9 +344,7 @@ class _OTAUpdater:
             self._downloader_pool.get_instance()
         )
 
-    def _download_resources(
-        self, _resource_downloader: DownloadResourcesFromLegacyOTAImage
-    ) -> None:
+    def _download_resources(self, _resource_downloader: DownloadResources) -> None:
         _next_commit_before = 0
         _merged_payload = UpdateProgressReport(
             operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
@@ -350,8 +352,9 @@ class _OTAUpdater:
         for _fut in _resource_downloader.download_resources():
             _now = time.perf_counter()
             if _download_exception_handler(_fut):
-                _download_res = _fut.result()
                 _merged_payload.processed_file_num += 1
+                _download_res = _fut.result()
+
                 _merged_payload.processed_file_size += _download_res.download_size
                 _merged_payload.errors += _download_res.retry_count
                 _merged_payload.downloaded_bytes += _download_res.traffic_on_wire
@@ -375,8 +378,13 @@ class _OTAUpdater:
             StatusReport(payload=_merged_payload, session_id=self.session_id)
         )
 
-    def _process_persistents(self, ota_metadata: LegacyOTAImageOTAMetadata):
+    def _process_persistents(self):
         logger.info("start persist files handling...")
+        _persist_list = self._ota_image_helper.get_persistents_list()
+        if not _persist_list:
+            logger.info("this OTA image payload doesn't configure persist files")
+            return
+
         standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
 
         _handler = PersistFilesHandler(
@@ -388,7 +396,7 @@ class _OTAUpdater:
             dst_root=cfg.STANDBY_SLOT_MNT,
         )
 
-        for persiste_entry in ota_metadata.iter_persist_entries():
+        for persiste_entry in _persist_list:
             # NOTE(20240520): with update_swapfile ansible role being used wildly,
             #   now we just ignore the swapfile entries in the persistents.txt if any,
             #   and issue a warning about it.
@@ -427,13 +435,21 @@ class _OTAUpdater:
             ),
         )
 
-        _condition = threading.Condition()
-        _metadata_processor = self._ota_metadata.download_metafiles(_condition)
+        # TODO: OTA image release key
+        _release_key = OTAReleaseKey("dev")
+        _ecu_id = ecu_info.ecu_id
 
+        _condition = threading.Condition()
         try:
             for _fut in _mapper.ensure_tasks(
                 partial(self._download_metadata_file, condition=_condition),
-                _metadata_processor,
+                chain(
+                    self._ota_image_helper.download_and_verify_image_index(_condition),
+                    self._ota_image_helper.select_image_payload(
+                        ImageIdentifier(_ecu_id, _release_key),
+                        _condition,
+                    ),
+                ),
             ):
                 if not (_exc := _fut.exception()):
                     continue
@@ -456,9 +472,6 @@ class _OTAUpdater:
                         raise ota_errors.UpdateRequestCookieInvalid(
                             module=__name__
                         ) from _exc
-        except Exception as e:
-            _metadata_processor.throw(e)
-            raise
         finally:
             _exc = None  # resolve cycle ref
             _mapper.shutdown(wait=True)
@@ -494,20 +507,20 @@ class _OTAUpdater:
         try:
             logger.info("verify and download OTA image metadata ...")
             self._download_and_parse_metadata()
-            _metadata_jwt = self._ota_metadata.metadata_jwt
-            assert _metadata_jwt, "invalid metadata jwt"
+            _image_config = self._ota_image_helper.image_config
+            assert _image_config
 
             logger.info(
                 "ota_metadata parsed finished: \n"
-                f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
-                f"total_regulars_size: {_metadata_jwt.total_regular_size}"
+                f"total_regulars_num: {_image_config.sys_image_regular_files_count} \n"
+                f"total_regulars_size: {_image_config.sys_image_unique_file_entries_size}"
             )
 
             self._status_report_queue.put_nowait(
                 StatusReport(
                     payload=SetUpdateMetaReport(
-                        image_file_entries=self._ota_metadata.total_regulars_num,
-                        image_size_uncompressed=_metadata_jwt.total_regular_size,
+                        image_file_entries=_image_config.sys_image_regular_files_count,
+                        image_size_uncompressed=_image_config.sys_image_unique_file_entries_size,
                         metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
                     ),
                     session_id=self.session_id,
@@ -515,16 +528,7 @@ class _OTAUpdater:
             )
         except ota_errors.OTAError:
             raise  # raise top-level OTAError as it
-        except ota_metadata_error.MetadataJWTVerificationFailed as e:
-            _err_msg = f"failed to verify metadata.jwt: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTVerficationFailed(
-                _err_msg, module=__name__
-            ) from e
-        except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
-            _err_msg = f"metadata.jwt is invalid: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
+        # TODO: errors for metadata parsing
         except Exception as e:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
@@ -540,7 +544,7 @@ class _OTAUpdater:
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
                 threshold_in_bytes=int(
-                    self._ota_metadata.total_regulars_size
+                    _image_config.sys_image_unique_file_entries_size
                     * STANDBY_SLOT_USED_SIZE_THRESHOLD
                 ),
             )
@@ -558,8 +562,9 @@ class _OTAUpdater:
         )
 
         # ------ in-update: calculate delta ------ #
+        _fst_helper = self._ota_image_helper.file_table_helper
         all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
-            self._fst_db_helper.select_all_digests_with_size(),
+            _fst_helper.select_all_digests_with_size(),
         )
         logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
@@ -592,7 +597,7 @@ class _OTAUpdater:
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
         try:
-            self._fst_db_helper.save_fstable(self._ota_tmp_meta_on_standby)
+            _fst_helper.save_fstable(self._ota_tmp_meta_on_standby)
         except Exception as e:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
@@ -612,7 +617,7 @@ class _OTAUpdater:
                 # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
                 #       try to keep using the file_table.
                 if base_meta_dir_on_standby_slot.is_dir():
-                    verified_base_db = self._fst_db_helper.find_saved_fstable(
+                    verified_base_db = _fst_helper.find_saved_fstable(
                         base_meta_dir_on_standby_slot
                     )
                 else:
@@ -622,12 +627,12 @@ class _OTAUpdater:
                             self._image_meta_dir_on_standby,
                             base_meta_dir_on_standby_slot,
                         )
-                        verified_base_db = self._fst_db_helper.find_saved_fstable(
+                        verified_base_db = _fst_helper.find_saved_fstable(
                             base_meta_dir_on_standby_slot
                         )
 
                 _inplace_mode_params = DeltaGenParams(
-                    file_table_db_helper=self._fst_db_helper,
+                    file_table_db_helper=_fst_helper,
                     all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
@@ -645,7 +650,7 @@ class _OTAUpdater:
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
-                    file_table_db_helper=self._fst_db_helper,
+                    file_table_db_helper=_fst_helper,
                     all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
@@ -653,7 +658,7 @@ class _OTAUpdater:
                     session_id=self.session_id,
                 )
 
-                verified_base_db = self._fst_db_helper.find_saved_fstable(
+                verified_base_db = _fst_helper.find_saved_fstable(
                     self._image_meta_dir_on_active
                 )
                 if verified_base_db:
@@ -686,11 +691,7 @@ class _OTAUpdater:
             )
         )
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        resource_meta = LegacyOTAImageResourceMeta(
-            base_url=self.url_base,
-            ota_metadata=self._ota_metadata,
-            copy_dst=self._resource_dir_on_standby,
-        )
+        _rst_helper = self._ota_image_helper.resource_table_helper
         download_files_num = len(all_resource_digests)
         download_files_size = sum(all_resource_digests.values())
 
@@ -711,8 +712,10 @@ class _OTAUpdater:
 
         logger.info("start to download resources ...")
         try:
-            _resource_downloader = DownloadResourcesFromLegacyOTAImage(
-                resource_meta=resource_meta,
+            _resource_downloader = DownloadResources(
+                _rst_helper,
+                blob_storage_base_url=self._ota_image_helper.resource_url,
+                resource_dir=self._resource_dir_on_standby,
                 downloader_pool=self._downloader_pool,
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
@@ -746,7 +749,7 @@ class _OTAUpdater:
 
         try:
             standby_slot_creator = UpdateStandbySlot(
-                file_table_db_helper=self._fst_db_helper,
+                file_table_db_helper=_fst_helper,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -770,7 +773,7 @@ class _OTAUpdater:
             )
         )
         # NOTE(20240219): move persist file handling here
-        self._process_persistents(self._ota_metadata)
+        self._process_persistents()
 
         # save the OTA metadata to the actual location after
         #   standby slot rootfs updated
@@ -931,12 +934,12 @@ class OTAClient:
 
         self.ca_chains_store = None
         try:
-            self.ca_chains_store = load_ca_cert_chains_with_prefix(cfg.CERT_DPATH)
+            self.ca_chains_store = load_ca_store(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
             _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
             logger.error(_err_msg)
 
-            self.ca_chains_store = CAChainStoreWithPrefix()
+            self.ca_chains_store = CACertStore()
 
         self.started = True
         logger.info("otaclient started")

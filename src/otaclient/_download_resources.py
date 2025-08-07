@@ -147,7 +147,7 @@ class DownloadResourcesFromLegacyOTAImage(_BaseDownloader):
             self._downloader_pool.release_all_instances()
 
 
-class DownloadResourcesFromNewOTAImage(_BaseDownloader):
+class DownloadResources(_BaseDownloader):
     def __init__(
         self,
         resource_db_helper: ResourceTableDBHelper,
@@ -184,28 +184,28 @@ class DownloadResourcesFromNewOTAImage(_BaseDownloader):
 
     def _download_single_resource_at_thread(
         self, _digest: bytes, _rst_helper: PrepareResourceHelper
-    ) -> list[DownloadResult]:
+    ) -> DownloadResult:
         downloader = self._downloader_mapper[threading.get_native_id()]
-
-        _res = []
         save_dst = self._resource_dir / _digest.hex()
-        for _requested_blob, _tmp_save_dst in _rst_helper.prepare_resource_at_thread(
-            _digest, save_dst
-        ):
-            _res.append(
-                downloader.download(
-                    url=urljoin(self._base_url, _requested_blob),
-                    dst=_tmp_save_dst,
-                    digest=_requested_blob,
-                    # NOTE: do not do auto decompression, the PrepareResourceHelper
-                    #       will do the decompression.
-                )
+
+        _entry, _gen = _rst_helper.prepare_resource_at_thread(_digest, save_dst)
+        _res = DownloadResult(download_size=_entry.size)
+
+        for _requested_blob, _tmp_save_dst in _gen:
+            _this_res = downloader.download(
+                url=urljoin(self._base_url, _requested_blob),
+                dst=_tmp_save_dst,
+                digest=_requested_blob,
+                # NOTE: do not do auto decompression, the PrepareResourceHelper
+                #       will do the decompression.
             )
+            _res.retry_count += _this_res.retry_count
+            _res.traffic_on_wire += _this_res.traffic_on_wire
         # after all the blobs are prepare, the `prepare_resource_at_thread` method will
         #   rebuild the requested origin blob.
         return _res
 
-    def download_resources(self) -> Generator[Future[list[DownloadResult]]]:
+    def download_resources(self) -> Generator[Future[DownloadResult]]:
         try:
             _rst_orm_pool = self._rst_db_helper.get_orm_pool(self._db_conns_num)
             _rst_helper = PrepareResourceHelper(_rst_orm_pool, self._resource_dir)
