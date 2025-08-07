@@ -44,7 +44,7 @@ from ota_image_libs.v1.file_table.db import (
 )
 
 from ota_metadata.utils import DownloadInfo
-from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.utils.cert_store import CAChainStoreWithPrefix
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 
@@ -93,7 +93,7 @@ class LegacyOTAImageOTAMetadata:
         *,
         base_url: str,
         session_dir: StrOrPath,
-        ca_chains_store: CAChainStore,
+        ca_chains_store: CAChainStoreWithPrefix,
     ) -> None:
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
