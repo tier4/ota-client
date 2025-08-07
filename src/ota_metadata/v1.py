@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
+import os
 import threading
 from copy import copy
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Generator
+from typing import Generator, Literal
 
 from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.common import OCIDescriptor
@@ -24,15 +26,26 @@ from ota_image_libs.v1.index_jwt.utils import (
     decode_index_jwt_with_verification,
     get_index_jwt_sign_cert_chain,
 )
+from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
 from ota_image_libs.v1.resource_table import RST_MANIFEST_TABLE_NAME
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
 
 from ota_metadata.utils import DownloadInfo
 from otaclient_common.common import urljoin_ensure_base
 
+logger = logging.getLogger(__name__)
+
 IMAGE_MANIFEST_SAVE_FNAME = "image_manifest.json"
 IMAGE_CONFIG_SAVE_FNAME = "image_config.json"
 SYS_CONFIG_SAVE_FNAME = "sys_config.json"
+
+
+def _get_arch() -> Literal["x86_64", "arm64"] | None:
+    _arch = os.uname().machine
+    if _arch in ["x86_64", "amd64"]:
+        return "x86_64"
+    if _arch in ["aarch64", "arm64"]:
+        return "arm64"
 
 
 class OTAImageHelper:
@@ -162,6 +175,57 @@ class OTAImageHelper:
             _resource_table_descriptor.export_blob_from_resource_dir(
                 _tmp_dir, self._resource_table_dbf, auto_decompress=True
             )
+
+    def select_otaclient_package(
+        self,
+        save_dst: Path,
+        version: str,
+        *,
+        condition: threading.Condition,
+    ):
+        assert self.image_index
+        if not (_arch := _get_arch()):
+            logger.warning("this machine is not either x86_64 or arm64 machine, abort")
+            return
+
+        _otaclient_package_manifests = self.image_index.find_otaclient_package()
+        if not _otaclient_package_manifests:
+            logger.info("not otaclient release package manifest found in the OTA image")
+            return
+
+        # NOTE: normally we will only put one otaclient release into the OTA image
+        if len(_otaclient_package_manifests) != 1:
+            logger.warning(
+                "multiple otaclient package manifest found in the OTA image"
+                "will pick the first one"
+            )
+        _otaclient_package_manifest_descriptor = _otaclient_package_manifests[0]
+
+        _otaclient_manifest_fpath = (
+            self._session_dir / "otaclient_release_manifest.json"
+        )
+        with condition:
+            yield self.download_from_descriptor(
+                _otaclient_manifest_fpath,
+                _otaclient_package_manifest_descriptor,
+            )
+            condition.wait()
+
+        _artifact = OTAClientPackageManifest.parse_metafile(
+            _otaclient_manifest_fpath.read_text()
+        ).find_package(version=version, architecture=_arch)
+        if not _artifact:
+            logger.warning(
+                f"failed to find otaclient({version=}) app image for {_arch=}"
+            )
+            return
+
+        with condition:
+            yield self.download_from_descriptor(
+                save_dst,
+                _artifact,
+            )
+            condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:
         return urljoin_ensure_base(self._resource_url, digest_hex)
