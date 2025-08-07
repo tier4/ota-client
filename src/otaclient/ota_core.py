@@ -47,8 +47,8 @@ from ota_metadata.legacy2.metadata import (
 from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
-    CAChainStore,
-    load_ca_cert_chains,
+    CAChainStoreWithPrefix,
+    load_ca_cert_chains_with_prefix,
 )
 from otaclient import errors as ota_errors
 from otaclient._download_resources import DownloadResourcesFromLegacyOTAImage
@@ -189,7 +189,7 @@ class _OTAUpdater:
         raw_url_base: str,
         cookies_json: str,
         session_wd: Path,
-        ca_chains_store: CAChainStore,
+        ca_chains_store: CAChainStoreWithPrefix,
         upper_otaproxy: str | None = None,
         boot_controller: BootControllerProtocol,
         ecu_status_flags: MultipleECUStatusFlags,
@@ -931,12 +931,12 @@ class OTAClient:
 
         self.ca_chains_store = None
         try:
-            self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
+            self.ca_chains_store = load_ca_cert_chains_with_prefix(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
             _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
             logger.error(_err_msg)
 
-            self.ca_chains_store = CAChainStore()
+            self.ca_chains_store = CAChainStoreWithPrefix()
 
         self.started = True
         logger.info("otaclient started")
