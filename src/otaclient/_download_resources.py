@@ -23,12 +23,10 @@ from pathlib import Path
 from typing import Generator, Iterable
 from urllib.parse import urljoin
 
-from ota_image_libs.v1.consts import ZSTD_COMPRESSION_ALG
 from ota_image_libs.v1.resource_table.db import (
+    PrepareResourceHelper,
     ResourceTableDBHelper,
-    ResourceTableORMPool,
 )
-from ota_image_libs.v1.resource_table.schema import ResourceTableManifest
 
 from ota_metadata.legacy2.metadata import (
     LegacyOTAImageResourceMeta as _legacy_ResourceMeta,
@@ -185,27 +183,32 @@ class DownloadResourcesFromNewOTAImage(_BaseDownloader):
         )
 
     def _download_single_resource_at_thread(
-        self, _digest: bytes, _rst_orm_pool: ResourceTableORMPool
-    ) -> DownloadResult:
-        _entry: ResourceTableManifest = _rst_orm_pool.orm_select_entry(digest=_digest)
-        if (_digest := _entry.digest) == EMPTY_FILE_SHA256:
-            return DownloadResult(0, 0, 0)
-
-        _digest_hex = _entry.digest.hex()
+        self, _digest: bytes, _rst_helper: PrepareResourceHelper
+    ) -> list[DownloadResult]:
         downloader = self._downloader_mapper[threading.get_native_id()]
-        # NOTE: OTA image version1 is using sha256
-        return downloader.download(
-            url=urljoin(self._base_url, _digest_hex),
-            dst=self._resource_dir / _digest_hex,
-            digest=_digest.hex(),
-            size=_entry.size,
-            # NOTE: OTA image version1 is using zstd compression.
-            compression_alg=ZSTD_COMPRESSION_ALG,
-        )
 
-    def download_resources(self) -> Generator[Future[DownloadResult]]:
+        _res = []
+        save_dst = self._resource_dir / _digest.hex()
+        for _requested_blob, _tmp_save_dst in _rst_helper.prepare_resource_at_thread(
+            _digest, save_dst
+        ):
+            _res.append(
+                downloader.download(
+                    url=urljoin(self._base_url, _requested_blob),
+                    dst=_tmp_save_dst,
+                    digest=_requested_blob,
+                    # NOTE: do not do auto decompression, the PrepareResourceHelper
+                    #       will do the decompression.
+                )
+            )
+        # after all the blobs are prepare, the `prepare_resource_at_thread` method will
+        #   rebuild the requested origin blob.
+        return _res
+
+    def download_resources(self) -> Generator[Future[list[DownloadResult]]]:
         try:
             _rst_orm_pool = self._rst_db_helper.get_orm_pool(self._db_conns_num)
+            _rst_helper = PrepareResourceHelper(_rst_orm_pool, self._resource_dir)
             with ThreadPoolExecutorWithRetry(
                 max_concurrent=self._max_concurrent,
                 max_workers=self._downloader_threads,
@@ -222,7 +225,7 @@ class DownloadResourcesFromNewOTAImage(_BaseDownloader):
             ) as _mapper, _rst_orm_pool:
                 _bound_download_func = partial(
                     self._download_single_resource_at_thread,
-                    _rst_orm_pool=_rst_orm_pool,
+                    _rst_helper=_rst_helper,
                 )
                 for _fut in _mapper.ensure_tasks(
                     _bound_download_func, self._iter_digests_with_shuffle()
