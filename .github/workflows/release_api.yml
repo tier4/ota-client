@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: setup python
         uses: actions/setup-python@v5
@@ -51,7 +51,7 @@ jobs:
       contents: write
     steps:
     - name: checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: download python packages artifact
       uses: actions/download-artifact@v5
