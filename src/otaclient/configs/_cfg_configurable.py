@@ -82,7 +82,7 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ debug flags ------ #
     #
-    DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP: bool = False
+    DEBUG_ENABLE_SKIP_CLIENT_UPDATE: bool = False
 
     #
     # ------ IO settings ------ #

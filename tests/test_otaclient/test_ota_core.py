@@ -273,6 +273,27 @@ class TestOTAClient:
         self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.CLIENT_UPDATING
 
+    def test_client_update_debug_mode(self, mocker: pytest_mock.MockerFixture):
+        """Test client update with debug mode enabled - should skip execution."""
+        from otaclient._types import ClientUpdateRequestV2
+
+        # Mock the debug flag to enable skipping client update
+        mocker.patch(f"{OTA_CORE_MODULE}.cfg.DEBUG_ENABLE_SKIP_CLIENT_UPDATE", True)
+
+        initial_status = self.ota_client.live_ota_status
+        # --- execution --- #
+        self.ota_client.client_update(
+            request=ClientUpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                session_id="test_client_update_debug_mode",
+            )
+        )
+
+        self.ota_client_updater.execute.assert_not_called()
+        assert self.ota_client.live_ota_status == initial_status
+
     def test_client_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         """Test client update with interruption."""
         from otaclient._types import ClientUpdateRequestV2

@@ -30,7 +30,7 @@ from otaclient.configs import ENV_PREFIX, set_configs
             r"""{"ota_metadata": "DEBUG"}""",
             {"ota_metadata": "DEBUG"},
         ),
-        ("DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP", "true", True),
+        ("DEBUG_ENABLE_SKIP_CLIENT_UPDATE", "true", True),
         ("DOWNLOAD_INACTIVE_TIMEOUT", "200", 200),
     ),
 )
