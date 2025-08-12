@@ -107,19 +107,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: download python packages artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-python-packages
           path: dist
 
       - name: download squashfs x86_64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-squashfs_x86_64
           path: dist
 
       - name: download squashfs arm64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-squashfs_arm64
           path: dist
