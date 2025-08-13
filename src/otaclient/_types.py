@@ -141,6 +141,11 @@ class ClientUpdateControlFlags:
     request_shutdown_event: mp_sync.Event  # for requesting to shutdown
 
 
+@dataclass
+class CriticalZoneFlags:
+    """Flags for critical zone control."""
+    is_critical_zone: mp_sync.Event
+
 #
 # ------ OTA requests IPC ------ #
 #
@@ -177,6 +182,14 @@ class UpdateRequestV2(IPCRequest):
 
 
 @dataclass
+class StopRequestV2(IPCRequest):
+    """Compatible with OTA API version 2."""
+
+    version: str
+    url_base: str
+    cookies_json: str
+
+@dataclass
 class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
@@ -187,4 +200,4 @@ class ClientUpdateRequestV2(IPCRequest):
 
 @dataclass
 class RollbackRequestV2(IPCRequest):
-    """Compatbile with OTA API version 2."""
+    """Compatible with OTA API version 2."""
