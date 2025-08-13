@@ -18,65 +18,45 @@ from __future__ import annotations
 import errno
 import json
 import logging
-import multiprocessing.queues as mp_queue
 import shutil
-import signal
-import sys
-import threading
 import time
 from concurrent.futures import Future
-from functools import partial
 from hashlib import sha256
 from http import HTTPStatus
-from itertools import chain
 from json.decoder import JSONDecodeError
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Queue
 from tempfile import TemporaryDirectory
-from typing import Any, Callable, NoReturn, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from requests import Response
 
-from ota_metadata.utils import DownloadInfo
 from ota_metadata.utils.cert_store import (
     CACertStore,
-    CACertStoreInvalid,
-    load_ca_store,
 )
 from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
 from otaclient._download_resources import (
+    DownloadOTAImageMeta,
     DownloadResources,
 )
 from otaclient._status_monitor import (
-    OTAClientStatusCollector,
-    OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
-    SetOTAClientMetaReport,
     SetUpdateMetaReport,
     StatusReport,
     UpdateProgressReport,
 )
 from otaclient._types import (
-    FailureType,
-    IPCRequest,
-    IPCResEnum,
-    IPCResponse,
     MultipleECUStatusFlags,
-    OTAStatus,
-    RollbackRequestV2,
     UpdatePhase,
-    UpdateRequestV2,
 )
 from otaclient._utils import (
-    SharedOTAClientStatusWriter,
-    get_traceback,
     wait_and_log,
 )
-from otaclient.boot_control import BootControllerProtocol, get_boot_controller
+from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import (
     InPlaceDeltaGenFullDiskScan,
@@ -88,19 +68,16 @@ from otaclient.create_standby import (
 )
 from otaclient.create_standby.delta_gen import DeltaGenParams
 from otaclient.create_standby.resume_ota import ResourceScanner
-from otaclient_common import EMPTY_FILE_SHA256, human_readable_size, replace_root
-from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
+from otaclient_common import human_readable_size, replace_root
+from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
-    DownloadPoolWatchdogFuncContext,
-    DownloadResult,
 )
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
-    ThreadPoolExecutorWithRetry,
 )
 from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
@@ -291,59 +268,6 @@ class _OTAUpdater:
             ca_store=ca_chains_store,
         )
 
-    def _download_file(self, entry: DownloadInfo) -> DownloadResult:
-        """Download a single file.
-
-        This is the single task being executed in the downloader pool.
-
-        Returns:
-            Retry counts, downloaded files size and traffic on wire.
-        """
-        if (_digest := entry.digest) == EMPTY_FILE_SHA256:
-            return DownloadResult(0, 0, 0)
-
-        downloader = self._downloader_mapper[threading.get_native_id()]
-        # NOTE: currently download only use sha256
-        return downloader.download(
-            url=entry.url,
-            dst=entry.dst,
-            digest=_digest,
-            size=entry.original_size,
-            compression_alg=entry.compression_alg,
-        )
-
-    def _download_metadata_file(
-        self,
-        entries: DownloadInfo | list[DownloadInfo],
-        *,
-        condition: threading.Condition,
-    ) -> DownloadResult:
-        """Download a single OTA image metadata file.
-
-        Just a wrapper around _download_file method.
-
-        Returns:
-            Retry counts, downloaded files size and traffic on wire.
-        """
-        _retry_count, _download_size, _traffic_on_wire = 0, 0, 0
-        if not isinstance(entries, list):
-            entries = [entries]
-
-        with condition:
-            for entry in entries:
-                _res = self._download_file(entry)
-                _retry_count += _res.retry_count
-                _download_size += _res.download_size
-                _traffic_on_wire += _res.traffic_on_wire
-
-            condition.notify()  # notify the metadata generator that this batch of download is finished
-        return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
-
-    def _downloader_worker_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
-        )
-
     def _download_resources(self, _resource_downloader: DownloadResources) -> None:
         _next_commit_before = 0
         _merged_payload = UpdateProgressReport(
@@ -418,64 +342,11 @@ class _OTAUpdater:
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
-    def _download_and_parse_metadata(self) -> None:
-        _mapper = ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            max_retry_on_entry=cfg.MAX_RETRY_ON_ENTRY_COUNT,
-            thread_name_prefix="download_metadata_files",
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=DownloadPoolWatchdogFuncContext(
-                    downloaded_bytes=0,
-                    previous_active_timestamp=int(time.time()),
-                ),
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
-        )
-
-        # TODO: OTA image release key
-        _release_key = OTAReleaseKey("dev")
-        _ecu_id = ecu_info.ecu_id
-
-        _condition = threading.Condition()
-        try:
-            for _fut in _mapper.ensure_tasks(
-                partial(self._download_metadata_file, condition=_condition),
-                chain(
-                    self._ota_image_helper.download_and_verify_image_index(_condition),
-                    self._ota_image_helper.select_image_payload(
-                        ImageIdentifier(_ecu_id, _release_key),
-                        _condition,
-                    ),
-                ),
-            ):
-                if not (_exc := _fut.exception()):
-                    continue
-
-                logger.warning(
-                    f"failed to download one metafile, keep retrying: {_exc!r}"
-                )
-                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
-                    (_response := _exc.response), Response
-                ):
-                    if _response.status_code == HTTPStatus.NOT_FOUND:
-                        raise ota_errors.OTAImageInvalid(
-                            "failed to download metadata", module=__name__
-                        ) from _exc
-
-                    if _response.status_code in [
-                        HTTPStatus.FORBIDDEN,
-                        HTTPStatus.UNAUTHORIZED,
-                    ]:
-                        raise ota_errors.UpdateRequestCookieInvalid(
-                            module=__name__
-                        ) from _exc
-        finally:
-            _exc = None  # resolve cycle ref
-            _mapper.shutdown(wait=True)
-            self._downloader_pool.release_all_instances()
+    def _download_and_parse_metadata(
+        self, _image_id: ImageIdentifier, _meta_downloader: DownloadOTAImageMeta
+    ) -> None:
+        for _fut in _meta_downloader.download_ota_image_meta(_image_id):
+            _download_exception_handler(_fut)
 
     def _execute_update(self):
         """Implementation of OTA updating."""
@@ -506,7 +377,21 @@ class _OTAUpdater:
 
         try:
             logger.info("verify and download OTA image metadata ...")
-            self._download_and_parse_metadata()
+            # TODO: OTA image release key
+            _release_key = OTAReleaseKey("dev")
+            _ecu_id = ecu_info.ecu_id
+
+            _ota_image_meta_download_helper = DownloadOTAImageMeta(
+                self._ota_image_helper,
+                downloader_pool=self._downloader_pool,
+                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+            )
+            self._download_and_parse_metadata(
+                ImageIdentifier(_ecu_id, _release_key),
+                _ota_image_meta_download_helper,
+            )
+
             _image_config = self._ota_image_helper.image_config
             assert _image_config
 
@@ -533,8 +418,6 @@ class _OTAUpdater:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
-        finally:
-            self._downloader_pool.release_instance()
 
         # ------ pre-update ------ #
         logger.info("enter local OTA update...")
@@ -729,11 +612,10 @@ class _OTAUpdater:
             )
             logger.error(_err_msg)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from None
-        finally:
-            # NOTE: after this point, we don't need downloader anymore
-            # release the downloader instances
-            self._downloader_pool.release_all_instances()
-            self._downloader_pool.shutdown()
+
+        # NOTE: after this point, we don't need downloader anymore
+        # release the downloader instances
+        self._downloader_pool.shutdown()
 
         # ------ apply update ------ #
         logger.info("start to apply changes to standby slot...")
@@ -835,338 +717,3 @@ class _OTAUpdater:
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
-
-
-class _OTARollbacker:
-    def __init__(self, boot_controller: BootControllerProtocol) -> None:
-        self._boot_controller = boot_controller
-
-    def execute(self):
-        try:
-            self._boot_controller.pre_rollback()
-            self._boot_controller.post_rollback()
-            self._boot_controller.finalizing_rollback()
-        except ota_errors.OTAError as e:
-            logger.error(f"rollback failed: {e!r}")
-            self._boot_controller.on_operation_failure()
-            raise
-
-
-class OTAClient:
-    def __init__(
-        self,
-        *,
-        ecu_status_flags: MultipleECUStatusFlags,
-        proxy: Optional[str] = None,
-        status_report_queue: Queue[StatusReport],
-    ) -> None:
-        self.my_ecu_id = ecu_info.ecu_id
-        self.proxy = proxy
-        self.ecu_status_flags = ecu_status_flags
-
-        self._status_report_queue = status_report_queue
-        self._live_ota_status = OTAStatus.INITIALIZED
-        self.started = False
-
-        self._runtime_dir = _runtime_dir = Path(cfg.RUN_DIR)
-        _runtime_dir.mkdir(exist_ok=True, parents=True)
-        self._update_session_dir = _update_session_dir = Path(cfg.RUNTIME_OTA_SESSION)
-
-        # NOTE: for each otaclient instance lifecycle, only one tmpfs will be mounted.
-        #       If otaclient terminates by signal, umounting will be handled by _on_shutdown.
-        #       If otaclient exits on successful OTA, no need to umount it manually as we will reboot soon.
-        ensure_umount(_update_session_dir, ignore_error=True)
-        _update_session_dir.mkdir(exist_ok=True, parents=True)
-        try:
-            ensure_mount(
-                "tmpfs",
-                _update_session_dir,
-                mount_func=partial(
-                    mount_tmpfs, size_in_mb=cfg.SESSION_WD_TMPFS_SIZE_IN_MB
-                ),
-                raise_exception=True,
-            )
-        except Exception as e:
-            logger.warning(f"failed to mount tmpfs for OTA runtime use: {e!r}")
-            logger.warning("will directly use /run tmpfs for OTA runtime!")
-
-        try:
-            _boot_controller_type = get_boot_controller(ecu_info.bootloader)
-        except Exception as e:
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_type=FailureType.UNRECOVERABLE,
-                failure_reason=f"failed to determine boot controller: {e!r}",
-            )
-            return
-
-        try:
-            self.boot_controller = _boot_controller_type()
-        except Exception as e:
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_type=FailureType.UNRECOVERABLE,
-                failure_reason=f"boot controller startup failed: {e!r}",
-            )
-            return
-
-        # load and report booted OTA status
-        _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
-        self._live_ota_status = _boot_ctrl_loaded_ota_status
-        self.current_version = self.boot_controller.load_version()
-
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetOTAClientMetaReport(
-                    firmware_version=self.current_version,
-                ),
-            )
-        )
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
-        )
-
-        self.ca_chains_store = None
-        try:
-            self.ca_chains_store = load_ca_store(cfg.CERT_DPATH)
-        except CACertStoreInvalid as e:
-            _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
-            logger.error(_err_msg)
-
-            self.ca_chains_store = CACertStore()
-
-        self.started = True
-        logger.info("otaclient started")
-
-    def _on_failure(
-        self,
-        exc: Exception,
-        *,
-        ota_status: OTAStatus,
-        failure_reason: str,
-        failure_type: FailureType,
-    ) -> None:
-        try:
-            _traceback = get_traceback(exc)
-
-            logger.error(failure_reason)
-            logger.error(f"last error traceback: \n{_traceback}")
-
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=OTAStatusChangeReport(
-                        new_ota_status=ota_status,
-                        failure_type=failure_type,
-                        failure_reason=failure_reason,
-                        failure_traceback=_traceback,
-                    ),
-                )
-            )
-        finally:
-            del exc  # prevent ref cycle
-
-    # API
-
-    @property
-    def live_ota_status(self) -> OTAStatus:
-        return self._live_ota_status
-
-    @property
-    def is_busy(self) -> bool:
-        return self._live_ota_status in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]
-
-    def update(self, request: UpdateRequestV2) -> None:
-        """
-        NOTE that update API will not raise any exceptions. The failure information
-            is available via status API.
-        """
-        self._live_ota_status = OTAStatus.UPDATING
-        new_session_id = request.session_id
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                ),
-                session_id=new_session_id,
-            )
-        )
-        logger.info(f"start new OTA update session: {new_session_id=}")
-
-        session_wd = self._update_session_dir / new_session_id
-        try:
-            logger.info("[update] entering local update...")
-            if not self.ca_chains_store:
-                raise ota_errors.MetadataJWTVerficationFailed(
-                    "no CA chains are installed, reject any OTA update",
-                    module=__name__,
-                )
-
-            _OTAUpdater(
-                version=request.version,
-                raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
-                session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
-                boot_controller=self.boot_controller,
-                ecu_status_flags=self.ecu_status_flags,
-                upper_otaproxy=self.proxy,
-                status_report_queue=self._status_report_queue,
-                session_id=new_session_id,
-            ).execute()
-        except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
-        finally:
-            shutil.rmtree(session_wd, ignore_errors=True)
-
-    def rollback(self, request: RollbackRequestV2) -> None:
-        self._live_ota_status = OTAStatus.ROLLBACKING
-        new_session_id = request.session_id
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.ROLLBACKING,
-                ),
-                session_id=new_session_id,
-            )
-        )
-
-        logger.info(f"start new OTA rollback session: {new_session_id=}")
-        try:
-            logger.info("[rollback] entering...")
-            self._live_ota_status = OTAStatus.ROLLBACKING
-            _OTARollbacker(boot_controller=self.boot_controller).execute()
-        except ota_errors.OTAError as e:
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
-
-    def main(
-        self,
-        *,
-        req_queue: mp_queue.Queue[IPCRequest],
-        resp_queue: mp_queue.Queue[IPCResponse],
-    ) -> NoReturn:
-        """Main loop of ota_core process."""
-        _allow_request_after = 0
-        while True:
-            _now = int(time.time())
-            try:
-                request = req_queue.get(timeout=OP_CHECK_INTERVAL)
-            except Empty:
-                continue
-
-            if _now < _allow_request_after or self.is_busy:
-                _err_msg = (
-                    f"otaclient is busy at {self._live_ota_status} or "
-                    f"request too quickly({_allow_request_after=}), "
-                    f"reject {request}"
-                )
-                logger.warning(_err_msg)
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.REJECT_BUSY,
-                        msg=_err_msg,
-                        session_id=request.session_id,
-                    )
-                )
-
-            elif isinstance(request, UpdateRequestV2):
-                _update_thread = threading.Thread(
-                    target=self.update,
-                    args=[request],
-                    daemon=True,
-                    name="ota_update_executor",
-                )
-                _update_thread.start()
-
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.ACCEPT,
-                        session_id=request.session_id,
-                    )
-                )
-                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
-
-            elif (
-                isinstance(request, RollbackRequestV2)
-                and self._live_ota_status == OTAStatus.SUCCESS
-            ):
-                _rollback_thread = threading.Thread(
-                    target=self.rollback,
-                    args=[request],
-                    daemon=True,
-                    name="ota_rollback_executor",
-                )
-                _rollback_thread.start()
-
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.ACCEPT,
-                        session_id=request.session_id,
-                    )
-                )
-                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
-            else:
-                _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
-                logger.error(_err_msg)
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.REJECT_OTHER,
-                        msg=_err_msg,
-                        session_id=request.session_id,
-                    )
-                )
-
-
-def _sign_handler(signal_value, frame) -> NoReturn:
-    print(f"ota_core process receives {signal_value=}, exits ...")
-    sys.exit(1)
-
-
-def ota_core_process(
-    *,
-    shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
-    ecu_status_flags: MultipleECUStatusFlags,
-    op_queue: mp_queue.Queue[IPCRequest],
-    resp_queue: mp_queue.Queue[IPCResponse],
-    max_traceback_size: int,  # in bytes
-):
-    from otaclient._logging import configure_logging
-    from otaclient.configs.cfg import proxy_info
-    from otaclient.ota_core import OTAClient
-
-    signal.signal(signal.SIGTERM, _sign_handler)
-    configure_logging()
-
-    shm_writer = shm_writer_factory()
-
-    _local_status_report_queue = Queue()
-    _status_monitor = OTAClientStatusCollector(
-        msg_queue=_local_status_report_queue,
-        shm_status=shm_writer,
-        max_traceback_size=max_traceback_size,
-    )
-    _status_monitor.start()
-    _status_monitor.start_log_thread()
-
-    _ota_core = OTAClient(
-        ecu_status_flags=ecu_status_flags,
-        proxy=proxy_info.get_proxy_for_local_ota(),
-        status_report_queue=_local_status_report_queue,
-    )
-    _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
