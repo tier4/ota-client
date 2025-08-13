@@ -144,7 +144,9 @@ class ClientUpdateControlFlags:
 @dataclass
 class CriticalZoneFlags:
     """Flags for critical zone control."""
+
     is_critical_zone: mp_sync.Event
+
 
 #
 # ------ OTA requests IPC ------ #
@@ -188,6 +190,7 @@ class StopRequestV2(IPCRequest):
     version: str
     url_base: str
     cookies_json: str
+
 
 @dataclass
 class ClientUpdateRequestV2(IPCRequest):
