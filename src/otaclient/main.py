@@ -92,7 +92,7 @@ def main() -> None:  # pragma: no cover
     from otaclient._utils import check_other_otaclient
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
-    from otaclient.ota_core import ota_core_process
+    from otaclient.ota_core2 import ota_core_process
 
     # configure logging before any code being executed
     configure_logging()
