@@ -64,6 +64,7 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
+    CriticalZoneFlags,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -198,6 +199,7 @@ class _OTAUpdateOperator:
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
+        critical_zone_flags: CriticalZoneFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
         metrics: OTAMetricsData,
@@ -254,6 +256,9 @@ class _OTAUpdateOperator:
 
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
+
+        # ------ init critical zone flags ------ #
+        self.critical_zone_flags = critical_zone_flags
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
@@ -607,6 +612,7 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
+        self.critical_zone_flags.is_critical_zone.set()
         with TemporaryDirectory() as _tmp_dir:
             self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
@@ -642,6 +648,9 @@ class _OTAUpdater(_OTAUpdateOperator):
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
+        finally:
+            # clear critical zone flags
+            self.critical_zone_flags.is_critical_zone.clear()
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -849,6 +858,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         """Post-update phase."""
         logger.info("enter post update phase...")
         _current_time = int(time.time())
+        self.critical_zone_flags.is_critical_zone.set()
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
