@@ -176,6 +176,10 @@ class _OTAUpdater:
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
         self._status_report_queue = status_report_queue
+        # TODO: OTA image release key
+        self.image_id = ImageIdentifier(
+            release_key=OTAReleaseKey("dev"), ecu_id=ecu_info.ecu_id
+        )
 
         # ------ mount session wd as a tmpfs ------ #
         self._session_workdir = session_wd
@@ -267,6 +271,13 @@ class _OTAUpdater:
             base_url=self.url_base,
             ca_store=ca_chains_store,
         )
+        self._use_inplace_mode = False
+
+    def _download_and_parse_metadata(
+        self, _image_id: ImageIdentifier, _meta_downloader: DownloadOTAImageMeta
+    ) -> None:
+        for _fut in _meta_downloader.download_ota_image_meta(_image_id):
+            _download_exception_handler(_fut)
 
     def _download_resources(self, _resource_downloader: DownloadResources) -> None:
         _next_commit_before = 0
@@ -342,45 +353,28 @@ class _OTAUpdater:
                 _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
                 logger.warning(_err_msg)
 
-    def _download_and_parse_metadata(
-        self, _image_id: ImageIdentifier, _meta_downloader: DownloadOTAImageMeta
-    ) -> None:
-        for _fut in _meta_downloader.download_ota_image_meta(_image_id):
-            _download_exception_handler(_fut)
-
-    def _execute_update(self):
-        """Implementation of OTA updating."""
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
-
-        if _upper_proxy := self._upper_proxy:
-            logger.info(
-                f"use {_upper_proxy} for local OTA update, "
-                f"wait for otaproxy@{_upper_proxy} online..."
-            )
-
-            # NOTE: will raise a built-in ConnnectionError at timeout
-            ensure_otaproxy_start(
-                _upper_proxy,
-                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
-            )
-
-        # ------ init, processing metadata ------ #
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
+    def _wait_for_otaproxy(self, _upper_proxy: str):
+        logger.info(
+            f"use {_upper_proxy} for local OTA update, "
+            f"wait for otaproxy@{_upper_proxy} online..."
+        )
+        # NOTE: will raise a built-in ConnnectionError at timeout
+        ensure_otaproxy_start(
+            _upper_proxy,
+            probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
         )
 
+    def _prepare_ota_image_meta(self):
         try:
-            logger.info("verify and download OTA image metadata ...")
-            # TODO: OTA image release key
-            _release_key = OTAReleaseKey("dev")
-            _ecu_id = ecu_info.ecu_id
-
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAUpdatePhaseChangeReport(
+                        new_update_phase=UpdatePhase.PROCESSING_METADATA,
+                        trigger_timestamp=int(time.time()),
+                    ),
+                    session_id=self.session_id,
+                )
+            )
             _ota_image_meta_download_helper = DownloadOTAImageMeta(
                 self._ota_image_helper,
                 downloader_pool=self._downloader_pool,
@@ -388,7 +382,7 @@ class _OTAUpdater:
                 download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
             )
             self._download_and_parse_metadata(
-                ImageIdentifier(_ecu_id, _release_key),
+                self.image_id,
                 _ota_image_meta_download_helper,
             )
 
@@ -419,11 +413,11 @@ class _OTAUpdater:
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
 
-        # ------ pre-update ------ #
-        logger.info("enter local OTA update...")
-
+    def _pre_update(self):
+        _image_config = self._ota_image_helper.image_config
+        assert _image_config
         with TemporaryDirectory() as _tmp_dir:
-            use_inplace_mode = can_use_in_place_mode(
+            self._use_inplace_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
                 threshold_in_bytes=int(
@@ -444,12 +438,12 @@ class _OTAUpdater:
             erase_standby=not use_inplace_mode,
         )
 
-        # ------ in-update: calculate delta ------ #
+    def _in_update_delta_calculate(self) -> ShardedThreadSafeDict[bytes, int]:
         _fst_helper = self._ota_image_helper.file_table_helper
+
         all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
             _fst_helper.select_all_digests_with_size(),
         )
-        logger.info("start to calculate and prepare delta...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -459,7 +453,7 @@ class _OTAUpdater:
                 session_id=self.session_id,
             )
         )
-        if use_inplace_mode and self._resource_dir_on_standby.is_dir():
+        if self._use_inplace_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
                 "OTA resource dir found on standby slot, possible an interrupted OTA. \n"
                 "Try to resume previous OTA delta calculation progress ..."
@@ -488,7 +482,7 @@ class _OTAUpdater:
 
         base_meta_dir_on_standby_slot = None
         try:
-            if use_inplace_mode:
+            if self._use_inplace_mode:
                 # try to use base file_table from standby slot itself
                 base_meta_dir_on_standby_slot = (
                     self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
@@ -552,6 +546,9 @@ class _OTAUpdater:
                 else:
                     logger.info("use rebuild mode with full scanning ...")
                     RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
+
+            # on success return the resources we need to download
+            return all_resource_digests
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
@@ -563,7 +560,9 @@ class _OTAUpdater:
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
                 shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
-        # ------ in-update: download resources ------ #
+    def _in_update_download_resources(
+        self, resources_to_download: ShardedThreadSafeDict[bytes, int]
+    ):
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -575,25 +574,6 @@ class _OTAUpdater:
         )
         # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         _rst_helper = self._ota_image_helper.resource_table_helper
-        download_files_num = len(all_resource_digests)
-        download_files_size = sum(all_resource_digests.values())
-
-        logger.info(
-            f"delta calculation finished: \n"
-            f"download_list len: {download_files_num} \n"
-            f"sum of original size of all resources to be downloaded: {human_readable_size(download_files_size)}"
-        )
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    total_download_files_num=download_files_num,
-                    total_download_files_size=download_files_size,
-                ),
-                session_id=self.session_id,
-            )
-        )
-
-        logger.info("start to download resources ...")
         try:
             _resource_downloader = DownloadResources(
                 _rst_helper,
@@ -602,7 +582,7 @@ class _OTAUpdater:
                 downloader_pool=self._downloader_pool,
                 max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
                 download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-                resources_to_download=all_resource_digests,
+                resources_to_download=resources_to_download,
             )
             self._download_resources(_resource_downloader)
         except TasksEnsureFailed:
@@ -617,8 +597,7 @@ class _OTAUpdater:
         # release the downloader instances
         self._downloader_pool.shutdown()
 
-        # ------ apply update ------ #
-        logger.info("start to apply changes to standby slot...")
+    def _in_update_apply_changes(self):
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -629,6 +608,7 @@ class _OTAUpdater:
             )
         )
 
+        _fst_helper = self._ota_image_helper.file_table_helper
         try:
             standby_slot_creator = UpdateStandbySlot(
                 file_table_db_helper=_fst_helper,
@@ -643,8 +623,7 @@ class _OTAUpdater:
                 f"failed to apply update to standby slot: {e!r}", module=__name__
             ) from e
 
-        # ------ post-update ------ #
-        logger.info("enter post update phase...")
+    def _post_update(self):
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -672,8 +651,7 @@ class _OTAUpdater:
 
         self._boot_controller.post_update(self.update_version)
 
-        # ------ finalizing update ------ #
-        logger.info("local update finished, wait on all subecs...")
+    def _finalizing_update(self):
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -696,16 +674,67 @@ class _OTAUpdater:
         time.sleep(WAIT_BEFORE_REBOOT)
         self._boot_controller.finalizing_update()
 
-    # API
+    # entrypoint
 
     def execute(self) -> None:
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
         """
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
-            self._execute_update()
-            shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
+            if _upper_proxy := self._upper_proxy:
+                self._wait_for_otaproxy(_upper_proxy)
+
+            # ------ init, processing metadata ------ #
+            logger.info("verify and download OTA image metadata ...")
+            self._prepare_ota_image_meta()
+
+            # ------ pre-update ------ #
+            logger.info("enter local OTA update...")
+            self._pre_update()
+
+            # ------ in-update: calculate delta ------ #
+            logger.info("start to calculate and prepare delta...")
+            all_resource_digests = self._in_update_delta_calculate()
+
+            download_files_num = len(all_resource_digests)
+            download_files_size = sum(all_resource_digests.values())
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=SetUpdateMetaReport(
+                        total_download_files_num=download_files_num,
+                        total_download_files_size=download_files_size,
+                    ),
+                    session_id=self.session_id,
+                )
+            )
+            logger.info(
+                f"delta calculation finished: \n"
+                f"download_list len: {download_files_num} \n"
+                f"sum of original size of all resources to be downloaded: {human_readable_size(download_files_size)}"
+            )
+
+            # ------ in-update: download resources ------ #
+            logger.info("start to download resources ...")
+            self._in_update_download_resources(all_resource_digests)
+
+            # ------ apply update ------ #
+            logger.info("start to apply changes to standby slot...")
+            self._in_update_apply_changes()
+
+            # ------ post-update ------ #
+            logger.info("enter post update phase...")
+            self._post_update()
+
+            # ------ finalizing update ------ #
+            logger.info("local update finished, wait on all subecs...")
+            self._finalizing_update()
+            # NOTE(20250813): preserving the resource dir on standby slot,
+            #                 so that next OTA can direclty utilize the resources
+            #                 for OTA update, effectively making delta calculation
+            #                 time cost much smaller.
+            # shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
