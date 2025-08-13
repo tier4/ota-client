@@ -14,49 +14,31 @@
 
 from __future__ import annotations
 
-import errno
 import hashlib
-import json
 import logging
 import shutil
 import time
-from concurrent.futures import Future
 from functools import partial
-from http import HTTPStatus
-from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
-from typing import Any
 from urllib.parse import urlparse
 
-import requests.exceptions as requests_exc
 from ota_image_libs.v1.consts import SUPPORTED_HASH_ALG
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
-from requests import Response
 
-from ota_metadata.utils.cert_store import (
-    CACertStore,
-)
+from ota_metadata.utils.cert_store import CACertStore
 from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
-from otaclient._download_resources import (
-    DownloadOTAImageMeta,
-    DownloadResources,
-)
+from otaclient._download_resources import DownloadOTAImageMeta, DownloadResources
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
     UpdateProgressReport,
 )
-from otaclient._types import (
-    MultipleECUStatusFlags,
-    UpdatePhase,
-)
-from otaclient._utils import (
-    wait_and_log,
-)
+from otaclient._types import MultipleECUStatusFlags, UpdatePhase
+from otaclient._utils import wait_and_log
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby import (
@@ -72,14 +54,12 @@ from otaclient.create_standby.resume_ota import ResourceScanner
 from otaclient_common import human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.downloader import (
-    DownloaderPool,
-)
+from otaclient_common.downloader import DownloaderPool
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import (
-    TasksEnsureFailed,
-)
+from otaclient_common.retry_task_map import TasksEnsureFailed
 from otaclient_common.thread_safe_container import ShardedThreadSafeDict
+
+from ._common import download_exception_handler, parse_cookies
 
 logger = logging.getLogger(__name__)
 
@@ -101,71 +81,6 @@ hold the OTA image metadata of standby slot itself.
 
 
 class OTAClientError(Exception): ...
-
-
-def _download_exception_handler(_fut: Future[Any]) -> bool:
-    """Parse the exception raised by a downloading task.
-
-    This handler will raise OTA Error on exceptions that cannot(should not) be
-        handled by us. For handled exceptions, just let upper caller do the
-        retry for us.
-
-    Raises:
-        UpdateRequestCookieInvalid on HTTP error 401 or 403,
-        OTAImageInvalid on HTTP error 404,
-        StandbySlotInsufficientSpace on disk space not enough.
-
-    Returns:
-        True on succeeded downloading, False on handled exceptions.
-    """
-    if not (exc := _fut.exception()):
-        return True
-
-    try:
-        # exceptions that cannot be handled by us
-        if isinstance(exc, requests_exc.HTTPError):
-            _response = exc.response
-            # NOTE(20241129): if somehow HTTPError doesn't contain response,
-            #       don't do anything but let upper retry.
-            # NOTE: bool(Response) is False when status_code != 200.
-            if not isinstance(_response, Response):
-                return False
-
-            http_errcode = _response.status_code
-            if http_errcode in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED]:
-                raise ota_errors.UpdateRequestCookieInvalid(
-                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
-                    module=__name__,
-                )
-            if http_errcode == HTTPStatus.NOT_FOUND:
-                raise ota_errors.OTAImageInvalid(
-                    f"download failed with 404 on some file(s): {exc!r}",
-                    module=__name__,
-                )
-
-        if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
-            raise ota_errors.StandbySlotInsufficientSpace(
-                f"download failed due to space insufficient: {exc!r}",
-                module=__name__,
-            )
-
-        # handled exceptions, let the upper caller do the retry
-        return False
-    finally:
-        del exc, _fut  # drop ref to exc instance
-
-
-def _parse_cookies(_raw_cookies_json: str) -> dict[str, str]:
-    try:
-        cookies = json.loads(_raw_cookies_json)
-        assert isinstance(cookies, dict), (
-            f"invalid cookies, expecting json object: {_raw_cookies_json}"
-        )
-        return cookies
-    except (JSONDecodeError, AssertionError) as e:
-        _err_msg = f"cookie is invalid: {_raw_cookies_json=}"
-        logger.error(_err_msg)
-        raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
 
 
 class OTAUpdateImpl:
@@ -229,7 +144,7 @@ class OTAUpdateImpl:
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=partial(hashlib.new, SUPPORTED_HASH_ALG),
             chunk_size=cfg.CHUNK_SIZE,
-            cookies=_parse_cookies(cookies_json),
+            cookies=parse_cookies(cookies_json),
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
@@ -274,7 +189,7 @@ class OTAUpdateImpl:
         self, _image_id: ImageIdentifier, _meta_downloader: DownloadOTAImageMeta
     ) -> None:
         for _fut in _meta_downloader.download_ota_image_meta(_image_id):
-            _download_exception_handler(_fut)
+            download_exception_handler(_fut)
 
     def _download_resources(self, _resource_downloader: DownloadResources) -> None:
         _next_commit_before = 0
@@ -283,7 +198,7 @@ class OTAUpdateImpl:
         )
         for _fut in _resource_downloader.download_resources():
             _now = time.perf_counter()
-            if _download_exception_handler(_fut):
+            if download_exception_handler(_fut):
                 _merged_payload.processed_file_num += 1
                 _download_res = _fut.result()
 
