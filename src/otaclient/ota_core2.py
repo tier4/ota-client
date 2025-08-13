@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import logging
 import shutil
 import time
 from concurrent.futures import Future
-from hashlib import sha256
+from functools import partial
 from http import HTTPStatus
 from json.decoder import JSONDecodeError
 from pathlib import Path
@@ -31,6 +31,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import requests.exceptions as requests_exc
+from ota_image_libs.v1.consts import SUPPORTED_HASH_ALG
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from requests import Response
 
@@ -72,7 +73,6 @@ from otaclient_common import human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import (
-    Downloader,
     DownloaderPool,
 )
 from otaclient_common.persist_file_handling import PersistFilesHandler
@@ -155,13 +155,27 @@ def _download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
-class _OTAUpdater:
+def _parse_cookies(_raw_cookies_json: str) -> dict[str, str]:
+    try:
+        cookies = json.loads(_raw_cookies_json)
+        assert isinstance(cookies, dict), (
+            f"invalid cookies, expecting json object: {_raw_cookies_json}"
+        )
+        return cookies
+    except (JSONDecodeError, AssertionError) as e:
+        _err_msg = f"cookie is invalid: {_raw_cookies_json=}"
+        logger.error(_err_msg)
+        raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
+
+
+class OTAUpdateImpl:
     """The implementation of OTA update logic."""
 
     def __init__(
         self,
         *,
         version: str,
+        ota_release_key: OTAReleaseKey = OTAReleaseKey.dev,
         raw_url_base: str,
         cookies_json: str,
         session_wd: Path,
@@ -176,9 +190,8 @@ class _OTAUpdater:
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
         self._status_report_queue = status_report_queue
-        # TODO: OTA image release key
         self.image_id = ImageIdentifier(
-            release_key=OTAReleaseKey("dev"), ecu_id=ecu_info.ecu_id
+            release_key=ota_release_key, ecu_id=ecu_info.ecu_id
         )
 
         # ------ mount session wd as a tmpfs ------ #
@@ -188,6 +201,55 @@ class _OTAUpdater:
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
         self._boot_controller = boot_controller
+
+        # ------ define runtime dirs ------ #
+        self._resource_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+        self._ota_tmp_meta_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_META_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+
+        # ------ parse OTA image URL ------ #
+        _url_base = urlparse(raw_url_base)
+        _path = f"{_url_base.path.rstrip('/')}/"
+        self.url_base = _url_base._replace(path=_path).geturl()
+
+        # ------ setup downloader with proxy and cookies ------ #
+        self._upper_proxy = upper_otaproxy
+        self._downloader_pool = DownloaderPool(
+            instance_num=cfg.DOWNLOAD_THREADS,
+            hash_func=partial(hashlib.new, SUPPORTED_HASH_ALG),
+            chunk_size=cfg.CHUNK_SIZE,
+            cookies=_parse_cookies(cookies_json),
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies={"http": upper_otaproxy} if upper_otaproxy else None,
+        )
+
+        # ------ setup OTA metadata parser ------ #
+        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
+        self._image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                cfg.STANDBY_SLOT_MNT,
+            )
+        )
+        self._ota_image_helper = OTAImageHelper(
+            session_dir=self._session_workdir,
+            base_url=self.url_base,
+            ca_store=ca_chains_store,
+        )
+        self._use_inplace_mode = False
 
         # ------ report INITIALIZING status ------ #
         status_report_queue.put_nowait(
@@ -207,71 +269,6 @@ class _OTAUpdater:
                 session_id=session_id,
             )
         )
-
-        # ------ define runtime dirs ------ #
-        self._resource_dir_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_STORE,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
-            )
-        )
-        self._ota_tmp_meta_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_META_STORE,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
-            )
-        )
-
-        # ------ parse cookies ------ #
-        logger.debug("process cookies_json...")
-        try:
-            cookies = json.loads(cookies_json)
-            assert isinstance(cookies, dict), (
-                f"invalid cookies, expecting json object: {cookies_json}"
-            )
-        except (JSONDecodeError, AssertionError) as e:
-            _err_msg = f"cookie is invalid: {cookies_json=}"
-            logger.error(_err_msg)
-            raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
-
-        # ------ parse upper proxy ------ #
-        logger.debug("configure proxy setting...")
-        self._upper_proxy = upper_otaproxy
-
-        # ------ init variables needed for update ------ #
-        _url_base = urlparse(raw_url_base)
-        _path = f"{_url_base.path.rstrip('/')}/"
-        self.url_base = _url_base._replace(path=_path).geturl()
-
-        # ------ setup downloader ------ #
-        self._downloader_pool = DownloaderPool(
-            instance_num=cfg.DOWNLOAD_THREADS,
-            hash_func=sha256,
-            chunk_size=cfg.CHUNK_SIZE,
-            cookies=cookies,
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies={"http": upper_otaproxy} if upper_otaproxy else None,
-        )
-        self._downloader_mapper: dict[int, Downloader] = {}
-
-        # ------ setup OTA metadata parser ------ #
-        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
-        self._image_meta_dir_on_standby = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.CANONICAL_ROOT,
-                cfg.STANDBY_SLOT_MNT,
-            )
-        )
-        self._ota_image_helper = OTAImageHelper(
-            session_dir=self._session_workdir,
-            base_url=self.url_base,
-            ca_store=ca_chains_store,
-        )
-        self._use_inplace_mode = False
 
     def _download_and_parse_metadata(
         self, _image_id: ImageIdentifier, _meta_downloader: DownloadOTAImageMeta
