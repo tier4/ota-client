@@ -19,10 +19,12 @@ import threading
 import time
 from concurrent.futures import Future
 from functools import partial
+from itertools import chain
 from pathlib import Path
 from typing import Generator, Iterable
 from urllib.parse import urljoin
 
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 from ota_image_libs.v1.resource_table.db import (
     PrepareResourceHelper,
     ResourceTableDBHelper,
@@ -35,6 +37,8 @@ from ota_metadata.legacy2.rs_table import ResourceTable as _legacy_ResourceTable
 from ota_metadata.legacy2.rs_table import (
     ResourceTableORMPool as _legacy_ResourceTableORMPool,
 )
+from ota_metadata.utils import DownloadInfo
+from ota_metadata.v1 import OTAImageHelper
 from otaclient_common import EMPTY_FILE_SHA256
 from otaclient_common.downloader import (
     Downloader,
@@ -177,11 +181,6 @@ class DownloadResources(_BaseDownloader):
         # for worker thread local downloader
         self._downloader_mapper = {}
 
-    def _downloader_worker_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
-        )
-
     def _download_single_resource_at_thread(
         self, _digest: bytes, _rst_helper: PrepareResourceHelper
     ) -> DownloadResult:
@@ -206,6 +205,11 @@ class DownloadResources(_BaseDownloader):
         return _res
 
     def download_resources(self) -> Generator[Future[DownloadResult]]:
+        """
+        NOTE: this method will open up a threadpool for downloading, each thread worker
+              will get a downloader instance from the downloader pool, and release all
+              downloader instances after finish.
+        """
         try:
             _rst_orm_pool = self._rst_db_helper.get_orm_pool(self._db_conns_num)
             _rst_helper = PrepareResourceHelper(_rst_orm_pool, self._resource_dir)
@@ -230,6 +234,106 @@ class DownloadResources(_BaseDownloader):
                 for _fut in _mapper.ensure_tasks(
                     _bound_download_func, self._iter_digests_with_shuffle()
                 ):
+                    yield _fut
+        finally:
+            self._downloader_pool.release_all_instances()
+
+
+class DownloadOTAImageMeta(_BaseDownloader):
+    def __init__(
+        self,
+        ota_image_helper: OTAImageHelper,
+        *,
+        downloader_pool: DownloaderPool,
+        max_concurrent: int,
+        download_inactive_timeout: int,
+    ) -> None:
+        self._ota_image_helper = ota_image_helper
+        self._download_inactive_timeout = download_inactive_timeout
+        self._max_concurrent = max_concurrent
+
+        self._downloader_pool = downloader_pool
+        self._downloader_threads = downloader_pool.instance_num
+        # for worker thread local downloader
+        self._downloader_mapper = {}
+
+    def _downloader_worker_initializer(self) -> None:
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
+        )
+
+    def _download_with_condition_at_thread(
+        self,
+        entries: DownloadInfo | list[DownloadInfo],
+        *,
+        condition: threading.Condition,
+    ) -> DownloadResult:
+        """Download a single OTA image metadata file.
+
+        Just a wrapper around _download_file method.
+
+        Returns:
+            Retry counts, downloaded files size and traffic on wire.
+        """
+        downloader = self._downloader_mapper[threading.get_native_id()]
+
+        _retry_count, _download_size, _traffic_on_wire = 0, 0, 0
+        if not isinstance(entries, list):
+            entries = [entries]
+
+        with condition:
+            for entry in entries:
+                _res = downloader.download(
+                    url=entry.url,
+                    dst=entry.dst,
+                    digest=entry.digest,
+                    size=entry.original_size,
+                    # NOTE: the OTAImageHelper will do the decompression for us,
+                    #       do not enable auto decompression for the downloader.
+                )
+                _retry_count += _res.retry_count
+                _download_size += _res.download_size
+                _traffic_on_wire += _res.traffic_on_wire
+
+            condition.notify()  # notify the metadata generator that this batch of download is finished
+        return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
+
+    def download_ota_image_meta(
+        self, _image_payload_to_select: ImageIdentifier
+    ) -> Generator[Future[DownloadResult]]:
+        """
+        NOTE: this method will open up a threadpool for downloading, each thread worker
+              will get a downloader instance from the downloader pool, and release all
+              downloader instances after finish.
+        """
+        try:
+            _condition = threading.Condition()
+            _to_download = chain(
+                self._ota_image_helper.download_and_verify_image_index(_condition),
+                self._ota_image_helper.select_image_payload(
+                    _image_payload_to_select, _condition
+                ),
+            )
+
+            with ThreadPoolExecutorWithRetry(
+                max_concurrent=self._max_concurrent,
+                max_workers=self._downloader_threads,
+                thread_name_prefix="download_ota_image_meta",
+                initializer=self._downloader_worker_initializer,
+                watchdog_func=partial(
+                    self._downloader_pool.downloading_watchdog,
+                    ctx=DownloadPoolWatchdogFuncContext(
+                        downloaded_bytes=0,
+                        previous_active_timestamp=int(time.time()),
+                    ),
+                    max_idle_timeout=self._download_inactive_timeout,
+                ),
+            ) as _mapper:
+                _bound_download_func = partial(
+                    self._download_with_condition_at_thread,
+                    condition=_condition,
+                )
+                for _fut in _mapper.ensure_tasks(_bound_download_func, _to_download):
                     yield _fut
         finally:
             self._downloader_pool.release_all_instances()
