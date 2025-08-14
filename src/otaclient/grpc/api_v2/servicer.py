@@ -29,6 +29,7 @@ from otaclient._types import (
     IPCResponse,
     RollbackRequestV2,
     UpdateRequestV2,
+    StopRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
@@ -54,6 +55,7 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        main_queue: mp_queue.Queue[IPCRequest],
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -64,6 +66,7 @@ class OTAClientAPIServicer:
 
         self._op_queue = op_queue
         self._resp_queue = resp_queue
+        self._main_queue = main_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -71,6 +74,10 @@ class OTAClientAPIServicer:
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
         """Thread worker for dispatching a local update."""
         return self._dispatch_local_request(request, api_types.UpdateResponseEcu)
+
+    def _local_stop(self, request: StopRequestV2) -> api_types.StopResponseEcu:
+        """Thread worker for dispatching a local stop request."""
+        return self._dispatch_local_request(request, api_types.StopResponseEcu)
 
     def _local_client_update(
         self, request: ClientUpdateRequestV2
@@ -88,6 +95,13 @@ class OTAClientAPIServicer:
     @overload
     def _dispatch_local_request(
         self,
+        request: StopRequestV2,
+        response_type: type[api_types.StopResponseEcu],
+    ) -> api_types.StopResponseEcu: ...
+
+    @overload
+    def _dispatch_local_request(
+        self,
         request: RollbackRequestV2,
         response_type: type[api_types.RollbackResponseEcu],
     ) -> api_types.RollbackResponseEcu: ...
@@ -101,18 +115,21 @@ class OTAClientAPIServicer:
 
     def _dispatch_local_request(
         self,
-        request: UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2,
+        request: UpdateRequestV2 | StopRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2,
         response_type: (
             type[api_types.UpdateResponseEcu]
+            | type[api_types.StopResponseEcu]
             | type[api_types.RollbackResponseEcu]
             | type[api_types.ClientUpdateResponseEcu]
         ),
     ) -> (
         api_types.UpdateResponseEcu
+        | api_types.StopResponseEcu
         | api_types.RollbackResponseEcu
         | api_types.ClientUpdateResponseEcu
     ):
-        self._op_queue.put_nowait(request)
+        if not isinstance(request, StopRequestV2):
+            self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
@@ -150,6 +167,7 @@ class OTAClientAPIServicer:
         self,
         response: (
             api_types.UpdateResponse
+            | api_types.StopResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
@@ -159,6 +177,12 @@ class OTAClientAPIServicer:
         """Add ECU into response with specified failure type."""
         if isinstance(response, api_types.UpdateResponse):
             ecu_response = api_types.UpdateResponseEcu(
+                ecu_id=ecu_id,
+                result=failure_type,
+            )
+            response.add_ecu(ecu_response)
+        elif isinstance(response, api_types.StopResponse):
+            ecu_response = api_types.StopResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
             )
@@ -237,6 +261,17 @@ class OTAClientAPIServicer:
     @overload
     async def _handle_request(
         self,
+        request: api_types.StopRequest,
+        local_handler: Callable,
+        request_cls: type[StopRequestV2],
+        remote_call: Callable,
+        response_type: type[api_types.StopResponse],
+        update_acked_ecus: None,
+    ) -> api_types.StopResponse: ...
+
+    @overload
+    async def _handle_request(
+        self,
         request: api_types.RollbackRequest,
         local_handler: Callable,
         request_cls: type[RollbackRequestV2],
@@ -260,24 +295,28 @@ class OTAClientAPIServicer:
         self,
         request: (
             api_types.UpdateRequest
+            | api_types.StopRequest
             | api_types.RollbackRequest
             | api_types.ClientUpdateRequest
         ),
         local_handler: Callable,
         request_cls: (
             type[UpdateRequestV2]
+            | type[StopRequestV2]
             | type[RollbackRequestV2]
             | type[ClientUpdateRequestV2]
         ),
         remote_call: Callable,
         response_type: (
             type[api_types.UpdateResponse]
+            | type[api_types.StopResponse]
             | type[api_types.RollbackResponse]
             | type[api_types.ClientUpdateResponse]
         ),
         update_acked_ecus: set[str] | None,
     ) -> (
         api_types.UpdateResponse
+        | api_types.StopResponse
         | api_types.RollbackResponse
         | api_types.ClientUpdateResponse
     ):
@@ -376,6 +415,18 @@ class OTAClientAPIServicer:
             remote_call=OTAClientCall.update_call,
             response_type=api_types.UpdateResponse,
             update_acked_ecus=set(),
+        )
+
+    async def stop(
+            self, request: api_types.StopRequest
+    ) -> api_types.StopResponse:
+        return await self._handle_request(
+            request=request,
+            local_handler=self._local_stop,
+            request_cls=StopRequestV2,
+            remote_call=OTAClientCall.stop_call,
+            response_type=api_types.StopResponse,
+            update_acked_ecus=None,
         )
 
     async def rollback(
