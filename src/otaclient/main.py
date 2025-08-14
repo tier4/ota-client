@@ -128,6 +128,17 @@ def main() -> None:  # pragma: no cover
     logger.info(
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
+    # Log system uptime (time since OS boot)
+    try:
+        uptime_seconds = time.clock_gettime(time.CLOCK_BOOTTIME)
+        uptime_hours = uptime_seconds // 3600
+        uptime_minutes = (uptime_seconds % 3600) // 60
+        uptime_secs = uptime_seconds % 60
+        logger.info(
+            f"system uptime: {uptime_hours:.0f}h {uptime_minutes:.0f}m {uptime_secs:.1f}s ({uptime_seconds:.1f}s total)"
+        )
+    except Exception as e:
+        logger.warning(f"failed to read system uptime: {e}")
 
     if _env.is_dynamic_client_preparing():
         logger.info("preparing downloaded dynamic ota client ...")
