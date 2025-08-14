@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -264,6 +263,3 @@ class UpdateStandbySlot:
 
         if self._interrupted.is_set():
             raise UpdateStandbySlotFailed("process regular file entries failed!")
-
-        # finally, cleanup the resource dir
-        shutil.rmtree(self._resource_dir, ignore_errors=True)
