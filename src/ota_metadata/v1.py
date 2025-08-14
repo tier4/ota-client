@@ -96,10 +96,12 @@ class OTAImageHelper:
             )
             condition.wait()  # wait for upper download the file
 
+        logger.info("verify index.jwt signing cert ...")
         _index_jwt = _index_jwt_fpath.read_text()
         _sign_cert_chain = get_index_jwt_sign_cert_chain(_index_jwt)
         self._ca_store.verify(_sign_cert_chain.ee, interm_cas=_sign_cert_chain.interms)
 
+        logger.info("verify index.json against index.jwt ...")
         _verified_claims = decode_index_jwt_with_verification(
             _index_jwt, _sign_cert_chain
         )
@@ -115,6 +117,8 @@ class OTAImageHelper:
                 digest_alg=SUPPORTED_HASH_ALG,
             )
             condition.wait()
+
+        logger.info("parse verified index.json ...")
         self.image_index = ImageIndex.parse_metafile(_index_json_fpath.read_text())
 
     def select_image_payload(
