@@ -28,8 +28,8 @@ from otaclient._types import (
     IPCResEnum,
     IPCResponse,
     RollbackRequestV2,
-    UpdateRequestV2,
     StopRequestV2,
+    UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
@@ -115,7 +115,9 @@ class OTAClientAPIServicer:
 
     def _dispatch_local_request(
         self,
-        request: UpdateRequestV2 | StopRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2,
+        request: (
+            UpdateRequestV2 | StopRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2
+        ),
         response_type: (
             type[api_types.UpdateResponseEcu]
             | type[api_types.StopResponseEcu]
@@ -417,9 +419,7 @@ class OTAClientAPIServicer:
             update_acked_ecus=set(),
         )
 
-    async def stop(
-            self, request: api_types.StopRequest
-    ) -> api_types.StopResponse:
+    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
         return await self._handle_request(
             request=request,
             local_handler=self._local_stop,
