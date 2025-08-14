@@ -29,6 +29,7 @@ from ota_image_libs.v1.file_table.utils import (
     prepare_non_regular,
     prepare_regular_copy,
     prepare_regular_hardlink,
+    prepare_regular_inlined,
 )
 
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
@@ -99,6 +100,8 @@ class UpdateStandbySlot:
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
         _inode_id = _entry["inode_id"]
+        _is_inlined = _entry["contents"] or _entry["size"] == 0
+
         with self._hardlink_group:
             _link_group_head = self._hardlink_group.get(_inode_id)
             if _link_group_head is not None:
@@ -108,7 +111,18 @@ class UpdateStandbySlot:
                     target_mnt=self._standby_slot_mp,
                     hardlink_skip_apply_permission=True,
                 )
-            elif first_to_prepare:
+                self._post_regular_file_process(_entry)
+                return
+
+            if _is_inlined:
+                self._hardlink_group[_inode_id] = prepare_regular_inlined(
+                    _entry,
+                    target_mnt=self._standby_slot_mp,
+                )
+                self._post_regular_file_process(_entry)
+                return
+
+            if first_to_prepare:
                 self._hardlink_group[_inode_id] = prepare_regular_hardlink(
                     _entry,
                     _rs=self._resource_dir / _digest_hex,
@@ -120,25 +134,23 @@ class UpdateStandbySlot:
                     _rs=self._resource_dir / _digest_hex,
                     target_mnt=self._standby_slot_mp,
                 )
-
-        if not first_to_prepare:
-            self._post_regular_file_process(_entry)
+                self._post_regular_file_process(_entry)
 
     def _process_normal_file_at_thread(
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
-        # NOTE: zero size files handling is down by prepare_regular_copy and prepare_regular_hardlink
-        _inlined_contents, _size = _entry["contents"], _entry["size"]
-        if first_to_prepare:
-            if _inlined_contents or _size == 0:
-                prepare_regular_copy(_entry, target_mnt=self._standby_slot_mp)
-                self._post_regular_file_process(_entry)
-            else:  # entry that has resource file exists in resource_dir
-                prepare_regular_hardlink(
-                    _entry,
-                    _rs=self._resource_dir / _digest_hex,
-                    target_mnt=self._standby_slot_mp,
-                )
+        _is_inlined = _entry["contents"] or _entry["size"] == 0
+        if _is_inlined:
+            prepare_regular_inlined(_entry, target_mnt=self._standby_slot_mp)
+            self._post_regular_file_process(_entry)
+            return
+
+        if first_to_prepare:  # entry that has resource file exists in resource_dir
+            prepare_regular_hardlink(
+                _entry,
+                _rs=self._resource_dir / _digest_hex,
+                target_mnt=self._standby_slot_mp,
+            )
         else:
             prepare_regular_copy(
                 _entry,
@@ -172,6 +184,8 @@ class UpdateStandbySlot:
         NOTE: it depends on the regular file table is sorted by digest!
         """
         logger.info("process regular file entries ...")
+        # NOTE: for resources presented in resource_dir(not inlined),
+        #       tracked whether the resource has been used once.
         _first_prepared_digest: set[bytes] = set()
 
         with ThreadPoolExecutor(
