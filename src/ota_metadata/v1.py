@@ -27,7 +27,9 @@ from ota_image_libs.v1.index_jwt.utils import (
     get_index_jwt_sign_cert_chain,
 )
 from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
-from ota_image_libs.v1.resource_table import RST_MANIFEST_TABLE_NAME
+from ota_image_libs.v1.resource_table import (
+    RESOURCE_TABLE_FNAME,
+)
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
 
 from ota_metadata.utils import DownloadInfo
@@ -64,7 +66,7 @@ class OTAImageHelper:
         self._image_config_fpath = session_dir / IMAGE_CONFIG_SAVE_FNAME
         self._sys_config_fpath = session_dir / SYS_CONFIG_SAVE_FNAME
         self._file_table_dbf = session_dir / FILE_TABLE_FNAME
-        self._resource_table_dbf = session_dir / RST_MANIFEST_TABLE_NAME
+        self._resource_table_dbf = session_dir / RESOURCE_TABLE_FNAME
 
         # NOTE: to be parsed after downloading
         self.image_index: ImageIndex | None = None
