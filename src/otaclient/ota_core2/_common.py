@@ -26,8 +26,12 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from otaclient import errors as ota_errors
+from otaclient_common._logging import get_burst_suppressed_logger
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(
+    f"{__name__}.download_error",
+)
 
 
 def download_exception_handler(_fut: Future[Any]) -> bool:
@@ -48,6 +52,7 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
     if not (exc := _fut.exception()):
         return True
 
+    burst_suppressed_logger.warning(f"download failed: {exc}", exc_info=exc)
     try:
         # exceptions that cannot be handled by us
         if isinstance(exc, requests_exc.HTTPError):
