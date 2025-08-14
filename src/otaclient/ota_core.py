@@ -65,8 +65,8 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     CriticalZoneFlags,
-    FailureType,
     CriticalZonesEnum,
+    FailureType,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
@@ -78,10 +78,10 @@ from otaclient._types import (
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientStatusWriter,
-    get_traceback,
-    wait_and_log,
-    set_critical_zone_flag,
     clear_critical_zone_flag,
+    get_traceback,
+    set_critical_zone_flag,
+    wait_and_log,
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
