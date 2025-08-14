@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from otaclient import main
+from otaclient import _main
 
 if __name__ == "__main__":
-    main.main()
+    _main.main()
