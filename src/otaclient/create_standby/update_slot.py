@@ -128,12 +128,17 @@ class UpdateStandbySlot:
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
         # NOTE: zero size files handling is down by prepare_regular_copy and prepare_regular_hardlink
+        _inlined_contents, _size = _entry["contents"], _entry["size"]
         if first_to_prepare:
-            prepare_regular_hardlink(
-                _entry,
-                _rs=self._resource_dir / _digest_hex,
-                target_mnt=self._standby_slot_mp,
-            )
+            if _inlined_contents or _size == 0:
+                prepare_regular_copy(_entry, target_mnt=self._standby_slot_mp)
+                self._post_regular_file_process(_entry)
+            else:  # entry that has resource file exists in resource_dir
+                prepare_regular_hardlink(
+                    _entry,
+                    _rs=self._resource_dir / _digest_hex,
+                    target_mnt=self._standby_slot_mp,
+                )
         else:
             prepare_regular_copy(
                 _entry,
