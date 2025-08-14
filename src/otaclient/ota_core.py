@@ -66,6 +66,7 @@ from otaclient._types import (
     ClientUpdateRequestV2,
     CriticalZoneFlags,
     FailureType,
+    CriticalZonesEnum,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
@@ -79,6 +80,8 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
     get_traceback,
     wait_and_log,
+    set_critical_zone_flag,
+    clear_critical_zone_flag,
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
@@ -612,7 +615,10 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
-        self.critical_zone_flags.is_critical_zone.set()
+
+        # set critical zone flags
+        set_critical_zone_flag(self.critical_zone_flags, CriticalZonesEnum.PRE_UPDATE)
+
         with TemporaryDirectory() as _tmp_dir:
             self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
@@ -650,7 +656,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             )
         finally:
             # clear critical zone flags
-            self.critical_zone_flags.is_critical_zone.clear()
+            clear_critical_zone_flag(self.critical_zone_flags)
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -858,7 +864,10 @@ class _OTAUpdater(_OTAUpdateOperator):
         """Post-update phase."""
         logger.info("enter post update phase...")
         _current_time = int(time.time())
-        self.critical_zone_flags.is_critical_zone.set()
+
+        # set critical zone flags
+        set_critical_zone_flag(self.critical_zone_flags, CriticalZonesEnum.POST_UPDATE)
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -888,6 +897,9 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         self._preserve_client_squashfs()
         self._boot_controller.post_update(self.update_version)
+
+        # clear critical zone flags
+        clear_critical_zone_flag(self.critical_zone_flags)
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
@@ -949,6 +961,12 @@ class _OTAUpdater(_OTAUpdateOperator):
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
         _current_finalizing_time = int(time.time())
+
+        # set critical zone flags
+        set_critical_zone_flag(
+            self.critical_zone_flags, CriticalZonesEnum.FINALIZING_UPDATE
+        )
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -978,6 +996,9 @@ class _OTAUpdater(_OTAUpdateOperator):
         except Exception as e:
             logger.error(f"failed to merge metrics: {e!r}")
         self._metrics.publish()
+
+        # clear critical zone flags
+        clear_critical_zone_flag(self.critical_zone_flags)
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
