@@ -25,7 +25,7 @@ import traceback
 from pathlib import Path
 from typing import Callable, Literal, Optional
 
-from otaclient._types import OTAClientStatus, CriticalZoneFlags, CriticalZonesEnum
+from otaclient._types import CriticalZoneFlags, CriticalZonesEnum, OTAClientStatus
 from otaclient.metrics import OTAMetricsSharedMemoryData
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 from otaclient_common._shm import MPSharedMemoryReader, MPSharedMemoryWriter
@@ -147,10 +147,17 @@ def gen_session_id(
 
     return f"{_time_factor}-{sanitized_version_str}-{_random_factor}"
 
-def set_critical_zone_flag(critical_zone_flags: CriticalZoneFlags, critical_zone_type: Optional[CriticalZonesEnum] = None) -> None:
+
+def set_critical_zone_flag(
+    critical_zone_flags: CriticalZoneFlags,
+    critical_zone_type: Optional[CriticalZonesEnum] = None,
+) -> None:
     """Set the critical zone flag in shared memory."""
     critical_zone_flags.is_critical_zone.set()
-    logger.info(f"Critical zone flags set: {critical_zone_flags}, critical_zone_type={critical_zone_type}")
+    logger.info(
+        f"Critical zone flags set: {critical_zone_flags}, critical_zone_type={critical_zone_type}"
+    )
+
 
 def clear_critical_zone_flag(critical_zone_flags: CriticalZoneFlags) -> None:
     """Clear the critical zone flag in shared memory."""

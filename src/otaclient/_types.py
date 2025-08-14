@@ -151,7 +151,9 @@ class ClientUpdateControlFlags:
 class CriticalZoneFlags:
     """Flags for critical zone control."""
 
-    is_critical_zone: mp_sync.Event # for indicating whether OTA update is in a critical zone
+    is_critical_zone: (
+        mp_sync.Event
+    )  # for indicating whether OTA update is in a critical zone
 
 
 #
