@@ -67,6 +67,12 @@ class FailureType(StrEnum):
     UNRECOVERABLE = "UNRECOVERABLE"
 
 
+class CriticalZonesEnum(StrEnum):
+    PRE_UPDATE = "PRE_UPDATE"
+    POST_UPDATE = "POST_UPDATE"
+    FINALIZING_UPDATE = "FINALIZING_UPDATE"
+
+
 #
 # ------ otaclient internal status report ------ #
 #
@@ -138,14 +144,14 @@ class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
     notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
-    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
+    request_shutdown_event: mp_sync.Event  # for requesting to shut down
 
 
 @dataclass
 class CriticalZoneFlags:
     """Flags for critical zone control."""
 
-    is_critical_zone: mp_sync.Event
+    is_critical_zone: mp_sync.Event # for indicating whether OTA update is in a critical zone
 
 
 #
