@@ -130,8 +130,7 @@ def main() -> None:  # pragma: no cover
     )
     # Log system uptime (time since OS boot)
     try:
-        with open("/proc/uptime", "r") as f:
-            uptime_seconds = float(f.read().split()[0])
+        uptime_seconds = time.clock_gettime(time.CLOCK_BOOTTIME)
         uptime_hours = uptime_seconds // 3600
         uptime_minutes = (uptime_seconds % 3600) // 60
         uptime_secs = uptime_seconds % 60
