@@ -691,12 +691,11 @@ class ClientUpdateResponse(
 
 # stop API
 
+
 class StopRequest(MessageWrapper[pb2.StopRequest]):
     __slots__ = calculate_slots(pb2.StopRequest)
 
-    def __init__(
-        self
-    ) -> None: ...
+    def __init__(self) -> None: ...
 
 
 class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
@@ -714,15 +713,11 @@ class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
     ) -> None: ...
 
 
-class StopResponse(
-    ECUList[StopResponseEcu], MessageWrapper[pb2.StopResponse]
-):
+class StopResponse(ECUList[StopResponseEcu], MessageWrapper[pb2.StopResponse]):
     __slots__ = calculate_slots(pb2.StopResponse)
     ecu: RepeatedCompositeContainer[StopResponseEcu]
 
-    def __init__(
-        self, *, ecu: _Optional[_Iterable[StopResponseEcu]] = ...
-    ) -> None: ...
+    def __init__(self, *, ecu: _Optional[_Iterable[StopResponseEcu]] = ...) -> None: ...
 
     def merge_from(self, stop_response: _Union[Self, pb2.StopResponse]):
         if isinstance(stop_response, pb2.StopResponse):

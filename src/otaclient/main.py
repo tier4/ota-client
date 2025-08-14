@@ -30,7 +30,11 @@ import time
 from functools import partial
 
 from otaclient import __version__
-from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags, CriticalZoneFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    CriticalZoneFlags,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -211,9 +215,7 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
-    critical_zone_flags = CriticalZoneFlags(
-        is_critical_zone=mp_ctx.Event()
-    )
+    critical_zone_flags = CriticalZoneFlags(is_critical_zone=mp_ctx.Event())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
