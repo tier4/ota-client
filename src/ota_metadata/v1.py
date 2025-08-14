@@ -155,7 +155,15 @@ class OTAImageHelper:
 
         _sys_config_descriptor = _image_config.sys_config
         if _sys_config_descriptor:
-            pass
+            with condition:
+                yield self.download_from_descriptor(
+                    self._sys_config_fpath,
+                    _sys_config_descriptor,
+                )
+                condition.wait()
+            self.sys_config = SysConfig.parse_metafile(
+                self._sys_config_fpath.read_text()
+            )
 
         # download the file_table and resource_table, note that file_table and resource_table
         #   are zstd compressed, we will also handle that here
