@@ -38,6 +38,7 @@ from ota_metadata.legacy2.csv_parser import (
     parse_symlinks_from_csv_file,
 )
 from ota_metadata.legacy2.rs_table import ResourceTableORM
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 from tests.conftest import OTA_IMAGE_DIR
 
 REGULARS_TXT = OTA_IMAGE_DIR / "regulars.txt"
@@ -148,16 +149,18 @@ def verify_resources(_fst_db_helper: FileTableDBHelper, resource_dir: Path) -> N
     """Verify that all resources are prepared."""
     logger.info(f"verify against {resource_dir=} ...")
     _errs = []
-    with closing(_fst_db_helper.connect_fstable_db()) as ft_conn:
-        orm = FileTableResourceORM(ft_conn)
-        for entry in orm.orm_select_entries():
-            _rs_f = resource_dir / entry.digest.hex()
+    _all_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
+        _fst_db_helper.select_all_digests_with_size()
+    )
 
-            try:
-                assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
-                assert sha256(_rs_f.read_bytes()).digest() == entry.digest
-            except AssertionError:
-                _errs.append(entry)
+    for _digest, _size in _all_digests.items():
+        _rs_f = resource_dir / _digest.hex()
+
+        try:
+            assert _rs_f.is_file() and _rs_f.stat().st_size == _size
+            assert sha256(_rs_f.read_bytes()).digest() == _digest
+        except AssertionError:
+            _errs.append(_digest)
 
     if _errs:
         _err_msg = f"not all resources are collected: {len(_errs)=}"
