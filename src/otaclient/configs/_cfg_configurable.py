@@ -80,11 +80,6 @@ class _OTAClientSettings(BaseModel):
     CREATE_STANDBY_RETRY_MAX: int = 1024
 
     #
-    # ------ debug flags ------ #
-    #
-    DEBUG_ENABLE_FAILURE_TRACEBACK_IN_STATUS_RESP: bool = False
-
-    #
     # ------ IO settings ------ #
     #
     PROCESS_FILES_REPORT_INTERVAL: int = 3  # seconds
