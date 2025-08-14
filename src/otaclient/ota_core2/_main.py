@@ -380,7 +380,6 @@ def ota_core_process(
     max_traceback_size: int,  # in bytes
 ):
     from otaclient._logging import configure_logging
-    from otaclient.ota_core import OTAClient
 
     signal.signal(signal.SIGTERM, _sign_handler)
     configure_logging()
