@@ -42,7 +42,7 @@ jobs:
           - ubuntu-22.04
     steps:
       - name: Checkout commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         # sonarcloud needs full git histories
         with:
           fetch-depth: 0
@@ -51,7 +51,7 @@ jobs:
           mkdir -p test_result
           docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-${{ matrix.test_base }}
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5.2.0
+        uses: SonarSource/sonarqube-scan-action@v5.3.0
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -60,7 +60,7 @@ jobs:
       # export the coverage report to the comment!
       - name: Add coverage report to PR comment
         continue-on-error: true
-        uses: MishaKav/pytest-coverage-comment@v1.1.54
+        uses: MishaKav/pytest-coverage-comment@v1.1.56
         with:
           pytest-xml-coverage-path: test_result/coverage.xml
           junitxml-path: test_result/pytest.xml

@@ -20,7 +20,7 @@ jobs:
       OTACLIENT_VERSION: ${{ steps.set_env.outputs.OTACLIENT_VERSION }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: setup python
         uses: actions/setup-python@v5
@@ -69,7 +69,7 @@ jobs:
             base_image: arm64v8/ubuntu:22.04
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: build squashfs image for ${{ matrix.platform }}
         uses: ./.github/actions/build_squashfs_image
@@ -104,22 +104,22 @@ jobs:
       contents: write
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: download python packages artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-python-packages
           path: dist
 
       - name: download squashfs x86_64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-squashfs_x86_64
           path: dist
 
       - name: download squashfs arm64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: artifacts-squashfs_arm64
           path: dist
