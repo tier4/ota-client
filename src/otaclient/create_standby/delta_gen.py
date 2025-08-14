@@ -35,7 +35,7 @@ from ota_image_libs.v1.file_table.db import (
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
-from otaclient_common import EMPTY_FILE_SHA256, replace_root
+from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
 from otaclient_common.thread_safe_container import ShardedThreadSafeDict
@@ -115,8 +115,6 @@ class _DeltaGeneratorBase:
         self._dirs_to_remove = dtr = TopDownCommonShortestPath()
         for _p in self.CLEANUP_ENTRY:
             dtr.add_path(Path(_p))
-
-        (copy_dst / EMPTY_FILE_SHA256).touch()
 
 
 def _cleanup_all_files_under_folder(_dir: Path, _names: Iterator[str]) -> None:
