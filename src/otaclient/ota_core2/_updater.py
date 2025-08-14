@@ -301,17 +301,18 @@ class OTAUpdateImpl:
             _image_config = self._ota_image_helper.image_config
             assert _image_config
 
+            _sys_image_size = _image_config.labels.sys_image_size or 0
             logger.info(
                 "ota_metadata parsed finished: \n"
                 f"total_regulars_num: {_image_config.sys_image_regular_files_count} \n"
-                f"total_regulars_size: {_image_config.sys_image_unique_file_entries_size}"
+                f"total_regulars_size: {_sys_image_size}"
             )
 
             self._status_report_queue.put_nowait(
                 StatusReport(
                     payload=SetUpdateMetaReport(
                         image_file_entries=_image_config.sys_image_regular_files_count,
-                        image_size_uncompressed=_image_config.sys_image_unique_file_entries_size,
+                        image_size_uncompressed=_sys_image_size,
                         metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
                     ),
                     session_id=self.session_id,
