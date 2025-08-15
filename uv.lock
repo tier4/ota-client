@@ -2578,7 +2578,7 @@ wheels = [
 
 [[package]]
 name = "simple-sqlite3-orm"
-version = "0.12.0"
+version = "0.12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic", version = "2.10.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -2586,9 +2586,9 @@ dependencies = [
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "typing-extensions", version = "4.14.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/64/f3/3e1728bb9c00498f292d658e4aaf3dc6157161fa866b86ae1e5d13e7deba/simple_sqlite3_orm-0.12.0.tar.gz", hash = "sha256:c80b7efe5e7374f2aa9bcb4d759eec09a8f8e7de90f2b2d2ead0f563219a2c34", size = 93077, upload-time = "2025-05-17T10:34:48.009Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/03/24c4022c56e0348fc1e77aeb59f56d9af204ce26ecd5caec6991781d3039/simple_sqlite3_orm-0.12.1.tar.gz", hash = "sha256:44ba712a88e814c8530f4282ca37966fa3e1beda96289e8f05f67a7d1d50d805", size = 94686, upload-time = "2025-08-13T11:43:10.883Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/7c/dcb93ddb8bf4dcec615257c7a405eb3d3516c87bf6e773a8b439d521b59f/simple_sqlite3_orm-0.12.0-py3-none-any.whl", hash = "sha256:518e582f91dc83dda989cec8b6eadcfcec22166fb4e603363254a4208a45b2ed", size = 38554, upload-time = "2025-05-17T10:34:46.561Z" },
+    { url = "https://files.pythonhosted.org/packages/03/52/0361f60429dfaec545d497a8bc8abf3e9f7b10a30ae551b6a64a872c93c2/simple_sqlite3_orm-0.12.1-py3-none-any.whl", hash = "sha256:12e276dfd5fd21b1d3e4f6141fef7486bda85bbd9befccec0696d5cd636f009a", size = 38579, upload-time = "2025-08-13T11:43:09.737Z" },
 ]
 
 [[package]]
