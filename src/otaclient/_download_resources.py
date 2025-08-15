@@ -35,7 +35,7 @@ from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
 
-class _DownloadResourcesBase:
+class DownloadHelper:
     def __init__(
         self,
         *,
@@ -60,22 +60,6 @@ class _DownloadResourcesBase:
             self._downloader_pool.get_instance()
         )
 
-    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
-        """Shuffle the input digests to avoid multiple ECUs downloading
-        the same resources at the same time."""
-        _cur_batch = []
-        for _digest in _digests:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
-
-
-class DownloadOTAImageMeta(_DownloadResourcesBase):
     def _download_with_condition_at_thread(
         self, _to_download: list[DownloadInfo], condition: threading.Condition
     ) -> list[DownloadResult]:
@@ -126,8 +110,6 @@ class DownloadOTAImageMeta(_DownloadResourcesBase):
         finally:
             self._downloader_pool.release_all_instances()
 
-
-class DownloadResources(_DownloadResourcesBase):
     def _download_single_resource_at_thread(
         self, _digest: bytes, resource_meta: ResourceMeta
     ) -> DownloadResult:
@@ -144,6 +126,20 @@ class DownloadResources(_DownloadResourcesBase):
             size=_download_info.original_size,
             compression_alg=_download_info.compression_alg,
         )
+
+    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
+        """Shuffle the input digests to avoid multiple ECUs downloading
+        the same resources at the same time."""
+        _cur_batch = []
+        for _digest in _digests:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
 
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
