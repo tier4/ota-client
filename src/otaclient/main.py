@@ -282,9 +282,11 @@ def main() -> None:  # pragma: no cover
             if not critical_zone_flags.is_critical_zone.is_set():
                 return _on_shutdown(sys_exit=True)
             else:
-                logger.warning("Received stop message while in critical zone, ignoring it.")
+                logger.warning(
+                    "Received stop message while in critical zone, ignoring it."
+                )
         except Empty:
-            logger.info(f"No stop messages received")
+            logger.info("No stop messages received")
             pass
 
         if not _ota_core_p.is_alive():
