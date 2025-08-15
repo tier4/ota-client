@@ -51,6 +51,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
+from otaclient._download_resources import DownloadResources
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -525,53 +526,31 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._can_use_in_place_mode = False
 
-    def _download_single_resource_at_thread(self, digest: bytes, rs_meta: ResourceMeta):
-        _download_info = rs_meta.get_download_info(digest)
-        return self._download_single_file(_download_info)
-
     def _download_resources(
         self, delta_digests: ShardedThreadSafeDict[bytes, int]
     ) -> None:
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
-
-        # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
         resource_meta = ResourceMeta(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
         )
-
-        _mapper = ThreadPoolExecutorWithRetry(
+        _download_helper = DownloadResources(
+            resource_meta=resource_meta,
+            resources_to_download=delta_digests,
+            downloader_pool=self._downloader_pool,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            thread_name_prefix="download_ota_files",
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=DownloadPoolWatchdogFuncContext(
-                    downloaded_bytes=0,
-                    previous_active_timestamp=int(time.time()),
-                ),
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
+
         try:
             _next_commit_before, _report_batch_cnt = 0, 0
             _merged_payload = UpdateProgressReport(
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
             for _done_count, _fut in enumerate(
-                _mapper.ensure_tasks(
-                    partial(
-                        self._download_single_resource_at_thread,
-                        rs_meta=resource_meta,
-                    ),
-                    delta_digests,
-                ),
-                start=1,
+                _download_helper.download_resources(), start=1
             ):
                 _now = time.time()
-
                 if _download_exception_handler(_fut):
                     err_count, file_size, downloaded_bytes = _fut.result()
 
@@ -610,9 +589,6 @@ class _OTAUpdater(_OTAUpdateOperator):
                 )
             )
         finally:
-            _mapper.shutdown(wait=True)
-            # release the downloader instances
-            self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
             resource_meta.shutdown()
 
