@@ -51,7 +51,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
-from otaclient._download_resources import DownloadOTAImageMeta, DownloadResources
+from otaclient._download_resources import DownloadHelper
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -97,14 +97,8 @@ from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env, human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.downloader import (
-    DownloaderPool,
-    DownloadPoolWatchdogFuncContext,
-)
+from otaclient_common.downloader import DownloaderPool
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import (
-    TasksEnsureFailed,
-)
 from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
@@ -258,11 +252,7 @@ class _OTAUpdateOperator:
         self.url_base = _url_base._replace(path=_path).geturl()
 
         # ------ setup downloader ------ #
-        self._download_watchdog_ctx = DownloadPoolWatchdogFuncContext(
-            downloaded_bytes=0,
-            previous_active_timestamp=0,
-        )
-        self._downloader_pool = DownloaderPool(
+        self._downloader_pool = _downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
@@ -270,6 +260,11 @@ class _OTAUpdateOperator:
             # NOTE(20221013): check requests document for how to set proxy,
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
+        )
+        self._download_helper = DownloadHelper(
+            downloader_pool=_downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
 
         # ------ setup OTA metadata parser ------ #
@@ -310,11 +305,7 @@ class _OTAUpdateOperator:
         logger.info("verify and download OTA image metadata ...")
         try:
             _condition = threading.Condition()
-            for _fut in DownloadOTAImageMeta(
-                downloader_pool=self._downloader_pool,
-                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ).download_meta_files(
+            for _fut in self._download_helper.download_meta_files(
                 self._ota_metadata.download_metafiles(
                     _condition,
                     only_metadata_verification=only_metadata_verification,
@@ -424,11 +415,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
             for _done_count, _fut in enumerate(
-                DownloadResources(
-                    downloader_pool=self._downloader_pool,
-                    max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                    download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-                ).download_resources(
+                self._download_helper.download_resources(
                     delta_digests,
                     resource_meta,
                 ),
@@ -473,6 +460,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 )
             )
         finally:
+            # up to this time, we don't need downloader anymore
             self._downloader_pool.shutdown()
             resource_meta.shutdown()
 
@@ -692,13 +680,13 @@ class _OTAUpdater(_OTAUpdateOperator):
         logger.info("start to download resources ...")
         try:
             self._download_resources(delta_digests)
-        except TasksEnsureFailed:
+        except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "
                 f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
             )
             logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         finally:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
@@ -953,11 +941,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
         _condition = threading.Condition()
         try:
-            for _fut in DownloadOTAImageMeta(
-                downloader_pool=self._downloader_pool,
-                max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ).download_meta_files(
+            for _fut in self._download_helper.download_meta_files(
                 self._ota_client_package.download_client_package(_condition),
                 condition=_condition,
             ):
