@@ -19,9 +19,19 @@ import logging
 import os
 import sqlite3
 import stat
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Optional, TypedDict
 
+from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
+
+from ota_metadata.file_table import (
+    FILE_TABLE_FNAME,
+    FILE_TABLE_MEDIA_TYPE,
+    FT_REGULAR_TABLE_NAME,
+    FT_RESOURCE_TABLE_NAME,
+    MEDIA_TYPE_FNAME,
+)
 from otaclient.configs.cfg import cfg
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
