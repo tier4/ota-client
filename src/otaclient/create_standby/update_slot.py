@@ -28,8 +28,9 @@ from ota_metadata.file_table.utils import (
     RegularFileTypedDict,
     prepare_dir,
     prepare_non_regular,
-    prepare_regular,
-    prepare_regular_write_file,
+    prepare_regular_copy,
+    prepare_regular_hardlink,
+    prepare_regular_inlined,
 )
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
@@ -99,43 +100,62 @@ class UpdateStandbySlot:
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
         _inode_id = _entry["inode_id"]
+        _inlined = _entry["contents"] or _entry["size"] == 0
         with self._hardlink_group:
             _link_group_head = self._hardlink_group.get(_inode_id)
             if _link_group_head is not None:
-                prepare_regular(
+                prepare_regular_hardlink(
                     _entry,
                     _rs=_link_group_head,
                     target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink",
                     hardlink_skip_apply_permission=True,
                 )
-            else:
-                self._hardlink_group[_inode_id] = prepare_regular(
-                    _entry,
-                    _rs=self._resource_dir / _digest_hex,
-                    target_mnt=self._standby_slot_mp,
-                    prepare_method="hardlink" if first_to_prepare else "copy",
-                    hardlink_skip_apply_permission=True,
-                )
+                self._post_regular_file_process(_entry)
+                return
 
-        if not first_to_prepare:
+            if first_to_prepare:
+                if _inlined:
+                    self._hardlink_group[_inode_id] = prepare_regular_inlined(
+                        _entry, target_mnt=self._standby_slot_mp
+                    )
+                    self._post_regular_file_process(_entry)
+                else:
+                    self._hardlink_group[_inode_id] = prepare_regular_hardlink(
+                        _entry,
+                        _rs=self._resource_dir / _digest_hex,
+                        target_mnt=self._standby_slot_mp,
+                    )
+                return
+
+            self._hardlink_group[_inode_id] = prepare_regular_copy(
+                _entry,
+                _rs=self._resource_dir / _digest_hex,
+                target_mnt=self._standby_slot_mp,
+            )
             self._post_regular_file_process(_entry)
 
     def _process_normal_file_at_thread(
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
     ):
-        if _entry["size"] == 0:
-            prepare_regular_write_file(_entry, b"", target_mnt=self._standby_slot_mp)
+        _inlined = _entry["contents"] or _entry["size"] == 0
+        if _inlined:
+            prepare_regular_inlined(_entry, target_mnt=self._standby_slot_mp)
             self._post_regular_file_process(_entry)
-        else:
-            prepare_regular(
+            return
+
+        if first_to_prepare:
+            prepare_regular_hardlink(
                 _entry,
                 _rs=self._resource_dir / _digest_hex,
                 target_mnt=self._standby_slot_mp,
-                prepare_method="hardlink" if first_to_prepare else "copy",
             )
-            if not first_to_prepare:
-                self._post_regular_file_process(_entry)
+        else:
+            prepare_regular_copy(
+                _entry,
+                _rs=self._resource_dir / _digest_hex,
+                target_mnt=self._standby_slot_mp,
+            )
+            self._post_regular_file_process(_entry)
 
     def _post_regular_file_process(self, _entry: RegularFileTypedDict):
         _merged_payload: UpdateProgressReport = self._thread_local.merged_payload
