@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -27,15 +28,16 @@ from pathlib import Path
 from queue import Queue
 from typing import Generic, Iterator, NamedTuple, TypedDict, TypeVar
 
-from ota_metadata.file_table.db import FileTableDirORM, FileTableRegularORMPool
-from ota_metadata.legacy2.metadata import OTAMetadata
-from ota_metadata.legacy2.rs_table import ResourceTableORMPool
+from ota_metadata.file_table.db import (
+    FileTableDBHelper,
+)
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
-from otaclient_common import EMPTY_FILE_SHA256, EMPTY_FILE_SHA256_BYTE, replace_root
+from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,8 @@ class UpdateStandbySlotFailed(Exception): ...
 
 
 class DeltaGenParams(TypedDict):
-    ota_metadata: OTAMetadata
+    file_table_db_helper: FileTableDBHelper
+    all_resource_digests: ShardedThreadSafeDict[bytes, int]
     delta_src: Path
     copy_dst: Path
     status_report_queue: Queue[StatusReport]
@@ -83,25 +86,24 @@ class _DeltaGeneratorBase:
     def __init__(
         self,
         *,
-        ota_metadata: OTAMetadata,
+        file_table_db_helper: FileTableDBHelper,
+        all_resource_digests: ShardedThreadSafeDict[bytes, int],
         delta_src: Path,
         copy_dst: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
+        self._fst_db_helper = file_table_db_helper
         self._status_report_queue = status_report_queue
         self.session_id = session_id
         self._delta_src_mount_point = delta_src
         self._copy_dst = copy_dst
-        self._ota_metadata = ota_metadata
 
-        self._ft_reg_orm = FileTableRegularORMPool(
-            con_factory=ota_metadata.connect_fstable, number_of_cons=DB_CONN_NUMS
+        self._ft_reg_orm_pool = file_table_db_helper.get_regular_file_orm_pool(
+            db_conn_num=DB_CONN_NUMS
         )
-        self._ft_dir_orm = FileTableDirORM(ota_metadata.connect_fstable())
-        self._rst_orm_pool = ResourceTableORMPool(
-            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
-        )
+        self._ft_dir_orm = file_table_db_helper.get_dir_orm()
+        self._all_resource_digests = all_resource_digests
 
         self._que = Queue()
         self._max_pending_tasks = threading.Semaphore(
@@ -110,19 +112,6 @@ class _DeltaGeneratorBase:
         self._dirs_to_remove = dtr = TopDownCommonShortestPath()
         for _p in self.CLEANUP_ENTRY:
             dtr.add_path(Path(_p))
-
-        # put the empty file into copy_dst, remember to commit a record for preparing the empty file
-        (copy_dst / EMPTY_FILE_SHA256).touch()
-        self._rst_orm_pool.orm_delete_entries(digest=EMPTY_FILE_SHA256_BYTE)
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                    processed_file_num=1,
-                ),
-                session_id=self.session_id,
-            )
-        )
 
 
 def _cleanup_all_files_under_folder(_dir: Path, _names: Iterator[str]) -> None:
@@ -328,11 +317,9 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
                     _t.join()
 
             # heals the hole of the rs table
-            self._rst_orm_pool.orm_execute("VACUUM;")
             self._cleanup_base()
         finally:
-            self._rst_orm_pool.orm_pool_shutdown()
-            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_reg_orm_pool.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
 
 
@@ -356,7 +343,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             try:
                 # for in-place update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly remove it.
-                if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
+                if not fully_scan and not self._ft_reg_orm_pool.orm_check_entry_exist(
                     path=str(canonical_fpath)
                 ):
                     continue
@@ -365,7 +352,9 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
-                if self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) == 1:
+                with contextlib.suppress(KeyError):
+                    self._all_resource_digests.pop(calculated_digest)
+
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
                     os.replace(fpath, resource_save_dst)
                     worker_helper.report_one_file(file_size)
@@ -480,7 +469,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             try:
                 # for rebuild update mode, if fully_scan==False, and the file doesn't present in new,
                 #   just directly skip it.
-                if not fully_scan and not self._ft_reg_orm.orm_check_entry_exist(
+                if not fully_scan and not self._ft_reg_orm_pool.orm_check_entry_exist(
                     path=str(canonical_fpath)
                 ):
                     continue
@@ -492,13 +481,12 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 )
                 resource_save_dst = self._copy_dst / calculated_digest.hex()
 
-                if (
-                    not resource_save_dst.is_file()
-                    and self._rst_orm_pool.orm_delete_entries(digest=calculated_digest)
-                    == 1
-                ):
-                    os.replace(tmp_dst_fpath, resource_save_dst)
-                    worker_helper.report_one_file(file_size)
+                with contextlib.suppress(KeyError):
+                    self._all_resource_digests.pop(calculated_digest)
+
+                    if not resource_save_dst.is_file():
+                        os.replace(tmp_dst_fpath, resource_save_dst)
+                        worker_helper.report_one_file(file_size)
             except BaseException:
                 continue
             finally:
@@ -580,7 +568,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     def _calculate_delta(self, base_fst: str):
         logger.debug("process delta src and generate delta...")
 
-        for _input in self._ota_metadata.iter_common_regular_entries_by_digest(
+        for _input in self._fst_db_helper.iter_common_regular_entries_by_digest(
             base_fst
         ):
             self._max_pending_tasks.acquire()
@@ -608,12 +596,9 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
-            # heals the hole of the rs table
-            self._rst_orm_pool.orm_execute("VACUUM;")
             self._cleanup_base()
         finally:
-            self._rst_orm_pool.orm_pool_shutdown()
-            self._ft_reg_orm.orm_pool_shutdown()
+            self._ft_reg_orm_pool.orm_pool_shutdown()
             self._ft_dir_orm.orm_con.close()
 
 
@@ -658,12 +643,9 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                         continue
 
                     if calculated_digest == expected_digest:
-                        if (
-                            self._rst_orm_pool.orm_delete_entries(
-                                digest=expected_digest
-                            )
-                            == 1
-                        ):
+                        with contextlib.suppress(KeyError):
+                            self._all_resource_digests.pop(expected_digest)
+
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
@@ -766,12 +748,9 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                         continue
 
                     if calculated_digest == expected_digest:
-                        if (
-                            self._rst_orm_pool.orm_delete_entries(
-                                digest=expected_digest
-                            )
-                            == 1
-                        ):
+                        with contextlib.suppress(KeyError):
+                            self._all_resource_digests.pop(expected_digest)
+
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(_tmp_fpath, resource_save_dst)
                             worker_helper.report_one_file(file_size)
