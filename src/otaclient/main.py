@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 from functools import partial
+from queue import Empty
 
 from otaclient import __version__
 from otaclient._types import (
@@ -274,6 +275,17 @@ def main() -> None:  # pragma: no cover
 
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
+
+        try:
+            stop_message = otaclient_main_queue.get_nowait()
+            logger.info(f"Received stop message: {stop_message}")
+            if not critical_zone_flags.is_critical_zone.is_set():
+                return _on_shutdown(sys_exit=True)
+            else:
+                logger.warning("Received stop message while in critical zone, ignoring it.")
+        except Empty:
+            logger.info(f"No stop messages received")
+            pass
 
         if not _ota_core_p.is_alive():
             logger.error(
