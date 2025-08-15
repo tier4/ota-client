@@ -535,8 +535,6 @@ class _OTAUpdater(_OTAUpdateOperator):
             copy_dst=self._resource_dir_on_standby,
         )
         _download_helper = DownloadResources(
-            resource_meta=resource_meta,
-            resources_to_download=delta_digests,
             downloader_pool=self._downloader_pool,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
@@ -548,7 +546,11 @@ class _OTAUpdater(_OTAUpdateOperator):
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
             for _done_count, _fut in enumerate(
-                _download_helper.download_resources(), start=1
+                _download_helper.download_resources(
+                    delta_digests,
+                    resource_meta,
+                ),
+                start=1,
             ):
                 _now = time.time()
                 if _download_exception_handler(_fut):

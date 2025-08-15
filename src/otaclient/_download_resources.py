@@ -32,31 +32,23 @@ from otaclient_common.downloader import (
 from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
-RST_DB_CONNS_NUM = 3
 
 
-class DownloadResources:
+class _DownloadResourcesBase:
     def __init__(
         self,
         *,
-        resource_meta: ResourceMeta,
-        resources_to_download: Iterable[bytes],
         downloader_pool: DownloaderPool,
-        db_conns_num: int = RST_DB_CONNS_NUM,
         max_concurrent: int,
         download_inactive_timeout: int,
         shuffle_batch_size: int = DEFAULT_SHUFFLE_BATCH_SIZE,
     ) -> None:
-        self._db_conns_num = db_conns_num
         self._download_inactive_timeout = download_inactive_timeout
         self._shuffle_batch_size = shuffle_batch_size
         self._max_concurrent = max_concurrent
 
-        self._resources_to_download = resources_to_download
-        # NOTE: caller takes the responsibility to close the downloader
-        #       and the resource_meta.
+        # NOTE: caller takes the responsibility to close the downloader_pool
         self._downloader_pool = downloader_pool
-        self._resource_meta = resource_meta
 
         self._downloader_threads = downloader_pool.instance_num
         # for worker thread local downloader
@@ -67,10 +59,29 @@ class DownloadResources:
             self._downloader_pool.get_instance()
         )
 
-    def _download_single_resource_at_thread(self, _digest: bytes) -> DownloadResult:
+    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
+        """Shuffle the input digests to avoid multiple ECUs downloading
+        the same resources at the same time."""
+        _cur_batch = []
+        for _digest in _digests:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
+
+
+class DownloadResources(_DownloadResourcesBase):
+    def _download_single_resource_at_thread(
+        self, _digest: bytes, resource_meta: ResourceMeta
+    ) -> DownloadResult:
         if _digest == EMPTY_FILE_SHA256_BYTE:
             return DownloadResult(0, 0, 0)
-        _download_info = self._resource_meta.get_download_info(_digest)
+
+        _download_info = resource_meta.get_download_info(_digest)
         downloader = self._downloader_mapper[threading.get_native_id()]
         # NOTE: currently download only use sha256
         return downloader.download(
@@ -81,19 +92,9 @@ class DownloadResources:
             compression_alg=_download_info.compression_alg,
         )
 
-    def _iter_digests_with_shuffle(self) -> Generator[bytes]:
-        _cur_batch = []
-        for _digest in self._resources_to_download:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
-
-    def download_resources(self) -> Generator[Future[DownloadResult]]:
+    def download_resources(
+        self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
+    ) -> Generator[Future[DownloadResult]]:
         try:
             with ThreadPoolExecutorWithRetry(
                 max_concurrent=self._max_concurrent,
@@ -110,8 +111,11 @@ class DownloadResources:
                 ),
             ) as _mapper:
                 for _fut in _mapper.ensure_tasks(
-                    self._download_single_resource_at_thread,
-                    self._iter_digests_with_shuffle(),
+                    partial(
+                        self._download_single_resource_at_thread,
+                        resource_meta=resource_meta,
+                    ),
+                    self._iter_digests_with_shuffle(resources_to_download),
                 ):
                     yield _fut
         finally:
