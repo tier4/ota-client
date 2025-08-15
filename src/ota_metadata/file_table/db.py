@@ -180,12 +180,14 @@ class FileTableResource(TableSpec):
     resource_id: Annotated[int, ConstrainRepr("PRIMARY KEY"), SkipValidation]
     digest: Annotated[bytes, ConstrainRepr("NOT NULL"), SkipValidation]
     size: Annotated[int, ConstrainRepr("NOT NULL"), SkipValidation]
+    contents: Annotated[Optional[bytes], SkipValidation] = None
 
 
 class FileTableResourceTypedDict(TypedDict, total=False):
     resource_id: int
     digest: bytes
     size: int
+    contents: Optional[bytes]
 
 
 class FileTableResourceORM(ORMBase[FileTableResource]):
