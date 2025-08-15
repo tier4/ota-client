@@ -81,17 +81,18 @@ class DownloadOTAImageMeta(_DownloadResourcesBase):
     ) -> list[DownloadResult]:
         downloader = self._downloader_mapper[threading.get_native_id()]
         _res = []
-        for _download_info in _to_download:
-            _res.append(
-                downloader.download(
-                    url=_download_info.url,
-                    dst=_download_info.dst,
-                    digest=_download_info.digest,
-                    size=_download_info.original_size,
-                    compression_alg=_download_info.compression_alg,
+        with condition:
+            for _download_info in _to_download:
+                _res.append(
+                    downloader.download(
+                        url=_download_info.url,
+                        dst=_download_info.dst,
+                        digest=_download_info.digest,
+                        size=_download_info.original_size,
+                        compression_alg=_download_info.compression_alg,
+                    )
                 )
-            )
-        condition.notify()
+            condition.notify()
         return _res
 
     def download_meta_files(
@@ -116,7 +117,8 @@ class DownloadOTAImageMeta(_DownloadResourcesBase):
             ) as _mapper:
                 for _fut in _mapper.ensure_tasks(
                     partial(
-                        self._download_with_condition_at_thread, condition=condition
+                        self._download_with_condition_at_thread,
+                        condition=condition,
                     ),
                     _download_info,
                 ):
