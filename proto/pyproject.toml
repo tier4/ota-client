@@ -52,7 +52,7 @@ sources = [
 
 [tool.hatch.build.hooks.custom]
 proto_builds = [
-  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.2.0" },
+  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.3.0" },
 ]
 
 [tool.black]

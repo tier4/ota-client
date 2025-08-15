@@ -28,9 +28,14 @@ import sys
 import threading
 import time
 from functools import partial
+from queue import Empty
 
 from otaclient import __version__
-from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    CriticalZoneFlags,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -201,6 +206,7 @@ def main() -> None:  # pragma: no cover
     # shared queues and flags
     local_otaclient_op_queue = mp_ctx.Queue()
     local_otaclient_resp_queue = mp_ctx.Queue()
+    otaclient_main_queue = mp_ctx.Queue()
     ecu_status_flags = MultipleECUStatusFlags(
         any_child_ecu_in_update=mp_ctx.Event(),
         any_requires_network=mp_ctx.Event(),
@@ -210,6 +216,7 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
+    critical_zone_flags = CriticalZoneFlags(is_critical_zone=mp_ctx.Event())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -238,6 +245,7 @@ def main() -> None:  # pragma: no cover
             ),
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
+            main_queue=otaclient_main_queue,
             ecu_status_flags=ecu_status_flags,
         ),
         name="otaclient_api_server",
@@ -267,6 +275,19 @@ def main() -> None:  # pragma: no cover
 
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
+
+        try:
+            stop_message = otaclient_main_queue.get_nowait()
+            logger.info(f"Received stop message: {stop_message}")
+            if not critical_zone_flags.is_critical_zone.is_set():
+                return _on_shutdown(sys_exit=True)
+            else:
+                logger.warning(
+                    "Received stop message while in critical zone, ignoring it."
+                )
+        except Empty:
+            logger.info("No stop messages received")
+            pass
 
         if not _ota_core_p.is_alive():
             logger.error(
