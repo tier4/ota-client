@@ -19,19 +19,9 @@ import logging
 import os
 import sqlite3
 import stat
-from contextlib import closing
 from pathlib import Path
-from typing import Literal, Optional, TypedDict
+from typing import Any, Optional, TypedDict
 
-from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
-
-from ota_metadata.file_table import (
-    FILE_TABLE_FNAME,
-    FILE_TABLE_MEDIA_TYPE,
-    FT_REGULAR_TABLE_NAME,
-    FT_RESOURCE_TABLE_NAME,
-    MEDIA_TYPE_FNAME,
-)
 from otaclient.configs.cfg import cfg
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
@@ -41,6 +31,19 @@ logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
 DEFAULT_PERMISSIONS = 0o100644
+
+
+class PrepareEntryFailed(Exception):
+    entry: Any
+    """The entry that caused the failure."""
+
+    def __init__(self, entry: Any, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.entry = entry
+
+    def __str__(self) -> str:
+        return f"failed to process {self.entry} due to: {self.__cause__}"
+
 
 #
 # ------ type hint helpers ------ #
@@ -62,6 +65,7 @@ class RegularFileTypedDict(FileTableEntryTypedDict):
     digest: bytes
     size: int
     inode_id: int
+    contents: Optional[bytes]
 
 
 class NonRegularFileTypedDict(FileTableEntryTypedDict):
@@ -131,76 +135,96 @@ def prepare_non_regular(
         raise
 
 
-def prepare_regular(
+def prepare_regular_copy(
+    entry: RegularFileTypedDict, _rs: StrOrPath, *, target_mnt: StrOrPath
+) -> Path:
+    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    try:
+        _target_on_mnt.touch(exist_ok=True, mode=_mode)
+        copyfile_nocache(_rs, _target_on_mnt)
+        if not (_uid == 0 and _gid == 0):
+            # NOTE: if owner is changed, the sticky bit will be reset.
+            #       Remember to always put chown before chmod !!!
+            os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+            os.chmod(_target_on_mnt, mode=_mode)
+
+        # NOTE: old OTA image doesn't suppport xattrs
+        # if _xattr := entry["xattrs"]:
+        #     _set_xattr(_target_on_mnt, _in=_xattr)
+        return _target_on_mnt
+    except Exception as e:
+        _target_on_mnt.unlink(missing_ok=True)
+        raise PrepareEntryFailed(entry) from e
+
+
+def prepare_regular_inlined(
+    entry: RegularFileTypedDict, *, target_mnt: StrOrPath
+) -> Path:
+    _contents = entry["contents"]
+    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    try:
+        assert _contents or entry["size"] == 0, "not an inlined entry!"
+
+        _target_on_mnt.touch(exist_ok=True, mode=_mode)
+        if _contents:
+            _target_on_mnt.write_bytes(_contents)
+
+        if not (_uid == 0 and _gid == 0):
+            # NOTE: if owner is changed, the sticky bit will be reset.
+            #       Remember to always put chown before chmod !!!
+            os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+            os.chmod(_target_on_mnt, mode=_mode)
+
+        # NOTE: old OTA image doesn't suppport xattrs
+        # if _xattr := entry["xattrs"]:
+        #     _set_xattr(_target_on_mnt, _in=_xattr)
+        return _target_on_mnt
+    except Exception as e:
+        _target_on_mnt.unlink(missing_ok=True)
+        raise PrepareEntryFailed(entry) from e
+
+
+def prepare_regular_hardlink(
     entry: RegularFileTypedDict,
     _rs: StrOrPath,
     *,
     target_mnt: StrOrPath,
-    prepare_method: Literal["move", "hardlink", "copy"],
     hardlink_skip_apply_permission: bool = False,
 ) -> Path:
-    """
-    Returns:
-        The path to the prepared file on target mount point.
-    """
     _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-
-    # NOTE(20241213): chown will reset the sticky bit of the file!!!
-    #   Remember to always put chown before chmod !!!
     try:
-        if prepare_method == "copy":
-            copyfile_nocache(_rs, _target_on_mnt)
+        # NOTE: os.link will make dst a hardlink to src.
+        os.link(_rs, _target_on_mnt)
+        if not hardlink_skip_apply_permission:
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
-            return _target_on_mnt
 
-        if prepare_method == "hardlink":
-            # NOTE: os.link will make dst a hardlink to src.
-            os.link(_rs, _target_on_mnt)
-            if not hardlink_skip_apply_permission:
-                os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-                os.chmod(_target_on_mnt, mode=entry["mode"])
-            return _target_on_mnt
-
-        if prepare_method == "move":
-            os.replace(str(_rs), _target_on_mnt)
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
-            return _target_on_mnt
+            # NOTE: old OTA image doesn't suppport xattrs
+            # if _xattr := entry["xattrs"]:
+            #     _set_xattr(_target_on_mnt, _in=_xattr)
+        return _target_on_mnt
     except Exception as e:
-        burst_suppressed_logger.exception(
-            f"failed on preparing {entry!r}, {_rs=}: {e!r}"
-        )
-        raise
+        _target_on_mnt.unlink(missing_ok=True)
+        raise PrepareEntryFailed(entry) from e
 
 
-def prepare_regular_write_file(
-    entry: RegularFileTypedDict,
-    contents: bytes,
-    *,
-    target_mnt: StrOrPath,
+def prepare_regular_move(
+    entry: RegularFileTypedDict, _rs: StrOrPath, *, target_mnt: StrOrPath
 ) -> Path:
-    """Directly write file contents to the target.
+    try:
+        _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+        os.replace(str(_rs), _target_on_mnt)
+        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
+        os.chmod(_target_on_mnt, mode=entry["mode"])
 
-    Returns:
-        The path to the prepared file on target mount point.
-    """
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
-
-    # NOTE(20241213): chown will reset the sticky bit of the file!!!
-    #   Remember to always put chown before chmod !!!
-    _target_on_mnt.touch(DEFAULT_PERMISSIONS, exist_ok=True)
-    if len(contents) > 0:
-        _target_on_mnt.write_bytes(contents)
-
-    # NOTE(20250730): only update permissions when needed
-    # NOTE: as otaclient is running as root
-    if not (_uid == 0 and _gid == 0):
-        os.chown(_target_on_mnt, uid=_uid, gid=_gid)
-    if _mode != DEFAULT_PERMISSIONS:
-        os.chmod(_target_on_mnt, mode=_mode)
-    return _target_on_mnt
+        # NOTE: old OTA image doesn't suppport xattrs
+        # if _xattr := entry["xattrs"]:
+        #     _set_xattr(_target_on_mnt, _in=_xattr)
+        return _target_on_mnt
+    except Exception as e:
+        raise PrepareEntryFailed(entry) from e
 
 
 #
