@@ -23,6 +23,7 @@ from typing import Generator, Iterable
 
 from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
+from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
@@ -72,6 +73,56 @@ class _DownloadResourcesBase:
         if _cur_batch:
             random.shuffle(_cur_batch)
             yield from _cur_batch
+
+
+class DownloadOTAImageMeta(_DownloadResourcesBase):
+    def _download_with_condition_at_thread(
+        self, _to_download: list[DownloadInfo], condition: threading.Condition
+    ) -> list[DownloadResult]:
+        downloader = self._downloader_mapper[threading.get_native_id()]
+        _res = []
+        for _download_info in _to_download:
+            _res.append(
+                downloader.download(
+                    url=_download_info.url,
+                    dst=_download_info.dst,
+                    digest=_download_info.digest,
+                    size=_download_info.original_size,
+                    compression_alg=_download_info.compression_alg,
+                )
+            )
+        condition.notify()
+        return _res
+
+    def download_meta_files(
+        self,
+        _download_info: Generator[list[DownloadInfo]],
+        condition: threading.Condition,
+    ) -> Generator[Future[list[DownloadResult]]]:
+        try:
+            with ThreadPoolExecutorWithRetry(
+                max_concurrent=self._max_concurrent,
+                max_workers=self._downloader_threads,
+                thread_name_prefix="download_ota_image_metafiles",
+                initializer=self._downloader_worker_initializer,
+                watchdog_func=partial(
+                    self._downloader_pool.downloading_watchdog,
+                    ctx=DownloadPoolWatchdogFuncContext(
+                        downloaded_bytes=0,
+                        previous_active_timestamp=int(time.time()),
+                    ),
+                    max_idle_timeout=self._download_inactive_timeout,
+                ),
+            ) as _mapper:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_with_condition_at_thread, condition=condition
+                    ),
+                    _download_info,
+                ):
+                    yield _fut
+        finally:
+            self._downloader_pool.release_all_instances()
 
 
 class DownloadResources(_DownloadResourcesBase):
