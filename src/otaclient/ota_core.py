@@ -51,7 +51,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
-from otaclient._download_resources import DownloadResources
+from otaclient._download_resources import DownloadHelper
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -266,7 +266,7 @@ class _OTAUpdateOperator:
             downloaded_bytes=0,
             previous_active_timestamp=0,
         )
-        self._downloader_pool = DownloaderPool(
+        self._downloader_pool = _downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
@@ -275,6 +275,12 @@ class _OTAUpdateOperator:
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
+        self._download_helper = DownloadHelper(
+            downloader_pool=_downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+        )
+
         self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
@@ -534,19 +540,13 @@ class _OTAUpdater(_OTAUpdateOperator):
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
         )
-        _download_helper = DownloadResources(
-            downloader_pool=self._downloader_pool,
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-        )
-
         try:
             _next_commit_before, _report_batch_cnt = 0, 0
             _merged_payload = UpdateProgressReport(
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
             for _done_count, _fut in enumerate(
-                _download_helper.download_resources(
+                self._download_helper.download_resources(
                     delta_digests,
                     resource_meta,
                 ),
