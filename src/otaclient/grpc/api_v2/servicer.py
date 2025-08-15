@@ -131,39 +131,52 @@ class OTAClientAPIServicer:
         | api_types.ClientUpdateResponseEcu
     ):
         if not isinstance(request, StopRequestV2):
-            self._op_queue.put_nowait(request)
-        try:
-            _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
-            assert isinstance(_req_response, IPCResponse), "unexpected msg"
-            assert (
-                _req_response.session_id == request.session_id
-            ), "mismatched session_id"
+            try:
+                self._op_queue.put_nowait(request)
+                _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
+                assert isinstance(_req_response, IPCResponse), "unexpected msg"
+                assert (
+                    _req_response.session_id == request.session_id
+                ), "mismatched session_id"
 
-            if _req_response.res == IPCResEnum.ACCEPT:
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-            else:
-                logger.error(
-                    f"local otaclient doesn't accept request: {_req_response.msg}"
-                )
+                if _req_response.res == IPCResEnum.ACCEPT:
+                    return response_type(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.NO_FAILURE,
+                    )
+                else:
+                    logger.error(
+                        f"local otaclient doesn't accept request: {_req_response.msg}"
+                    )
+                    return response_type(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                    )
+            except AssertionError as e:
+                logger.error(f"local otaclient response with unexpected msg: {e!r}")
                 return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.RECOVERABLE,
                 )
-        except AssertionError as e:
-            logger.error(f"local otaclient response with unexpected msg: {e!r}")
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
-            )
-        except Exception as e:  # failed to get ACK from otaclient within timeout
-            logger.error(f"local otaclient failed to ACK request: {e!r}")
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.UNRECOVERABLE,
-            )
+            except Exception as e:  # failed to get ACK from otaclient within timeout
+                logger.error(f"local otaclient failed to ACK request: {e!r}")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.UNRECOVERABLE,
+                )
+        else:
+            try:
+                self._main_queue.put_nowait(request)
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            except Exception as e:
+                logger.error(f"failed to send request {request} to main process: {e!r}")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.UNRECOVERABLE,
+                )
 
     def _add_ecu_into_response(
         self,
@@ -297,28 +310,24 @@ class OTAClientAPIServicer:
         self,
         request: (
             api_types.UpdateRequest
-            | api_types.StopRequest
             | api_types.RollbackRequest
             | api_types.ClientUpdateRequest
         ),
         local_handler: Callable,
         request_cls: (
             type[UpdateRequestV2]
-            | type[StopRequestV2]
             | type[RollbackRequestV2]
             | type[ClientUpdateRequestV2]
         ),
         remote_call: Callable,
         response_type: (
             type[api_types.UpdateResponse]
-            | type[api_types.StopResponse]
             | type[api_types.RollbackResponse]
             | type[api_types.ClientUpdateResponse]
         ),
         update_acked_ecus: set[str] | None,
     ) -> (
         api_types.UpdateResponse
-        | api_types.StopResponse
         | api_types.RollbackResponse
         | api_types.ClientUpdateResponse
     ):
@@ -339,7 +348,6 @@ class OTAClientAPIServicer:
                     response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
                 )
             return response
-
         # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
