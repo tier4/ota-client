@@ -40,6 +40,7 @@ from otaclient_common.linux import copyfile_nocache
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
+DEFAULT_PERMISSIONS = 0o100644
 
 #
 # ------ type hint helpers ------ #
@@ -104,9 +105,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
@@ -171,6 +172,35 @@ def prepare_regular(
             f"failed on preparing {entry!r}, {_rs=}: {e!r}"
         )
         raise
+
+
+def prepare_regular_write_file(
+    entry: RegularFileTypedDict,
+    contents: bytes,
+    *,
+    target_mnt: StrOrPath,
+) -> Path:
+    """Directly write file contents to the target.
+
+    Returns:
+        The path to the prepared file on target mount point.
+    """
+    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
+
+    # NOTE(20241213): chown will reset the sticky bit of the file!!!
+    #   Remember to always put chown before chmod !!!
+    _target_on_mnt.touch(DEFAULT_PERMISSIONS, exist_ok=True)
+    if len(contents) > 0:
+        _target_on_mnt.write_bytes(contents)
+
+    # NOTE(20250730): only update permissions when needed
+    # NOTE: as otaclient is running as root
+    if not (_uid == 0 and _gid == 0):
+        os.chown(_target_on_mnt, uid=_uid, gid=_gid)
+    if _mode != DEFAULT_PERMISSIONS:
+        os.chmod(_target_on_mnt, mode=_mode)
+    return _target_on_mnt
 
 
 #
