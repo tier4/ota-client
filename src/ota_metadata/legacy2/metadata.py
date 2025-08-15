@@ -78,7 +78,7 @@ from .metadata_jwt import (
     MetadataJWTParser,
     MetadataJWTVerificationFailed,
 )
-from .rs_table import ResourceTable, ResourceTableORM
+from .rs_table import ResourceTableORM, ResourceTableORMPool
 
 logger = logging.getLogger(__name__)
 
@@ -489,6 +489,10 @@ class ResourceMeta:
         copy_dst: Path,
     ) -> None:
         self._ota_metadata = ota_metadata
+        self._rst_orm_pool = ResourceTableORMPool(
+            con_factory=ota_metadata.connect_rstable,
+            number_of_cons=2,
+        )
 
         self.base_url = base_url
         self.data_dir_url = urljoin_ensure_base(
@@ -503,62 +507,21 @@ class ResourceMeta:
 
         self._copy_dst = copy_dst
 
-    @property
-    def resources_count(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            function="count",
-        )
-
-        try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
-        except Exception as e:
-            logger.warning(f"failed to get resources_count: {e!r}")
-            return 0
-        finally:
-            _conn.close()
-
-    @property
-    def resources_size_sum(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            select_cols=("original_size",),
-            function="sum",
-        )
-
-        try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
-        except Exception as e:
-            logger.warning(f"failed to get resources_size_sum: {e!r}")
-            return 0
-        finally:
-            _conn.close()
+    def shutdown(self):
+        self._rst_orm_pool.orm_pool_shutdown()
 
     # API
 
-    def get_download_info(self, resource: ResourceTable) -> DownloadInfo:
+    def get_download_info(self, digest: bytes) -> DownloadInfo:
         """Get DownloadInfo from one ResourceTable entry.
+
+        This method is save for multi-thread use.
 
         Returns:
             An instance of DownloadInfo to download the resource indicates by <resource>.
         """
-        assert (_digest := resource.digest), f"invalid {resource=}"
-        _digest_str = _digest.hex()
+        resource = self._rst_orm_pool.orm_select_entry(digest=digest)
+        _digest_str = resource.digest.hex()
 
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
@@ -593,9 +556,3 @@ class ResourceMeta:
             digest=_digest_str,
             digest_alg=DIGEST_ALG,
         )
-
-    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
-        """Iter through the resource table and yield DownloadInfo for every resource."""
-        with ResourceTableORM(self._ota_metadata.connect_rstable()) as orm:
-            for entry in orm.iter_all_with_shuffle(batch_size=batch_size):
-                yield self.get_download_info(entry)
