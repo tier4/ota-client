@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import threading
@@ -23,15 +24,12 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.legacy2.metadata import OTAMetadata
-from ota_metadata.legacy2.rs_table import ResourceTableORMPool
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
-
-DB_CONN_NUMS = 1  # serializing write
 
 
 class ResourceScanner:
@@ -44,7 +42,7 @@ class ResourceScanner:
     def __init__(
         self,
         *,
-        ota_metadata: OTAMetadata,
+        all_resource_digests: ShardedThreadSafeDict[bytes, int],
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -52,11 +50,9 @@ class ResourceScanner:
         self._status_report_queue = status_report_queue
         self.session_id = session_id
         self._resource_dir = resource_dir
-        self._ota_metadata = ota_metadata
+        self._all_resource_digests = all_resource_digests
 
-        self._rst_orm_pool = ResourceTableORMPool(
-            con_factory=ota_metadata.connect_rstable, number_of_cons=DB_CONN_NUMS
-        )
+        self._resource_dir_fd = os.open(resource_dir, os.O_RDONLY)
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
 
@@ -64,15 +60,20 @@ class ResourceScanner:
         self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
         self._thread_local.bufferview = memoryview(_buffer)
 
-    def _process_resource_at_thread(self, fpath: Path, expected_digest: bytes) -> None:
+    def _process_resource_at_thread(
+        self, expected_digest: bytes, expected_digest_hex: str
+    ) -> None:
         try:
             hash_f, file_size = sha256(), 0
             buffer, bufferview = (
                 self._thread_local.buffer,
                 self._thread_local.bufferview,
             )
-            with open(fpath, "rb") as src:
-                src_fd = src.fileno()
+
+            src_fd = os.open(
+                expected_digest_hex, os.O_RDONLY, dir_fd=self._resource_dir_fd
+            )
+            with open(src_fd, "rb") as src:
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while read_size := src.readinto(buffer):
@@ -81,22 +82,25 @@ class ResourceScanner:
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             calculated_digest = hash_f.digest()
-            if (
-                calculated_digest != expected_digest
-                or self._rst_orm_pool.orm_delete_entries(digest=calculated_digest) != 1
-            ):
-                fpath.unlink(missing_ok=True)
+            if calculated_digest != expected_digest:
+                with contextlib.suppress(Exception):
+                    os.unlink(expected_digest_hex, dir_fd=self._resource_dir_fd)
             else:
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_num=1,
-                            processed_file_size=file_size,
-                        ),
-                        session_id=self.session_id,
+                try:
+                    self._all_resource_digests.pop(calculated_digest)
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=UpdateProgressReport(
+                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                                processed_file_num=1,
+                                processed_file_size=file_size,
+                            ),
+                            session_id=self.session_id,
+                        )
                     )
-                )
+                except KeyError:
+                    with contextlib.suppress(Exception):
+                        os.unlink(expected_digest_hex, dir_fd=self._resource_dir_fd)
         finally:
             self._se.release()
 
@@ -109,14 +113,14 @@ class ResourceScanner:
             ) as pool:
                 _count = 0
                 for entry in os.scandir(self._resource_dir):
-                    _fname = entry.name
-                    if _fname == EMPTY_FILE_SHA256:
+                    _entry_digest_hex = entry.name
+                    if _entry_digest_hex == EMPTY_FILE_SHA256:
                         continue
 
                     # NOTE: in resource dir, all files except tmp files are named
                     #       with its sha256 digest in hex string.
                     try:
-                        expected_digest = bytes.fromhex(_fname)
+                        expected_digest = bytes.fromhex(_entry_digest_hex)
                     except ValueError:
                         continue
 
@@ -124,9 +128,11 @@ class ResourceScanner:
                     _count += 1
                     pool.submit(
                         self._process_resource_at_thread,
-                        Path(entry.path),
                         expected_digest,
+                        _entry_digest_hex,
                     )
             logger.info(f"totally {_count} of OTA resource files are scanned")
         except Exception as e:
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
+        finally:
+            os.close(self._resource_dir_fd)
