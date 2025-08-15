@@ -38,6 +38,7 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+from ota_metadata.file_table.db import FileTableDBHelper
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import (
@@ -107,6 +108,7 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -234,9 +236,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -477,8 +479,68 @@ class _OTAUpdateOperator:
             compression_alg=entry.compression_alg,
         )
 
-    def _download_resources(self, resource_meta: ResourceMeta) -> None:
+    def _downloader_worker_initializer(self) -> None:
+        self._downloader_mapper[threading.get_native_id()] = (
+            self._downloader_pool.get_instance()
+        )
+
+
+class _OTAUpdater(_OTAUpdateOperator):
+    """The implementation of OTA update logic."""
+
+    def __init__(
+        self,
+        boot_controller: BootControllerProtocol,
+        **kwargs,
+    ) -> None:
+        # ------ init base class ------ #
+        super().__init__(**kwargs)
+
+        # ------ init updater implementation ------ #
+        self._boot_controller = boot_controller
+
+        # ------ define runtime dirs ------ #
+        self._resource_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+        self._ota_tmp_meta_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_META_STORE,
+                cfg.CANONICAL_ROOT,
+                self._boot_controller.get_standby_slot_path(),
+            )
+        )
+
+        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
+        self._image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                cfg.STANDBY_SLOT_MNT,
+            )
+        )
+        self._can_use_in_place_mode = False
+
+    def _download_single_resource_at_thread(self, digest: bytes, rs_meta: ResourceMeta):
+        _download_info = rs_meta.get_download_info(digest)
+        return self._download_single_file(_download_info)
+
+    def _download_resources(
+        self, delta_digests: ShardedThreadSafeDict[bytes, int]
+    ) -> None:
         self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
+
+        # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
+        resource_meta = ResourceMeta(
+            base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
+            copy_dst=self._resource_dir_on_standby,
+        )
+
         _mapper = ThreadPoolExecutorWithRetry(
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             max_workers=cfg.DOWNLOAD_THREADS,
@@ -500,10 +562,11 @@ class _OTAUpdateOperator:
             )
             for _done_count, _fut in enumerate(
                 _mapper.ensure_tasks(
-                    self._download_single_file,
-                    resource_meta.iter_resources(
-                        batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
+                    partial(
+                        self._download_single_resource_at_thread,
+                        rs_meta=resource_meta,
                     ),
+                    delta_digests,
                 ),
                 start=1,
             ):
@@ -551,52 +614,7 @@ class _OTAUpdateOperator:
             # release the downloader instances
             self._downloader_pool.release_all_instances()
             self._downloader_pool.shutdown()
-
-    def _downloader_worker_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
-        )
-
-
-class _OTAUpdater(_OTAUpdateOperator):
-    """The implementation of OTA update logic."""
-
-    def __init__(
-        self,
-        boot_controller: BootControllerProtocol,
-        **kwargs,
-    ) -> None:
-        # ------ init base class ------ #
-        super().__init__(**kwargs)
-
-        # ------ init updater implementation ------ #
-        self._boot_controller = boot_controller
-
-        # ------ define runtime dirs ------ #
-        self._resource_dir_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_STORE,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
-            )
-        )
-        self._ota_tmp_meta_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_META_STORE,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
-            )
-        )
-
-        self._image_meta_dir_on_active = Path(cfg.IMAGE_META_DPATH)
-        self._image_meta_dir_on_standby = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.CANONICAL_ROOT,
-                cfg.STANDBY_SLOT_MNT,
-            )
-        )
-        self._can_use_in_place_mode = False
+            resource_meta.shutdown()
 
     def _execute_update(self):
         """Implementation of OTA updating."""
@@ -605,8 +623,8 @@ class _OTAUpdater(_OTAUpdateOperator):
         self._handle_upper_proxy()
         self._process_metadata()
         self._pre_update()
-        self._calculate_delta()
-        self._download_delta_resources()
+        _delta_digests = self._calculate_delta()
+        self._download_delta_resources(_delta_digests)
         self._apply_update()
         self._post_update()
         self._finalize_update()
@@ -650,10 +668,16 @@ class _OTAUpdater(_OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
-    def _calculate_delta(self):
+    def _calculate_delta(self) -> ShardedThreadSafeDict[bytes, int]:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
         _current_time = int(time.time())
+
+        _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
+        all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
+            _fst_db_helper.select_all_digests_with_size(),
+        )
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -693,7 +717,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 "Try to resume previous OTA delta calculation progress ..."
             )
             ResourceScanner(
-                ota_metadata=self._ota_metadata,
+                all_resource_digests=all_resource_digests,
                 resource_dir=self._resource_dir_on_standby,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -720,7 +744,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                     verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
 
                 _inplace_mode_params = DeltaGenParams(
-                    ota_metadata=self._ota_metadata,
+                    file_table_db_helper=_fst_db_helper,
+                    all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -737,7 +762,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
-                    ota_metadata=self._ota_metadata,
+                    file_table_db_helper=_fst_db_helper,
+                    all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -753,6 +779,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                 else:
                     logger.info("use rebuild mode with full scanning ...")
                     RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
+
+            return all_resource_digests
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
@@ -764,8 +792,18 @@ class _OTAUpdater(_OTAUpdateOperator):
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
                 shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
-    def _download_delta_resources(self) -> None:
+    def _download_delta_resources(
+        self, delta_digests: ShardedThreadSafeDict[bytes, int]
+    ) -> None:
         """Download all the resources needed for the OTA update."""
+        to_download = len(delta_digests)
+        to_download_size = sum(delta_digests.values())
+        logger.info(
+            f"delta calculation finished: \n"
+            f"download_list len: {to_download} \n"
+            f"sum of original size of all resources to be downloaded: {human_readable_size(to_download_size)}"
+        )
+
         # ------ in-update: download resources ------ #
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
@@ -779,32 +817,21 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._metrics.download_start_timestamp = _current_time
 
-        # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        resource_meta = ResourceMeta(
-            base_url=self.url_base,
-            ota_metadata=self._ota_metadata,
-            copy_dst=self._resource_dir_on_standby,
-        )
-        logger.info(
-            f"delta calculation finished: \n"
-            f"download_list len: {resource_meta.resources_count} \n"
-            f"sum of original size of all resources to be downloaded: {human_readable_size(resource_meta.resources_size_sum)}"
-        )
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
-                    total_download_files_num=resource_meta.resources_count,
-                    total_download_files_size=resource_meta.resources_size_sum,
+                    total_download_files_num=to_download,
+                    total_download_files_size=to_download_size,
                 ),
                 session_id=self.session_id,
             )
         )
-        self._metrics.delta_download_files_num = resource_meta.resources_count
-        self._metrics.delta_download_files_size = resource_meta.resources_size_sum
+        self._metrics.delta_download_files_num = to_download
+        self._metrics.delta_download_files_size = to_download_size
 
         logger.info("start to download resources ...")
         try:
-            self._download_resources(resource_meta)
+            self._download_resources(delta_digests)
         except TasksEnsureFailed:
             _err_msg = (
                 "download aborted due to download stalls longer than "
@@ -833,7 +860,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         try:
             standby_slot_creator = UpdateStandbySlot(
-                ota_metadata=self._ota_metadata,
+                file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
