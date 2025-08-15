@@ -133,7 +133,9 @@ class OTAClientAPIServicer:
         if not isinstance(request, StopRequestV2):
             try:
                 self._op_queue.put_nowait(request)
-                _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
+                _req_response = self._resp_queue.get(
+                    timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT
+                )
                 assert isinstance(_req_response, IPCResponse), "unexpected msg"
                 assert (
                     _req_response.session_id == request.session_id
