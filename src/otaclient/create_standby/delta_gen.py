@@ -571,6 +571,10 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
         for _input in self._fst_db_helper.iter_common_regular_entries_by_digest(
             base_fst
         ):
+            _digest, _ = _input
+            if _digest not in self._all_resource_digests:
+                continue  # skip resources that already prepared(via resume OTA)
+
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
