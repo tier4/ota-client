@@ -35,6 +35,8 @@ class ShardedThreadSafeDict(Generic[KT, VT]):
         ]
 
     def _shard_index(self, key: KT) -> int:
+        if isinstance(key, bytes):
+            return int.from_bytes(key, byteorder="big") % self._num_of_shards
         return hash(key) % self._num_of_shards
 
     def __contains__(self, key: KT) -> bool:
