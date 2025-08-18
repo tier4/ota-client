@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from otaclient_pb2.v2 import otaclient_v2_pb2 as otaclient__pb2_dot_v2_dot_otaclient__v2__pb2
+from otaclient_api.v2 import otaclient_v2_pb2 as otaclient__pb2_dot_v2_dot_otaclient__v2__pb2
 
 
 class OtaClientServiceStub(object):
