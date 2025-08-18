@@ -691,8 +691,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
-                "OTA resource dir found on standby slot, possible an interrupted OTA. \n"
-                "Try to resume previous OTA delta calculation progress ..."
+                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
             )
             ResourceScanner(
                 all_resource_digests=all_resource_digests,
@@ -700,7 +699,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
             ).resume_ota()
-            logger.info("finish resuming previous OTA progress")
+            logger.info("finish up scanning OTA resource dir")
 
         base_meta_dir_on_standby_slot = None
         try:

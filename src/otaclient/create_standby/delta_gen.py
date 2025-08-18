@@ -587,6 +587,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     ) -> None:
         _workers: list[threading.Thread] = []
         try:
+            logger.info("start thread workers to calculate delta ...")
             try:
                 for _ in range(worker_num):
                     _t = threading.Thread(
@@ -600,6 +601,9 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
+            logger.info(
+                "clean up files and directories that doesn't present in new image ..."
+            )
             self._cleanup_base()
         finally:
             self._ft_reg_orm_pool.orm_pool_shutdown()
