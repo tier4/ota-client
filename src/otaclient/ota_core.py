@@ -237,9 +237,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(cookies, dict), (
-                f"invalid cookies, expecting json object: {cookies_json}"
-            )
+            assert isinstance(
+                cookies, dict
+            ), f"invalid cookies, expecting json object: {cookies_json}"
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
