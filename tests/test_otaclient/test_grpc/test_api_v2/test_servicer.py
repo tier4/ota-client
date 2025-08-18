@@ -395,6 +395,7 @@ class TestOTAClientAPIServicer:
 
     @pytest.mark.asyncio
     async def test_rollback_local_ecu(self, mocker: MockerFixture):
+        """Ensure that rollback is not triggerred."""
         # Arrange
         rollback_request = api_types.RollbackRequest()
         rollback_request.add_ecu(
@@ -426,12 +427,13 @@ class TestOTAClientAPIServicer:
         expected_response.add_ecu(
             api_types.RollbackResponseEcu(
                 ecu_id="autoware",
-                result=api_types.FailureType.NO_FAILURE,
+                result=api_types.FailureType.RECOVERABLE,
+                message="rollback API support is removed",
             )
         )
 
         compare_message(result, expected_response)
-        self.op_queue.put_nowait.assert_called_once()
+        self.op_queue.put_nowait.assert_not_called()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_not_called()
 
     @pytest.mark.asyncio
