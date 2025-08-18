@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import sqlite3
 import typing
-from contextlib import closing
 from pathlib import Path
 from typing import Callable, Generator, Optional, TypedDict
 
@@ -240,12 +239,13 @@ class FileTableDBHelper:
         if exclude_inlined:
             stmt = f"SELECT digest,size FROM {FT_RESOURCE_TABLE_NAME} WHERE contents IS NULL AND size!=0"
 
-        with closing(self.connect_fstable_db()) as _con:
-            _cursor = _con.execute(stmt)
-            _cursor.row_factory = typing.cast(
-                "Callable[..., tuple[bytes, int]]", sqlite3.Row
+        with FileTableDirORM(self.connect_fstable_db()) as orm:
+            yield from orm.orm_select_entries(
+                _row_factory=typing.cast(
+                    "Callable[..., tuple[bytes, int]]", sqlite3.Row
+                ),
+                _stmt=stmt,
             )
-            yield from _cursor.execute(stmt)
 
     def iter_dir_entries(self) -> Generator[DirTypedDict]:
         with FileTableDirORM(self.connect_fstable_db()) as orm:
@@ -257,7 +257,7 @@ class FileTableDBHelper:
                 _stmt = gen_sql_stmt(
                     "SELECT", "path,uid,gid,mode,xattrs",
                     "FROM", FT_DIR_TABLE_NAME,
-                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
+                    "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
                 )
             )
             # fmt: on
@@ -273,10 +273,10 @@ class FileTableDBHelper:
             )
             # fmt: on
             yield from orm.orm_select_entries(
-                _stmt=_stmt,
                 _row_factory=typing.cast(
                     "Callable[..., RegularFileTypedDict]", sqlite3.Row
                 ),
+                _stmt=_stmt,
             )
 
     def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
@@ -306,8 +306,8 @@ class FileTableDBHelper:
         with FileTableRegularORM(self.connect_fstable_db()) as orm:
             orm.orm_con.execute(f"ATTACH DATABASE '{base_file_table}' AS base;")
             for entry in orm.orm_select_entries(
-                _stmt=self.ITER_COMMON_DIGEST,
                 _row_factory=sqlite3.Row,
+                _stmt=self.ITER_COMMON_DIGEST,
             ):
                 _this_digest: bytes = entry["digest"]
                 _this_path: Path = Path(entry["path"])
