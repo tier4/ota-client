@@ -509,7 +509,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         # ------ define runtime dirs ------ #
         self._resource_dir_on_standby = Path(
             replace_root(
-                cfg.OTA_TMP_STORE,
+                cfg.OTA_RESOURCES_STORE,
                 cfg.CANONICAL_ROOT,
                 self._boot_controller.get_standby_slot_path(),
             )

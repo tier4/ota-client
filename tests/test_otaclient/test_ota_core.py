@@ -78,9 +78,9 @@ class TestOTAUpdater:
         self.ota_metafiles_tmp_dir = self.slot_b / Path(
             otaclient_cfg.OTA_TMP_META_STORE
         ).relative_to("/")
-        self.ota_tmp_dir = self.slot_b / Path(otaclient_cfg.OTA_TMP_STORE).relative_to(
-            "/"
-        )
+        self.ota_tmp_dir = self.slot_b / Path(
+            otaclient_cfg.OTA_RESOURCES_STORE
+        ).relative_to("/")
 
         yield
         # cleanup slot_b after test
