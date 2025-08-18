@@ -68,7 +68,6 @@ from otaclient._types import (
     IPCResponse,
     MultipleECUStatusFlags,
     OTAStatus,
-    RollbackRequestV2,
     UpdatePhase,
     UpdateRequestV2,
 )
@@ -234,9 +233,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -1420,31 +1419,6 @@ class OTAClient:
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
 
-    def rollback(self, request: RollbackRequestV2) -> None:
-        self._live_ota_status = OTAStatus.ROLLBACKING
-        new_session_id = request.session_id
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.ROLLBACKING,
-                ),
-                session_id=new_session_id,
-            )
-        )
-
-        logger.info(f"start new OTA rollback session: {new_session_id=}")
-        try:
-            logger.info("[rollback] entering...")
-            self._live_ota_status = OTAStatus.ROLLBACKING
-            _OTARollbacker(boot_controller=self.boot_controller).execute()
-        except ota_errors.OTAError as e:
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
-
     def main(
         self,
         *,
@@ -1510,26 +1484,6 @@ class OTAClient:
                 _allow_request_after = (
                     _now + HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST
                 )
-
-            elif (
-                isinstance(request, RollbackRequestV2)
-                and self._live_ota_status == OTAStatus.SUCCESS
-            ):
-                _rollback_thread = threading.Thread(
-                    target=self.rollback,
-                    args=[request],
-                    daemon=True,
-                    name="ota_rollback_executor",
-                )
-                _rollback_thread.start()
-
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.ACCEPT,
-                        session_id=request.session_id,
-                    )
-                )
-                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
             else:
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
