@@ -227,9 +227,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -502,13 +502,11 @@ class _OTAUpdater(_OTAUpdateOperator):
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
-        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
-        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
 
         # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
+        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
         try:
             save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
         except Exception as e:
@@ -571,6 +569,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                 session_id=self.session_id,
             ).resume_ota()
             logger.info("finish resuming previous OTA progress")
+        # prepare resource dir on standby after OTA resume
+        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
 
         base_meta_dir_on_standby_slot = None
         try:
