@@ -13,7 +13,7 @@
 
 ### Current behavior
 
-### Behaivor after fix
+### Behavior after fix
 
 ## Related links & ticket
 

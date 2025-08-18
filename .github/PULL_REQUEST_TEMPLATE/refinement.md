@@ -20,13 +20,13 @@ For better understanding, adding reason/motivation of this PR are also recommend
 
 Does this PR introduce behavior change(s)?
 
-- [ ] Yes, internal behaivor (will not impact user experience).
-- [ ] Yes, external behaivor (will impact user experience).
+- [ ] Yes, internal behavior (will not impact user experience).
+- [ ] Yes, external behavior (will impact user experience).
 - [ ] No.
 
 ### Previous behavior
 
-<!-- Behaivor before the PR is introduced -->
+<!-- Behavior before the PR is introduced -->
 
 ### Behavior with this PR
 
