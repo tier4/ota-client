@@ -116,9 +116,9 @@ class OTAClientAPIServicer:
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
-            assert _req_response.session_id == request.session_id, (
-                "mismatched session_id"
-            )
+            assert (
+                _req_response.session_id == request.session_id
+            ), "mismatched session_id"
 
             if _req_response.res == IPCResEnum.ACCEPT:
                 return response_type(
