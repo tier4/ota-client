@@ -124,6 +124,7 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
+        critical_zone_flags = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -148,6 +149,7 @@ class TestOTAUpdater:
             boot_controller=self._boot_control,
             upper_otaproxy=None,
             ecu_status_flags=ecu_status_flags,
+            critical_zone_flags=critical_zone_flags,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
