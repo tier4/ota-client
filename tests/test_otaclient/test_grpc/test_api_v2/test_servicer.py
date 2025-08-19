@@ -130,6 +130,7 @@ class TestOTAClientAPIServicer:
             version="1.0.0",
             url_base="http://example.com",
             cookies_json="{}",
+            request_id="test-request-id",
             session_id="test-session-id",
         )
 
@@ -162,6 +163,7 @@ class TestOTAClientAPIServicer:
             version="1.0.0",
             url_base="http://example.com",
             cookies_json="{}",
+            request_id="test-request-id",
             session_id="test-session-id",
         )
 
