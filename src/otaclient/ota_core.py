@@ -1015,7 +1015,6 @@ class _OTAClientUpdater(_OTAUpdateOperator):
     def __init__(
         self,
         client_update_control_flags: ClientUpdateControlFlags,
-        critical_zone_flags: CriticalZoneFlags,
         **kwargs,
     ) -> None:
         # ------ init base class ------ #
@@ -1023,7 +1022,6 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
         # --- Event flag to control client update ---- #
         self.client_update_control_flags = client_update_control_flags
-        self.critical_zone_flags = critical_zone_flags
 
         # ------ setup OTA client package parser ------ #
         self._ota_client_package = OTAClientPackageDownloader(
