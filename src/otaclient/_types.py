@@ -67,12 +67,6 @@ class FailureType(StrEnum):
     UNRECOVERABLE = "UNRECOVERABLE"
 
 
-class CriticalZonesEnum(StrEnum):
-    PRE_UPDATE = "PRE_UPDATE"
-    POST_UPDATE = "POST_UPDATE"
-    FINALIZING_UPDATE = "FINALIZING_UPDATE"
-
-
 #
 # ------ otaclient internal status report ------ #
 #
@@ -151,9 +145,17 @@ class ClientUpdateControlFlags:
 class CriticalZoneFlags:
     """Flags for critical zone control."""
 
-    is_critical_zone: (
-        mp_sync.Event
-    )  # for indicating whether OTA update is in a critical zone
+    is_critical_zone: mp_sync.Event
+
+    def __enter__(self):
+        """Enter critical zone."""
+        self.is_critical_zone.set()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit critical zone."""
+        self.is_critical_zone.clear()
+        return False
 
 
 #
