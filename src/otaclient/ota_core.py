@@ -634,11 +634,14 @@ class _OTAUpdater(_OTAUpdateOperator):
             erase_standby=not use_inplace_mode,
         )
 
-        if cfg.FSTRIM_AT_OTA:
+        # NOTE: for rebuild mode, discard will be done when formatting the standby slot
+        if use_inplace_mode and cfg.FSTRIM_AT_OTA:
             _fstrim_timeout = cfg.FSTRIM_AT_OTA_TIMEOUT
-            logger.info(f"do fstrim on standby slot, {_fstrim_timeout=} ...")
+            logger.info(
+                f"on using inplace update mode, do fstrim on standby slot, {_fstrim_timeout=} ..."
+            )
             _fstrim_res = fstrim_at_thread(
-                self._boot_controller.get_standby_slot_path()
+                self._boot_controller.get_standby_slot_path(), waited=True
             )
             logger.info(f"fstrim done, finish within timeout: {_fstrim_res}")
 
