@@ -104,6 +104,7 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
+from otaclient_common.linux import fstrim_at_thread
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
@@ -237,9 +238,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -632,6 +633,15 @@ class _OTAUpdater(_OTAUpdateOperator):
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
+
+        if cfg.FSTRIM_AT_OTA:
+            _fstrim_timeout = cfg.FSTRIM_AT_OTA_TIMEOUT
+            logger.info(f"do fstrim on standby slot, {_fstrim_timeout=} ...")
+            _fstrim_res = fstrim_at_thread(
+                self._boot_controller.get_standby_slot_path()
+            )
+            logger.info(f"fstrim done, finish within timeout: {_fstrim_res}")
+
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
         self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
         self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)

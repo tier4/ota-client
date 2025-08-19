@@ -267,10 +267,13 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
 
 def fstrim_at_thread(
     target_mountpoint: Path, *, waited: bool = True, timeout: float = 120
-):
+) -> bool:  # pragma: no cover
     """Dispatch a sub-thread for running fstrim with timeout.
 
     fstrim is safe to be interrupted at any time.
+
+    Returns:
+        True if fstrim finished without reaching timeout.
     """
 
     def _thread_entry():
@@ -282,5 +285,6 @@ def fstrim_at_thread(
         _t.run()
         if waited and _t.is_alive():
             _t.join()
+        return True
     except Exception:
-        pass
+        return False
