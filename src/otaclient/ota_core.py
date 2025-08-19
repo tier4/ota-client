@@ -82,6 +82,7 @@ from otaclient._utils import (
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     DeltaGenParams,
     InPlaceDeltaGenFullDiskScan,
@@ -108,7 +109,6 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +236,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -531,9 +531,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._can_use_in_place_mode = False
 
-    def _download_resources(
-        self, delta_digests: ShardedThreadSafeDict[bytes, int]
-    ) -> None:
+    def _download_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         resource_meta = ResourceMeta(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
@@ -645,13 +643,13 @@ class _OTAUpdater(_OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
-    def _calculate_delta(self) -> ShardedThreadSafeDict[bytes, int]:
+    def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
         _current_time = int(time.time())
 
         _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
-        all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
+        all_resource_digests = ResourcesDigestWithSize.from_iterable(
             _fst_db_helper.select_all_digests_with_size(),
         )
 
@@ -769,9 +767,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
                 shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
-    def _download_delta_resources(
-        self, delta_digests: ShardedThreadSafeDict[bytes, int]
-    ) -> None:
+    def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
         to_download = len(delta_digests)
         to_download_size = sum(delta_digests.values())
