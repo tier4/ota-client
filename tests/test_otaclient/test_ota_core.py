@@ -178,6 +178,7 @@ class TestOTAClient:
             return_value=False
         )
         client_update_control_flags = mocker.MagicMock()
+        critical_zone_flags = mocker.MagicMock()
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
@@ -206,6 +207,7 @@ class TestOTAClient:
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
             client_update_control_flags=client_update_control_flags,
+            critical_zone_flags=critical_zone_flags,
             shm_metrics_reader=mocker.MagicMock(),
         )
 
