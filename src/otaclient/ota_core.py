@@ -65,7 +65,6 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     CriticalZoneFlags,
-    CriticalZonesEnum,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -78,9 +77,7 @@ from otaclient._types import (
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientStatusWriter,
-    clear_critical_zone_flag,
     get_traceback,
-    set_critical_zone_flag,
     wait_and_log,
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
@@ -616,47 +613,42 @@ class _OTAUpdater(_OTAUpdateOperator):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
 
-        # set critical zone flags
-        set_critical_zone_flag(self.critical_zone_flags, CriticalZonesEnum.PRE_UPDATE)
-
-        with TemporaryDirectory() as _tmp_dir:
-            self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
-                dev=self._boot_controller.standby_slot_dev,
-                mnt_point=_tmp_dir,
-                threshold_in_bytes=int(
-                    self._ota_metadata.total_regulars_size
-                    * STANDBY_SLOT_USED_SIZE_THRESHOLD
-                ),
+        with self.critical_zone_flags:
+            with TemporaryDirectory() as _tmp_dir:
+                self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
+                    dev=self._boot_controller.standby_slot_dev,
+                    mnt_point=_tmp_dir,
+                    threshold_in_bytes=int(
+                        self._ota_metadata.total_regulars_size
+                        * STANDBY_SLOT_USED_SIZE_THRESHOLD
+                    ),
+                )
+            logger.info(
+                f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
             )
-        logger.info(
-            f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
-        )
-        self._metrics.use_inplace_mode = use_inplace_mode
+            self._metrics.use_inplace_mode = use_inplace_mode
 
-        self._boot_controller.pre_update(
-            # NOTE: this option is deprecated and not used by bootcontroller
-            # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
-            #       we cannot do this for now, as some boot controller impl still refer to
-            #       active_slot mounts.
-            standby_as_ref=use_inplace_mode,
-            erase_standby=not use_inplace_mode,
-        )
-        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
-        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
-
-        # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
-        #                 destination folder.
-        logger.info("save the OTA image file_table to standby slot ...")
-        try:
-            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
-        except Exception as e:
-            logger.error(
-                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
+            self._boot_controller.pre_update(
+                # NOTE: this option is deprecated and not used by bootcontroller
+                # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
+                #       we cannot do this for now, as some boot controller impl still refer to
+                #       active_slot mounts.
+                standby_as_ref=use_inplace_mode,
+                erase_standby=not use_inplace_mode,
             )
-        finally:
-            # clear critical zone flags
-            clear_critical_zone_flag(self.critical_zone_flags)
+            # prepare the tmp storage on standby slot after boot_controller.pre_update finished
+            self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+            self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
+
+            # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
+            #                 destination folder.
+            logger.info("save the OTA image file_table to standby slot ...")
+            try:
+                save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
+            except Exception as e:
+                logger.error(
+                    f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
+                )
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -863,43 +855,38 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _post_update(self) -> None:
         """Post-update phase."""
         logger.info("enter post update phase...")
-        _current_time = int(time.time())
 
-        # set critical zone flags
-        set_critical_zone_flag(self.critical_zone_flags, CriticalZonesEnum.POST_UPDATE)
-
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
-                    trigger_timestamp=_current_time,
-                ),
-                session_id=self.session_id,
+        with self.critical_zone_flags:
+            _current_time = int(time.time())
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAUpdatePhaseChangeReport(
+                        new_update_phase=UpdatePhase.PROCESSING_POSTUPDATE,
+                        trigger_timestamp=_current_time,
+                    ),
+                    session_id=self.session_id,
+                )
             )
-        )
-        self._metrics.post_update_start_timestamp = _current_time
+            self._metrics.post_update_start_timestamp = _current_time
 
-        # NOTE(20240219): move persist file handling here
-        self._process_persistents(self._ota_metadata)
+            # NOTE(20240219): move persist file handling here
+            self._process_persistents(self._ota_metadata)
 
-        # save the OTA metadata to the actual location after
-        #   standby slot rootfs updated
-        ota_metadata_save_dst = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
+            # save the OTA metadata to the actual location after
+            #   standby slot rootfs updated
+            ota_metadata_save_dst = Path(
+                replace_root(
+                    cfg.IMAGE_META_DPATH,
+                    cfg.CANONICAL_ROOT,
+                    self._boot_controller.get_standby_slot_path(),
+                )
             )
-        )
-        ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
-        shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
-        shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
+            ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
+            shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
+            shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
-        self._preserve_client_squashfs()
-        self._boot_controller.post_update(self.update_version)
-
-        # clear critical zone flags
-        clear_critical_zone_flag(self.critical_zone_flags)
+            self._preserve_client_squashfs()
+            self._boot_controller.post_update(self.update_version)
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
@@ -960,51 +947,44 @@ class _OTAUpdater(_OTAUpdateOperator):
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
         logger.info("local update finished, wait on all subecs...")
-        _current_finalizing_time = int(time.time())
 
-        # set critical zone flags
-        set_critical_zone_flag(
-            self.critical_zone_flags, CriticalZonesEnum.FINALIZING_UPDATE
-        )
-
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.FINALIZING_UPDATE,
-                    trigger_timestamp=_current_finalizing_time,
-                ),
-                session_id=self.session_id,
+        with self.critical_zone_flags:
+            _current_finalizing_time = int(time.time())
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAUpdatePhaseChangeReport(
+                        new_update_phase=UpdatePhase.FINALIZING_UPDATE,
+                        trigger_timestamp=_current_finalizing_time,
+                    ),
+                    session_id=self.session_id,
+                )
             )
-        )
-        self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
-        if proxy_info.enable_local_ota_proxy:
-            wait_and_log(
-                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-                check_for=False,
-                message="permit reboot flag",
-                log_func=logger.info,
+            self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
+            if proxy_info.enable_local_ota_proxy:
+                wait_and_log(
+                    check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+                    check_for=False,
+                    message="permit reboot flag",
+                    log_func=logger.info,
+                )
+
+            _current_reboot_time = int(time.time())
+            self._metrics.reboot_start_timestamp = _current_reboot_time
+
+            # publish the metrics before rebooting
+            try:
+                if self._shm_metrics_reader:
+                    _shm_metrics = self._shm_metrics_reader.sync_msg()
+                    self._metrics.shm_merge(_shm_metrics)
+            except Exception as e:
+                logger.error(f"failed to merge metrics: {e!r}")
+            self._metrics.publish()
+
+            logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+            time.sleep(WAIT_BEFORE_REBOOT)
+            self._boot_controller.finalizing_update(
+                chroot=_env.get_dynamic_client_chroot_path()
             )
-
-        _current_reboot_time = int(time.time())
-        self._metrics.reboot_start_timestamp = _current_reboot_time
-
-        # publish the metrics before rebooting
-        try:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
-        except Exception as e:
-            logger.error(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
-
-        # clear critical zone flags
-        clear_critical_zone_flag(self.critical_zone_flags)
-
-        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
-        time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update(
-            chroot=_env.get_dynamic_client_chroot_path()
-        )
 
     # API
 
