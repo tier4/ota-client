@@ -23,9 +23,9 @@ import sys
 import time
 import traceback
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Callable, Literal
 
-from otaclient._types import CriticalZoneFlags, OTAClientStatus
+from otaclient._types import OTAClientStatus
 from otaclient.metrics import OTAMetricsSharedMemoryData
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 from otaclient_common._shm import MPSharedMemoryReader, MPSharedMemoryWriter
