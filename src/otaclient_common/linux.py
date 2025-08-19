@@ -268,11 +268,19 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
 def fstrim_at_thread(
     target_mountpoint: Path, *, waited: bool = True, timeout: float = 120
 ):
+    """Dispatch a sub-thread for running fstrim with timeout.
+
+    fstrim is safe to be interrupted at any time.
+    """
+
     def _thread_entry():
         _cmd = ["fstrim", "-v", str(target_mountpoint)]
         subprocess.run(_cmd, timeout=timeout)
 
     _t = threading.Thread(target=_thread_entry, name="otaclient_fstrim", daemon=True)
-    _t.run()
-    if waited:
-        _t.join(timeout=timeout)
+    try:
+        _t.run()
+        if waited and _t.is_alive():
+            _t.join()
+    except Exception:
+        pass
