@@ -30,7 +30,7 @@ from otaclient._types import (
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient._utils import gen_session_id
+from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
@@ -190,6 +190,7 @@ class OTAClientAPIServicer:
             | type[RollbackRequestV2]
             | type[ClientUpdateRequestV2]
         ),
+        request_id: str,
     ) -> UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2:
         if (
             isinstance(req_ecu, api_types.UpdateRequestEcu)
@@ -204,6 +205,7 @@ class OTAClientAPIServicer:
                 version=req_ecu.version,
                 url_base=req_ecu.url,
                 cookies_json=req_ecu.cookies,
+                request_id=request_id,
                 session_id=new_session_id,
             )
         elif isinstance(req_ecu, api_types.RollbackRequestEcu) and (
@@ -211,7 +213,9 @@ class OTAClientAPIServicer:
         ):
             # rollback
             new_session_id = gen_session_id("__rollback")
-            local_request = request_cls(session_id=new_session_id)
+            local_request = request_cls(
+                request_id=request_id, session_id=new_session_id
+            )
         else:
             raise ValueError(
                 "invalid req_ecu and request_cls combination: {req_ecu}, {request_cls}"
@@ -281,6 +285,9 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
+        if not request.request_id:
+            request.request_id = gen_request_id()
+
         # NOTE(20241220): due to the fact that OTA Service API doesn't have field
         #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
         #                 to upper is by status API.
@@ -331,7 +338,9 @@ class OTAClientAPIServicer:
 
         # second: dispatch update request to local if required by incoming request
         if req_ecu := request.find_ecu(self.my_ecu_id):
-            local_request = self._create_local_request(req_ecu, request_cls)
+            local_request = self._create_local_request(
+                req_ecu=req_ecu, request_cls=request_cls, request_id=request.request_id
+            )
             _resp = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 local_handler,

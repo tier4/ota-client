@@ -1302,6 +1302,7 @@ class OTAClient:
             is available via status API.
         """
         self._live_ota_status = OTAStatus.UPDATING
+        request_id = request.request_id
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -1311,9 +1312,12 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA update session: {new_session_id=}")
+        logger.info(
+            f"start new OTA update request:{request_id}, session: {new_session_id=}"
+        )
 
         session_wd = self._update_session_dir / new_session_id
+        self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
         try:
             logger.info("[update] entering local update...")
@@ -1367,6 +1371,7 @@ class OTAClient:
             return
 
         self._live_ota_status = OTAStatus.CLIENT_UPDATING
+        request_id = request.request_id
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -1376,7 +1381,9 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA client update session: {new_session_id=}")
+        logger.info(
+            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
+        )
 
         session_wd = self._update_session_dir / new_session_id
         try:
