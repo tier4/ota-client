@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import threading
 from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
@@ -214,6 +215,11 @@ def subprocess_run_wrapper(
     )
 
 
+#
+# ------ optimized file IO on linux ------ #
+#
+
+
 def _copyfileobj(fsrc, fdst, length=8 * 1024**2):
     """Copied from shutil.copyfileobj."""
     fsrc_read = fsrc.read
@@ -252,3 +258,21 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+#
+# ------ fstrim with timeout ------ #
+#
+
+
+def fstrim_at_thread(
+    target_mountpoint: Path, *, waited: bool = True, timeout: float = 120
+):
+    def _thread_entry():
+        _cmd = ["fstrim", "-v", str(target_mountpoint)]
+        subprocess.run(_cmd, timeout=timeout)
+
+    _t = threading.Thread(target=_thread_entry, name="otaclient_fstrim", daemon=True)
+    _t.run()
+    if waited:
+        _t.join(timeout=timeout)
