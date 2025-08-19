@@ -325,6 +325,7 @@ class TestOTAClientUpdater:
         _, self.status_report_queue = ota_status_collector
         self.ecu_status_flags = mocker.MagicMock()
         self.client_update_control_flags = mocker.MagicMock()
+        self.critical_zone_flags = mocker.MagicMock()
 
         # Create a real temporary directory for the session
         self.session_workdir = tmp_path / "test_client_update"
@@ -363,6 +364,7 @@ class TestOTAClientUpdater:
             session_wd=session_workdir,
             ca_chains_store=self.ca_chains_store,
             ecu_status_flags=self.ecu_status_flags,
+            critical_zone_flags=self.critical_zone_flags,
             status_report_queue=self.status_report_queue,
             session_id=self.SESSION_ID,
             client_update_control_flags=self.client_update_control_flags,
