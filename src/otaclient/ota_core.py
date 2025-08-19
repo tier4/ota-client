@@ -82,6 +82,7 @@ from otaclient._utils import (
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
+from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby.delta_gen import (
     DeltaGenParams,
@@ -1261,6 +1262,14 @@ class OTAClient:
 
         self.started = True
         logger.info("otaclient started")
+
+        # NOTE: not doing fstrim at startup when running as dynamic otaclient
+        if not _env.is_dynamic_client_running() and cfg.FSTRIM_AT_OTACLIENT_STARTUP:
+            fstrim_at_thread(
+                Path(CANONICAL_ROOT),
+                waited=False,
+                timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
+            )
 
     def _on_failure(
         self,
