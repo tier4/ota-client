@@ -20,6 +20,8 @@ from otaclient_common.thread_safe_container import ShardedThreadSafeDict, Thread
 
 
 class ResourcesDigestWithSize(ShardedThreadSafeDict[bytes, int]):
+    # NOTE: sha256 digest is already unique, no need to do hash again,
+    #       just directly calculate shard index from its value.
     def _shard_index(self, key: bytes) -> int:
         return int.from_bytes(key, byteorder="big") % self._num_of_shards
 
