@@ -59,6 +59,7 @@ class OTAMetricsData:
 
     # ECU and Firmware
     ecu_id: str = ecu_info.ecu_id
+    request_id: str = ""
     session_id: str = ""
     current_firmware_version: str = ""
     target_firmware_version: str = ""

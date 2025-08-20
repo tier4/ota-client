@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTA Service API v2 implementation."""
 
-
 from __future__ import annotations
 
 import asyncio
@@ -31,7 +30,7 @@ from otaclient._types import (
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient._utils import gen_session_id
+from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
@@ -72,14 +71,6 @@ class OTAClientAPIServicer:
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
         """Thread worker for dispatching a local update."""
         return self._dispatch_local_request(request, api_types.UpdateResponseEcu)
-
-    def _local_rollback(
-        self, rollback_request: RollbackRequestV2
-    ) -> api_types.RollbackResponseEcu:
-        """Thread worker for dispatching a local rollback."""
-        return self._dispatch_local_request(
-            rollback_request, api_types.RollbackResponseEcu
-        )
 
     def _local_client_update(
         self, request: ClientUpdateRequestV2
@@ -199,6 +190,7 @@ class OTAClientAPIServicer:
             | type[RollbackRequestV2]
             | type[ClientUpdateRequestV2]
         ),
+        request_id: str,
     ) -> UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2:
         if (
             isinstance(req_ecu, api_types.UpdateRequestEcu)
@@ -213,6 +205,7 @@ class OTAClientAPIServicer:
                 version=req_ecu.version,
                 url_base=req_ecu.url,
                 cookies_json=req_ecu.cookies,
+                request_id=request_id,
                 session_id=new_session_id,
             )
         elif isinstance(req_ecu, api_types.RollbackRequestEcu) and (
@@ -220,7 +213,9 @@ class OTAClientAPIServicer:
         ):
             # rollback
             new_session_id = gen_session_id("__rollback")
-            local_request = request_cls(session_id=new_session_id)
+            local_request = request_cls(
+                request_id=request_id, session_id=new_session_id
+            )
         else:
             raise ValueError(
                 "invalid req_ecu and request_cls combination: {req_ecu}, {request_cls}"
@@ -290,6 +285,9 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
+        if not request.request_id:
+            request.request_id = gen_request_id()
+
         # NOTE(20241220): due to the fact that OTA Service API doesn't have field
         #                 in UpdateResponseEcu msg, the only way to pass the failure_msg
         #                 to upper is by status API.
@@ -340,7 +338,9 @@ class OTAClientAPIServicer:
 
         # second: dispatch update request to local if required by incoming request
         if req_ecu := request.find_ecu(self.my_ecu_id):
-            local_request = self._create_local_request(req_ecu, request_cls)
+            local_request = self._create_local_request(
+                req_ecu=req_ecu, request_cls=request_cls, request_id=request.request_id
+            )
             _resp = await asyncio.get_running_loop().run_in_executor(
                 self._executor,
                 local_handler,
@@ -381,14 +381,17 @@ class OTAClientAPIServicer:
     async def rollback(
         self, request: api_types.RollbackRequest
     ) -> api_types.RollbackResponse:
-        return await self._handle_request(
-            request=request,
-            local_handler=self._local_rollback,
-            request_cls=RollbackRequestV2,
-            remote_call=OTAClientCall.rollback_call,
-            response_type=api_types.RollbackResponse,
-            update_acked_ecus=None,
-        )
+        # NOTE(20250818): remove rollback API handler support
+        _res = []
+        for _ecu_req in request.ecu:
+            _res.append(
+                api_types.RollbackResponseEcu(
+                    ecu_id=_ecu_req.ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="rollback API support is removed",
+                ),
+            )
+        return api_types.RollbackResponse(ecu=_res)
 
     async def client_update(
         self, request: api_types.ClientUpdateRequest

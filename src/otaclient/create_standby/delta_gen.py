@@ -37,7 +37,8 @@ from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
+
+from ._common import ResourcesDigestWithSize
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class UpdateStandbySlotFailed(Exception): ...
 
 class DeltaGenParams(TypedDict):
     file_table_db_helper: FileTableDBHelper
-    all_resource_digests: ShardedThreadSafeDict[bytes, int]
+    all_resource_digests: ResourcesDigestWithSize
     delta_src: Path
     copy_dst: Path
     status_report_queue: Queue[StatusReport]
@@ -87,7 +88,7 @@ class _DeltaGeneratorBase:
         self,
         *,
         file_table_db_helper: FileTableDBHelper,
-        all_resource_digests: ShardedThreadSafeDict[bytes, int],
+        all_resource_digests: ResourcesDigestWithSize,
         delta_src: Path,
         copy_dst: Path,
         status_report_queue: Queue[StatusReport],
