@@ -36,7 +36,6 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
-from otaclient_common.thread_safe_container import ThreadSafeDict
 
 from ._common import HardlinkGroup
 
