@@ -105,7 +105,7 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
-from otaclient_common.linux import fstrim_at_thread
+from otaclient_common.linux import fstrim_at_subprocess
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
@@ -238,9 +238,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -638,8 +638,10 @@ class _OTAUpdater(_OTAUpdateOperator):
             logger.info(
                 f"on using inplace update mode, do fstrim on standby slot, {_fstrim_timeout=} ..."
             )
-            _fstrim_res = fstrim_at_thread(
-                self._boot_controller.get_standby_slot_path(), waited=True
+            _fstrim_res = fstrim_at_subprocess(
+                self._boot_controller.get_standby_slot_path(),
+                wait=True,
+                timeout=cfg.FSTRIM_AT_OTA_TIMEOUT,
             )
             logger.info(f"fstrim done, finish within timeout: {_fstrim_res}")
 
@@ -1260,9 +1262,13 @@ class OTAClient:
 
         # NOTE: not doing fstrim at startup when running as dynamic otaclient
         if not _env.is_dynamic_client_running() and cfg.FSTRIM_AT_OTACLIENT_STARTUP:
-            fstrim_at_thread(
+            logger.info(
+                "spawn a subprocess to do fstrim on active slot"
+                f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
+            )
+            fstrim_at_subprocess(
                 Path(CANONICAL_ROOT),
-                waited=False,
+                wait=False,
                 timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
             )
 
