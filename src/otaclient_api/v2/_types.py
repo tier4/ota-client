@@ -182,9 +182,13 @@ class RollbackRequestEcu(MessageWrapper[pb2.RollbackRequestEcu]):
 class RollbackRequest(ECUList[RollbackRequestEcu], MessageWrapper[pb2.RollbackRequest]):
     __slots__ = calculate_slots(pb2.RollbackRequest)
     ecu: RepeatedCompositeContainer[RollbackRequestEcu]
+    request_id: str
 
     def __init__(
-        self, *, ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...
+        self,
+        *,
+        ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -562,9 +566,13 @@ class UpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
 class UpdateRequest(ECUList[UpdateRequestEcu], MessageWrapper[pb2.UpdateRequest]):
     __slots__ = calculate_slots(pb2.UpdateRequest)
     ecu: RepeatedCompositeContainer[UpdateRequestEcu]
+    request_id: str
 
     def __init__(
-        self, *, ecu: _Optional[_Iterable[UpdateRequestEcu]] = ...
+        self,
+        *,
+        ecu: _Optional[_Iterable[UpdateRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -631,9 +639,13 @@ class ClientUpdateRequest(
 ):
     __slots__ = calculate_slots(pb2.UpdateRequest)
     ecu: RepeatedCompositeContainer[ClientUpdateRequestEcu]
+    request_id: str
 
     def __init__(
-        self, *, ecu: _Optional[_Iterable[ClientUpdateRequestEcu]] = ...
+        self,
+        *,
+        ecu: _Optional[_Iterable[ClientUpdateRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
