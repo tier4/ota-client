@@ -852,8 +852,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         """
         try:
             self._execute_update()
-            # NOTE(20250818): preserve the OTA resource dir to speed up next OTA
-            # shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
+            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
