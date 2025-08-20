@@ -13,10 +13,8 @@
 # limitations under the License.
 """OTA client package implementation."""
 
-
 from __future__ import annotations
 
-import json
 import logging
 import os
 import platform
@@ -119,9 +117,9 @@ class OTAClientPackageDownloader:
             condition.wait()  # wait for download finished
 
         # ------ step 2: load manifest.json ------ #
-        with open(_client_manifest_fpath, "r") as f:
-            manifest_data = json.load(f)
-            self._manifest = Manifest(**manifest_data)
+        self._manifest = Manifest.model_validate_json(
+            _client_manifest_fpath.read_text()
+        )
 
     def _prepare_client_package(
         self,
@@ -306,7 +304,6 @@ class OTAClientPackageDownloader:
 
 
 class OTAClientPackagePreparer:
-
     def __init__(
         self,
         squashfs_file: StrOrPath,
