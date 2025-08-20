@@ -377,7 +377,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         # ------ define runtime dirs ------ #
         self._resource_dir_on_standby = Path(
             replace_root(
-                cfg.OTA_TMP_STORE,
+                cfg.OTA_RESOURCES_STORE,
                 cfg.CANONICAL_ROOT,
                 self._boot_controller.get_standby_slot_path(),
             )
@@ -556,8 +556,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
-                "OTA resource dir found on standby slot, possible an interrupted OTA. \n"
-                "Try to resume previous OTA delta calculation progress ..."
+                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
             )
             ResourceScanner(
                 all_resource_digests=all_resource_digests,
@@ -565,8 +564,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
             ).resume_ota()
-            logger.info("finish resuming previous OTA progress")
-        # prepare resource dir on standby after OTA resume
+            logger.info("finish up scanning OTA resource dir")
         self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
 
         base_meta_dir_on_standby_slot = None
@@ -854,7 +852,8 @@ class _OTAUpdater(_OTAUpdateOperator):
         """
         try:
             self._execute_update()
-            shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
+            # NOTE(20250818): preserve the OTA resource dir to speed up next OTA
+            # shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()

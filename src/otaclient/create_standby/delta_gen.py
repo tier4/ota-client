@@ -81,7 +81,7 @@ class _DeltaGeneratorBase:
     CLEANUP_ENTRY = {Path("/lost+found"), Path("/tmp"), Path("/run")}
     """Entries we need to cleanup everytime, include /lost+found, /tmp and /run."""
 
-    OTA_WORK_PATHS = {Path(cfg.OTA_TMP_STORE), Path(cfg.OTA_TMP_META_STORE)}
+    OTA_WORK_PATHS = {Path(cfg.OTA_RESOURCES_STORE), Path(cfg.OTA_TMP_META_STORE)}
     """Folders for otaclient working on standby slot."""
 
     def __init__(
@@ -572,6 +572,10 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
         for _input in self._fst_db_helper.iter_common_regular_entries_by_digest(
             base_fst
         ):
+            _digest, _ = _input
+            if _digest not in self._all_resource_digests:
+                continue  # skip resources that already prepared(via resume OTA)
+
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
@@ -584,6 +588,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     ) -> None:
         _workers: list[threading.Thread] = []
         try:
+            logger.info("start thread workers to calculate delta ...")
             try:
                 for _ in range(worker_num):
                     _t = threading.Thread(
@@ -597,6 +602,9 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
+            logger.info(
+                "clean up files and directories that doesn't present in new image ..."
+            )
             self._cleanup_base()
         finally:
             self._ft_reg_orm_pool.orm_pool_shutdown()
