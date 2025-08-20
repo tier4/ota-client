@@ -27,7 +27,8 @@ from queue import Queue
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
+
+from ._common import ResourcesDigestWithSize
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class ResourceScanner:
     def __init__(
         self,
         *,
-        all_resource_digests: ShardedThreadSafeDict[bytes, int],
+        all_resource_digests: ResourcesDigestWithSize,
         resource_dir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,

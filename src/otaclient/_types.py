@@ -163,6 +163,7 @@ class IPCResponse:
 
 @dataclass
 class IPCRequest:
+    request_id: str
     session_id: str
 
 

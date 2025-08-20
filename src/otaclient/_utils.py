@@ -113,9 +113,24 @@ class SharedOTAClientMetricsReader(MPSharedMemoryReader[OTAMetricsSharedMemoryDa
     """Util for reading OTAMetricsSharedMemoryData from shm."""
 
 
+REQUEST_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars
 SESSION_RANDOM_LEN = 4  # bytes, the corresponding hex string will be 8 chars
 
 _illegal_chars_pattern = re.compile(r'[\.\/\0<>:"\\|?*\x00-\x1F]')
+
+
+def gen_request_id(
+    *, random_bytes_num: int = REQUEST_RANDOM_LEN
+) -> str:  # pragma: no cover
+    """Generate a unique request_id for the new OTA request targeting multiple ECUs
+
+    request_id schema:
+        <unix_timestamp_in_sec_str>-<4bytes_hex>
+    """
+    _time_factor = str(int(time.time()))
+    _random_factor = os.urandom(random_bytes_num).hex()
+
+    return f"{_time_factor}-{_random_factor}"
 
 
 def gen_session_id(
