@@ -390,14 +390,15 @@ class TestOTAClientUpdater:
         assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
 
     def test_download_client_package_resources(
-        self, setup_client_updater, mocker: pytest_mock.MockerFixture
+        self, setup_client_updater: _OTAClientUpdater, mocker: pytest_mock.MockerFixture
     ):
         # Test downloading client package resources
         client_updater = setup_client_updater
 
         # Mock the internal _download_client_package_files method
         mock_download_files = mocker.patch.object(
-            client_updater, "_download_client_package_files"
+            client_updater,
+            "_download_helper",
         )
 
         # Mock the status report queue's put_nowait method
@@ -416,26 +417,7 @@ class TestOTAClientUpdater:
         )
 
         # Verify download method was called
-        mock_download_files.assert_called_once()
-
-    def test_download_client_package_files(
-        self, setup_client_updater, mocker: pytest_mock.MockerFixture
-    ):
-        # Test downloading client package files
-        client_updater = setup_client_updater
-
-        # Mock _download_and_process_file_with_condition method
-        mock_download_method = mocker.patch.object(
-            client_updater, "_download_and_process_file_with_condition"
-        )
-
-        client_updater._download_client_package_files()
-
-        # Verify correct parameters were passed
-        mock_download_method.assert_called_once_with(
-            thread_name_prefix="download_client_file",
-            get_downloads_generator=self.mock_ota_client_package.download_client_package,
-        )
+        mock_download_files.download_meta_files.assert_called_once()
 
     def test_wait_sub_ecus(
         self, setup_client_updater, mocker: pytest_mock.MockerFixture
@@ -583,7 +565,7 @@ class TestOTAClientUpdater:
         self.rmtree_patcher.assert_called_with(self.session_workdir, ignore_errors=True)
 
     def test_download_with_tasks_ensure_failed(
-        self, setup_client_updater, mocker: pytest_mock.MockerFixture
+        self, setup_client_updater: _OTAClientUpdater, mocker: pytest_mock.MockerFixture
     ):
         # Test handling of TasksEnsureFailed during download
         client_updater = setup_client_updater
@@ -591,15 +573,14 @@ class TestOTAClientUpdater:
         # Import the exception class
         from otaclient_common.retry_task_map import TasksEnsureFailed
 
-        # Mock _download_client_package_files to raise TasksEnsureFailed
+        # Mock _download_client_package_resources to raise TasksEnsureFailed
         mocker.patch.object(
-            client_updater,
-            "_download_client_package_files",
+            client_updater._download_helper,
+            "download_meta_files",
             side_effect=TasksEnsureFailed(),
         )
 
-        # Should raise NetworkError
-        with pytest.raises(ota_core.ota_errors.NetworkError):
+        with pytest.raises(ota_core.ota_errors.ClientUpdateFailed):
             client_updater._download_client_package_resources()
 
         # Verify downloader pool was shut down
