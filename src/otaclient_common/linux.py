@@ -18,7 +18,6 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-import threading
 from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
@@ -265,26 +264,41 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
 #
 
 
-def fstrim_at_thread(
-    target_mountpoint: Path, *, waited: bool = True, timeout: float = 120
-) -> bool:  # pragma: no cover
-    """Dispatch a sub-thread for running fstrim with timeout.
+def fstrim_at_subprocess(
+    target_mountpoint: Path, *, wait: bool = True, timeout: int
+) -> None:  # pragma: no cover
+    """Dispatch subprocess to do fstrim with timeout.
 
     fstrim is safe to be interrupted at any time.
 
-    Returns:
-        True if fstrim finished without reaching timeout.
+    Args:
+        target_mountpoint: target to do fstrim against.
+        wait: if True, will wait for fstrim finish up(blocking),
+            otherwise, spawn a background detached process to do fstrim.
+        timeout: max execution time for fstrim.
     """
+    _cmd = ["fstrim", str(target_mountpoint)]
+    if wait:  # spawned the fstrim subprocess, and wait for it finishes.
+        try:
+            subprocess.run(
+                _cmd,
+                timeout=timeout,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+        return
 
-    def _thread_entry():
-        _cmd = ["fstrim", "-v", str(target_mountpoint)]
-        subprocess.run(_cmd, timeout=timeout)
-
-    _t = threading.Thread(target=_thread_entry, name="otaclient_fstrim", daemon=True)
-    try:
-        _t.run()
-        if waited and _t.is_alive():
-            _t.join()
-        return True
-    except Exception:
-        return False
+    # the spawned subprocess will do a double-fork to fully detach
+    #   the fstrim command execution from otaclient process.
+    _cmd = ["nohup", "timeout", str(timeout), *_cmd]
+    _detached_cmd = f"{shlex.join(_cmd)} &"
+    subprocess.run(
+        _detached_cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        shell=True,
+    )
