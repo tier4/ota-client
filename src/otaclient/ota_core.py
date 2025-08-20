@@ -638,12 +638,12 @@ class _OTAUpdater(_OTAUpdateOperator):
             logger.info(
                 f"on using inplace update mode, do fstrim on standby slot, {_fstrim_timeout=} ..."
             )
-            _fstrim_res = fstrim_at_subprocess(
+            fstrim_at_subprocess(
                 self._boot_controller.get_standby_slot_path(),
                 wait=True,
                 timeout=cfg.FSTRIM_AT_OTA_TIMEOUT,
             )
-            logger.info(f"fstrim done, finish within timeout: {_fstrim_res}")
+            logger.info("fstrim done")
 
         # prepare the tmp storage on standby slot after boot_controller.pre_update finished
         self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
