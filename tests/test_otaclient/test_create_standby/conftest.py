@@ -170,7 +170,7 @@ def verify_resources(_fst_db_helper: FileTableDBHelper, resource_dir: Path) -> N
 
 @pytest.fixture
 def resource_dir(tmp_path: Path):
-    _rd = tmp_path / ".ota-tmp"
+    _rd = tmp_path / ".ota-resources"
     logger.info(f"prepare function scrope resource dir: {_rd} ...")
     try:
         _rd.mkdir()

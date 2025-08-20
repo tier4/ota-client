@@ -81,7 +81,7 @@ class _DeltaGeneratorBase:
     CLEANUP_ENTRY = {Path("/lost+found"), Path("/tmp"), Path("/run")}
     """Entries we need to cleanup everytime, include /lost+found, /tmp and /run."""
 
-    OTA_WORK_PATHS = {Path(cfg.OTA_TMP_STORE), Path(cfg.OTA_TMP_META_STORE)}
+    OTA_WORK_PATHS = {Path(cfg.OTA_RESOURCES_STORE), Path(cfg.OTA_TMP_META_STORE)}
     """Folders for otaclient working on standby slot."""
 
     def __init__(
@@ -104,7 +104,8 @@ class _DeltaGeneratorBase:
             db_conn_num=DB_CONN_NUMS
         )
         self._ft_dir_orm = file_table_db_helper.get_dir_orm()
-        self._all_resource_digests = all_resource_digests
+        self._resources_to_check = all_resource_digests
+        """Resources that we need to collecting during delta_calculation."""
 
         self._que = Queue()
         self._max_pending_tasks = threading.Semaphore(
@@ -354,7 +355,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.pop(calculated_digest)
+                    self._resources_to_check.pop(calculated_digest)
 
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
                     os.replace(fpath, resource_save_dst)
@@ -483,7 +484,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 resource_save_dst = self._copy_dst / calculated_digest.hex()
 
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.pop(calculated_digest)
+                    self._resources_to_check.pop(calculated_digest)
 
                     if not resource_save_dst.is_file():
                         os.replace(tmp_dst_fpath, resource_save_dst)
@@ -572,6 +573,12 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
         for _input in self._fst_db_helper.iter_common_regular_entries_by_digest(
             base_fst
         ):
+            _digest, _ = _input
+            # NOTE(20250820): some of the resources might be already prepared
+            #                 by the resume OTA, skip collecting these resources.
+            if _digest not in self._resources_to_check:
+                continue
+
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
 
@@ -584,6 +591,7 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
     ) -> None:
         _workers: list[threading.Thread] = []
         try:
+            logger.info("start thread workers to calculate delta ...")
             try:
                 for _ in range(worker_num):
                     _t = threading.Thread(
@@ -597,6 +605,9 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
                 for _t in _workers:
                     _t.join()
 
+            logger.info(
+                "clean up files and directories that doesn't present in new image ..."
+            )
             self._cleanup_base()
         finally:
             self._ft_reg_orm_pool.orm_pool_shutdown()
@@ -645,7 +656,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.pop(expected_digest)
+                            self._resources_to_check.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(fpath, resource_save_dst)
@@ -750,7 +761,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.pop(expected_digest)
+                            self._resources_to_check.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(_tmp_fpath, resource_save_dst)
