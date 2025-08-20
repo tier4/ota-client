@@ -236,9 +236,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -983,8 +983,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         """
         try:
             self._execute_update()
-            # NOTE(20250818): preserve the OTA resource dir to speed up next OTA
-            # shutil.rmtree(self._resource_dir_on_standby, ignore_errors=True)
+            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
