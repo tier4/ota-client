@@ -23,12 +23,12 @@ import pytest
 import pytest_mock
 
 from ota_metadata.file_table.db import FileTableDBHelper
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaGenFullDiskScan,
     RebuildDeltaGenFullDiskScan,
     RebuildDeltaWithBaseFileTable,
 )
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 from .conftest import SlotAB, verify_resources
 
@@ -60,7 +60,7 @@ def test_rebuild_mode_with_base_file_table_assist(
     resource_dir: Path,
 ) -> None:
     logger.info("start to test rebuild mode with base file_table assist ...")
-    _all_digests = ShardedThreadSafeDict.from_iterable(
+    _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
     )
 
@@ -82,7 +82,7 @@ def test_rebuild_mode_with_full_disk_scan(
     resource_dir: Path,
 ) -> None:
     logger.info("start to test rebuild mode with full disk scan ...")
-    _all_digests = ShardedThreadSafeDict.from_iterable(
+    _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
     )
 
@@ -104,7 +104,7 @@ def test_inplace_mode_with_full_disk_scan(
     resource_dir: Path,
 ) -> None:
     logger.info("start to test inplace mode with full disk scan ...")
-    _all_digests = ShardedThreadSafeDict.from_iterable(
+    _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
     )
 

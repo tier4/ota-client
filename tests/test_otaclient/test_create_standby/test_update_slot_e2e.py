@@ -20,12 +20,12 @@ from hashlib import sha256
 from pathlib import Path
 
 from ota_metadata.file_table.db import FileTableDBHelper
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaWithBaseFileTable,
 )
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient_common import replace_root
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 from .conftest import SlotAB, verify_resources
 from .test_delta_gen_e2e import MockedQue
@@ -85,7 +85,7 @@ def test_update_slot_with_inplace_mode_with_full_disk_scan(
     resource_dir: Path,
 ) -> None:
     logger.info("start to test inplace mode with base file_table assist ...")
-    _all_digests = ShardedThreadSafeDict.from_iterable(
+    _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
     )
 

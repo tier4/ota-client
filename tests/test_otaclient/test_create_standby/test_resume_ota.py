@@ -23,11 +23,9 @@ import pytest
 import pytest_mock
 
 from ota_metadata.file_table.db import FileTableDBHelper
-from otaclient.create_standby.delta_gen import (
-    InPlaceDeltaWithBaseFileTable,
-)
+from otaclient.create_standby._common import ResourcesDigestWithSize
+from otaclient.create_standby.delta_gen import InPlaceDeltaWithBaseFileTable
 from otaclient.create_standby.resume_ota import ResourceScanner
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 from .conftest import SlotAB
 
@@ -59,7 +57,7 @@ def test_resume_ota(
     resource_dir: Path,
 ) -> None:
     logger.info("process slot and generating OTA resources ...")
-    _all_digests = ShardedThreadSafeDict.from_iterable(
+    _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
     )
 
