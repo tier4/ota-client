@@ -38,6 +38,7 @@ from urllib.parse import urlparse
 import requests.exceptions as requests_exc
 from requests import Response
 
+from ota_metadata.file_table.db import FileTableDBHelper
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import (
@@ -50,6 +51,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
 )
 from otaclient import errors as ota_errors
+from otaclient._download_resources import DownloadHelper
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -80,6 +82,7 @@ from otaclient._utils import (
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     DeltaGenParams,
     InPlaceDeltaGenFullDiskScan,
@@ -262,7 +265,7 @@ class _OTAUpdateOperator:
             downloaded_bytes=0,
             previous_active_timestamp=0,
         )
-        self._downloader_pool = DownloaderPool(
+        self._downloader_pool = _downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
@@ -271,6 +274,12 @@ class _OTAUpdateOperator:
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
+        self._download_helper = DownloadHelper(
+            downloader_pool=_downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+        )
+
         self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
@@ -476,81 +485,6 @@ class _OTAUpdateOperator:
             compression_alg=entry.compression_alg,
         )
 
-    def _download_resources(self, resource_meta: ResourceMeta) -> None:
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
-        _mapper = ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            thread_name_prefix="download_ota_files",
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=DownloadPoolWatchdogFuncContext(
-                    downloaded_bytes=0,
-                    previous_active_timestamp=int(time.time()),
-                ),
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
-        )
-        try:
-            _next_commit_before, _report_batch_cnt = 0, 0
-            _merged_payload = UpdateProgressReport(
-                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-            )
-            for _done_count, _fut in enumerate(
-                _mapper.ensure_tasks(
-                    self._download_single_file,
-                    resource_meta.iter_resources(
-                        batch_size=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS
-                    ),
-                ),
-                start=1,
-            ):
-                _now = time.time()
-
-                if _download_exception_handler(_fut):
-                    err_count, file_size, downloaded_bytes = _fut.result()
-
-                    _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.errors += err_count
-                    _merged_payload.downloaded_bytes += downloaded_bytes
-                else:
-                    _merged_payload.errors += 1
-
-                self._metrics.downloaded_bytes = _merged_payload.downloaded_bytes
-                self._metrics.downloaded_errors = _merged_payload.errors
-
-                if (
-                    _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
-                ) > _report_batch_cnt or _now > _next_commit_before:
-                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
-                    _report_batch_cnt = _this_batch
-
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=_merged_payload,
-                            session_id=self.session_id,
-                        )
-                    )
-
-                    _merged_payload = UpdateProgressReport(
-                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-                    )
-
-            # for left-over items that cannot fill up the batch
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=_merged_payload,
-                    session_id=self.session_id,
-                )
-            )
-        finally:
-            _mapper.shutdown(wait=True)
-            # release the downloader instances
-            self._downloader_pool.release_all_instances()
-            self._downloader_pool.shutdown()
-
     def _downloader_worker_initializer(self) -> None:
         self._downloader_mapper[threading.get_native_id()] = (
             self._downloader_pool.get_instance()
@@ -597,6 +531,66 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._can_use_in_place_mode = False
 
+    def _download_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
+        resource_meta = ResourceMeta(
+            base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
+            copy_dst=self._resource_dir_on_standby,
+        )
+        try:
+            _next_commit_before, _report_batch_cnt = 0, 0
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+            )
+            for _done_count, _fut in enumerate(
+                self._download_helper.download_resources(
+                    delta_digests,
+                    resource_meta,
+                ),
+                start=1,
+            ):
+                _now = time.time()
+                if _download_exception_handler(_fut):
+                    err_count, file_size, downloaded_bytes = _fut.result()
+
+                    _merged_payload.processed_file_num += 1
+                    _merged_payload.processed_file_size += file_size
+                    _merged_payload.errors += err_count
+                    _merged_payload.downloaded_bytes += downloaded_bytes
+                else:
+                    _merged_payload.errors += 1
+
+                self._metrics.downloaded_bytes = _merged_payload.downloaded_bytes
+                self._metrics.downloaded_errors = _merged_payload.errors
+
+                if (
+                    _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
+                ) > _report_batch_cnt or _now > _next_commit_before:
+                    _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
+                    _report_batch_cnt = _this_batch
+
+                    self._status_report_queue.put_nowait(
+                        StatusReport(
+                            payload=_merged_payload,
+                            session_id=self.session_id,
+                        )
+                    )
+
+                    _merged_payload = UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+                    )
+
+            # for left-over items that cannot fill up the batch
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=self.session_id,
+                )
+            )
+        finally:
+            self._downloader_pool.shutdown()
+            resource_meta.shutdown()
+
     def _execute_update(self):
         """Implementation of OTA updating."""
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
@@ -604,8 +598,8 @@ class _OTAUpdater(_OTAUpdateOperator):
         self._handle_upper_proxy()
         self._process_metadata()
         self._pre_update()
-        self._calculate_delta()
-        self._download_delta_resources()
+        _delta_digests = self._calculate_delta()
+        self._download_delta_resources(_delta_digests)
         self._apply_update()
         self._post_update()
         self._finalize_update()
@@ -649,10 +643,16 @@ class _OTAUpdater(_OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
-    def _calculate_delta(self):
+    def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
         _current_time = int(time.time())
+
+        _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
+        all_resource_digests = ResourcesDigestWithSize.from_iterable(
+            _fst_db_helper.select_all_digests_with_size(),
+        )
+
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -692,7 +692,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 "Try to resume previous OTA delta calculation progress ..."
             )
             ResourceScanner(
-                ota_metadata=self._ota_metadata,
+                all_resource_digests=all_resource_digests,
                 resource_dir=self._resource_dir_on_standby,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -719,7 +719,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                     verified_base_db = find_saved_fstable(base_meta_dir_on_standby_slot)
 
                 _inplace_mode_params = DeltaGenParams(
-                    ota_metadata=self._ota_metadata,
+                    file_table_db_helper=_fst_db_helper,
+                    all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.STANDBY_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -736,7 +737,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
             else:
                 _rebuild_mode_params = DeltaGenParams(
-                    ota_metadata=self._ota_metadata,
+                    file_table_db_helper=_fst_db_helper,
+                    all_resource_digests=all_resource_digests,
                     delta_src=Path(cfg.ACTIVE_SLOT_MNT),
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
@@ -752,6 +754,8 @@ class _OTAUpdater(_OTAUpdateOperator):
                 else:
                     logger.info("use rebuild mode with full scanning ...")
                     RebuildDeltaGenFullDiskScan(**_rebuild_mode_params).process_slot()
+
+            return all_resource_digests
         except Exception as e:
             _err_msg = f"failed to generate delta: {e!r}"
             logger.exception(_err_msg)
@@ -763,8 +767,16 @@ class _OTAUpdater(_OTAUpdateOperator):
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
                 shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
-    def _download_delta_resources(self) -> None:
+    def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
+        to_download = len(delta_digests)
+        to_download_size = sum(delta_digests.values())
+        logger.info(
+            f"delta calculation finished: \n"
+            f"download_list len: {to_download} \n"
+            f"sum of original size of all resources to be downloaded: {human_readable_size(to_download_size)}"
+        )
+
         # ------ in-update: download resources ------ #
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
@@ -778,32 +790,21 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._metrics.download_start_timestamp = _current_time
 
-        # NOTE(20240705): download_files raises OTA Error directly, no need to capture exc here
-        resource_meta = ResourceMeta(
-            base_url=self.url_base,
-            ota_metadata=self._ota_metadata,
-            copy_dst=self._resource_dir_on_standby,
-        )
-        logger.info(
-            f"delta calculation finished: \n"
-            f"download_list len: {resource_meta.resources_count} \n"
-            f"sum of original size of all resources to be downloaded: {human_readable_size(resource_meta.resources_size_sum)}"
-        )
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
-                    total_download_files_num=resource_meta.resources_count,
-                    total_download_files_size=resource_meta.resources_size_sum,
+                    total_download_files_num=to_download,
+                    total_download_files_size=to_download_size,
                 ),
                 session_id=self.session_id,
             )
         )
-        self._metrics.delta_download_files_num = resource_meta.resources_count
-        self._metrics.delta_download_files_size = resource_meta.resources_size_sum
+        self._metrics.delta_download_files_num = to_download
+        self._metrics.delta_download_files_size = to_download_size
 
         logger.info("start to download resources ...")
         try:
-            self._download_resources(resource_meta)
+            self._download_resources(delta_digests)
         except TasksEnsureFailed:
             _err_msg = (
                 "download aborted due to download stalls longer than "
@@ -832,7 +833,7 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         try:
             standby_slot_creator = UpdateStandbySlot(
-                ota_metadata=self._ota_metadata,
+                file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,

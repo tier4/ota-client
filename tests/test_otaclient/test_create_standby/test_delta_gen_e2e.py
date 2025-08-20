@@ -22,7 +22,8 @@ from typing import cast
 import pytest
 import pytest_mock
 
-from ota_metadata.legacy2.metadata import OTAMetadata
+from ota_metadata.file_table.db import FileTableDBHelper
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaGenFullDiskScan,
     RebuildDeltaGenFullDiskScan,
@@ -55,53 +56,68 @@ def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
 
 def test_rebuild_mode_with_base_file_table_assist(
     ab_slots_for_rebuild: SlotAB,
-    ota_metadata_inst: OTAMetadata,
+    fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
 ) -> None:
     logger.info("start to test rebuild mode with base file_table assist ...")
+    _all_digests = ResourcesDigestWithSize.from_iterable(
+        fst_db_helper.select_all_digests_with_size()
+    )
+
     RebuildDeltaWithBaseFileTable(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
+        all_resource_digests=_all_digests,
         delta_src=ab_slots_for_rebuild.slot_a,
         copy_dst=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",
-    ).process_slot(str(ota_metadata_inst._fst_db))
+    ).process_slot(str(fst_db_helper.db_f))
     logger.info("verify resource folder ...")
-    verify_resources(ota_metadata_inst, resource_dir)
+    verify_resources(fst_db_helper, resource_dir)
 
 
 def test_rebuild_mode_with_full_disk_scan(
     ab_slots_for_rebuild: SlotAB,
-    ota_metadata_inst: OTAMetadata,
+    fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
 ) -> None:
     logger.info("start to test rebuild mode with full disk scan ...")
+    _all_digests = ResourcesDigestWithSize.from_iterable(
+        fst_db_helper.select_all_digests_with_size()
+    )
+
     RebuildDeltaGenFullDiskScan(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
+        all_resource_digests=_all_digests,
         delta_src=ab_slots_for_rebuild.slot_a,
         copy_dst=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",
     ).process_slot()
     logger.info("verify resource folder ...")
-    verify_resources(ota_metadata_inst, resource_dir)
+    verify_resources(fst_db_helper, resource_dir)
 
 
 def test_inplace_mode_with_full_disk_scan(
     ab_slots_for_inplace: SlotAB,
-    ota_metadata_inst: OTAMetadata,
+    fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
 ) -> None:
     logger.info("start to test inplace mode with full disk scan ...")
+    _all_digests = ResourcesDigestWithSize.from_iterable(
+        fst_db_helper.select_all_digests_with_size()
+    )
+
     InPlaceDeltaGenFullDiskScan(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
+        all_resource_digests=_all_digests,
         delta_src=ab_slots_for_inplace.slot_b,
         copy_dst=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",
     ).process_slot()
     logger.info("verify resource folder ...")
-    verify_resources(ota_metadata_inst, resource_dir)
+    verify_resources(fst_db_helper, resource_dir)
 
 
 # NOTE: inplace mode with base file_table assist is tested in test_update_slot

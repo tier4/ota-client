@@ -30,25 +30,11 @@ import os.path
 import shutil
 import sqlite3
 import threading
-import typing
 from contextlib import closing
 from pathlib import Path
-from typing import Callable, Generator
+from typing import Generator
 from urllib.parse import quote
 
-from simple_sqlite3_orm import gen_sql_stmt
-from simple_sqlite3_orm.utils import (
-    enable_wal_mode,
-    wrap_value,
-)
-
-from ota_metadata.file_table import (
-    FT_DIR_TABLE_NAME,
-    FT_INODE_TABLE_NAME,
-    FT_NON_REGULAR_TABLE_NAME,
-    FT_REGULAR_TABLE_NAME,
-    FT_RESOURCE_TABLE_NAME,
-)
 from ota_metadata.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
@@ -56,13 +42,7 @@ from ota_metadata.file_table.db import (
     FileTableRegularORM,
     FileTableResourceORM,
 )
-from ota_metadata.file_table.utils import (
-    DirTypedDict,
-    NonRegularFileTypedDict,
-    RegularFileTypedDict,
-)
 from ota_metadata.utils.cert_store import CAChainStore
-from otaclient_common import EMPTY_FILE_SHA256_BYTE
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
@@ -78,7 +58,7 @@ from .metadata_jwt import (
     MetadataJWTParser,
     MetadataJWTVerificationFailed,
 )
-from .rs_table import ResourceTable, ResourceTableORM
+from .rs_table import ResourceTableORM, ResourceTableORMPool
 
 logger = logging.getLogger(__name__)
 
@@ -377,106 +357,16 @@ class OTAMetadata:
             for line in f:
                 yield line.strip()[1:-1]
 
-    def iter_dir_entries(self) -> Generator[DirTypedDict]:
-        with FileTableDirORM(self.connect_fstable()) as orm:
-            _row_factory = typing.cast(Callable[..., DirTypedDict], sqlite3.Row)
-            # fmt: off
-            yield from orm.orm_select_entries(
-                _row_factory=_row_factory,
-                _stmt = gen_sql_stmt(
-                    "SELECT", "path,uid,gid,mode",
-                    "FROM", FT_DIR_TABLE_NAME,
-                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
-                )
-            )
-            # fmt: on
-
-    def iter_non_regular_entries(self) -> Generator[NonRegularFileTypedDict]:
-        with FileTableNonRegularORM(self.connect_fstable()) as orm:
-            _row_factory = typing.cast(
-                Callable[..., NonRegularFileTypedDict], sqlite3.Row
-            )
-            # fmt: off
-            yield from orm.orm_select_entries(
-                _row_factory=_row_factory,
-                _stmt = gen_sql_stmt(
-                    "SELECT", "path,uid,gid,mode,meta",
-                    "FROM", FT_NON_REGULAR_TABLE_NAME,
-                    "JOIN", FT_INODE_TABLE_NAME, "USING", "(inode_id)",
-                )
-            )
-            # fmt: on
-
-    def iter_regular_entries(self) -> Generator[RegularFileTypedDict]:
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            # fmt: off
-            _stmt = gen_sql_stmt(
-                "SELECT", "path,uid,gid,mode,links_count,xattrs,digest,size,inode_id",
-                "FROM", FT_REGULAR_TABLE_NAME,
-                "JOIN", FT_INODE_TABLE_NAME, "USING(inode_id)",
-                "JOIN", FT_RESOURCE_TABLE_NAME, "USING(resource_id)",
-                "ORDER BY", "digest"
-            )
-            # fmt: on
-            yield from orm.orm_select_entries(
-                _stmt=_stmt,
-                _row_factory=sqlite3.Row,
-            )  # type: ignore
-
-    def iter_common_regular_entries_by_digest(
-        self,
-        base_file_table: StrOrPath,
-        *,
-        max_num_of_entries_per_digest: int = MAX_ENTRIES_PER_DIGEST,
-    ) -> Generator[tuple[bytes, list[Path]]]:
-        _hash = b""
-        _cur: list[Path] = []
-
-        # NOTE(20250604): filter out the empty file
-        # fmt: off
-        _stmt = gen_sql_stmt(
-            f"SELECT base.{FT_REGULAR_TABLE_NAME}.path, base.{FT_RESOURCE_TABLE_NAME}.digest",
-            f"FROM base.{FT_REGULAR_TABLE_NAME}",
-            f"JOIN base.{FT_RESOURCE_TABLE_NAME} USING(resource_id)",
-            f"JOIN {FT_RESOURCE_TABLE_NAME} AS target_rs ON base.{FT_RESOURCE_TABLE_NAME}.digest = target_rs.digest",
-            f"WHERE base.{FT_RESOURCE_TABLE_NAME}.digest != {wrap_value(EMPTY_FILE_SHA256_BYTE)}"
-            f"ORDER BY base.{FT_RESOURCE_TABLE_NAME}.digest"
-        )
-        # fmt: on
-        with FileTableRegularORM(self.connect_fstable()) as orm:
-            orm.orm_con.execute(f"ATTACH DATABASE '{base_file_table}' AS base;")
-            for entry in orm.orm_select_entries(
-                _stmt=_stmt,
-                _row_factory=sqlite3.Row,
-            ):
-                _this_digest: bytes = entry["digest"]
-                _this_path: Path = Path(entry["path"])
-
-                if _this_digest == _hash:
-                    # When there are too many entries for this digest, just pick the first
-                    #   <max_num_of_entries_per_digest> of them.
-                    if len(_cur) <= max_num_of_entries_per_digest:
-                        _cur.append(_this_path)
-                else:
-                    if _cur:
-                        yield _hash, _cur
-                    _hash, _cur = _this_digest, [_this_path]
-
-            if _cur:
-                yield _hash, _cur
-
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
             self._fst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        enable_wal_mode(_conn)
         return _conn
 
     def connect_rstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
             self._rst_db, check_same_thread=False, timeout=DB_TIMEOUT
         )
-        enable_wal_mode(_conn)
         return _conn
 
 
@@ -489,6 +379,10 @@ class ResourceMeta:
         copy_dst: Path,
     ) -> None:
         self._ota_metadata = ota_metadata
+        self._rst_orm_pool = ResourceTableORMPool(
+            con_factory=ota_metadata.connect_rstable,
+            number_of_cons=2,
+        )
 
         self.base_url = base_url
         self.data_dir_url = urljoin_ensure_base(
@@ -503,62 +397,21 @@ class ResourceMeta:
 
         self._copy_dst = copy_dst
 
-    @property
-    def resources_count(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            function="count",
-        )
-
-        try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
-        except Exception as e:
-            logger.warning(f"failed to get resources_count: {e!r}")
-            return 0
-        finally:
-            _conn.close()
-
-    @property
-    def resources_size_sum(self) -> int:
-        _conn = self._ota_metadata.connect_rstable()
-        _orm = ResourceTableORM(_conn, row_factory=None)
-
-        _sql_stmt = ResourceTable.table_select_stmt(
-            select_from=_orm.orm_table_name,
-            select_cols=("original_size",),
-            function="sum",
-        )
-
-        try:
-            _query = _orm.orm_execute(_sql_stmt, row_factory=sqlite3.Row)
-            # NOTE: return value of fetchone will be a tuple, and here
-            #   the first and only value of the tuple is the total nums of entries.
-            assert _query  # should be something like ((<int>,),)
-            assert isinstance(res := _query[0][0], int)
-            return res
-        except Exception as e:
-            logger.warning(f"failed to get resources_size_sum: {e!r}")
-            return 0
-        finally:
-            _conn.close()
+    def shutdown(self):
+        self._rst_orm_pool.orm_pool_shutdown()
 
     # API
 
-    def get_download_info(self, resource: ResourceTable) -> DownloadInfo:
+    def get_download_info(self, digest: bytes) -> DownloadInfo:
         """Get DownloadInfo from one ResourceTable entry.
+
+        This method is save for multi-thread use.
 
         Returns:
             An instance of DownloadInfo to download the resource indicates by <resource>.
         """
-        assert (_digest := resource.digest), f"invalid {resource=}"
-        _digest_str = _digest.hex()
+        resource = self._rst_orm_pool.orm_select_entry(digest=digest)
+        _digest_str = resource.digest.hex()
 
         # v2 OTA image, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
@@ -593,9 +446,3 @@ class ResourceMeta:
             digest=_digest_str,
             digest_alg=DIGEST_ALG,
         )
-
-    def iter_resources(self, *, batch_size: int) -> Generator[DownloadInfo]:
-        """Iter through the resource table and yield DownloadInfo for every resource."""
-        with ResourceTableORM(self._ota_metadata.connect_rstable()) as orm:
-            for entry in orm.iter_all_with_shuffle(batch_size=batch_size):
-                yield self.get_download_info(entry)

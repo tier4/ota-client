@@ -22,10 +22,9 @@ from typing import cast
 import pytest
 import pytest_mock
 
-from ota_metadata.legacy2.metadata import OTAMetadata
-from otaclient.create_standby.delta_gen import (
-    InPlaceDeltaWithBaseFileTable,
-)
+from ota_metadata.file_table.db import FileTableDBHelper
+from otaclient.create_standby._common import ResourcesDigestWithSize
+from otaclient.create_standby.delta_gen import InPlaceDeltaWithBaseFileTable
 from otaclient.create_standby.resume_ota import ResourceScanner
 
 from .conftest import SlotAB
@@ -54,21 +53,26 @@ def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
 
 def test_resume_ota(
     ab_slots_for_inplace: SlotAB,
-    ota_metadata_inst: OTAMetadata,
+    fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
 ) -> None:
     logger.info("process slot and generating OTA resources ...")
+    _all_digests = ResourcesDigestWithSize.from_iterable(
+        fst_db_helper.select_all_digests_with_size()
+    )
+
     InPlaceDeltaWithBaseFileTable(
-        ota_metadata=ota_metadata_inst,
+        file_table_db_helper=fst_db_helper,
+        all_resource_digests=_all_digests,
         delta_src=ab_slots_for_inplace.slot_b,
         copy_dst=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",
-    ).process_slot(str(ota_metadata_inst._fst_db))
+    ).process_slot(str(fst_db_helper.db_f))
 
     logger.info("scan through the generated resources ...")
     ResourceScanner(
-        ota_metadata=ota_metadata_inst,
+        all_resource_digests=_all_digests,
         resource_dir=resource_dir,
         status_report_queue=MockedQue,
         session_id="session_id",

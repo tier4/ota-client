@@ -25,6 +25,7 @@ from typing import NamedTuple
 import pytest
 
 from ota_metadata.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
@@ -36,8 +37,8 @@ from ota_metadata.legacy2.csv_parser import (
     parse_regulars_from_csv_file,
     parse_symlinks_from_csv_file,
 )
-from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.legacy2.rs_table import ResourceTableORM
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 from tests.conftest import OTA_IMAGE_DIR
 
 REGULARS_TXT = OTA_IMAGE_DIR / "regulars.txt"
@@ -52,7 +53,9 @@ logger = logging.getLogger(__name__)
 # NOTE: during delta calculation, the ft_resource table will be altered, so
 #       this fixture needs to be function scope fixture.
 @pytest.fixture
-def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
+def fst_db_helper(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> FileTableDBHelper:
     """
     Referring to metadata._prepare_ota_image_metadata method.
     """
@@ -103,12 +106,7 @@ def ota_metadata_inst(tmp_path_factory: pytest.TempPathFactory) -> OTAMetadata:
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
         )
-
-    # NOTE: avoid calling __init__ of OTAMetadata
-    ota_meta = object.__new__(OTAMetadata)
-    ota_meta._fst_db = ft_dbf
-    ota_meta._rst_db = rst_dbf
-    return ota_meta
+    return FileTableDBHelper(ft_dbf)
 
 
 class SlotAB(NamedTuple):
@@ -147,20 +145,22 @@ def ab_slots_for_rebuild(tmp_path: Path) -> SlotAB:
     return SlotAB(slot_a, slot_b)
 
 
-def verify_resources(_ota_metadata_inst: OTAMetadata, resource_dir: Path) -> None:
+def verify_resources(_fst_db_helper: FileTableDBHelper, resource_dir: Path) -> None:
     """Verify that all resources are prepared."""
     logger.info(f"verify against {resource_dir=} ...")
     _errs = []
-    with closing(_ota_metadata_inst.connect_fstable()) as ft_conn:
-        orm = FileTableResourceORM(ft_conn)
-        for entry in orm.orm_select_entries():
-            _rs_f = resource_dir / entry.digest.hex()
+    _all_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
+        _fst_db_helper.select_all_digests_with_size()
+    )
 
-            try:
-                assert _rs_f.is_file() and _rs_f.stat().st_size == entry.size
-                assert sha256(_rs_f.read_bytes()).digest() == entry.digest
-            except AssertionError:
-                _errs.append(entry)
+    for _digest, _size in _all_digests.items():
+        _rs_f = resource_dir / _digest.hex()
+
+        try:
+            assert _rs_f.is_file() and _rs_f.stat().st_size == _size
+            assert sha256(_rs_f.read_bytes()).digest() == _digest
+        except AssertionError:
+            _errs.append(_digest)
 
     if _errs:
         _err_msg = f"not all resources are collected: {len(_errs)=}"
