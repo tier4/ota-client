@@ -104,7 +104,8 @@ class _DeltaGeneratorBase:
             db_conn_num=DB_CONN_NUMS
         )
         self._ft_dir_orm = file_table_db_helper.get_dir_orm()
-        self._all_resource_digests = all_resource_digests
+        self._resources_to_check = all_resource_digests
+        """Resources that we need to collecting during delta_calculation."""
 
         self._que = Queue()
         self._max_pending_tasks = threading.Semaphore(
@@ -354,7 +355,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 # If the resource we scan here is listed in the resouce table, prepare it
                 #   to the copy_dir at standby slot for later use.
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.pop(calculated_digest)
+                    self._resources_to_check.pop(calculated_digest)
 
                     resource_save_dst = self._copy_dst / calculated_digest.hex()
                     os.replace(fpath, resource_save_dst)
@@ -483,7 +484,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 resource_save_dst = self._copy_dst / calculated_digest.hex()
 
                 with contextlib.suppress(KeyError):
-                    self._all_resource_digests.pop(calculated_digest)
+                    self._resources_to_check.pop(calculated_digest)
 
                     if not resource_save_dst.is_file():
                         os.replace(tmp_dst_fpath, resource_save_dst)
@@ -573,8 +574,10 @@ class DeltaWithBaseFileTable(_DeltaGeneratorBase):
             base_fst
         ):
             _digest, _ = _input
-            if _digest not in self._all_resource_digests:
-                continue  # skip resources that already prepared(via resume OTA)
+            # NOTE(20250820): some of the resources might be already prepared
+            #                 by the resume OTA, skip collecting these resources.
+            if _digest not in self._resources_to_check:
+                continue
 
             self._max_pending_tasks.acquire()
             self._que.put_nowait(_input)
@@ -653,7 +656,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.pop(expected_digest)
+                            self._resources_to_check.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(fpath, resource_save_dst)
@@ -758,7 +761,7 @@ class RebuildDeltaWithBaseFileTable(DeltaWithBaseFileTable):
 
                     if calculated_digest == expected_digest:
                         with contextlib.suppress(KeyError):
-                            self._all_resource_digests.pop(expected_digest)
+                            self._resources_to_check.pop(expected_digest)
 
                             resource_save_dst = self._copy_dst / expected_digest.hex()
                             os.replace(_tmp_fpath, resource_save_dst)
