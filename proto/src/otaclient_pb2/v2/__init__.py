@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__version__ = version = "2.3.0"
-__version_tuple__ = version_tuple = (2, 3, 0)
+__version__ = version = "2.2.0"
+__version_tuple__ = version_tuple = (2, 2, 0)
 
 __all__ = ["version", "__version__", "version_tuple", "__version_tuple__"]
