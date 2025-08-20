@@ -70,7 +70,6 @@ from otaclient._types import (
     IPCResponse,
     MultipleECUStatusFlags,
     OTAStatus,
-    RollbackRequestV2,
     UpdatePhase,
     UpdateRequestV2,
 )
@@ -83,6 +82,7 @@ from otaclient._utils import (
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     DeltaGenParams,
     InPlaceDeltaGenFullDiskScan,
@@ -109,7 +109,6 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 logger = logging.getLogger(__name__)
 
@@ -237,9 +236,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -532,9 +531,7 @@ class _OTAUpdater(_OTAUpdateOperator):
         )
         self._can_use_in_place_mode = False
 
-    def _download_resources(
-        self, delta_digests: ShardedThreadSafeDict[bytes, int]
-    ) -> None:
+    def _download_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         resource_meta = ResourceMeta(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
@@ -646,13 +643,13 @@ class _OTAUpdater(_OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
 
-    def _calculate_delta(self) -> ShardedThreadSafeDict[bytes, int]:
+    def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
         _current_time = int(time.time())
 
         _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
-        all_resource_digests = ShardedThreadSafeDict[bytes, int].from_iterable(
+        all_resource_digests = ResourcesDigestWithSize.from_iterable(
             _fst_db_helper.select_all_digests_with_size(),
         )
 
@@ -769,9 +766,7 @@ class _OTAUpdater(_OTAUpdateOperator):
             if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
                 shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
-    def _download_delta_resources(
-        self, delta_digests: ShardedThreadSafeDict[bytes, int]
-    ) -> None:
+    def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
         to_download = len(delta_digests)
         to_download_size = sum(delta_digests.values())
@@ -1308,6 +1303,7 @@ class OTAClient:
             is available via status API.
         """
         self._live_ota_status = OTAStatus.UPDATING
+        request_id = request.request_id
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -1317,9 +1313,12 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA update session: {new_session_id=}")
+        logger.info(
+            f"start new OTA update request:{request_id}, session: {new_session_id=}"
+        )
 
         session_wd = self._update_session_dir / new_session_id
+        self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
         try:
             logger.info("[update] entering local update...")
@@ -1373,6 +1372,7 @@ class OTAClient:
             return
 
         self._live_ota_status = OTAStatus.CLIENT_UPDATING
+        request_id = request.request_id
         new_session_id = request.session_id
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -1382,7 +1382,9 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(f"start new OTA client update session: {new_session_id=}")
+        logger.info(
+            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
+        )
 
         session_wd = self._update_session_dir / new_session_id
         try:
@@ -1424,31 +1426,6 @@ class OTAClient:
             self._client_update_control_flags.request_shutdown_event.set()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
-
-    def rollback(self, request: RollbackRequestV2) -> None:
-        self._live_ota_status = OTAStatus.ROLLBACKING
-        new_session_id = request.session_id
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.ROLLBACKING,
-                ),
-                session_id=new_session_id,
-            )
-        )
-
-        logger.info(f"start new OTA rollback session: {new_session_id=}")
-        try:
-            logger.info("[rollback] entering...")
-            self._live_ota_status = OTAStatus.ROLLBACKING
-            _OTARollbacker(boot_controller=self.boot_controller).execute()
-        except ota_errors.OTAError as e:
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
 
     def main(
         self,
@@ -1515,26 +1492,6 @@ class OTAClient:
                 _allow_request_after = (
                     _now + HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST
                 )
-
-            elif (
-                isinstance(request, RollbackRequestV2)
-                and self._live_ota_status == OTAStatus.SUCCESS
-            ):
-                _rollback_thread = threading.Thread(
-                    target=self.rollback,
-                    args=[request],
-                    daemon=True,
-                    name="ota_rollback_executor",
-                )
-                _rollback_thread.start()
-
-                resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.ACCEPT,
-                        session_id=request.session_id,
-                    )
-                )
-                _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
             else:
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)

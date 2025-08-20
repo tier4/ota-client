@@ -218,6 +218,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
                 session_id="test_update_normal_finished",
             )
         )
@@ -244,6 +245,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
                 session_id="test_updaste_interrupted",
             )
         )
@@ -265,6 +267,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
                 session_id="test_client_update_normal_finished",
             )
         )
@@ -292,6 +295,7 @@ class TestOTAClient:
                 version=self.UPDATE_FIRMWARE_VERSION,
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
                 session_id="test_client_update_interrupted",
             )
         )

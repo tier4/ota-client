@@ -35,7 +35,8 @@ from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
-from otaclient_common.thread_safe_container import ThreadSafeDict
+
+from ._common import HardlinkGroup
 
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
@@ -68,7 +69,7 @@ class UpdateStandbySlot:
         self._interrupted = threading.Event()
         self._thread_local = threading.local()
 
-        self._hardlink_group = ThreadSafeDict[int, Path]()
+        self._hardlink_group = HardlinkGroup()
 
     def _worker_initializer(self):
         self._thread_local.merged_payload = UpdateProgressReport(
@@ -112,26 +113,26 @@ class UpdateStandbySlot:
                 self._post_regular_file_process(_entry)
                 return
 
-            if first_to_prepare:
-                if _inlined:
-                    self._hardlink_group[_inode_id] = prepare_regular_inlined(
-                        _entry, target_mnt=self._standby_slot_mp
-                    )
-                    self._post_regular_file_process(_entry)
-                else:
-                    self._hardlink_group[_inode_id] = prepare_regular_hardlink(
-                        _entry,
-                        _rs=self._resource_dir / _digest_hex,
-                        target_mnt=self._standby_slot_mp,
-                    )
+            if _inlined:
+                self._hardlink_group[_inode_id] = prepare_regular_inlined(
+                    _entry, target_mnt=self._standby_slot_mp
+                )
+                self._post_regular_file_process(_entry)
                 return
 
-            self._hardlink_group[_inode_id] = prepare_regular_copy(
-                _entry,
-                _rs=self._resource_dir / _digest_hex,
-                target_mnt=self._standby_slot_mp,
-            )
-            self._post_regular_file_process(_entry)
+            if first_to_prepare:
+                self._hardlink_group[_inode_id] = prepare_regular_hardlink(
+                    _entry,
+                    _rs=self._resource_dir / _digest_hex,
+                    target_mnt=self._standby_slot_mp,
+                )
+            else:
+                self._hardlink_group[_inode_id] = prepare_regular_copy(
+                    _entry,
+                    _rs=self._resource_dir / _digest_hex,
+                    target_mnt=self._standby_slot_mp,
+                )
+                self._post_regular_file_process(_entry)
 
     def _process_normal_file_at_thread(
         self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
