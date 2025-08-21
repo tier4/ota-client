@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import random
 import threading
 import time
@@ -60,6 +61,27 @@ class DownloadHelper:
             self._downloader_pool.get_instance()
         )
 
+    @contextlib.contextmanager
+    def _downloader_pool_with_retry(self, thread_name_prefix: str):
+        try:
+            with ThreadPoolExecutorWithRetry(
+                max_concurrent=self._max_concurrent,
+                max_workers=self._downloader_threads,
+                thread_name_prefix=thread_name_prefix,
+                initializer=self._downloader_worker_initializer,
+                watchdog_func=partial(
+                    self._downloader_pool.downloading_watchdog,
+                    ctx=DownloadPoolWatchdogFuncContext(
+                        downloaded_bytes=0,
+                        previous_active_timestamp=int(time.time()),
+                    ),
+                    max_idle_timeout=self._download_inactive_timeout,
+                ),
+            ) as _pool:
+                yield _pool
+        finally:
+            self._downloader_pool.release_all_instances()
+
     def _download_with_condition_at_thread(
         self, _to_download: list[DownloadInfo], condition: threading.Condition
     ) -> list[DownloadResult]:
@@ -84,31 +106,17 @@ class DownloadHelper:
         _download_info: Generator[list[DownloadInfo]],
         condition: threading.Condition,
     ) -> Generator[Future[list[DownloadResult]]]:
-        try:
-            with ThreadPoolExecutorWithRetry(
-                max_concurrent=self._max_concurrent,
-                max_workers=self._downloader_threads,
-                thread_name_prefix="download_ota_image_metafiles",
-                initializer=self._downloader_worker_initializer,
-                watchdog_func=partial(
-                    self._downloader_pool.downloading_watchdog,
-                    ctx=DownloadPoolWatchdogFuncContext(
-                        downloaded_bytes=0,
-                        previous_active_timestamp=int(time.time()),
-                    ),
-                    max_idle_timeout=self._download_inactive_timeout,
+        with self._downloader_pool_with_retry(
+            "download_ota_image_metafiles"
+        ) as _mapper:
+            for _fut in _mapper.ensure_tasks(
+                partial(
+                    self._download_with_condition_at_thread,
+                    condition=condition,
                 ),
-            ) as _mapper:
-                for _fut in _mapper.ensure_tasks(
-                    partial(
-                        self._download_with_condition_at_thread,
-                        condition=condition,
-                    ),
-                    _download_info,
-                ):
-                    yield _fut
-        finally:
-            self._downloader_pool.release_all_instances()
+                _download_info,
+            ):
+                yield _fut
 
     def _download_single_resource_at_thread(
         self, _digest: bytes, resource_meta: ResourceMeta
@@ -144,28 +152,12 @@ class DownloadHelper:
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
     ) -> Generator[Future[DownloadResult]]:
-        try:
-            with ThreadPoolExecutorWithRetry(
-                max_concurrent=self._max_concurrent,
-                max_workers=self._downloader_threads,
-                thread_name_prefix="download_ota_files",
-                initializer=self._downloader_worker_initializer,
-                watchdog_func=partial(
-                    self._downloader_pool.downloading_watchdog,
-                    ctx=DownloadPoolWatchdogFuncContext(
-                        downloaded_bytes=0,
-                        previous_active_timestamp=int(time.time()),
-                    ),
-                    max_idle_timeout=self._download_inactive_timeout,
+        with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
+            for _fut in _mapper.ensure_tasks(
+                partial(
+                    self._download_single_resource_at_thread,
+                    resource_meta=resource_meta,
                 ),
-            ) as _mapper:
-                for _fut in _mapper.ensure_tasks(
-                    partial(
-                        self._download_single_resource_at_thread,
-                        resource_meta=resource_meta,
-                    ),
-                    self._iter_digests_with_shuffle(resources_to_download),
-                ):
-                    yield _fut
-        finally:
-            self._downloader_pool.release_all_instances()
+                self._iter_digests_with_shuffle(resources_to_download),
+            ):
+                yield _fut
