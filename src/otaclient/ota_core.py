@@ -226,9 +226,9 @@ class _OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -941,7 +941,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
                 _download_exception_handler(_fut)
         except Exception as e:
             logger.error(f"failed to download otaclient package: {e!r}")
-            raise ota_errors.ClientUpdateFailed(module=__name__) from e
+            raise ota_errors.OTAClientPackageDownloadFailed(module=__name__) from e
         finally:
             self._downloader_pool.shutdown()
 

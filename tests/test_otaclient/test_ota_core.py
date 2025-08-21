@@ -580,7 +580,7 @@ class TestOTAClientUpdater:
             side_effect=TasksEnsureFailed(),
         )
 
-        with pytest.raises(ota_core.ota_errors.ClientUpdateFailed):
+        with pytest.raises(ota_core.ota_errors.OTAClientPackageDownloadFailed):
             client_updater._download_client_package_resources()
 
         # Verify downloader pool was shut down

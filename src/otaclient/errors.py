@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTA error code definition"""
 
-
 from __future__ import annotations
 
 from enum import Enum, unique
@@ -32,6 +31,7 @@ class OTAErrorCode(int, Enum):
     #
     E_NETWORK = 100
     E_OTAMETA_DOWNLOAD_FAILED = 101
+    E_OTACLIENT_PACKAGE_DOWNLOAD_FAILED = 102
 
     #
     # ------ recoverable errors ------
@@ -133,6 +133,13 @@ class OTAMetaDownloadFailed(NetworkError):
     )
 
 
+class OTAClientPackageDownloadFailed(NetworkError):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTACLIENT_PACKAGE_DOWNLOAD_FAILED
+    failure_description: str = (
+        f"failed to download OTAClient package due to {_NETWORK_ERR_DEFAULT_DESC}"
+    )
+
+
 #
 # ------ recoverable error ------
 #
@@ -151,9 +158,7 @@ class OTAErrorRecoverable(OTAError):
 
 class OTABusy(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_BUSY
-    failure_description: str = (
-        "on-going OTA operation(update or rollback) detected, this request has been ignored"
-    )
+    failure_description: str = "on-going OTA operation(update or rollback) detected, this request has been ignored"
 
 
 class InvalidStatusForOTARollback(OTAErrorRecoverable):
@@ -256,30 +261,22 @@ class InvalidUpdateRequest(OTAErrorUnrecoverable):
 
 class MetadataJWTInvalid(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_INVALID
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
 
 
 class MetadataJWTVerficationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_CERT_VERIFICATION_FAILED
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
 
 
 class OTAProxyFailedToStart(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
 
 
 class UpdateDeltaGenerationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
 
 
 class ApplyOTAUpdateFailed(OTAErrorUnrecoverable):
