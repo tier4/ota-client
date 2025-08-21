@@ -45,9 +45,6 @@ from ._download_resources import DownloadHelper
 
 logger = logging.getLogger(__name__)
 
-OP_CHECK_INTERVAL = 1  # second
-HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
-HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 
