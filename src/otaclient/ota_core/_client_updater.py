@@ -32,23 +32,6 @@ from ._updater_base import OTAUpdateOperator
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STATUS_QUERY_INTERVAL = 1
-WAIT_BEFORE_REBOOT = 6
-DOWNLOAD_STATS_REPORT_BATCH = 300
-DOWNLOAD_REPORT_INTERVAL = 1  # second
-
-OP_CHECK_INTERVAL = 1  # second
-HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
-HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
-WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
-
-STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
-
-BASE_METADATA_FOLDER = "base"
-"""On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
-hold the OTA image metadata of standby slot itself.
-"""
-
 
 class OTAClientUpdater(OTAUpdateOperator):
     """The implementation of OTA client update logic."""
