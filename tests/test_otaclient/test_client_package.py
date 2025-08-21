@@ -24,8 +24,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,

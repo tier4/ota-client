@@ -292,9 +292,9 @@ def ota_status_collector(
 
 @pytest.fixture(autouse=True)
 def mock_ensure_mount(mocker: pytest_mock.MockerFixture) -> None:
-    mocker.patch("otaclient.ota_core.ensure_mount")
+    mocker.patch("otaclient.ota_core._main.ensure_mount")
 
 
 @pytest.fixture(autouse=True)
 def mock_ensure_umount(mocker: pytest_mock.MockerFixture) -> None:
-    mocker.patch("otaclient.ota_core.ensure_umount")
+    mocker.patch("otaclient.ota_core._updater.ensure_umount")

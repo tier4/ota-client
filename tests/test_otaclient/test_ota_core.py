@@ -23,28 +23,33 @@ import pytest
 import pytest_mock
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains
+from otaclient import errors as ota_errors
 from otaclient import ota_core
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
     StatusReport,
 )
-from otaclient._types import OTAStatus, UpdateRequestV2
+from otaclient._types import OTAStatus, UpdatePhase, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.errors import ClientUpdateSameVersions, OTAErrorRecoverable
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core import OTAClient, _OTAClientUpdater, _OTAUpdater
+from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdater
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
 
 OTA_CORE_MODULE = ota_core.__name__
+OTA_CORE_MAIN_MODULE = ota_core._main.__name__
+OTA_UPDATER_BASE_MODULE = ota_core._updater_base.__name__
+OTA_UPDATER_MODULE = ota_core._updater.__name__
+OTACLIENT_UPDATER_MODULE = ota_core._client_updater.__name__
 
 
 @pytest.fixture(autouse=True, scope="module")
 def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
     """Mock to use the certs from the OTA test base image."""
-    from otaclient.ota_core import cfg as _cfg
+    from otaclient.configs.cfg import cfg as _cfg
 
     module_mocker.patch.object(
         _cfg,
@@ -56,7 +61,7 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
 @pytest.fixture(autouse=True, scope="module")
 def module_scope_mock(module_mocker: pytest_mock.MockerFixture):
     module_mocker.patch(
-        f"{OTA_CORE_MODULE}.fstrim_at_subprocess",
+        f"{OTA_UPDATER_MODULE}.fstrim_at_subprocess",
         module_mocker.MagicMock(),
     )
 
@@ -103,12 +108,12 @@ class TestOTAUpdater:
         _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
 
         # ------ mock otaclient cfg ------ #
-        mocker.patch(f"{OTA_CORE_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
-        mocker.patch(f"{OTA_CORE_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
-        mocker.patch(f"{OTA_CORE_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
-        mocker.patch(f"{OTA_CORE_MODULE}.can_use_in_place_mode", return_value=False)
+        mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
+        mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
+        mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
+        mocker.patch(f"{OTA_UPDATER_MODULE}.can_use_in_place_mode", return_value=False)
 
-    def test_otaupdater(
+    def testOTAUpdater(
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
         mocker: pytest_mock.MockerFixture,
@@ -134,7 +139,7 @@ class TestOTAUpdater:
         )
 
         session_workdir = tmp_path / "session_workdir"
-        _updater = _OTAUpdater(
+        _updater = OTAUpdater(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
             cookies_json=r'{"test": "my-cookie"}',
@@ -189,8 +194,8 @@ class TestOTAClient:
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
-        self.ota_updater = mocker.MagicMock(spec=_OTAUpdater)
-        self.ota_client_updater = mocker.MagicMock(spec=_OTAClientUpdater)
+        self.ota_updater = mocker.MagicMock(spec=OTAUpdater)
+        self.ota_client_updater = mocker.MagicMock(spec=OTAClientUpdater)
 
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
 
@@ -201,12 +206,16 @@ class TestOTAClient:
         )
 
         # patch inject mocked updater
-        mocker.patch(f"{OTA_CORE_MODULE}._OTAUpdater", return_value=self.ota_updater)
         mocker.patch(
-            f"{OTA_CORE_MODULE}._OTAClientUpdater", return_value=self.ota_client_updater
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdater", return_value=self.ota_updater
         )
         mocker.patch(
-            f"{OTA_CORE_MODULE}.get_boot_controller", return_value=self.boot_controller
+            f"{OTA_CORE_MAIN_MODULE}.OTAClientUpdater",
+            return_value=self.ota_client_updater,
+        )
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
+            return_value=self.boot_controller,
         )
 
         # start otaclient
@@ -339,30 +348,31 @@ class TestOTAClientUpdater:
         # Mock OTAClientPackageDownloader
         self.mock_ota_client_package = mocker.MagicMock()
         self.patcher_client_package = mocker.patch(
-            f"{OTA_CORE_MODULE}.OTAClientPackageDownloader",
+            f"{OTACLIENT_UPDATER_MODULE}.OTAClientPackageDownloader",
             return_value=self.mock_ota_client_package,
         )
 
         # Mock DownloaderPool
         self.mock_downloader_pool = mocker.MagicMock()
         self.patcher_downloader_pool = mocker.patch(
-            f"{OTA_CORE_MODULE}.DownloaderPool", return_value=self.mock_downloader_pool
+            f"{OTA_UPDATER_BASE_MODULE}.DownloaderPool",
+            return_value=self.mock_downloader_pool,
         )
 
         # Set up CA chains store
         self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
 
         # Mock the creation of session directory
-        mocker.patch(f"{OTA_CORE_MODULE}.Path.mkdir")
+        mocker.patch(f"{OTA_UPDATER_BASE_MODULE}.Path.mkdir")
 
         # Mock shutil.rmtree
         self.rmtree_patcher = mocker.patch("shutil.rmtree")
 
     @pytest.fixture
     def setup_client_updater(self, mocker: pytest_mock.MockerFixture, tmp_path: Path):
-        # Create an instance of _OTAClientUpdater for testing
+        # Create an instance of OTAClientUpdater for testing
         session_workdir = tmp_path / "session_workdir"
-        client_updater = ota_core._OTAClientUpdater(
+        client_updater = ota_core.OTAClientUpdater(
             version=self.CLIENT_UPDATE_VERSION,
             raw_url_base=self.CLIENT_UPDATE_URL,
             cookies_json=self.CLIENT_UPDATE_COOKIES_JSON,
@@ -385,7 +395,7 @@ class TestOTAClientUpdater:
     def test_client_updater_init(
         self, setup_client_updater, mocker: pytest_mock.MockerFixture
     ):
-        # Test initialization of _OTAClientUpdater
+        # Test initialization of OTAClientUpdater
 
         # Instead of trying to mock the parent class init, create the instance directly
         client_updater = setup_client_updater
@@ -398,7 +408,7 @@ class TestOTAClientUpdater:
         assert client_updater.update_version == self.CLIENT_UPDATE_VERSION
 
     def test_download_client_package_resources(
-        self, setup_client_updater: _OTAClientUpdater, mocker: pytest_mock.MockerFixture
+        self, setup_client_updater: OTAClientUpdater, mocker: pytest_mock.MockerFixture
     ):
         # Test downloading client package resources
         client_updater = setup_client_updater
@@ -420,8 +430,7 @@ class TestOTAClientUpdater:
         status_report = call_args[0][0]  # Get first positional argument
 
         assert (
-            status_report.payload.new_update_phase
-            == ota_core.UpdatePhase.DOWNLOADING_OTA_CLIENT
+            status_report.payload.new_update_phase == UpdatePhase.DOWNLOADING_OTA_CLIENT
         )
 
         # Verify download method was called
@@ -433,7 +442,7 @@ class TestOTAClientUpdater:
         # Test waiting for sub-ECUs to complete
         client_updater = setup_client_updater
         # Mock the wait_and_log function
-        mock_wait_and_log = mocker.patch(f"{OTA_CORE_MODULE}.wait_and_log")
+        mock_wait_and_log = mocker.patch(f"{OTACLIENT_UPDATER_MODULE}.wait_and_log")
         # Case 1: Test successful waiting (wait_and_log returns True)
         mock_wait_and_log.return_value = True
         client_updater._wait_sub_ecus()
@@ -561,11 +570,11 @@ class TestOTAClientUpdater:
         mock_execute = mocker.patch.object(
             client_updater,
             "_execute_client_update",
-            side_effect=ota_core.ota_errors.OTAError("Test error", module="test"),
+            side_effect=ota_errors.OTAError("Test error", module="test"),
         )
 
         # Exception should be raised through execute()
-        with pytest.raises(ota_core.ota_errors.OTAError):
+        with pytest.raises(ota_errors.OTAError):
             client_updater.execute()
 
         # Verify error handling
@@ -573,7 +582,7 @@ class TestOTAClientUpdater:
         self.rmtree_patcher.assert_called_with(self.session_workdir, ignore_errors=True)
 
     def test_download_with_tasks_ensure_failed(
-        self, setup_client_updater: _OTAClientUpdater, mocker: pytest_mock.MockerFixture
+        self, setup_client_updater: OTAClientUpdater, mocker: pytest_mock.MockerFixture
     ):
         # Test handling of TasksEnsureFailed during download
         client_updater = setup_client_updater
@@ -588,7 +597,7 @@ class TestOTAClientUpdater:
             side_effect=TasksEnsureFailed(),
         )
 
-        with pytest.raises(ota_core.ota_errors.OTAClientPackageDownloadFailed):
+        with pytest.raises(ota_errors.OTAClientPackageDownloadFailed):
             client_updater._download_client_package_resources()
 
         # Verify downloader pool was shut down
