@@ -13,7 +13,6 @@
 # limitations under the License.
 """OTA error code definition"""
 
-
 from __future__ import annotations
 
 from enum import Enum, unique
@@ -32,6 +31,7 @@ class OTAErrorCode(int, Enum):
     #
     E_NETWORK = 100
     E_OTAMETA_DOWNLOAD_FAILED = 101
+    E_OTACLIENT_PACKAGE_DOWNLOAD_FAILED = 102
 
     #
     # ------ recoverable errors ------
@@ -130,6 +130,13 @@ class OTAMetaDownloadFailed(NetworkError):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAMETA_DOWNLOAD_FAILED
     failure_description: str = (
         f"failed to download OTA meta due to {_NETWORK_ERR_DEFAULT_DESC}"
+    )
+
+
+class OTAClientPackageDownloadFailed(NetworkError):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTACLIENT_PACKAGE_DOWNLOAD_FAILED
+    failure_description: str = (
+        f"failed to download OTAClient package due to {_NETWORK_ERR_DEFAULT_DESC}"
     )
 
 

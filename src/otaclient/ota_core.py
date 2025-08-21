@@ -95,22 +95,12 @@ from otaclient.create_standby.resume_ota import ResourceScanner
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.metrics import OTAMetricsData
-from otaclient_common import EMPTY_FILE_SHA256, _env, human_readable_size, replace_root
+from otaclient_common import _env, human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
-from otaclient_common.download_info import DownloadInfo
-from otaclient_common.downloader import (
-    Downloader,
-    DownloaderPool,
-    DownloadPoolWatchdogFuncContext,
-    DownloadResult,
-)
+from otaclient_common.downloader import DownloaderPool
 from otaclient_common.linux import fstrim_at_subprocess
 from otaclient_common.persist_file_handling import PersistFilesHandler
-from otaclient_common.retry_task_map import (
-    TasksEnsureFailed,
-    ThreadPoolExecutorWithRetry,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -263,10 +253,6 @@ class _OTAUpdateOperator:
         self.url_base = _url_base._replace(path=_path).geturl()
 
         # ------ setup downloader ------ #
-        self._download_watchdog_ctx = DownloadPoolWatchdogFuncContext(
-            downloaded_bytes=0,
-            previous_active_timestamp=0,
-        )
         self._downloader_pool = _downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
@@ -281,8 +267,6 @@ class _OTAUpdateOperator:
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
-
-        self._downloader_mapper: dict[int, Downloader] = {}
 
         # ------ setup OTA metadata parser ------ #
         self._ota_metadata = OTAMetadata(
@@ -305,7 +289,7 @@ class _OTAUpdateOperator:
                 probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
             )
 
-    def _process_metadata(self) -> None:
+    def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         """Process the metadata.jwt file and report."""
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
@@ -319,9 +303,18 @@ class _OTAUpdateOperator:
         )
         self._metrics.processing_metadata_start_timestamp = _current_time
 
+        logger.info("verify and download OTA image metadata ...")
         try:
-            logger.info("verify and download OTA image metadata ...")
-            self._download_and_parse_metadata()
+            _condition = threading.Condition()
+            for _fut in self._download_helper.download_meta_files(
+                self._ota_metadata.download_metafiles(
+                    _condition,
+                    only_metadata_verification=only_metadata_verification,
+                ),
+                condition=_condition,
+            ):
+                _download_exception_handler(_fut)
+
             _metadata_jwt = self._ota_metadata.metadata_jwt
             assert _metadata_jwt, "invalid metadata jwt"
 
@@ -351,7 +344,6 @@ class _OTAUpdateOperator:
             self._metrics.ota_image_total_symlinks_num = (
                 self._ota_metadata.total_symlinks_num
             )
-
         except ota_errors.OTAError:
             raise  # raise top-level OTAError as it
         except ota_metadata_error.MetadataJWTVerificationFailed as e:
@@ -368,129 +360,6 @@ class _OTAUpdateOperator:
             _err_msg = f"failed to prepare ota metafiles: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
-        finally:
-            self._downloader_pool.release_instance()
-
-    def _download_and_parse_metadata(self) -> None:
-        # Determine only_metadata_verification value based on the current class type
-        only_metadata_verification = isinstance(self, _OTAClientUpdater)
-
-        self._download_and_process_file_with_condition(
-            thread_name_prefix="download_metadata_files",
-            get_downloads_generator=self._ota_metadata.download_metafiles,
-            only_metadata_verification=only_metadata_verification,
-        )
-
-    def _download_and_process_file_with_condition(
-        self,
-        thread_name_prefix: str,
-        get_downloads_generator: Callable,
-        *,
-        only_metadata_verification: bool = False,
-    ) -> None:
-        """
-        Download and process a list of files with a condition.
-        Each file downloading and processing are done in parallel by multiple threads.
-        This method is supposed to be used for downloading metadata and client files.
-        """
-
-        self._download_watchdog_ctx["previous_active_timestamp"] = int(time.time())
-        _mapper = ThreadPoolExecutorWithRetry(
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            max_workers=cfg.DOWNLOAD_THREADS,
-            max_retry_on_entry=cfg.MAX_RETRY_ON_ENTRY_COUNT,
-            thread_name_prefix=thread_name_prefix,
-            initializer=self._downloader_worker_initializer,
-            watchdog_func=partial(
-                self._downloader_pool.downloading_watchdog,
-                ctx=self._download_watchdog_ctx,
-                max_idle_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-            ),
-        )
-
-        _condition = threading.Condition()
-        _generator = get_downloads_generator(
-            condition=_condition, only_metadata_verification=only_metadata_verification
-        )
-
-        try:
-            for _fut in _mapper.ensure_tasks(
-                partial(self._download_file_with_condition, condition=_condition),
-                _generator,
-            ):
-                if not (_exc := _fut.exception()):
-                    continue
-
-                logger.warning(f"failed to download one file, keep retrying: {_exc!r}")
-                if isinstance(_exc, requests_exc.HTTPError) and isinstance(
-                    (_response := _exc.response), Response
-                ):
-                    if _response.status_code == HTTPStatus.NOT_FOUND:
-                        raise ota_errors.OTAImageInvalid(
-                            "failed to download", module=__name__
-                        ) from _exc
-
-                    if _response.status_code in [
-                        HTTPStatus.FORBIDDEN,
-                        HTTPStatus.UNAUTHORIZED,
-                    ]:
-                        raise ota_errors.UpdateRequestCookieInvalid(
-                            module=__name__
-                        ) from _exc
-        except Exception as e:
-            _generator.throw(e)
-            raise
-        finally:
-            _exc = None  # resolve cycle ref
-            _mapper.shutdown(wait=True)
-            self._downloader_pool.release_all_instances()
-
-    def _download_file_with_condition(
-        self, entries: list[DownloadInfo], *, condition: threading.Condition
-    ) -> DownloadResult:
-        """Download a single OTA image metadata and client file with a condition.
-        This method is supposed to be used for downloading metadata and client files.
-        Just a wrapper around _download_single_file method.
-
-        Returns:
-            Retry counts, downloaded files size and traffic on wire.
-        """
-        _retry_count, _download_size, _traffic_on_wire = 0, 0, 0
-        with condition:
-            for entry in entries:
-                _res = self._download_single_file(entry)
-                _retry_count += _res.retry_count
-                _download_size += _res.download_size
-                _traffic_on_wire += _res.traffic_on_wire
-
-            condition.notify()  # notify the metadata generator that this batch of download is finished
-        return DownloadResult(_retry_count, _download_size, _traffic_on_wire)
-
-    def _download_single_file(self, entry: DownloadInfo) -> DownloadResult:
-        """Download a single file.
-        This method is supposed to be used for any file download.
-        This is the single task being executed in the downloader pool.
-
-        Returns:
-            Retry counts, downloaded files size and traffic on wire.
-        """
-        if (_digest := entry.digest) == EMPTY_FILE_SHA256:
-            return DownloadResult(0, 0, 0)
-
-        downloader = self._downloader_mapper[threading.get_native_id()]
-        # NOTE: currently download only use sha256
-        return downloader.download(
-            url=entry.url,
-            dst=entry.dst,
-            digest=_digest,
-            size=entry.original_size,
-            compression_alg=entry.compression_alg,
-        )
-
-    def _downloader_worker_initializer(self) -> None:
-        self._downloader_mapper[threading.get_native_id()] = (
-            self._downloader_pool.get_instance()
-        )
 
 
 class _OTAUpdater(_OTAUpdateOperator):
@@ -590,6 +459,7 @@ class _OTAUpdater(_OTAUpdateOperator):
                 )
             )
         finally:
+            # up to this time, we don't need downloader anymore
             self._downloader_pool.shutdown()
             resource_meta.shutdown()
 
@@ -818,13 +688,13 @@ class _OTAUpdater(_OTAUpdateOperator):
         logger.info("start to download resources ...")
         try:
             self._download_resources(delta_digests)
-        except TasksEnsureFailed:
+        except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "
                 f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
             )
             logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         finally:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
@@ -1040,7 +910,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
         try:
             self._handle_upper_proxy()
-            self._process_metadata()
+            self._process_metadata(only_metadata_verification=True)
             self._download_client_package_resources()
             self._wait_sub_ecus()
             if self._is_same_client_package_version():
@@ -1066,7 +936,7 @@ class _OTAClientUpdater(_OTAUpdateOperator):
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
-        # ------ in-update: download resources ------ #
+        logger.info("start to download client manifest and package...")
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -1077,25 +947,18 @@ class _OTAClientUpdater(_OTAUpdateOperator):
             )
         )
 
+        _condition = threading.Condition()
         try:
-            logger.info("start to download client manifest and package...")
-            self._download_client_package_files()
-        except TasksEnsureFailed:
-            _err_msg = (
-                "download aborted due to download stalls longer than "
-                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from None
+            for _fut in self._download_helper.download_meta_files(
+                self._ota_client_package.download_client_package(_condition),
+                condition=_condition,
+            ):
+                _download_exception_handler(_fut)
+        except Exception as e:
+            logger.error(f"failed to download otaclient package: {e!r}")
+            raise ota_errors.OTAClientPackageDownloadFailed(module=__name__) from e
         finally:
-            # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
-
-    def _download_client_package_files(self) -> None:
-        self._download_and_process_file_with_condition(
-            thread_name_prefix="download_client_file",
-            get_downloads_generator=self._ota_client_package.download_client_package,
-        )
 
     def _wait_sub_ecus(self) -> None:
         logger.info("wait for all sub-ECU to finish...")

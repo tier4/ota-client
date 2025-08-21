@@ -21,7 +21,7 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
-from unittest.mock import MagicMock, PropertyMock, mock_open, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from _otaclient_version import __version__
@@ -91,15 +91,13 @@ class TestClientPackageDownloader:
         "otaclient.client_package.urljoin_ensure_base", return_value=DUMMY_MANIFEST_URL
     )
     @patch("otaclient_common.download_info.DownloadInfo")
-    @patch("builtins.open", new_callable=mock_open, read_data=DUMMY_MANIFEST)
-    @patch("pathlib.Path.is_file", return_value=True)
+    @patch("pathlib.Path.read_text", return_value=DUMMY_MANIFEST)
     def test_prepare_manifest(
         self,
-        mock_is_file,
-        mock_open,
+        mock_url_join,
         mock_download_info,
-        mock_urljoin,
-        ota_client_package,
+        mock_read_text,
+        ota_client_package: OTAClientPackageDownloader,
     ):
         condition = MagicMock()
         download_info = list(ota_client_package._prepare_manifest(condition))
@@ -108,9 +106,10 @@ class TestClientPackageDownloader:
         # Then check that the DownloadInfo was created with the URL from urljoin_ensure_base
         assert download_info[0][0].url == self.DUMMY_MANIFEST_URL
 
-    @patch("builtins.open", new_callable=mock_open, read_data=DUMMY_MANIFEST)
-    @patch("pathlib.Path.is_file", return_value=True)
-    def test_prepare_manifest_load(self, mock_is_file, mock_open, ota_client_package):
+    @patch("pathlib.Path.read_text", return_value=DUMMY_MANIFEST)
+    def test_prepare_manifest_load(
+        self, mock_read_text, ota_client_package: OTAClientPackageDownloader
+    ):
         condition = MagicMock()
         list(ota_client_package._prepare_manifest(condition))
         assert ota_client_package._manifest is not None
