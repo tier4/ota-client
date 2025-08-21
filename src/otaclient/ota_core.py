@@ -81,6 +81,7 @@ from otaclient._utils import (
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
+from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
@@ -104,6 +105,7 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
+from otaclient_common.linux import fstrim_at_subprocess
 from otaclient_common.persist_file_handling import PersistFilesHandler
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
@@ -630,11 +632,23 @@ class _OTAUpdater(_OTAUpdateOperator):
             erase_standby=not use_inplace_mode,
         )
 
-        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
+        # NOTE: for rebuild mode, discard will be done when formatting the standby slot
+        if use_inplace_mode and cfg.FSTRIM_AT_OTA:
+            _fstrim_timeout = cfg.FSTRIM_AT_OTA_TIMEOUT
+            logger.info(
+                f"on using inplace update mode, do fstrim on standby slot, {_fstrim_timeout=} ..."
+            )
+            fstrim_at_subprocess(
+                self._boot_controller.get_standby_slot_path(),
+                wait=True,
+                timeout=cfg.FSTRIM_AT_OTA_TIMEOUT,
+            )
+            logger.info("fstrim done")
 
         # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
+        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
         try:
             save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
         except Exception as e:
@@ -1242,6 +1256,18 @@ class OTAClient:
 
         self.started = True
         logger.info("otaclient started")
+
+        # NOTE: not doing fstrim at startup when running as dynamic otaclient
+        if not _env.is_dynamic_client_running() and cfg.FSTRIM_AT_OTACLIENT_STARTUP:
+            logger.info(
+                "spawn a subprocess to do fstrim on active slot"
+                f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
+            )
+            fstrim_at_subprocess(
+                Path(CANONICAL_ROOT),
+                wait=False,
+                timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
+            )
 
     def _on_failure(
         self,

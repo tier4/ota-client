@@ -86,6 +86,11 @@ class _OTAClientSettings(BaseModel):
     CHUNK_SIZE: int = 1024 * 1024  # 1MiB
     READ_CHUNK_SIZE: int = 4 * 1024 * 1024  # 4MiB
 
+    FSTRIM_AT_OTA: bool = True
+    FSTRIM_AT_OTA_TIMEOUT: int = 30  # seconds
+    FSTRIM_AT_OTACLIENT_STARTUP: bool = True
+    FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT: int = 360  # 6mins
+
 
 class _MultipleECUSettings(BaseModel):
     # The timeout of waiting sub ECU acks the OTA request.
