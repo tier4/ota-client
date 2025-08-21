@@ -256,28 +256,6 @@ class OTAUpdater(OTAUpdateOperator):
         )
         self._metrics.delta_calculation_start_timestamp = _current_time
 
-        # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
-        #                 destination folder.
-        logger.info("save the OTA image file_table to standby slot ...")
-        try:
-            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
-        except Exception as e:
-            logger.error(
-                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
-            )
-
-        # ------ in-update: calculate delta ------ #
-        logger.info("start to calculate delta ...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=int(time.time()),
-                ),
-                session_id=self.session_id,
-            )
-        )
-
         if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
                 "OTA resource dir found on standby slot, speed up delta calculation with it ..."
@@ -369,7 +347,6 @@ class OTAUpdater(OTAUpdateOperator):
             f"sum of original size of all resources to be downloaded: {human_readable_size(to_download_size)}"
         )
 
-        # ------ in-update: download resources ------ #
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
