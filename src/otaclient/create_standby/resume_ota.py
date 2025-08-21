@@ -53,7 +53,6 @@ class ResourceScanner:
         self._resource_dir = resource_dir
         self._all_resource_digests = all_resource_digests
 
-        self._resource_dir_fd = os.open(resource_dir, os.O_RDONLY)
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
 
@@ -61,8 +60,12 @@ class ResourceScanner:
         self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
         self._thread_local.bufferview = memoryview(_buffer)
 
+    def _remove_entry(self, digest_hex: str, dir_fd: int):
+        with contextlib.suppress(Exception):
+            os.unlink(digest_hex, dir_fd=dir_fd)
+
     def _process_resource_at_thread(
-        self, expected_digest: bytes, expected_digest_hex: str
+        self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
     ) -> None:
         try:
             hash_f, file_size = sha256(), 0
@@ -71,9 +74,7 @@ class ResourceScanner:
                 self._thread_local.bufferview,
             )
 
-            src_fd = os.open(
-                expected_digest_hex, os.O_RDONLY, dir_fd=self._resource_dir_fd
-            )
+            src_fd = os.open(expected_digest_hex, os.O_RDONLY, dir_fd=dir_fd)
             with open(src_fd, "rb") as src:
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
@@ -84,29 +85,31 @@ class ResourceScanner:
 
             calculated_digest = hash_f.digest()
             if calculated_digest != expected_digest:
-                with contextlib.suppress(Exception):
-                    os.unlink(expected_digest_hex, dir_fd=self._resource_dir_fd)
-            else:
-                try:
-                    self._all_resource_digests.pop(calculated_digest)
-                    self._status_report_queue.put_nowait(
-                        StatusReport(
-                            payload=UpdateProgressReport(
-                                operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                                processed_file_num=1,
-                                processed_file_size=file_size,
-                            ),
-                            session_id=self.session_id,
-                        )
+                self._remove_entry(expected_digest_hex, dir_fd)
+                return
+
+            try:
+                self._all_resource_digests.pop(calculated_digest)
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                            processed_file_num=1,
+                            processed_file_size=file_size,
+                        ),
+                        session_id=self.session_id,
                     )
-                except KeyError:
-                    with contextlib.suppress(Exception):
-                        os.unlink(expected_digest_hex, dir_fd=self._resource_dir_fd)
+                )
+            # basically should not happen, as now we only scan resources presented in
+            #   the target OTA image now.
+            except KeyError:
+                pass
         finally:
             self._se.release()
 
     def resume_ota(self) -> None:
         """Scan the OTA resource folder leftover by previous interrupted OTA."""
+        _resource_dir_fd = os.open(self._resource_dir, os.O_RDONLY)
         try:
             with ThreadPoolExecutor(
                 max_workers=cfg.MAX_PROCESS_FILE_THREAD,
@@ -123,6 +126,13 @@ class ResourceScanner:
                     try:
                         expected_digest = bytes.fromhex(_entry_digest_hex)
                     except ValueError:
+                        self._remove_entry(_entry_digest_hex, _resource_dir_fd)
+                        continue
+
+                    # NOTE(20250821): only scan resources that we need, for resources we don't need,
+                    #                 just remove it from the resources dir.
+                    if expected_digest not in self._all_resource_digests:
+                        self._remove_entry(_entry_digest_hex, _resource_dir_fd)
                         continue
 
                     self._se.acquire()
@@ -131,9 +141,11 @@ class ResourceScanner:
                         self._process_resource_at_thread,
                         expected_digest,
                         _entry_digest_hex,
+                        dir_fd=_resource_dir_fd,
                     )
+
             logger.info(f"totally {_count} of OTA resource files are scanned")
         except Exception as e:
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
         finally:
-            os.close(self._resource_dir_fd)
+            os.close(_resource_dir_fd)
