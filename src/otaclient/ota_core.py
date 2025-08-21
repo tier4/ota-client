@@ -81,6 +81,7 @@ from otaclient._utils import (
 )
 from otaclient.boot_control import BootControllerProtocol, get_boot_controller
 from otaclient.client_package import OTAClientPackageDownloader
+from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
@@ -98,6 +99,7 @@ from otaclient_common import _env, human_readable_size, replace_root
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
+from otaclient_common.linux import fstrim_at_subprocess
 from otaclient_common.persist_file_handling import PersistFilesHandler
 
 logger = logging.getLogger(__name__)
@@ -499,6 +501,19 @@ class _OTAUpdater(_OTAUpdateOperator):
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
+
+        # NOTE: for rebuild mode, discard will be done when formatting the standby slot
+        if use_inplace_mode and cfg.FSTRIM_AT_OTA:
+            _fstrim_timeout = cfg.FSTRIM_AT_OTA_TIMEOUT
+            logger.info(
+                f"on using inplace update mode, do fstrim on standby slot, {_fstrim_timeout=} ..."
+            )
+            fstrim_at_subprocess(
+                self._boot_controller.get_standby_slot_path(),
+                wait=True,
+                timeout=cfg.FSTRIM_AT_OTA_TIMEOUT,
+            )
+            logger.info("fstrim done")
 
         # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
         #                 destination folder.
@@ -1104,6 +1119,18 @@ class OTAClient:
 
         self.started = True
         logger.info("otaclient started")
+
+        # NOTE: not doing fstrim at startup when running as dynamic otaclient
+        if not _env.is_dynamic_client_running() and cfg.FSTRIM_AT_OTACLIENT_STARTUP:
+            logger.info(
+                "spawn a subprocess to do fstrim on active slot"
+                f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
+            )
+            fstrim_at_subprocess(
+                Path(CANONICAL_ROOT),
+                wait=False,
+                timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
+            )
 
     def _on_failure(
         self,

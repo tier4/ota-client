@@ -53,6 +53,14 @@ def mock_certs_dir(module_mocker: pytest_mock.MockerFixture):
     )
 
 
+@pytest.fixture(autouse=True, scope="module")
+def module_scope_mock(module_mocker: pytest_mock.MockerFixture):
+    module_mocker.patch(
+        f"{OTA_CORE_MODULE}.fstrim_at_subprocess",
+        module_mocker.MagicMock(),
+    )
+
+
 class TestOTAUpdater:
     """
     NOTE: the boot_control is mocked.

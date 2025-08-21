@@ -214,6 +214,11 @@ def subprocess_run_wrapper(
     )
 
 
+#
+# ------ optimized file IO on linux ------ #
+#
+
+
 def _copyfileobj(fsrc, fdst, length=8 * 1024**2):
     """Copied from shutil.copyfileobj."""
     fsrc_read = fsrc.read
@@ -252,3 +257,48 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+
+#
+# ------ fstrim with timeout ------ #
+#
+
+
+def fstrim_at_subprocess(
+    target_mountpoint: Path, *, wait: bool = True, timeout: int
+) -> None:  # pragma: no cover
+    """Dispatch subprocess to do fstrim with timeout.
+
+    fstrim is safe to be interrupted at any time.
+
+    Args:
+        target_mountpoint: target to do fstrim against.
+        wait: if True, will wait for fstrim finish up(blocking),
+            otherwise, spawn a background detached process to do fstrim.
+        timeout: max execution time for fstrim.
+    """
+    _cmd = ["fstrim", str(target_mountpoint)]
+    if wait:  # spawned the fstrim subprocess, and wait for it finishes.
+        try:
+            subprocess.run(
+                _cmd,
+                timeout=timeout,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+        return
+
+    # the spawned subprocess will do a double-fork to fully detach
+    #   the fstrim command execution from otaclient process.
+    _cmd = ["nohup", "timeout", str(timeout), *_cmd]
+    _detached_cmd = f"{shlex.join(_cmd)} &"
+    subprocess.run(
+        _detached_cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        shell=True,
+    )
