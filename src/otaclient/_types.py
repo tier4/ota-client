@@ -201,6 +201,7 @@ class StopRequestV2(IPCRequest):
     url_base: str
     cookies_json: str
 
+
 @dataclass
 class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
