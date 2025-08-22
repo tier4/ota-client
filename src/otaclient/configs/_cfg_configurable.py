@@ -91,11 +91,6 @@ class _OTAClientSettings(BaseModel):
     FSTRIM_AT_OTACLIENT_STARTUP: bool = True
     FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT: int = 360  # 6mins
 
-    #
-    # ------ delta calculation ------ #
-    #
-    DELTA_SIZE_THRESHOLD_ENABLE_ACTIVE_SLOT_COPY: int = 1 * 1024**3  # 1GiB
-
 
 class _MultipleECUSettings(BaseModel):
     # The timeout of waiting sub ECU acks the OTA request.
