@@ -339,10 +339,6 @@ class OTAUpdater(OTAUpdateOperator):
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
-        finally:
-            # we don't need the copy of base file table after delta calculation
-            if base_meta_dir_on_standby_slot and base_meta_dir_on_standby_slot.is_dir():
-                shutil.rmtree(base_meta_dir_on_standby_slot, ignore_errors=True)
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
