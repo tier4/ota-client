@@ -446,7 +446,8 @@ class OTAUpdater(OTAUpdateOperator):
         )
         ota_metadata_save_dst.mkdir(exist_ok=True, parents=True)
         shutil.rmtree(ota_metadata_save_dst, ignore_errors=True)
-        shutil.move(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
+        # NOTE(20250822): still keep the ota-meta folder for next OTA retry if any
+        shutil.copytree(self._ota_tmp_meta_on_standby, ota_metadata_save_dst)
 
         self._preserve_client_squashfs()
         self._boot_controller.post_update(self.update_version)
