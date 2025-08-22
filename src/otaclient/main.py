@@ -245,8 +245,8 @@ def main() -> None:  # pragma: no cover
                 SharedOTAClientStatusReader, name=_shm.name, key=_key
             ),
             op_queue=local_otaclient_op_queue,
-            resp_queue=local_otaclient_resp_queue,
             main_queue=otaclient_main_queue,
+            resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
         ),
         name="otaclient_api_server",
