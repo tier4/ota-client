@@ -94,7 +94,7 @@ class _OTAClientSettings(BaseModel):
     #
     # ------ delta calculation ------ #
     #
-    DELTA_SIZE_THRESHOLD_ENABLE_ACTIVE_SLOT_COPY: int = 5 * 1024**3  # 5GiB
+    DELTA_SIZE_THRESHOLD_ENABLE_ACTIVE_SLOT_COPY: int = 1 * 1024**3  # 1GiB
 
 
 class _MultipleECUSettings(BaseModel):
