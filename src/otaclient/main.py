@@ -232,6 +232,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
+            critical_zone_flags=critical_zone_flags,
         ),
         name="otaclient_ota_core",
     )
@@ -287,7 +288,6 @@ def main() -> None:  # pragma: no cover
                 )
         except Empty:
             logger.info("No stop messages received")
-            pass
 
         if not _ota_core_p.is_alive():
             logger.error(
@@ -332,6 +332,8 @@ def main() -> None:  # pragma: no cover
                     del local_otaclient_op_queue
                 if local_otaclient_resp_queue:
                     del local_otaclient_resp_queue
+                if otaclient_main_queue:
+                    del otaclient_main_queue
 
                 # this is a python bug(https://github.com/python/cpython/issues/88887),
                 # and it is fixed since python3.12 (https://github.com/python/cpython/pull/131530).
