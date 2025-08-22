@@ -131,6 +131,20 @@ class OTAClientAPIServicer:
         | api_types.ClientUpdateResponseEcu
     ):
         if not isinstance(request, StopRequestV2):
+        if isinstance(request, StopRequestV2):
+            try:
+                self._main_queue.put_nowait(request)
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            except Exception as e:
+                logger.error(f"failed to send request {request} to main process: {e!r}")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.UNRECOVERABLE,
+                )
+        else:
             try:
                 self._op_queue.put_nowait(request)
                 _req_response = self._resp_queue.get(
