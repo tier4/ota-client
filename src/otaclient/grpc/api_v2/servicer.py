@@ -54,8 +54,8 @@ class OTAClientAPIServicer:
         *,
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
-        resp_queue: mp_queue.Queue[IPCResponse],
         main_queue: mp_queue.Queue[IPCRequest],
+        resp_queue: mp_queue.Queue[IPCResponse],
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -130,7 +130,6 @@ class OTAClientAPIServicer:
         | api_types.RollbackResponseEcu
         | api_types.ClientUpdateResponseEcu
     ):
-        if not isinstance(request, StopRequestV2):
         if isinstance(request, StopRequestV2):
             try:
                 self._main_queue.put_nowait(request)
@@ -176,19 +175,6 @@ class OTAClientAPIServicer:
                 )
             except Exception as e:  # failed to get ACK from otaclient within timeout
                 logger.error(f"local otaclient failed to ACK request: {e!r}")
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.UNRECOVERABLE,
-                )
-        else:
-            try:
-                self._main_queue.put_nowait(request)
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-            except Exception as e:
-                logger.error(f"failed to send request {request} to main process: {e!r}")
                 return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.UNRECOVERABLE,
