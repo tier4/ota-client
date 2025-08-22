@@ -27,6 +27,7 @@ from queue import Queue
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient_common import EMPTY_FILE_SHA256
+from otaclient_common._io import _gen_tmp_fname
 
 from ._common import ResourcesDigestWithSize
 
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class ResourceScanner:
-    """Scan and verify OTA resource folder leftover by previous interrupted OTA.
+    """Scan and verify OTA resource folder leftover by previous OTA.
 
     NOTE that this doesn't mean resuming the previous OTA, this helper only tries to
         re-use the OTA resources generated in previous OTA to speed up current OTA.
@@ -149,3 +150,147 @@ class ResourceScanner:
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
         finally:
             os.close(_resource_dir_fd)
+
+
+class ResourceStreamer:
+    """Scan and verify OTA resource folder at the source slot, and stream with verifying it
+    to the destination slot.
+    """
+
+    def __init__(
+        self,
+        *,
+        all_resource_digests: ResourcesDigestWithSize,
+        src_resource_dir: Path,
+        dst_resource_dir: Path,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        self._status_report_queue = status_report_queue
+        self.session_id = session_id
+        self._src_resource_dir = src_resource_dir
+        self._dst_resource_dir = dst_resource_dir
+        self._all_resource_digests = all_resource_digests
+
+        self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
+        self._thread_local = threading.local()
+
+    def _thread_initializer(self):
+        self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
+        self._thread_local.bufferview = memoryview(_buffer)
+
+    def _remove_entry(self, digest_hex: str, dir_fd: int):
+        with contextlib.suppress(Exception):
+            os.unlink(digest_hex, dir_fd=dir_fd)
+
+    def _process_resource_at_thread(
+        self,
+        expected_digest: bytes,
+        expected_digest_hex: str,
+        *,
+        src_dir_fd: int,
+        dst_dir_fd: int,
+    ) -> None:
+        tmp_dst_fname = _gen_tmp_fname()
+        try:
+            hash_f, file_size = sha256(), 0
+            buffer, bufferview = (
+                self._thread_local.buffer,
+                self._thread_local.bufferview,
+            )
+
+            src_fd = os.open(expected_digest_hex, os.O_RDONLY, dir_fd=src_dir_fd)
+            tmp_dst_fd = os.open(
+                tmp_dst_fname,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                dir_fd=dst_dir_fd,
+            )
+
+            with open(src_fd, "rb") as src, open(tmp_dst_fd, "wb") as tmp_dst:
+                os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+                os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+                os.posix_fadvise(tmp_dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+                os.posix_fadvise(tmp_dst_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+                while read_size := src.readinto(buffer):
+                    file_size += read_size
+                    tmp_dst.write(bufferview[:read_size])
+                    hash_f.update(bufferview[:read_size])
+                os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                os.posix_fadvise(tmp_dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+            calculated_digest = hash_f.digest()
+            if calculated_digest != expected_digest:
+                self._remove_entry(tmp_dst_fname, dir_fd=dst_dir_fd)
+                return
+
+            try:
+                self._all_resource_digests.pop(calculated_digest)
+                # NOTE: both src and dst are under the same folder now
+                os.replace(
+                    tmp_dst_fname,
+                    expected_digest_hex,
+                    src_dir_fd=dst_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=UpdateProgressReport(
+                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
+                            processed_file_num=1,
+                            processed_file_size=file_size,
+                        ),
+                        session_id=self.session_id,
+                    )
+                )
+
+            # basically should not happen, as now we only scan resources presented in
+            #   the target OTA image now.
+            except KeyError:
+                pass
+        finally:
+            self._se.release()
+            self._remove_entry(tmp_dst_fname, dir_fd=dst_dir_fd)
+
+    def resume_ota(self) -> None:
+        """Scan the OTA resource folder leftover by previous interrupted OTA."""
+        src_dir_fd = os.open(self._src_resource_dir, os.O_RDONLY)
+        dst_dir_fd = os.open(self._dst_resource_dir, os.O_RDONLY)
+
+        try:
+            with ThreadPoolExecutor(
+                max_workers=cfg.MAX_PROCESS_FILE_THREAD,
+                initializer=self._thread_initializer,
+            ) as pool:
+                _count = 0
+                for entry in os.scandir(self._src_resource_dir):
+                    _entry_digest_hex = entry.name
+                    if _entry_digest_hex == EMPTY_FILE_SHA256:
+                        continue
+
+                    # NOTE: in resource dir, all files except tmp files are named
+                    #       with its sha256 digest in hex string.
+                    try:
+                        expected_digest = bytes.fromhex(_entry_digest_hex)
+                    except ValueError:
+                        continue
+
+                    # NOTE(20250821): only scan resources that we need
+                    if expected_digest not in self._all_resource_digests:
+                        continue
+
+                    self._se.acquire()
+                    _count += 1
+                    pool.submit(
+                        self._process_resource_at_thread,
+                        expected_digest,
+                        _entry_digest_hex,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+
+            logger.info(f"totally {_count} of OTA resource files are scanned")
+        except Exception as e:
+            logger.warning(f"exception during scanning OTA resource dir: {e!r}")
+        finally:
+            os.close(src_dir_fd)
+            os.close(dst_dir_fd)
