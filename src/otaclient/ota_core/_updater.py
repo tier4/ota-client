@@ -196,6 +196,7 @@ class OTAUpdater(OTAUpdateOperator):
         self._process_metadata()
         self._pre_update()
         _delta_digests = self._calculate_delta()
+        self._copy_from_active_slot(_delta_digests)
         self._download_delta_resources(_delta_digests)
         self._apply_update()
         self._post_update()
@@ -397,6 +398,8 @@ class OTAUpdater(OTAUpdateOperator):
                           need to download the delta again, as standby slot still holds old OS.
                         To cover this case, if delta size is too large, we will try to copy from active slot,
                           to speed up second OTA of a major OS version bump.
+
+        Note that we only do this for inplace update mode, as rebuild mode is already copying from active slot.
         """
         to_download_size = sum(delta_digests.values())
         active_slot_resources_dir = Path(
