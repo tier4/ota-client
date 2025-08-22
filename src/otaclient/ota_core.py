@@ -602,53 +602,58 @@ class _OTAUpdater(_OTAUpdateOperator):
 
         self._handle_upper_proxy()
         self._process_metadata()
-        self._pre_update()
+
+        with self.critical_zone_flags:
+            self._pre_update()
+
         _delta_digests = self._calculate_delta()
         self._download_delta_resources(_delta_digests)
         self._apply_update()
-        self._post_update()
-        self._finalize_update()
+
+        # at this point it would be better to simply finish the update process
+        with self.critical_zone_flags:
+            self._post_update()
+            self._finalize_update()
 
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
 
-        with self.critical_zone_flags:
-            with TemporaryDirectory() as _tmp_dir:
-                self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
-                    dev=self._boot_controller.standby_slot_dev,
-                    mnt_point=_tmp_dir,
-                    threshold_in_bytes=int(
-                        self._ota_metadata.total_regulars_size
-                        * STANDBY_SLOT_USED_SIZE_THRESHOLD
-                    ),
-                )
-            logger.info(
-                f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
+        with TemporaryDirectory() as _tmp_dir:
+            self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
+                dev=self._boot_controller.standby_slot_dev,
+                mnt_point=_tmp_dir,
+                threshold_in_bytes=int(
+                    self._ota_metadata.total_regulars_size
+                    * STANDBY_SLOT_USED_SIZE_THRESHOLD
+                ),
             )
-            self._metrics.use_inplace_mode = use_inplace_mode
+        logger.info(
+            f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
+        )
+        self._metrics.use_inplace_mode = use_inplace_mode
 
-            self._boot_controller.pre_update(
-                # NOTE: this option is deprecated and not used by bootcontroller
-                # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
-                #       we cannot do this for now, as some boot controller impl still refer to
-                #       active_slot mounts.
-                standby_as_ref=use_inplace_mode,
-                erase_standby=not use_inplace_mode,
+        self._boot_controller.pre_update(
+            # NOTE: this option is deprecated and not used by bootcontroller
+            # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
+            #       we cannot do this for now, as some boot controller impl still refer to
+            #       active_slot mounts.
+            standby_as_ref=use_inplace_mode,
+            erase_standby=not use_inplace_mode,
+        )
+        # prepare the tmp storage on standby slot after boot_controller.pre_update finished
+        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+        self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
+
+        # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
+        #                 destination folder.
+        logger.info("save the OTA image file_table to standby slot ...")
+        try:
+            save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
+        except Exception as e:
+            logger.error(
+                f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
             )
-            # prepare the tmp storage on standby slot after boot_controller.pre_update finished
-            self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
-            self._ota_tmp_meta_on_standby.mkdir(exist_ok=True, parents=True)
-
-            # NOTE(20250529): first save it to /.ota-meta, and then save it to the actual
-            #                 destination folder.
-            logger.info("save the OTA image file_table to standby slot ...")
-            try:
-                save_fstable(self._ota_metadata._fst_db, self._ota_tmp_meta_on_standby)
-            except Exception as e:
-                logger.error(
-                    f"failed to save OTA image file_table to {self._ota_tmp_meta_on_standby=}: {e!r}"
-                )
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -1527,6 +1532,7 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
+    critical_zone_flags: CriticalZoneFlags,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -1551,6 +1557,7 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
+        critical_zone_flags=critical_zone_flags,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
