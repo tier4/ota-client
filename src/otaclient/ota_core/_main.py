@@ -41,6 +41,7 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
+    CriticalZoneFlags,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -85,6 +86,7 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
+        critical_zone_flags: CriticalZoneFlags,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -93,6 +95,7 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
+        self._critical_zone_flags = critical_zone_flags
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -289,6 +292,7 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 ecu_status_flags=self.ecu_status_flags,
+                critical_zone_flags=self._critical_zone_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,

@@ -67,7 +67,6 @@ WAIT_BEFORE_REBOOT = 6
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
-
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
@@ -201,12 +200,14 @@ class OTAUpdater(OTAUpdateOperator):
 
         self._handle_upper_proxy()
         self._process_metadata()
-        self._pre_update()
+        with self.critical_zone_flags:
+            self._pre_update()
         _delta_digests = self._calculate_delta()
         self._download_delta_resources(_delta_digests)
         self._apply_update()
-        self._post_update()
-        self._finalize_update()
+        with self.critical_zone_flags:
+            self._post_update()
+            self._finalize_update()
 
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""

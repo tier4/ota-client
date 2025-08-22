@@ -33,7 +33,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import MultipleECUStatusFlags, UpdatePhase
+from otaclient._types import MultipleECUStatusFlags, UpdatePhase, CriticalZoneFlags
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
@@ -61,6 +61,7 @@ class OTAUpdateOperator:
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
+        critical_zone_flags: CriticalZoneFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
         metrics: OTAMetricsData,
@@ -117,6 +118,9 @@ class OTAUpdateOperator:
 
         # ------ init updater implementation ------ #
         self.ecu_status_flags = ecu_status_flags
+
+        # ------ init critical zone flags ------ #
+        self.critical_zone_flags = critical_zone_flags
 
         # ------ init variables needed for update ------ #
         _url_base = urlparse(raw_url_base)
