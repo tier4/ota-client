@@ -81,7 +81,11 @@ class _DeltaGeneratorBase:
     CLEANUP_ENTRY = {Path("/lost+found"), Path("/tmp"), Path("/run")}
     """Entries we need to cleanup everytime, include /lost+found, /tmp and /run."""
 
-    OTA_WORK_PATHS = {Path(cfg.OTA_RESOURCES_STORE), Path(cfg.OTA_TMP_META_STORE)}
+    OTA_WORK_PATHS = {
+        Path(cfg.OTA_RESOURCES_STORE),
+        Path(cfg.OTA_META_STORE),
+        Path(cfg.OTA_META_STORE_BASE_FILE_TABLE),
+    }
     """Folders for otaclient working on standby slot."""
 
     def __init__(
