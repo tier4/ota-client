@@ -44,7 +44,7 @@ from otaclient.create_standby.delta_gen import (
     RebuildDeltaGenFullDiskScan,
     RebuildDeltaWithBaseFileTable,
 )
-from otaclient.create_standby.resume_ota import ResourceScanner
+from otaclient.create_standby.resume_ota import ResourceScanner, ResourceStreamer
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient_common import (
@@ -387,6 +387,42 @@ class OTAUpdater(OTAUpdateOperator):
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+
+    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
+        """
+        NOTE(20250822): when we find that the delta size(uncompressed) is larger than threshold,
+                          we might expect a major OS version bump.
+                        In such case, when we do second OTA, with inplace update mode, even previously
+                          we have already updated to the major OS version bump, 2nd OTA will still
+                          need to download the delta again, as standby slot still holds old OS.
+                        To cover this case, if delta size is too large, we will try to copy from active slot,
+                          to speed up second OTA of a major OS version bump.
+        """
+        to_download_size = sum(delta_digests.values())
+        active_slot_resources_dir = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._active_slot_mp,
+            )
+        )
+
+        if (
+            self._can_use_in_place_mode
+            and active_slot_resources_dir.is_dir()
+            and to_download_size > cfg.DELTA_SIZE_THRESHOLD_ENABLE_ACTIVE_SLOT_COPY
+        ):
+            logger.info(
+                f"detect large delta: {to_download_size=}, try to copy from active slot ..."
+            )
+            ResourceStreamer(
+                all_resource_digests=delta_digests,
+                src_resource_dir=active_slot_resources_dir,
+                dst_resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up copying from active_slot OTA resource dir")
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
