@@ -390,7 +390,8 @@ class OTAUpdater(OTAUpdateOperator):
             ) from e
 
     def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
-        """
+        """Copy resources from active slot's OTA resources dir.
+
         NOTE(20250822): when we find that the delta size(uncompressed) is larger than threshold,
                           we might expect a major OS version bump.
                         In such case, when we do second OTA, with inplace update mode, even previously
@@ -401,7 +402,6 @@ class OTAUpdater(OTAUpdateOperator):
 
         Note that we only do this for inplace update mode, as rebuild mode is already copying from active slot.
         """
-        to_download_size = sum(delta_digests.values())
         active_slot_resources_dir = Path(
             replace_root(
                 cfg.OTA_RESOURCES_STORE,
@@ -410,13 +410,9 @@ class OTAUpdater(OTAUpdateOperator):
             )
         )
 
-        if (
-            self._can_use_in_place_mode
-            and active_slot_resources_dir.is_dir()
-            and to_download_size > cfg.DELTA_SIZE_THRESHOLD_ENABLE_ACTIVE_SLOT_COPY
-        ):
+        if self._can_use_in_place_mode and active_slot_resources_dir.is_dir():
             logger.info(
-                f"detect large delta: {to_download_size=}, try to copy from active slot ..."
+                "active slot's OTA resource dir available, try to collect resources from it ..."
             )
             ResourceStreamer(
                 all_resource_digests=delta_digests,
