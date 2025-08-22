@@ -287,7 +287,7 @@ def main() -> None:  # pragma: no cover
                     "Received stop message while in critical zone, ignoring it."
                 )
         except Empty:
-            logger.info("No stop messages received")
+            logger.debug("No stop messages received")
 
         if not _ota_core_p.is_alive():
             logger.error(
