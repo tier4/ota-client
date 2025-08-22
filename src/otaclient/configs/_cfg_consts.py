@@ -56,7 +56,8 @@ class Consts:
 
     OTA_RESOURCES_STORE = "/.ota-resources"
     """tmp store for local copy, located at standby slot."""
-    OTA_TMP_META_STORE = "/.ota-meta"
+    OTA_META_STORE = "/.ota-meta"
+    OTA_META_STORE_BASE_FILE_TABLE = "/.ota-meta/base"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
