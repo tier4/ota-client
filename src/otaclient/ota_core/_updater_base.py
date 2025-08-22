@@ -33,7 +33,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import MultipleECUStatusFlags, UpdatePhase, CriticalZoneFlags
+from otaclient._types import CriticalZoneFlags, MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
