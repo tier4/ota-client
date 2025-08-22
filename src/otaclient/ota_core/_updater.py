@@ -65,11 +65,6 @@ DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
-BASE_METADATA_FOLDER = "base"
-"""On standby slot temporary OTA metadata folder(/.ota-meta), `base` folder is to
-hold the OTA image metadata of standby slot itself.
-"""
-
 
 class OTAUpdater(OTAUpdateOperator):
     """The implementation of OTA update logic."""
@@ -86,18 +81,20 @@ class OTAUpdater(OTAUpdateOperator):
         self._boot_controller = boot_controller
 
         # ------ define runtime dirs ------ #
+        self._active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
+        self._standby_slot_mp = self._boot_controller.get_standby_slot_path()
         self._resource_dir_on_standby = Path(
             replace_root(
                 cfg.OTA_RESOURCES_STORE,
                 cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
+                self._standby_slot_mp,
             )
         )
         self._ota_tmp_meta_on_standby = Path(
             replace_root(
-                cfg.OTA_TMP_META_STORE,
+                cfg.OTA_META_STORE,
                 cfg.CANONICAL_ROOT,
-                self._boot_controller.get_standby_slot_path(),
+                self._standby_slot_mp,
             )
         )
 
@@ -106,7 +103,7 @@ class OTAUpdater(OTAUpdateOperator):
             replace_root(
                 cfg.IMAGE_META_DPATH,
                 cfg.CANONICAL_ROOT,
-                cfg.STANDBY_SLOT_MNT,
+                self._standby_slot_mp,
             )
         )
         self._can_use_in_place_mode = False
@@ -204,9 +201,8 @@ class OTAUpdater(OTAUpdateOperator):
 
         self._boot_controller.pre_update(
             # NOTE: this option is deprecated and not used by bootcontroller
-            # TODO:(20250613) when standby_as_ref is set, skip mounting active slot.
-            #       we cannot do this for now, as some boot controller impl still refer to
-            #       active_slot mounts.
+            # NOTE(20250822): no matter we use inplace mode or not, always mount
+            #                 mount the active slot also.
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
@@ -273,8 +269,12 @@ class OTAUpdater(OTAUpdateOperator):
         try:
             if self._can_use_in_place_mode:
                 # try to use base file_table from standby slot itself
-                base_meta_dir_on_standby_slot = (
-                    self._ota_tmp_meta_on_standby / BASE_METADATA_FOLDER
+                base_meta_dir_on_standby_slot = Path(
+                    replace_root(
+                        cfg.OTA_META_STORE_BASE_FILE_TABLE,
+                        cfg.CANONICAL_ROOT,
+                        self._standby_slot_mp,
+                    )
                 )
 
                 # NOTE: the file_table file in /opt/ota/image-meta MUST be prepared by otaclient,
@@ -298,7 +298,7 @@ class OTAUpdater(OTAUpdateOperator):
                 _inplace_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
-                    delta_src=Path(cfg.STANDBY_SLOT_MNT),
+                    delta_src=self._standby_slot_mp,
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
@@ -406,7 +406,7 @@ class OTAUpdater(OTAUpdateOperator):
         try:
             standby_slot_creator = UpdateStandbySlot(
                 file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
-                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
+                standby_slot_mount_point=str(self._standby_slot_mp),
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
                 resource_dir=self._resource_dir_on_standby,
@@ -454,15 +454,13 @@ class OTAUpdater(OTAUpdateOperator):
 
     def _process_persistents(self, ota_metadata: OTAMetadata):
         logger.info("start persist files handling...")
-        standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
-
         _handler = PersistFilesHandler(
-            src_passwd_file=Path(cfg.PASSWD_FPATH),
-            src_group_file=Path(cfg.GROUP_FPATH),
-            dst_passwd_file=Path(standby_slot_mp / "etc/passwd"),
-            dst_group_file=Path(standby_slot_mp / "etc/group"),
-            src_root=cfg.ACTIVE_SLOT_MNT,
-            dst_root=cfg.STANDBY_SLOT_MNT,
+            src_passwd_file=self._active_slot_mp / "etc/passwd",
+            src_group_file=self._active_slot_mp / "etc/group",
+            dst_passwd_file=self._standby_slot_mp / "etc/passwd",
+            dst_group_file=self._standby_slot_mp / "etc/group",
+            src_root=self._active_slot_mp,
+            dst_root=self._standby_slot_mp,
         )
 
         for persiste_entry in ota_metadata.iter_persist_entries():
