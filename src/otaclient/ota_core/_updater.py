@@ -96,6 +96,14 @@ class OTAUpdater(OTAUpdateOperator):
                 self._standby_slot_mp,
             )
         )
+        self._resource_dir_on_active = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._active_slot_mp,
+            )
+        )
+
         self._ota_meta_store_on_standby = Path(
             replace_root(
                 cfg.OTA_META_STORE,
@@ -126,6 +134,21 @@ class OTAUpdater(OTAUpdateOperator):
             )
         )
         self._can_use_in_place_mode = False
+
+    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
+        """Copy resources from active slot's OTA resources dir."""
+        if self._resource_dir_on_active.is_dir():
+            logger.info(
+                "active slot's OTA resource dir available, try to collect resources from it ..."
+            )
+            ResourceStreamer(
+                all_resource_digests=delta_digests,
+                src_resource_dir=self._resource_dir_on_active,
+                dst_resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up copying from active_slot OTA resource dir")
 
     def _download_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         resource_meta = ResourceMeta(
@@ -276,6 +299,25 @@ class OTAUpdater(OTAUpdateOperator):
                 )
         return verified_base_db
 
+    def _fastpath_for_inplace_mode_pre_calculate_delta(
+        self, all_resource_digests: ResourcesDigestWithSize
+    ):
+        """For inplace update mode resume previous OTA progress."""
+        if self._resource_dir_on_standby.is_dir():
+            logger.info(
+                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
+            )
+            ResourceScanner(
+                all_resource_digests=all_resource_digests,
+                resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up scanning OTA resource dir")
+
+    _fastpath_for_rebuild_mode_pre_calculate_delta = _copy_from_active_slot
+    """For rebuild mode, copy from active slot's resource dir first."""
+
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
@@ -343,6 +385,11 @@ class OTAUpdater(OTAUpdateOperator):
 
         try:
             if self._can_use_in_place_mode:
+                self._fastpath_for_inplace_mode_pre_calculate_delta(
+                    all_resource_digests
+                )
+                self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+
                 _inplace_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
@@ -361,7 +408,25 @@ class OTAUpdater(OTAUpdateOperator):
                 else:
                     logger.info("use in-place mode with full scanning ...")
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
-            else:
+
+                # after inplace mode delta generation finished, try to collect any resources
+                #   needed also from active slot.
+                # NOTE(20250822): when we find that the delta size(uncompressed) is larger than threshold,
+                #                   we might expect a major OS version bump.
+                #                 In such case, when we do second OTA, with inplace update mode, even previously
+                #                   we have already updated to the major OS version bump, 2nd OTA will still
+                #                   need to download the delta again, as standby slot still holds old OS.
+                #                 To cover this case, if delta size is too large, we will try to copy from active slot,
+                #                   to avoid downloading files we have already downloaded previously.
+                self._copy_from_active_slot(all_resource_digests)
+
+            else:  # rebuild mode
+                self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+                # for rebuild mode, copy from active slot's resource dir first if possible
+                self._fastpath_for_rebuild_mode_pre_calculate_delta(
+                    all_resource_digests
+                )
+
                 _rebuild_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
@@ -388,40 +453,6 @@ class OTAUpdater(OTAUpdateOperator):
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
-
-    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
-        """Copy resources from active slot's OTA resources dir.
-
-        NOTE(20250822): when we find that the delta size(uncompressed) is larger than threshold,
-                          we might expect a major OS version bump.
-                        In such case, when we do second OTA, with inplace update mode, even previously
-                          we have already updated to the major OS version bump, 2nd OTA will still
-                          need to download the delta again, as standby slot still holds old OS.
-                        To cover this case, if delta size is too large, we will try to copy from active slot,
-                          to speed up second OTA of a major OS version bump.
-
-        Note that we only do this for inplace update mode, as rebuild mode is already copying from active slot.
-        """
-        active_slot_resources_dir = Path(
-            replace_root(
-                cfg.OTA_RESOURCES_STORE,
-                cfg.CANONICAL_ROOT,
-                self._active_slot_mp,
-            )
-        )
-
-        if self._can_use_in_place_mode and active_slot_resources_dir.is_dir():
-            logger.info(
-                "active slot's OTA resource dir available, try to collect resources from it ..."
-            )
-            ResourceStreamer(
-                all_resource_digests=delta_digests,
-                src_resource_dir=active_slot_resources_dir,
-                dst_resource_dir=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            ).resume_ota()
-            logger.info("finish up copying from active_slot OTA resource dir")
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
