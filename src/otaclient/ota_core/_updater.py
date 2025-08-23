@@ -563,10 +563,14 @@ class OTAUpdater(OTAUpdateOperator):
         )
         self._metrics.post_update_start_timestamp = _current_time
 
-        # NOTE(20240219): move persist file handling here
+        # NOTE(20240219): move persist file handling at post_update hook
         self._process_persistents(self._ota_metadata)
 
         self._preserve_ota_image_meta_at_post_update()
+        # NOTE(20250823): secure the resource dir and metadata dir
+        os.chmod(self._resource_dir_on_standby, 0o700)
+        os.chmod(self._ota_meta_store_on_standby, 0o700)
+
         self._preserve_client_squashfs()
         self._boot_controller.post_update(self.update_version)
 
