@@ -135,21 +135,6 @@ class OTAUpdater(OTAUpdateOperator):
         )
         self._can_use_in_place_mode = False
 
-    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
-        """Copy resources from active slot's OTA resources dir."""
-        if self._resource_dir_on_active.is_dir():
-            logger.info(
-                "active slot's OTA resource dir available, try to collect resources from it ..."
-            )
-            ResourceStreamer(
-                all_resource_digests=delta_digests,
-                src_resource_dir=self._resource_dir_on_active,
-                dst_resource_dir=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            ).resume_ota()
-            logger.info("finish up copying from active_slot OTA resource dir")
-
     def _download_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         resource_meta = ResourceMeta(
             base_url=self.url_base,
@@ -219,7 +204,6 @@ class OTAUpdater(OTAUpdateOperator):
         self._process_metadata()
         self._pre_update()
         _delta_digests = self._calculate_delta()
-        self._copy_from_active_slot(_delta_digests)
         self._download_delta_resources(_delta_digests)
         self._apply_update()
         self._post_update()
@@ -299,9 +283,22 @@ class OTAUpdater(OTAUpdateOperator):
                 )
         return verified_base_db
 
-    def _fastpath_for_inplace_mode_pre_calculate_delta(
-        self, all_resource_digests: ResourcesDigestWithSize
-    ):
+    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
+        """Copy resources from active slot's OTA resources dir."""
+        if self._resource_dir_on_active.is_dir():
+            logger.info(
+                "active slot's OTA resource dir available, try to collect resources from it ..."
+            )
+            ResourceStreamer(
+                all_resource_digests=delta_digests,
+                src_resource_dir=self._resource_dir_on_active,
+                dst_resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up copying from active_slot OTA resource dir")
+
+    def _resume_ota(self, all_resource_digests: ResourcesDigestWithSize):
         """For inplace update mode resume previous OTA progress."""
         if self._resource_dir_on_standby.is_dir():
             logger.info(
@@ -314,9 +311,6 @@ class OTAUpdater(OTAUpdateOperator):
                 session_id=self.session_id,
             ).resume_ota()
             logger.info("finish up scanning OTA resource dir")
-
-    _fastpath_for_rebuild_mode_pre_calculate_delta = _copy_from_active_slot
-    """For rebuild mode, copy from active slot's resource dir first."""
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -385,9 +379,7 @@ class OTAUpdater(OTAUpdateOperator):
 
         try:
             if self._can_use_in_place_mode:
-                self._fastpath_for_inplace_mode_pre_calculate_delta(
-                    all_resource_digests
-                )
+                self._resume_ota(all_resource_digests)
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
 
                 _inplace_mode_params = DeltaGenParams(
@@ -423,9 +415,7 @@ class OTAUpdater(OTAUpdateOperator):
             else:  # rebuild mode
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
                 # for rebuild mode, copy from active slot's resource dir first if possible
-                self._fastpath_for_rebuild_mode_pre_calculate_delta(
-                    all_resource_digests
-                )
+                self._copy_from_active_slot(all_resource_digests)
 
                 _rebuild_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
