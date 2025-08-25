@@ -258,7 +258,11 @@ class OTAUpdater(OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
             )
 
-    def _find_base_file_table_pre_calculate_delta(self) -> StrOrPath | None:
+    #
+    # ------ delta calculation related ------ #
+    #
+    
+    def _find_base_file_table_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
             Verfied base file_table fpath, or None if failed to find one.
@@ -283,7 +287,7 @@ class OTAUpdater(OTAUpdateOperator):
                 )
         return verified_base_db
 
-    def _copy_from_active_slot(self, delta_digests: ResourcesDigestWithSize) -> None:
+    def _copy_from_active_slot_at_delta_cal(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Copy resources from active slot's OTA resources dir."""
         if self._resource_dir_on_active.is_dir():
             logger.info(
@@ -298,8 +302,11 @@ class OTAUpdater(OTAUpdateOperator):
             ).resume_ota()
             logger.info("finish up copying from active_slot OTA resource dir")
 
-    def _resume_ota(self, all_resource_digests: ResourcesDigestWithSize):
-        """For inplace update mode resume previous OTA progress."""
+    def _resume_ota_for_inplace_mode_at_delta_cal(self, all_resource_digests: ResourcesDigestWithSize):
+        """For inplace update mode resume previous OTA progress.
+
+        This method MUST be called before delta calculation, and ONLY for inplace mode.
+        """
         if self._resource_dir_on_standby.is_dir():
             logger.info(
                 "OTA resource dir found on standby slot, speed up delta calculation with it ..."
@@ -312,27 +319,7 @@ class OTAUpdater(OTAUpdateOperator):
             ).resume_ota()
             logger.info("finish up scanning OTA resource dir")
 
-    def _calculate_delta(self) -> ResourcesDigestWithSize:
-        """Calculate the delta bundle."""
-        logger.info("start to calculate delta ...")
-        _current_time = int(time.time())
-
-        _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
-        all_resource_digests = ResourcesDigestWithSize.from_iterable(
-            _fst_db_helper.select_all_digests_with_size(),
-        )
-
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
-                    trigger_timestamp=_current_time,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._metrics.delta_calculation_start_timestamp = _current_time
-
+    def _backward_compat_for_ota_tmp_at_delta_cal(self):
         # NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
         #                 old /.ota-tmp to new /.ota-resources.
         # NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
@@ -363,10 +350,33 @@ class OTAUpdater(OTAUpdateOperator):
                 shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
             else:
                 os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
+    
+    def _calculate_delta(self) -> ResourcesDigestWithSize:
+        """Calculate the delta bundle."""
+        logger.info("start to calculate delta ...")
+        _current_time = int(time.time())
+
+        _fst_db_helper = FileTableDBHelper(self._ota_metadata._fst_db)
+        all_resource_digests = ResourcesDigestWithSize.from_iterable(
+            _fst_db_helper.select_all_digests_with_size(),
+        )
+
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.CALCULATING_DELTA,
+                    trigger_timestamp=_current_time,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.delta_calculation_start_timestamp = _current_time
 
         try:
+            self._backward_compat_for_ota_tmp_at_delta_cal()
+            
             if self._can_use_in_place_mode:
-                self._resume_ota(all_resource_digests)
+                self._resume_ota_for_inplace_mode_at_delta_cal(all_resource_digests)
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
 
                 _inplace_mode_params = DeltaGenParams(
@@ -378,7 +388,7 @@ class OTAUpdater(OTAUpdateOperator):
                     session_id=self.session_id,
                 )
 
-                verified_base_db = self._find_base_file_table_pre_calculate_delta()
+                verified_base_db = self._find_base_file_table_at_delta_cal()
                 if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
                     InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
@@ -397,12 +407,12 @@ class OTAUpdater(OTAUpdateOperator):
                 #                   need to download the delta again, as standby slot still holds old OS.
                 #                 To cover this case, if delta size is too large, we will try to copy from active slot,
                 #                   to avoid downloading files we have already downloaded previously.
-                self._copy_from_active_slot(all_resource_digests)
+                self._copy_from_active_slot_at_delta_cal(all_resource_digests)
 
             else:  # rebuild mode
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
                 # for rebuild mode, copy from active slot's resource dir first if possible
-                self._copy_from_active_slot(all_resource_digests)
+                self._copy_from_active_slot_at_delta_cal(all_resource_digests)
 
                 _rebuild_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
@@ -430,6 +440,8 @@ class OTAUpdater(OTAUpdateOperator):
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+
+    # ------ end of delta calculation related ------ #
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
