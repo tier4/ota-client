@@ -484,7 +484,7 @@ class OTAUpdater(OTAUpdateOperator):
         self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)
         for entry in self._ota_meta_store_on_standby.iterdir():
             if entry.is_file():
-                shutil.move(entry, self._ota_meta_store_base_on_standby)
+                shutil.move(str(entry), self._ota_meta_store_base_on_standby)
 
     def _post_update(self) -> None:
         """Post-update phase."""
