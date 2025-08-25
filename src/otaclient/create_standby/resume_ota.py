@@ -19,6 +19,7 @@ import contextlib
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from pathlib import Path
@@ -33,8 +34,48 @@ from ._common import ResourcesDigestWithSize
 
 logger = logging.getLogger(__name__)
 
+REPORT_INTERVAL = 3  # second
 
-class ResourceScanner:
+
+class _ResourceOperatorBase:
+    session_id: str
+    _thread_local: threading.local
+    _internal_que: Queue[int | None]
+    _status_report_queue: Queue[StatusReport]
+
+    def _remove_entry(self, digest_hex: str, dir_fd: int):
+        with contextlib.suppress(Exception):
+            os.unlink(digest_hex, dir_fd=dir_fd)
+
+    def _thread_initializer(self):
+        self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
+        self._thread_local.bufferview = memoryview(_buffer)
+
+    def _report_uploader_thread(self) -> None:
+        """Report uploader worker thread entry."""
+        _merged_report = UpdateProgressReport(
+            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+        )
+        next_push = 0
+        while (_entry := self._internal_que.get()) is not None:
+            _merged_report.processed_file_num += 1
+            _merged_report.processed_file_size += _entry
+
+            _now = time.perf_counter()
+            if _now > next_push:
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=_merged_report,
+                        session_id=self.session_id,
+                    )
+                )
+                next_push = _now + REPORT_INTERVAL
+                _merged_report = UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
+                )
+
+
+class ResourceScanner(_ResourceOperatorBase):
     """Scan and verify OTA resource folder leftover by previous OTA.
 
     NOTE that this doesn't mean resuming the previous OTA, this helper only tries to
@@ -56,14 +97,7 @@ class ResourceScanner:
 
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
-
-    def _thread_initializer(self):
-        self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        self._thread_local.bufferview = memoryview(_buffer)
-
-    def _remove_entry(self, digest_hex: str, dir_fd: int):
-        with contextlib.suppress(Exception):
-            os.unlink(digest_hex, dir_fd=dir_fd)
+        self._internal_que: Queue[int | None] = Queue()
 
     def _process_resource_at_thread(
         self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
@@ -91,16 +125,7 @@ class ResourceScanner:
 
             try:
                 self._all_resource_digests.pop(calculated_digest)
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_num=1,
-                            processed_file_size=file_size,
-                        ),
-                        session_id=self.session_id,
-                    )
-                )
+                self._internal_que.put_nowait(file_size)
             # basically should not happen, as now we only scan resources presented in
             #   the target OTA image now.
             except KeyError:
@@ -111,6 +136,12 @@ class ResourceScanner:
     def resume_ota(self) -> None:
         """Scan the OTA resource folder leftover by previous interrupted OTA."""
         _resource_dir_fd = os.open(self._resource_dir, os.O_RDONLY)
+        status_reporter_t = threading.Thread(
+            target=self._report_uploader_thread,
+            name="resume_ota_status_reporter",
+            daemon=True,
+        )
+        status_reporter_t.start()
         try:
             with ThreadPoolExecutor(
                 max_workers=cfg.MAX_PROCESS_FILE_THREAD,
@@ -150,9 +181,11 @@ class ResourceScanner:
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
         finally:
             os.close(_resource_dir_fd)
+            self._internal_que.put_nowait(None)
+            status_reporter_t.join()
 
 
-class ResourceStreamer:
+class ResourceStreamer(_ResourceOperatorBase):
     """Scan and verify OTA resource folder at the source slot, and stream with verifying it
     to the destination slot.
     """
@@ -174,14 +207,7 @@ class ResourceStreamer:
 
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
-
-    def _thread_initializer(self):
-        self._thread_local.buffer = _buffer = bytearray(cfg.READ_CHUNK_SIZE)
-        self._thread_local.bufferview = memoryview(_buffer)
-
-    def _remove_entry(self, digest_hex: str, dir_fd: int):
-        with contextlib.suppress(Exception):
-            os.unlink(digest_hex, dir_fd=dir_fd)
+        self._internal_que: Queue[int | None] = Queue()
 
     def _process_resource_at_thread(
         self,
@@ -232,16 +258,7 @@ class ResourceStreamer:
                     src_dir_fd=dst_dir_fd,
                     dst_dir_fd=dst_dir_fd,
                 )
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY,
-                            processed_file_num=1,
-                            processed_file_size=file_size,
-                        ),
-                        session_id=self.session_id,
-                    )
-                )
+                self._internal_que.put_nowait(file_size)
 
             # basically should not happen, as now we only scan resources presented in
             #   the target OTA image now.
@@ -256,6 +273,12 @@ class ResourceStreamer:
         src_dir_fd = os.open(self._src_resource_dir, os.O_RDONLY)
         dst_dir_fd = os.open(self._dst_resource_dir, os.O_RDONLY)
 
+        status_reporter_t = threading.Thread(
+            target=self._report_uploader_thread,
+            name="resume_ota_status_reporter",
+            daemon=True,
+        )
+        status_reporter_t.start()
         # NOTE: create a shallow copy of all digests
         _all_digests = set(self._all_resource_digests)
         try:
@@ -295,3 +318,5 @@ class ResourceStreamer:
         finally:
             os.close(src_dir_fd)
             os.close(dst_dir_fd)
+            self._internal_que.put_nowait(None)
+            status_reporter_t.join()
