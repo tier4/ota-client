@@ -275,7 +275,7 @@ class OTAUpdater(OTAUpdateOperator):
             #       it is not included in the OTA image, thus also not in file_table.
             if self._image_meta_dir_on_standby.is_dir():
                 shutil.move(
-                    self._image_meta_dir_on_standby,
+                    str(self._image_meta_dir_on_standby),
                     self._ota_meta_store_base_on_standby,
                 )
                 verified_base_db = find_saved_fstable(
@@ -420,7 +420,7 @@ class OTAUpdater(OTAUpdateOperator):
                 _rebuild_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    delta_src=self._active_slot_mp,
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
@@ -528,8 +528,11 @@ class OTAUpdater(OTAUpdateOperator):
 
         # save the filetable to /opt/ota/image-meta
         shutil.rmtree(self._image_meta_dir_on_standby, ignore_errors=True)
+        self._image_meta_dir_on_standby.mkdir(exist_ok=True, parents=True)
         shutil.copytree(
-            self._ota_meta_store_on_standby, self._image_meta_dir_on_standby
+            self._ota_meta_store_on_standby,
+            self._image_meta_dir_on_standby,
+            dirs_exist_ok=True,
         )
 
         # prepare base file_table to the base OTA meta store for next OTA
