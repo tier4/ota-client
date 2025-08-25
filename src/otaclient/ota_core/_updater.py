@@ -270,7 +270,6 @@ class OTAUpdater(OTAUpdateOperator):
                 )
         return verified_base_db
 
-
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
@@ -434,18 +433,19 @@ class OTAUpdater(OTAUpdateOperator):
         self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
         # after update_slot finished, we can finally remove the previous base file_table.
         shutil.rmtree(self._ota_meta_store_base_on_standby, ignore_errors=True)
-        
+
         # save the filetable to /opt/ota/image-meta
         shutil.rmtree(self._image_meta_dir_on_standby, ignore_errors=True)
         self._image_meta_dir_on_standby.mkdir(exist_ok=True, parents=True)
-        shutil.copytree(self._ota_meta_store_on_standby, self._image_meta_dir_on_standby)
+        shutil.copytree(
+            self._ota_meta_store_on_standby, self._image_meta_dir_on_standby
+        )
 
         # prepare base file_table to the base OTA meta store for next OTA
         self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)
         for entry in self._image_meta_dir_on_standby.iterdir():
             if entry.is_file():
                 shutil.move(entry, self._ota_meta_store_base_on_standby)
-
 
     def _post_update(self) -> None:
         """Post-update phase."""
