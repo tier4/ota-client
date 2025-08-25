@@ -21,17 +21,14 @@ from __future__ import annotations
 
 import logging
 import multiprocessing.queues as mp_queue
-import sys
 from queue import Empty
 
 # Local application imports (alphabetical)
 from otaclient._logging import configure_logging
-from otaclient._types import IPCRequest, CriticalZoneFlags
-
+from otaclient._types import CriticalZoneFlags, IPCRequest
 from otaclient.main import shutdown
 
-
-STOP_REQUEST_CHECK_INTERVAL = 1 # seconds
+STOP_REQUEST_CHECK_INTERVAL = 1  # seconds
 
 
 logger = logging.getLogger(__name__)
@@ -39,9 +36,9 @@ configure_logging()
 
 
 def stop_request_thread(
-        *,
-        otaclient_main_queue: mp_queue.Queue[IPCRequest],
-        critical_zone_flags: CriticalZoneFlags,
+    *,
+    otaclient_main_queue: mp_queue.Queue[IPCRequest],
+    critical_zone_flags: CriticalZoneFlags,
 ):
     while True:
         try:
