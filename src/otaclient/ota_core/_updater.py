@@ -261,7 +261,7 @@ class OTAUpdater(OTAUpdateOperator):
     #
     # ------ delta calculation related ------ #
     #
-    
+
     def _find_base_file_table_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
@@ -287,7 +287,9 @@ class OTAUpdater(OTAUpdateOperator):
                 )
         return verified_base_db
 
-    def _copy_from_active_slot_at_delta_cal(self, delta_digests: ResourcesDigestWithSize) -> None:
+    def _copy_from_active_slot_at_delta_cal(
+        self, delta_digests: ResourcesDigestWithSize
+    ) -> None:
         """Copy resources from active slot's OTA resources dir."""
         if self._resource_dir_on_active.is_dir():
             logger.info(
@@ -302,7 +304,9 @@ class OTAUpdater(OTAUpdateOperator):
             ).resume_ota()
             logger.info("finish up copying from active_slot OTA resource dir")
 
-    def _resume_ota_for_inplace_mode_at_delta_cal(self, all_resource_digests: ResourcesDigestWithSize):
+    def _resume_ota_for_inplace_mode_at_delta_cal(
+        self, all_resource_digests: ResourcesDigestWithSize
+    ):
         """For inplace update mode resume previous OTA progress.
 
         This method MUST be called before delta calculation, and ONLY for inplace mode.
@@ -350,7 +354,7 @@ class OTAUpdater(OTAUpdateOperator):
                 shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
             else:
                 os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
-    
+
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
@@ -374,7 +378,7 @@ class OTAUpdater(OTAUpdateOperator):
 
         try:
             self._backward_compat_for_ota_tmp_at_delta_cal()
-            
+
             if self._can_use_in_place_mode:
                 self._resume_ota_for_inplace_mode_at_delta_cal(all_resource_digests)
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
