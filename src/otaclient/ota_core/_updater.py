@@ -375,7 +375,6 @@ class OTAUpdater(OTAUpdateOperator):
                 session_id=self.session_id,
             ).resume_ota()
             logger.info("finish up scanning OTA resource dir")
-        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
 
         try:
             if self._can_use_in_place_mode:
