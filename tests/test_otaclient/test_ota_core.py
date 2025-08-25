@@ -89,7 +89,7 @@ class TestOTAUpdater:
         self.slot_b.mkdir(exist_ok=True)
         # some important paths
         self.ota_metafiles_tmp_dir = self.slot_b / Path(
-            otaclient_cfg.OTA_TMP_META_STORE
+            otaclient_cfg.OTA_META_STORE
         ).relative_to("/")
         self.ota_tmp_dir = self.slot_b / Path(
             otaclient_cfg.OTA_RESOURCES_STORE
