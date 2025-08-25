@@ -255,26 +255,38 @@ class ResourceStreamer:
         """Scan the OTA resource folder leftover by previous interrupted OTA."""
         src_dir_fd = os.open(self._src_resource_dir, os.O_RDONLY)
         dst_dir_fd = os.open(self._dst_resource_dir, os.O_RDONLY)
+
+        # NOTE: create a shallow copy of all digests
+        _all_digests = set(self._all_resource_digests)
         try:
             with ThreadPoolExecutor(
                 max_workers=cfg.MAX_PROCESS_FILE_THREAD,
                 initializer=self._thread_initializer,
             ) as pool:
                 _count = 0
-                # NOTE: create a shallow copy of all digests
-                for _digest in list(self._all_resource_digests):
-                    _digest_hex = _digest.hex()
-                    _resource_file = self._src_resource_dir / _digest_hex
-                    if _resource_file.is_file():
-                        self._se.acquire()
-                        _count += 1
-                        pool.submit(
-                            self._process_resource_at_thread,
-                            _digest,
-                            _digest_hex,
-                            src_dir_fd=src_dir_fd,
-                            dst_dir_fd=dst_dir_fd,
-                        )
+
+                for entry in os.scandir(self._src_resource_dir):
+                    _entry_digest_hex = entry.name
+                    if _entry_digest_hex == EMPTY_FILE_SHA256:
+                        continue
+
+                    try:
+                        _expected_digest = bytes.fromhex(_entry_digest_hex)
+                    except ValueError:
+                        continue
+
+                    if _expected_digest not in _all_digests:
+                        continue
+
+                    self._se.acquire()
+                    _count += 1
+                    pool.submit(
+                        self._process_resource_at_thread,
+                        _expected_digest,
+                        _entry_digest_hex,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
             logger.info(f"totally {_count} of OTA resource files are scanned")
         except Exception as e:
             logger.warning(
