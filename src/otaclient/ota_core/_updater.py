@@ -476,7 +476,6 @@ class OTAUpdater(OTAUpdateOperator):
 
         # save the filetable to /opt/ota/image-meta
         shutil.rmtree(self._image_meta_dir_on_standby, ignore_errors=True)
-        self._image_meta_dir_on_standby.mkdir(exist_ok=True, parents=True)
         shutil.copytree(
             self._ota_meta_store_on_standby, self._image_meta_dir_on_standby
         )
