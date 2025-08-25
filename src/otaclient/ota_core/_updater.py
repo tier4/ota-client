@@ -343,14 +343,14 @@ class OTAUpdater(OTAUpdateOperator):
                 f"try to migrate the resources to {self._resource_dir_on_standby}"
             )
             if self._resource_dir_on_standby.is_dir():
-                for _entry in _ota_tmp_dir_on_standby.glob("*"):
+                for _entry in os.scandir(_ota_tmp_dir_on_standby):
                     _entry_name = _entry.name
-                    if _entry.is_file() and len(_entry.name) == SHA256DIGEST_HEX_LEN:
+                    if len(_entry.name) == SHA256DIGEST_HEX_LEN:
                         try:
                             bytes.fromhex(_entry_name)
                         except ValueError:
                             continue  # not an OTA resource file
-                        os.replace(_entry, self._resource_dir_on_standby / _entry_name)
+                        os.replace(_entry.path, self._resource_dir_on_standby / _entry_name)
                 shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
             else:
                 os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
