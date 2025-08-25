@@ -430,14 +430,17 @@ class OTAClientAPIServicer:
         )
 
     async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
-        return await self._handle_request(
-            request=request,
-            local_handler=self._local_stop,
-            request_cls=StopRequestV2,
-            remote_call=OTAClientCall.stop_call,
-            response_type=api_types.StopResponse,
-            update_acked_ecus=None,
-        )
+        # TODO: implement security measure to avoid unauthorized stop request
+        _res = []
+        for _ecu_req in request.ecu:
+            _res.append(
+                api_types.StopResponseEcu(
+                    ecu_id=_ecu_req.ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="stop API is not supported yet",
+                ),
+            )
+        return api_types.StopResponse(ecu=_res)
 
     async def rollback(
         self, request: api_types.RollbackRequest
