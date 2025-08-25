@@ -364,18 +364,6 @@ class OTAUpdater(OTAUpdateOperator):
             else:
                 os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
 
-        if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
-            logger.info(
-                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
-            )
-            ResourceScanner(
-                all_resource_digests=all_resource_digests,
-                resource_dir=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            ).resume_ota()
-            logger.info("finish up scanning OTA resource dir")
-
         try:
             if self._can_use_in_place_mode:
                 self._resume_ota(all_resource_digests)
