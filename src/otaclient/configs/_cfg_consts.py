@@ -73,9 +73,6 @@ class Consts:
     ECU_INFO_FPATH = "/boot/ota/ecu_info.yaml"
     PROXY_INFO_FPATH = "/boot/ota/proxy_info.yaml"
 
-    ETC_DPATH = "/etc"
-    PASSWD_FPATH = "/etc/passwd"
-    GROUP_FPATH = "/etc/group"
     FSTAB_FPATH = "/etc/fstab"
 
     #
