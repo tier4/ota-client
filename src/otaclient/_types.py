@@ -138,7 +138,24 @@ class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
     notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
-    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
+    request_shutdown_event: mp_sync.Event  # for requesting to shut down
+
+
+@dataclass
+class CriticalZoneFlags:
+    """Flags for critical zone control."""
+
+    is_critical_zone: mp_sync.Event
+
+    def __enter__(self):
+        """Enter critical zone."""
+        self.is_critical_zone.set()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit critical zone."""
+        self.is_critical_zone.clear()
+        return False
 
 
 #
@@ -177,6 +194,15 @@ class UpdateRequestV2(IPCRequest):
 
 
 @dataclass
+class StopRequestV2(IPCRequest):
+    """Compatible with OTA API version 2."""
+
+    version: str
+    url_base: str
+    cookies_json: str
+
+
+@dataclass
 class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
@@ -187,4 +213,4 @@ class ClientUpdateRequestV2(IPCRequest):
 
 @dataclass
 class RollbackRequestV2(IPCRequest):
-    """Compatbile with OTA API version 2."""
+    """Compatible with OTA API version 2."""
