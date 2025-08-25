@@ -403,7 +403,7 @@ class OTAUpdater(OTAUpdateOperator):
 
                 # after inplace mode delta generation finished, try to collect any resources
                 #   needed also from active slot.
-                # NOTE(20250822): when we find that the delta size(uncompressed) is larger than threshold,
+                # NOTE(20250822): when we find that the delta size(uncompressed) is very large,
                 #                   we might expect a major OS version bump.
                 #                 In such case, when we do second OTA, with inplace update mode, even previously
                 #                   we have already updated to the major OS version bump, 2nd OTA will still
