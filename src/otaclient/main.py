@@ -28,7 +28,6 @@ import sys
 import threading
 import time
 from functools import partial
-from queue import Empty
 
 from otaclient import __version__
 from otaclient._types import (
