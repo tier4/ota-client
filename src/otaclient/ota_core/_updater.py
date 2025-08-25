@@ -482,7 +482,7 @@ class OTAUpdater(OTAUpdateOperator):
 
         # prepare base file_table to the base OTA meta store for next OTA
         self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)
-        for entry in self._image_meta_dir_on_standby.iterdir():
+        for entry in self._ota_meta_store_on_standby.iterdir():
             if entry.is_file():
                 shutil.move(entry, self._ota_meta_store_base_on_standby)
 
