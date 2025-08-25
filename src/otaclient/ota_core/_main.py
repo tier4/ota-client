@@ -468,6 +468,7 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
+    critical_zone_flags: CriticalZoneFlags,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -491,6 +492,7 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
+        critical_zone_flags=critical_zone_flags,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

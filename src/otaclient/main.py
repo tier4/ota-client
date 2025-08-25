@@ -99,6 +99,12 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
             sys.exit(1)
 
 
+# Added for the stop process thread located in a separate module
+def shutdown(sys_exit: bool = False) -> None:
+    """Public interface to shutdown otaclient."""
+    _on_shutdown(sys_exit=sys_exit)
+
+
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
     # NOTE: the daemon_process needs to exit also.
@@ -111,6 +117,7 @@ def main() -> None:  # pragma: no cover
         otaproxy_control_thread,
         otaproxy_on_global_shutdown,
     )
+    from otaclient._stop_monitor import stop_request_thread
     from otaclient._utils import check_other_otaclient
     from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -274,20 +281,23 @@ def main() -> None:  # pragma: no cover
         )
         _otaproxy_control_t.start()
 
-    while True:
-        time.sleep(HEALTH_CHECK_INTERVAL)
+    _stop_request_thread = threading.Thread(
+        target=partial(
+            stop_request_thread,
+            main_queue=otaclient_main_queue,
+            critical_zone_flags=critical_zone_flags,
+        ),
+        name="otaclient_stop_request_thread",
+    )
 
-        try:
-            stop_message = otaclient_main_queue.get_nowait()
-            logger.info(f"Received stop message: {stop_message}")
-            if not critical_zone_flags.is_critical_zone.is_set():
-                return _on_shutdown(sys_exit=True)
-            else:
-                logger.warning(
-                    "Received stop message while in critical zone, ignoring it."
-                )
-        except Empty:
-            logger.debug("No stop messages received")
+    _stop_request_thread.start()
+
+    while True:
+        _stop_request_thread.join(HEALTH_CHECK_INTERVAL)
+
+        if not _stop_request_thread.is_alive():
+            logger.info("Stop request received, shutting down...")
+            break
 
         if not _ota_core_p.is_alive():
             logger.error(
