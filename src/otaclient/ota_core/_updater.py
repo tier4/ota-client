@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -47,7 +48,12 @@ from otaclient.create_standby.delta_gen import (
 from otaclient.create_standby.resume_ota import ResourceScanner
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
-from otaclient_common import _env, human_readable_size, replace_root
+from otaclient_common import (
+    SHA256DIGEST_HEX_LEN,
+    _env,
+    human_readable_size,
+    replace_root,
+)
 from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
@@ -290,6 +296,40 @@ class OTAUpdater(OTAUpdateOperator):
             )
         )
         self._metrics.delta_calculation_start_timestamp = _current_time
+
+        # NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
+        #                 old /.ota-tmp to new /.ota-resources.
+        # NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
+        #                   and interrupted again, and then retried with older otaclient again" is NOT SUPPORTED!
+        #                 User should finish up the OTA with new otaclient in the above case.
+        _ota_tmp_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+        if _ota_tmp_dir_on_standby.is_dir():
+            logger.warning(
+                f"detect .ota-tmp on standby slot {_ota_tmp_dir_on_standby}, "
+                "potential interrupted OTA by older otaclient, "
+                f"try to migrate the resources to {self._resource_dir_on_standby}"
+            )
+            if self._resource_dir_on_standby.is_dir():
+                for _entry in _ota_tmp_dir_on_standby.glob("*"):
+                    with contextlib.suppress(ValueError):
+                        _entry_name = _entry.name
+                        if (
+                            _entry.is_file()
+                            and len(_entry.name) == SHA256DIGEST_HEX_LEN
+                        ):
+                            bytes.fromhex(_entry_name)
+                            os.replace(
+                                _entry, self._resource_dir_on_standby / _entry_name
+                            )
+                shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
+            else:
+                os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
 
         if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
             logger.info(
