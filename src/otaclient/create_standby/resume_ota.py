@@ -269,9 +269,9 @@ class ResourceStreamer(_ResourceOperatorBase):
                 )
                 self._internal_que.put_nowait(file_size)
 
-            # basically should not happen, as now we only scan resources presented in
-            #   the target OTA image now.
             except KeyError:
+                # basically should not happen, as now we only scan resources presented in
+                #   the target OTA image now.
                 pass
         finally:
             self._se.release()
