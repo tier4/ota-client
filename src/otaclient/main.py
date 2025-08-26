@@ -296,7 +296,7 @@ def main() -> None:  # pragma: no cover
 
         if not _stop_request_thread.is_alive():
             logger.info("Stop request received, shutting down...")
-            break
+            return _on_shutdown(sys_exit=True)
 
         if not _ota_core_p.is_alive():
             logger.error(
