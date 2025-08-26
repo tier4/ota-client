@@ -2,7 +2,7 @@
 """Client and server classes corresponding to protobuf-defined services."""
 import grpc
 
-from otaclient_api.v2 import otaclient_v2_pb2 as otaclient__pb2_dot_v2_dot_otaclient__v2__pb2
+from otaclient_api.v2 import otaclient_v2_pb2 as otaclient__api_dot_v2_dot_otaclient__v2__pb2
 
 
 class OtaClientServiceStub(object):
@@ -18,28 +18,28 @@ class OtaClientServiceStub(object):
         """
         self.Update = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/Update',
-                request_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
-                response_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
                 )
         self.Stop = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/Stop',
-                request_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
-                response_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
                 )
         self.Rollback = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/Rollback',
-                request_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.SerializeToString,
-                response_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.FromString,
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.FromString,
                 )
         self.Status = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/Status',
-                request_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
-                response_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
                 )
         self.ClientUpdate = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/ClientUpdate',
-                request_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
-                response_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
                 )
 
 
@@ -109,28 +109,28 @@ def add_OtaClientServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Update': grpc.unary_unary_rpc_method_handler(
                     servicer.Update,
-                    request_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
-                    response_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
             ),
             'Stop': grpc.unary_unary_rpc_method_handler(
                     servicer.Stop,
-                    request_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopRequest.FromString,
-                    response_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopResponse.SerializeToString,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.SerializeToString,
             ),
             'Rollback': grpc.unary_unary_rpc_method_handler(
                     servicer.Rollback,
-                    request_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.FromString,
-                    response_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.SerializeToString,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.SerializeToString,
             ),
             'Status': grpc.unary_unary_rpc_method_handler(
                     servicer.Status,
-                    request_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusRequest.FromString,
-                    response_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusResponse.SerializeToString,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.SerializeToString,
             ),
             'ClientUpdate': grpc.unary_unary_rpc_method_handler(
                     servicer.ClientUpdate,
-                    request_deserializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
-                    response_serializer=otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -156,8 +156,8 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Update',
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -173,8 +173,8 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Stop',
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -190,8 +190,8 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Rollback',
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.SerializeToString,
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.FromString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -207,8 +207,8 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Status',
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StatusResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
@@ -224,7 +224,7 @@ class OtaClientService(object):
             timeout=None,
             metadata=None):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/ClientUpdate',
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
-            otaclient__pb2_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
