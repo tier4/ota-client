@@ -85,10 +85,10 @@ class _ResourceOperatorBase:
 
 
 class ResourceScanner(_ResourceOperatorBase):
-    """Scan and verify OTA resource folder leftover by previous OTA.
+    """Scan and verify OTA resource folder leftover by previous interrupted OTA.
 
     NOTE that this doesn't mean resuming the previous OTA, this helper only tries to
-        re-use the OTA resources generated in previous OTA to speed up current OTA.
+        re-use the OTA resources generated in previous interrupted OTA to speed up current OTA.
     """
 
     def __init__(
