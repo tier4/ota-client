@@ -36,8 +36,6 @@ from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
 
-from ._common import HardlinkGroup
-
 logger = logging.getLogger(__name__)
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.file_op_failed")
 
@@ -70,7 +68,8 @@ class UpdateStandbySlot:
         self._se = threading.Semaphore(concurrent_tasks)
         self._interrupted = threading.Event()
 
-        self._hardlink_group = HardlinkGroup()
+        self._hardlink_group_lock = threading.Lock()
+        self._hardlink_group: dict[int, Path] = {}
 
     def _report_uploader_thread(self) -> None:
         """Report uploader worker thread entry."""
@@ -117,7 +116,7 @@ class UpdateStandbySlot:
     ):
         _inode_id, _entry_size = _entry["inode_id"], _entry["size"]
         _inlined = _entry["contents"] or _entry_size == 0
-        with self._hardlink_group:
+        with self._hardlink_group_lock:
             _link_group_head = self._hardlink_group.get(_inode_id)
             if _link_group_head is not None:
                 prepare_regular_hardlink(
@@ -126,7 +125,8 @@ class UpdateStandbySlot:
                     target_mnt=self._standby_slot_mp,
                     hardlink_skip_apply_permission=True,
                 )
-                self._internal_que.put_nowait(_entry_size)
+                if not first_to_prepare:
+                    self._internal_que.put_nowait(_entry_size)
                 return
 
             if _inlined:
