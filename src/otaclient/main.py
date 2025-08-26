@@ -286,6 +286,7 @@ def main() -> None:  # pragma: no cover
             otaclient_main_queue=otaclient_main_queue,
             critical_zone_flags=critical_zone_flags,
         ),
+        daemon=True,
         name="otaclient_stop_request_thread",
     )
 
