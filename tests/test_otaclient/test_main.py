@@ -162,7 +162,10 @@ class TestMain:
         mock_stop_thread = mocker.MagicMock()
         mock_stop_thread.is_alive.side_effect = [True, False]
         mock_thread = mocker.MagicMock()
-        mocker.patch(f"{MAIN_MODULE}.threading.Thread", side_effect=[mock_thread, mock_stop_thread])
+        mocker.patch(
+            f"{MAIN_MODULE}.threading.Thread",
+            side_effect=[mock_thread, mock_stop_thread],
+        )
 
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
@@ -219,7 +222,10 @@ class TestMain:
         mock_stop_thread = mocker.MagicMock()
         mock_stop_thread.is_alive.return_value = True
         mock_thread = mocker.MagicMock()
-        mocker.patch(f"{MAIN_MODULE}.threading.Thread", side_effect=[mock_thread, mock_stop_thread])
+        mocker.patch(
+            f"{MAIN_MODULE}.threading.Thread",
+            side_effect=[mock_thread, mock_stop_thread],
+        )
 
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
@@ -361,7 +367,9 @@ class TestMain:
 
         # Create mock for stop request thread
         mock_stop_thread = mocker.MagicMock()
-        mock_stop_thread.is_alive.return_value = False  # Thread finished (stop request received)
+        mock_stop_thread.is_alive.return_value = (
+            False  # Thread finished (stop request received)
+        )
         mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_stop_thread)
 
         # Mock multiprocessing context and processes
@@ -427,7 +435,10 @@ class TestMain:
 
         # Create mock for stop request thread - alive initially, then dies on second check
         mock_stop_thread = mocker.MagicMock()
-        mock_stop_thread.is_alive.side_effect = [True, False]  # Alive first time, dead second time
+        mock_stop_thread.is_alive.side_effect = [
+            True,
+            False,
+        ]  # Alive first time, dead second time
         mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_stop_thread)
 
         # Mock multiprocessing context and processes
