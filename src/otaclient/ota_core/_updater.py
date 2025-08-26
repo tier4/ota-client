@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import logging
@@ -262,7 +261,7 @@ class OTAUpdater(OTAUpdateOperator):
     # ------ delta calculation related ------ #
     #
 
-    def _find_base_file_table_at_delta_cal(self) -> StrOrPath | None:
+    def _find_base_filetable_for_inplace_mode_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
             Verfied base file_table fpath, or None if failed to find one.
@@ -324,11 +323,14 @@ class OTAUpdater(OTAUpdateOperator):
             logger.info("finish up scanning OTA resource dir")
 
     def _backward_compat_for_ota_tmp_at_delta_cal(self):
-        # NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
-        #                 old /.ota-tmp to new /.ota-resources.
-        # NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
-        #                   and interrupted again, and then retried with older otaclient again" is NOT SUPPORTED!
-        #                 User should finish up the OTA with new otaclient in the above case.
+        """Backward compatibility for .ota-tmp, try to migrate from .ota-tmp if presented.
+
+        NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
+                        old /.ota-tmp to new /.ota-resources.
+        NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
+                          and interrupted again, and then retried with older otaclient again" is NOT SUPPORTED!
+                        User should finish up the OTA with new otaclient in the above case.
+        """
         _ota_tmp_dir_on_standby = Path(
             replace_root(
                 cfg.OTA_TMP_STORE,
@@ -380,7 +382,6 @@ class OTAUpdater(OTAUpdateOperator):
 
         try:
             self._backward_compat_for_ota_tmp_at_delta_cal()
-
             if self._can_use_in_place_mode:
                 self._resume_ota_for_inplace_mode_at_delta_cal(all_resource_digests)
                 self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
@@ -394,7 +395,9 @@ class OTAUpdater(OTAUpdateOperator):
                     session_id=self.session_id,
                 )
 
-                verified_base_db = self._find_base_file_table_at_delta_cal()
+                verified_base_db = (
+                    self._find_base_filetable_for_inplace_mode_at_delta_cal()
+                )
                 if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
                     InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
