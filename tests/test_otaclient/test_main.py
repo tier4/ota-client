@@ -321,4 +321,3 @@ class TestMain:
             mock_chdir.assert_not_called()
             mock_execve.assert_not_called()
             mock_check_other_otaclient.assert_not_called()
-
