@@ -207,6 +207,7 @@ class OTAUpdater(OTAUpdateOperator):
         self._apply_update()
         with self.critical_zone_flags:
             self._post_update()
+        with self.critical_zone_flags:
             self._finalize_update()
 
     def _pre_update(self):
