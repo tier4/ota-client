@@ -81,8 +81,15 @@ class _DeltaGeneratorBase:
     CLEANUP_ENTRY = {Path("/lost+found"), Path("/tmp"), Path("/run")}
     """Entries we need to cleanup everytime, include /lost+found, /tmp and /run."""
 
-    OTA_WORK_PATHS = {Path(cfg.OTA_RESOURCES_STORE), Path(cfg.OTA_TMP_META_STORE)}
+    OTA_WORKING_DIRS = {
+        cfg.OTA_RESOURCES_STORE,
+        cfg.OTA_META_STORE,
+    }
     """Folders for otaclient working on standby slot."""
+
+    @classmethod
+    def is_ota_working_dir(cls, _path: str) -> bool:
+        return any(_path.startswith(_ota_wd) for _ota_wd in cls.OTA_WORKING_DIRS)
 
     def __init__(
         self,
@@ -379,14 +386,14 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             self._delta_src_mount_point, topdown=True, followlinks=False
         ):
             delta_src_curdir_path = Path(curdir)
-            canonical_curdir_path = Path(
-                replace_root(
-                    delta_src_curdir_path,
-                    self._delta_src_mount_point,
-                    CANONICAL_ROOT_P,
-                )
+            canonical_curdir = replace_root(
+                delta_src_curdir_path,
+                self._delta_src_mount_point,
+                CANONICAL_ROOT_P,
             )
-            if canonical_curdir_path in self.OTA_WORK_PATHS:
+            canonical_curdir_path = Path(canonical_curdir)
+
+            if self.is_ota_working_dir(canonical_curdir):
                 continue  # skip scanning OTA work paths
 
             _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
@@ -441,7 +448,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
     def _cleanup_base(self):
         # NOTE: the dirs in dirs_to_remove is cannonical dirs!
         for _canon_dir in self._dirs_to_remove.iter_paths():
-            if _canon_dir in self.OTA_WORK_PATHS:
+            if self.is_ota_working_dir(str(_canon_dir)):
                 continue  # NOTE: DO NOT cleanup OTA work paths!
 
             _delta_src_dir = replace_root(
@@ -507,14 +514,14 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             self._delta_src_mount_point, topdown=True, followlinks=False
         ):
             delta_src_curdir_path = Path(curdir)
-            canonical_curdir_path = Path(
-                replace_root(
-                    delta_src_curdir_path,
-                    self._delta_src_mount_point,
-                    CANONICAL_ROOT_P,
-                )
+            canonical_curdir = replace_root(
+                delta_src_curdir_path,
+                self._delta_src_mount_point,
+                CANONICAL_ROOT_P,
             )
-            if canonical_curdir_path in self.OTA_WORK_PATHS:
+            canonical_curdir_path = Path(canonical_curdir)
+
+            if self.is_ota_working_dir(canonical_curdir):
                 continue  # skip scanning OTA work paths
 
             _check_dir = self._check_if_need_to_process_dir(canonical_curdir_path)
@@ -684,15 +691,15 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
             self._delta_src_mount_point, topdown=True, followlinks=False
         ):
             delta_src_curdir_path = Path(curdir)
-            canonical_curdir_path = Path(
-                replace_root(
-                    delta_src_curdir_path,
-                    self._delta_src_mount_point,
-                    CANONICAL_ROOT,
-                )
+            canonical_curdir = replace_root(
+                delta_src_curdir_path,
+                self._delta_src_mount_point,
+                CANONICAL_ROOT,
             )
+            canonical_curdir_path = Path(canonical_curdir)
+
             # NOTE: DO NOT CLEANUP the OTA resource folder!
-            if canonical_curdir_path in self.OTA_WORK_PATHS:
+            if self.is_ota_working_dir(canonical_curdir):
                 continue
 
             if canonical_curdir_path == CANONICAL_ROOT_P:

@@ -54,9 +54,12 @@ class Consts:
     # this path should not be included in the mounted rootfs
     DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
 
+    OTA_TMP_STORE = "/.ota-tmp"
+    """For backward-compatibility"""
     OTA_RESOURCES_STORE = "/.ota-resources"
     """tmp store for local copy, located at standby slot."""
-    OTA_TMP_META_STORE = "/.ota-meta"
+    OTA_META_STORE = "/.ota-meta"
+    OTA_META_STORE_BASE_FILE_TABLE = "/.ota-meta/base"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"
@@ -70,9 +73,6 @@ class Consts:
     ECU_INFO_FPATH = "/boot/ota/ecu_info.yaml"
     PROXY_INFO_FPATH = "/boot/ota/proxy_info.yaml"
 
-    ETC_DPATH = "/etc"
-    PASSWD_FPATH = "/etc/passwd"
-    GROUP_FPATH = "/etc/group"
     FSTAB_FPATH = "/etc/fstab"
 
     #
