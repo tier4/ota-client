@@ -139,7 +139,7 @@ class ResourceScanner(_ResourceOperatorBase):
             try:
                 self._all_resource_digests.pop(calculated_digest)
                 self._internal_que.put_nowait(file_size)
-                
+
             except KeyError:
                 # basically should not happen, as now we only scan resources presented in
                 #   the target OTA image now.
