@@ -82,10 +82,12 @@ class UpdateRequestEcu(_message.Message):
     def __init__(self, ecu_id: _Optional[str] = ..., version: _Optional[str] = ..., url: _Optional[str] = ..., cookies: _Optional[str] = ...) -> None: ...
 
 class UpdateRequest(_message.Message):
-    __slots__ = ["ecu"]
+    __slots__ = ["ecu", "request_id"]
     ECU_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     ecu: _containers.RepeatedCompositeFieldContainer[UpdateRequestEcu]
-    def __init__(self, ecu: _Optional[_Iterable[_Union[UpdateRequestEcu, _Mapping]]] = ...) -> None: ...
+    request_id: str
+    def __init__(self, ecu: _Optional[_Iterable[_Union[UpdateRequestEcu, _Mapping]]] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class UpdateResponseEcu(_message.Message):
     __slots__ = ["ecu_id", "result", "message"]
@@ -110,10 +112,12 @@ class RollbackRequestEcu(_message.Message):
     def __init__(self, ecu_id: _Optional[str] = ...) -> None: ...
 
 class RollbackRequest(_message.Message):
-    __slots__ = ["ecu"]
+    __slots__ = ["ecu", "request_id"]
     ECU_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     ecu: _containers.RepeatedCompositeFieldContainer[RollbackRequestEcu]
-    def __init__(self, ecu: _Optional[_Iterable[_Union[RollbackRequestEcu, _Mapping]]] = ...) -> None: ...
+    request_id: str
+    def __init__(self, ecu: _Optional[_Iterable[_Union[RollbackRequestEcu, _Mapping]]] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class RollbackResponseEcu(_message.Message):
     __slots__ = ["ecu_id", "result", "message"]
