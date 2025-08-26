@@ -108,10 +108,6 @@ class ResourceScanner(_ResourceOperatorBase):
         self._thread_local = threading.local()
         self._internal_que: Queue[int | None] = Queue()
 
-    def _remove_entry(self, digest_hex: str, dir_fd: int):
-        with contextlib.suppress(Exception):
-            os.unlink(digest_hex, dir_fd=dir_fd)
-
     def _process_resource_at_thread(
         self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
     ) -> None:
