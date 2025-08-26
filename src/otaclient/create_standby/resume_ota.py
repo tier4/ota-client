@@ -108,6 +108,10 @@ class ResourceScanner(_ResourceOperatorBase):
         self._thread_local = threading.local()
         self._internal_que: Queue[int | None] = Queue()
 
+    def _remove_entry(self, digest_hex: str, dir_fd: int):
+        with contextlib.suppress(Exception):
+            os.unlink(digest_hex, dir_fd=dir_fd)
+
     def _process_resource_at_thread(
         self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
     ) -> None:
@@ -135,9 +139,10 @@ class ResourceScanner(_ResourceOperatorBase):
             try:
                 self._all_resource_digests.pop(calculated_digest)
                 self._internal_que.put_nowait(file_size)
-            # basically should not happen, as now we only scan resources presented in
-            #   the target OTA image now.
+                
             except KeyError:
+                # basically should not happen, as now we only scan resources presented in
+                #   the target OTA image now.
                 pass
         finally:
             self._se.release()
