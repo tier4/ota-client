@@ -14,9 +14,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from otaclient_common.thread_safe_container import ShardedThreadSafeDict, ThreadSafeDict
+from otaclient_common.thread_safe_container import ShardedThreadSafeDict
 
 
 class ResourcesDigestWithSize(ShardedThreadSafeDict[bytes, int]):
@@ -24,6 +22,3 @@ class ResourcesDigestWithSize(ShardedThreadSafeDict[bytes, int]):
     #       just directly calculate shard index from its value.
     def _shard_index(self, key: bytes) -> int:
         return int.from_bytes(key, byteorder="big") % self._num_of_shards
-
-
-class HardlinkGroup(ThreadSafeDict[int, Path]): ...
