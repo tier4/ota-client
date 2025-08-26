@@ -74,6 +74,15 @@ class _ResourceOperatorBase:
                     operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
                 )
 
+        # don't forget the last batch of reports
+        if _merged_report.processed_file_num > 0:
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_report,
+                    session_id=self.session_id,
+                )
+            )
+
 
 class ResourceScanner(_ResourceOperatorBase):
     """Scan and verify OTA resource folder leftover by previous OTA.
