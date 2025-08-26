@@ -328,7 +328,7 @@ class TestMain:
             mock_execve.assert_not_called()
             mock_check_other_otaclient.assert_not_called()
 
-        @patch("otaclient._logging.configure_logging")
+    @patch("otaclient._logging.configure_logging")
     def test_main_stop_request_thread_functionality(
         self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
