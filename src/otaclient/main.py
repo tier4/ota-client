@@ -283,7 +283,7 @@ def main() -> None:  # pragma: no cover
     _stop_request_thread = threading.Thread(
         target=partial(
             stop_request_thread,
-            main_queue=otaclient_main_queue,
+            otaclient_main_queue=otaclient_main_queue,
             critical_zone_flags=critical_zone_flags,
         ),
         name="otaclient_stop_request_thread",
