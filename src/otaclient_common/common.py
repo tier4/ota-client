@@ -294,7 +294,7 @@ def is_regular_file(path: Path) -> bool:
             and not stat.S_ISLNK(path_stat.st_mode)
             and path_stat.st_size > 0
         )
-    except (OSError, FileNotFoundError):
+    except OSError:
         return False
 
 
@@ -303,7 +303,7 @@ def is_file_or_symlink(path: Path) -> bool:
     try:
         path_stat = path.lstat()
         return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
-    except (OSError, FileNotFoundError):
+    except OSError:
         return False
 
 
@@ -312,5 +312,5 @@ def is_directory(path: Path) -> bool:
     try:
         path_stat = path.lstat()
         return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
-    except (OSError, FileNotFoundError):
+    except OSError:
         return False

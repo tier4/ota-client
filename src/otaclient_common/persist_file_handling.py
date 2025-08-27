@@ -193,7 +193,7 @@ class PersistFilesHandler:
                         logger.warning(
                             f"skipping special file (socket/FIFO/device): {_src_fpath}"
                         )
-                except (OSError, FileNotFoundError):
+                except OSError:
                     pass
 
             # symlinks to dirs also included in dnames, we must handle it
@@ -250,7 +250,7 @@ class PersistFilesHandler:
                 self._prepare_parent(path_relative_to_root)
                 self._recursively_prepare_dir(src_path)
                 return
-        except (OSError, FileNotFoundError):
+        except OSError:
             pass
 
         # ------ src is not regular file/symlink/dir or missing ------ #

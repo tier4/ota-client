@@ -113,7 +113,7 @@ def _apply_permissions(path: StrOrPath, *, uid: int, gid: int, mode: int) -> Non
             os.chmod(path, mode=mode)
         elif mode_changed:
             os.chmod(path, mode=mode)
-    except (OSError, FileNotFoundError):
+    except OSError:
         os.chown(path, uid=uid, gid=gid)
         os.chmod(path, mode=mode)
 
@@ -131,7 +131,7 @@ def _apply_symlink_permissions(path: StrOrPath, *, uid: int, gid: int) -> None:
             os.chown(path, uid=uid, gid=gid, follow_symlinks=False)
         # NOTE: changing mode of symlink is not needed and ineffective, and on some platform
         #   changing mode of symlink will even result in exception raised.
-    except (OSError, FileNotFoundError):
+    except OSError:
         os.chown(path, uid=uid, gid=gid, follow_symlinks=False)
 
 
