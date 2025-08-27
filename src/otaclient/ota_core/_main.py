@@ -76,7 +76,7 @@ WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 
 class OTAClient:
-    """The adapter between OTAClieng gRPC interface and the OTA implementation."""
+    """The adapter between OTAClient gRPC interface and the OTA implementation."""
 
     def __init__(
         self,
