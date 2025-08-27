@@ -94,6 +94,47 @@ class DirTypedDict(TypedDict):
 #
 
 
+def _apply_permissions(path: StrOrPath, *, uid: int, gid: int, mode: int) -> None:
+    """Apply permissions only if they differ from current ones to reduce I/O load."""
+    path = Path(path)
+
+    try:
+        # Get current stat info
+        current_stat = path.lstat()
+
+        uid_changed = current_stat.st_uid != uid
+        gid_changed = current_stat.st_gid != gid
+        mode_changed = current_stat.st_mode != mode
+
+        # If ownership needs to change, we must apply chmod after chown
+        # because chown clears setuid/setgid bits on files
+        if uid_changed or gid_changed:
+            os.chown(path, uid=uid, gid=gid)
+            os.chmod(path, mode=mode)
+        elif mode_changed:
+            os.chmod(path, mode=mode)
+    except (OSError, FileNotFoundError):
+        os.chown(path, uid=uid, gid=gid)
+        os.chmod(path, mode=mode)
+
+
+def _apply_symlink_permissions(path: StrOrPath, *, uid: int, gid: int) -> None:
+    """Apply only chown for symlinks to reduce I/O load."""
+    path = Path(path)
+
+    try:
+        # Get current stat info for symlink
+        current_stat = path.lstat()
+
+        # Only apply chown if needed
+        if current_stat.st_uid != uid or current_stat.st_gid != gid:
+            os.chown(path, uid=uid, gid=gid, follow_symlinks=False)
+        # NOTE: changing mode of symlink is not needed and ineffective, and on some platform
+        #   changing mode of symlink will even result in exception raised.
+    except (OSError, FileNotFoundError):
+        os.chown(path, uid=uid, gid=gid, follow_symlinks=False)
+
+
 def fpath_on_target(_canonical_path: StrOrPath, target_mnt: StrOrPath) -> Path:
     """Return the fpath of self joined to <target_mnt>."""
     _canonical_path = Path(_canonical_path)
@@ -105,8 +146,9 @@ def prepare_dir(entry: DirTypedDict, *, target_mnt: StrOrPath) -> None:
     _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
     try:
         _target_on_mnt.mkdir(exist_ok=True, parents=True)
-        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-        os.chmod(_target_on_mnt, mode=entry["mode"])
+        _apply_permissions(
+            _target_on_mnt, uid=entry["uid"], gid=entry["gid"], mode=entry["mode"]
+        )
     except Exception as e:
         burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
         raise
@@ -128,14 +170,11 @@ def prepare_non_regular(
 
             # NOTE(20241213): chown will reset the sticky bit of the file!!!
             #   Remember to always put chown before chmod !!!
-            os.chown(
+            _apply_symlink_permissions(
                 _target_on_mnt,
                 uid=entry["uid"],
                 gid=entry["gid"],
-                follow_symlinks=False,
             )
-            # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
-            #   changing mode of symlink will even result in exception raised.
             return
 
         # NOTE: legacy OTA image doesn't support char dev, so not process char device
@@ -156,8 +195,7 @@ def prepare_regular_copy(
         if not (_uid == 0 and _gid == 0):
             # NOTE: if owner is changed, the sticky bit will be reset.
             #       Remember to always put chown before chmod !!!
-            os.chown(_target_on_mnt, uid=_uid, gid=_gid)
-            os.chmod(_target_on_mnt, mode=_mode)
+            _apply_permissions(_target_on_mnt, uid=_uid, gid=_gid, mode=_mode)
 
         # NOTE: old OTA image doesn't suppport xattrs
         # if _xattr := entry["xattrs"]:
@@ -184,8 +222,7 @@ def prepare_regular_inlined(
         if not (_uid == 0 and _gid == 0):
             # NOTE: if owner is changed, the sticky bit will be reset.
             #       Remember to always put chown before chmod !!!
-            os.chown(_target_on_mnt, uid=_uid, gid=_gid)
-            os.chmod(_target_on_mnt, mode=_mode)
+            _apply_permissions(_target_on_mnt, uid=_uid, gid=_gid, mode=_mode)
 
         # NOTE: old OTA image doesn't suppport xattrs
         # if _xattr := entry["xattrs"]:
@@ -208,8 +245,9 @@ def prepare_regular_hardlink(
         # NOTE: os.link will make dst a hardlink to src.
         os.link(_rs, _target_on_mnt)
         if not hardlink_skip_apply_permission:
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
+            _apply_permissions(
+                _target_on_mnt, uid=entry["uid"], gid=entry["gid"], mode=entry["mode"]
+            )
 
             # NOTE: old OTA image doesn't suppport xattrs
             # if _xattr := entry["xattrs"]:
@@ -226,8 +264,9 @@ def prepare_regular_move(
     try:
         _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
         os.replace(str(_rs), _target_on_mnt)
-        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-        os.chmod(_target_on_mnt, mode=entry["mode"])
+        _apply_permissions(
+            _target_on_mnt, uid=entry["uid"], gid=entry["gid"], mode=entry["mode"]
+        )
 
         # NOTE: old OTA image doesn't suppport xattrs
         # if _xattr := entry["xattrs"]:
