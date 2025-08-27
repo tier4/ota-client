@@ -293,7 +293,7 @@ def main() -> None:  # pragma: no cover
     _stop_request_thread.start()
 
     while True:
-        _stop_request_thread.join(HEALTH_CHECK_INTERVAL)
+        time.sleep(HEALTH_CHECK_INTERVAL)
 
         if not _stop_request_thread.is_alive():
             logger.info("Stop request received, shutting down...")
