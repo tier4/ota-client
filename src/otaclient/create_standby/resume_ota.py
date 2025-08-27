@@ -40,7 +40,7 @@ REPORT_INTERVAL = 3  # second
 class _ResourceOperatorBase:
     session_id: str
     _thread_local: threading.local
-    _internal_que: Queue[int | None]
+    _inner_queue: Queue[int | None]
     _status_report_queue: Queue[StatusReport]
 
     def _remove_entry(self, digest_hex: str, dir_fd: int):
@@ -57,7 +57,7 @@ class _ResourceOperatorBase:
             operation=UpdateProgressReport.Type.PREPARE_LOCAL_COPY
         )
         next_push = 0
-        while (_entry := self._internal_que.get()) is not None:
+        while (_entry := self._inner_queue.get()) is not None:
             _merged_report.processed_file_num += 1
             _merged_report.processed_file_size += _entry
 
@@ -106,7 +106,7 @@ class ResourceScanner(_ResourceOperatorBase):
 
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
-        self._internal_que: Queue[int | None] = Queue()
+        self._inner_queue: Queue[int | None] = Queue()
 
     def _process_resource_at_thread(
         self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
@@ -134,7 +134,7 @@ class ResourceScanner(_ResourceOperatorBase):
 
             try:
                 self._all_resource_digests.pop(calculated_digest)
-                self._internal_que.put_nowait(file_size)
+                self._inner_queue.put_nowait(file_size)
 
             except KeyError:
                 # This should not happen, as we now only scan resources presented in the target OTA image.
@@ -190,7 +190,7 @@ class ResourceScanner(_ResourceOperatorBase):
             logger.warning(f"exception during scanning OTA resource dir: {e!r}")
         finally:
             os.close(_resource_dir_fd)
-            self._internal_que.put_nowait(None)
+            self._inner_queue.put_nowait(None)
             status_reporter_t.join()
 
 
@@ -216,7 +216,7 @@ class ResourceStreamer(_ResourceOperatorBase):
 
         self._se = threading.Semaphore(cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS)
         self._thread_local = threading.local()
-        self._internal_que: Queue[int | None] = Queue()
+        self._inner_queue: Queue[int | None] = Queue()
 
     def _process_resource_at_thread(
         self,
@@ -267,7 +267,7 @@ class ResourceStreamer(_ResourceOperatorBase):
                     src_dir_fd=dst_dir_fd,
                     dst_dir_fd=dst_dir_fd,
                 )
-                self._internal_que.put_nowait(file_size)
+                self._inner_queue.put_nowait(file_size)
 
             except KeyError:
                 # basically should not happen, as now we only scan resources presented in
@@ -327,5 +327,5 @@ class ResourceStreamer(_ResourceOperatorBase):
         finally:
             os.close(src_dir_fd)
             os.close(dst_dir_fd)
-            self._internal_que.put_nowait(None)
+            self._inner_queue.put_nowait(None)
             status_reporter_t.join()
