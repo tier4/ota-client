@@ -245,7 +245,6 @@ class ResourceStreamer(_ResourceOperatorBase):
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_NOREUSE)
                 os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 os.posix_fadvise(tmp_dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
-                os.posix_fadvise(tmp_dst_fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
                 while read_size := src.readinto(buffer):
                     file_size += read_size
                     tmp_dst.write(bufferview[:read_size])
