@@ -181,17 +181,20 @@ class PersistFilesHandler:
                 _src_fpath, _dst_fpath = src_cur_dpath / _fname, dst_cur_dpath / _fname
                 self._rm_target(_dst_fpath)
 
-                # NOTE that fnames also contain symlink to normal file
-                src_fpath_stat = _src_fpath.lstat()
-                if stat.S_ISLNK(src_fpath_stat.st_mode):
-                    self._prepare_symlink(_src_fpath, _dst_fpath)
-                elif stat.S_ISREG(src_fpath_stat.st_mode):
-                    self._prepare_file(_src_fpath, _dst_fpath)
-                else:
-                    # Handle special files (sockets, FIFOs, etc.)
-                    logger.warning(
-                        f"skipping special file (socket/FIFO/device): {_src_fpath}"
-                    )
+                try:
+                    # NOTE that fnames also contain symlink to normal file
+                    src_fpath_stat = _src_fpath.lstat()
+                    if stat.S_ISLNK(src_fpath_stat.st_mode):
+                        self._prepare_symlink(_src_fpath, _dst_fpath)
+                    elif stat.S_ISREG(src_fpath_stat.st_mode):
+                        self._prepare_file(_src_fpath, _dst_fpath)
+                    else:
+                        # Handle special files (sockets, FIFOs, etc.)
+                        logger.warning(
+                            f"skipping special file (socket/FIFO/device): {_src_fpath}"
+                        )
+                except (OSError, FileNotFoundError):
+                    pass
 
             # symlinks to dirs also included in dnames, we must handle it
             for _dname in dnames:
@@ -222,30 +225,33 @@ class PersistFilesHandler:
 
         # ------ src is symlink ------ #
         # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
-        src_path_stat = src_path.lstat()
-        if stat.S_ISLNK(src_path_stat.st_mode):
-            logger.info(
-                f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
-            )
-            self._rm_target(dst_path)
-            self._prepare_parent(path_relative_to_root)
-            self._prepare_symlink(src_path, dst_path)
-            return
+        try:
+            src_path_stat = src_path.lstat()
+            if stat.S_ISLNK(src_path_stat.st_mode):
+                logger.info(
+                    f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
+                )
+                self._rm_target(dst_path)
+                self._prepare_parent(path_relative_to_root)
+                self._prepare_symlink(src_path, dst_path)
+                return
 
-        # ------ src is file ------ #
-        if stat.S_ISREG(src_path_stat.st_mode):
-            logger.info(f"preserving normal file: {_persist_entry}")
-            self._rm_target(dst_path)
-            self._prepare_parent(path_relative_to_root)
-            self._prepare_file(src_path, dst_path)
-            return
+            # ------ src is file ------ #
+            if stat.S_ISREG(src_path_stat.st_mode):
+                logger.info(f"preserving normal file: {_persist_entry}")
+                self._rm_target(dst_path)
+                self._prepare_parent(path_relative_to_root)
+                self._prepare_file(src_path, dst_path)
+                return
 
-        # ------ src is dir ------ #
-        if stat.S_ISDIR(src_path_stat.st_mode):
-            logger.info(f"recursively preserve directory: {_persist_entry}")
-            self._prepare_parent(path_relative_to_root)
-            self._recursively_prepare_dir(src_path)
-            return
+            # ------ src is dir ------ #
+            if stat.S_ISDIR(src_path_stat.st_mode):
+                logger.info(f"recursively preserve directory: {_persist_entry}")
+                self._prepare_parent(path_relative_to_root)
+                self._recursively_prepare_dir(src_path)
+                return
+        except (OSError, FileNotFoundError):
+            pass
 
         # ------ src is not regular file/symlink/dir or missing ------ #
         _err_msg = f"{src_path=} doesn't exist"

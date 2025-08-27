@@ -287,21 +287,30 @@ def ensure_otaproxy_start(
 
 def is_regular_file(path: Path) -> bool:
     """Check if a file is regular."""
-    path_stat = path.lstat()
-    return (
-        stat.S_ISREG(path_stat.st_mode)
-        and not stat.S_ISLNK(path_stat.st_mode)
-        and path_stat.st_size > 0
-    )
+    try:
+        path_stat = path.lstat()
+        return (
+            stat.S_ISREG(path_stat.st_mode)
+            and not stat.S_ISLNK(path_stat.st_mode)
+            and path_stat.st_size > 0
+        )
+    except (OSError, FileNotFoundError):
+        return False
 
 
 def is_file_or_symlink(path: Path) -> bool:
     """Check if a file is regular or symlink."""
-    path_stat = path.lstat()
-    return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
+    try:
+        path_stat = path.lstat()
+        return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
+    except (OSError, FileNotFoundError):
+        return False
 
 
 def is_directory(path: Path) -> bool:
     """Check if a directory is regular."""
-    path_stat = path.lstat()
-    return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
+    try:
+        path_stat = path.lstat()
+        return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
+    except (OSError, FileNotFoundError):
+        return False
