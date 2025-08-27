@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -257,3 +258,6 @@ class UpdateStandbySlot:
 
         if self._interrupted.is_set():
             raise UpdateStandbySlotFailed("failure during regular files processing!")
+
+        # Sync all file operations to disk after slot update completion
+        os.sync()

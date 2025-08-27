@@ -438,7 +438,6 @@ class Downloader:
                     traffic_on_wire += _read_size
 
             dst_fp.flush()
-            os.fsync(dst_fd)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
         if size and size != downloaded_file_size:

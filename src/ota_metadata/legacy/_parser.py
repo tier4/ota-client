@@ -43,6 +43,7 @@ import atexit
 import base64
 import json
 import logging
+import os
 import re
 import shutil
 import time
@@ -756,6 +757,9 @@ class OTAMetadata:
             except TasksEnsureFailed as e:
                 logger.error(f"faild to finish download all ota metadata files: {e!r}")
                 raise
+
+        # Sync all downloaded metadata files to disk
+        os.sync()
 
     # APIs
 

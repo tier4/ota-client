@@ -195,6 +195,9 @@ class OTAUpdater(OTAUpdateOperator):
             self._downloader_pool.shutdown()
             resource_meta.shutdown()
 
+        # Sync all downloaded files to disk after download completion
+        os.sync()
+
     def _execute_update(self):
         """Implementation of OTA updating."""
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
