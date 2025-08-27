@@ -18,10 +18,12 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat
 from functools import lru_cache, partial
 from pathlib import Path
 
 from otaclient_common._typing import StrOrPath
+from otaclient_common.common import is_file_or_symlink
 from otaclient_common.linux import (
     ParsedGroup,
     ParsedPasswd,
@@ -107,7 +109,7 @@ class PersistFilesHandler:
     @staticmethod
     def _rm_target(_target: Path) -> None:
         """Remove target with proper methods."""
-        if _target.is_symlink() or _target.is_file():
+        if is_file_or_symlink(_target):
             return _target.unlink(missing_ok=True)
         if _target.is_dir():
             return shutil.rmtree(_target, ignore_errors=True)
@@ -146,7 +148,7 @@ class PersistFilesHandler:
                 self._src_root / _parent,
                 self._dst_root / _parent,
             )
-            if _dst_parent.is_symlink() or _dst_parent.is_file():
+            if is_file_or_symlink(_dst_parent):
                 _dst_parent.unlink(missing_ok=True)
                 self._prepare_dir(_src_parent, _dst_parent)
                 continue
@@ -180,9 +182,10 @@ class PersistFilesHandler:
                 self._rm_target(_dst_fpath)
 
                 # NOTE that fnames also contain symlink to normal file
-                if _src_fpath.is_symlink():
+                src_fpath_stat = _src_fpath.lstat()
+                if stat.S_ISLNK(src_fpath_stat.st_mode):
                     self._prepare_symlink(_src_fpath, _dst_fpath)
-                elif _src_fpath.is_file():
+                elif stat.S_ISREG(src_fpath_stat.st_mode):
                     self._prepare_file(_src_fpath, _dst_fpath)
                 else:
                     # Handle special files (sockets, FIFOs, etc.)
@@ -219,7 +222,8 @@ class PersistFilesHandler:
 
         # ------ src is symlink ------ #
         # NOTE: always check if symlink first as is_file/is_dir/exists all follow_symlinks
-        if src_path.is_symlink():
+        src_path_stat = src_path.lstat()
+        if stat.S_ISLNK(src_path_stat.st_mode):
             logger.info(
                 f"preserving symlink: {_persist_entry}, points to {os.readlink(src_path)}"
             )
@@ -229,7 +233,7 @@ class PersistFilesHandler:
             return
 
         # ------ src is file ------ #
-        if src_path.is_file():
+        if stat.S_ISREG(src_path_stat.st_mode):
             logger.info(f"preserving normal file: {_persist_entry}")
             self._rm_target(dst_path)
             self._prepare_parent(path_relative_to_root)
@@ -237,7 +241,7 @@ class PersistFilesHandler:
             return
 
         # ------ src is dir ------ #
-        if src_path.is_dir():
+        if stat.S_ISDIR(src_path_stat.st_mode):
             logger.info(f"recursively preserve directory: {_persist_entry}")
             self._prepare_parent(path_relative_to_root)
             self._recursively_prepare_dir(src_path)

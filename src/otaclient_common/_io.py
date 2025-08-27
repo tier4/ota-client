@@ -25,6 +25,7 @@ from functools import partial
 from pathlib import Path
 
 from otaclient_common._typing import StrOrPath
+from otaclient_common.common import is_directory
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def copyfile_atomic(
 def remove_file(_fpath: StrOrPath, *, ignore_error: bool = True) -> None:
     """Use proper way to remove <_fpath>."""
     _fpath = Path(_fpath)
-    if not _fpath.is_symlink() and _fpath.is_dir():
+    if is_directory(_fpath):
         return shutil.rmtree(_fpath, ignore_errors=ignore_error)
 
     try:
