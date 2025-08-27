@@ -26,7 +26,6 @@ from queue import Empty
 # Local application imports (alphabetical)
 from otaclient._logging import configure_logging
 from otaclient._types import CriticalZoneFlags, IPCRequest
-from otaclient.main import shutdown
 
 STOP_REQUEST_CHECK_INTERVAL = 1  # seconds
 
@@ -45,7 +44,9 @@ def stop_request_thread(
             stop_message = otaclient_main_queue.get(timeout=STOP_REQUEST_CHECK_INTERVAL)
             logger.info(f"Received stop message: {stop_message}")
             if not critical_zone_flags.is_critical_zone.is_set():
-                logger.info("Critical zone flag is not set. Stopping thread for shutdown.")
+                logger.info(
+                    "Critical zone flag is not set. Stopping thread for shutdown."
+                )
                 return
             else:
                 logger.warning(
