@@ -51,4 +51,4 @@ def stop_request_thread(
                     "Received stop message while in critical zone, ignoring it."
                 )
         except Empty:
-            logger.debug("No stop messages received")
+            pass
