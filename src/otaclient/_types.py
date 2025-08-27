@@ -197,6 +197,7 @@ class UpdateRequestV2(IPCRequest):
 class StopRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
+
 @dataclass
 class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
