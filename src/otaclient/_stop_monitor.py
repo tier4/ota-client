@@ -45,7 +45,8 @@ def stop_request_thread(
             stop_message = otaclient_main_queue.get(timeout=STOP_REQUEST_CHECK_INTERVAL)
             logger.info(f"Received stop message: {stop_message}")
             if not critical_zone_flags.is_critical_zone.is_set():
-                shutdown(sys_exit=True)
+                logger.info("Critical zone flag is not set. Stopping thread for shutdown.")
+                return
             else:
                 logger.warning(
                     "Received stop message while in critical zone, ignoring it."

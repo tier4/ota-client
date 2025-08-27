@@ -77,7 +77,7 @@ WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
 
 class OTAClient:
-    """The adapter between OTAClieng gRPC interface and the OTA implementation."""
+    """The adapter between OTAClient gRPC interface and the OTA implementation."""
 
     def __init__(
         self,
