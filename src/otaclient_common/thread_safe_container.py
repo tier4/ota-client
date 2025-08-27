@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, Generic, Iterable, Iterator, TypeVar
+from typing import Any, Generic, Iterable, Iterator, TypeVar
 
 from typing_extensions import Self
 
@@ -108,17 +108,3 @@ class ShardedThreadSafeDict(Generic[KT, VT]):
         for i in range(self._num_of_shards):
             with self._locks[i]:
                 self._shards[i].clear()
-
-
-class ThreadSafeDict(Dict[KT, VT]):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self._lock = threading.Lock()
-
-    def __enter__(self) -> Self:
-        self._lock.acquire()
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._lock.release()
-        return False

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import logging
@@ -44,7 +43,7 @@ from otaclient.create_standby.delta_gen import (
     RebuildDeltaGenFullDiskScan,
     RebuildDeltaWithBaseFileTable,
 )
-from otaclient.create_standby.resume_ota import ResourceScanner
+from otaclient.create_standby.resume_ota import ResourceScanner, ResourceStreamer
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient_common import (
@@ -96,6 +95,14 @@ class OTAUpdater(OTAUpdateOperator):
                 self._standby_slot_mp,
             )
         )
+        self._resource_dir_on_active = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._active_slot_mp,
+            )
+        )
+
         self._ota_meta_store_on_standby = Path(
             replace_root(
                 cfg.OTA_META_STORE,
@@ -250,7 +257,11 @@ class OTAUpdater(OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
             )
 
-    def _find_base_file_table_pre_calculate_delta(self) -> StrOrPath | None:
+    #
+    # ------ delta calculation related ------ #
+    #
+
+    def _find_base_filetable_for_inplace_mode_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
             Verfied base file_table fpath, or None if failed to find one.
@@ -267,13 +278,86 @@ class OTAUpdater(OTAUpdateOperator):
             #       it is not included in the OTA image, thus also not in file_table.
             if self._image_meta_dir_on_standby.is_dir():
                 shutil.move(
-                    self._image_meta_dir_on_standby,
+                    str(self._image_meta_dir_on_standby),
                     self._ota_meta_store_base_on_standby,
                 )
                 verified_base_db = find_saved_fstable(
                     self._ota_meta_store_base_on_standby
                 )
         return verified_base_db
+
+    def _copy_from_active_slot_at_delta_cal(
+        self, delta_digests: ResourcesDigestWithSize
+    ) -> None:
+        """Copy resources from active slot's OTA resources dir."""
+        if self._resource_dir_on_active.is_dir():
+            logger.info(
+                "active slot's OTA resource dir available, try to collect resources from it ..."
+            )
+            ResourceStreamer(
+                all_resource_digests=delta_digests,
+                src_resource_dir=self._resource_dir_on_active,
+                dst_resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up copying from active_slot OTA resource dir")
+
+    def _resume_ota_for_inplace_mode_at_delta_cal(
+        self, all_resource_digests: ResourcesDigestWithSize
+    ):
+        """For inplace update mode resume previous OTA progress.
+
+        This method MUST be called before delta calculation, and ONLY for inplace mode.
+        """
+        if self._resource_dir_on_standby.is_dir():
+            logger.info(
+                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
+            )
+            ResourceScanner(
+                all_resource_digests=all_resource_digests,
+                resource_dir=self._resource_dir_on_standby,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            ).resume_ota()
+            logger.info("finish up scanning OTA resource dir")
+
+    def _backward_compat_for_ota_tmp_at_delta_cal(self):
+        """Backward compatibility for .ota-tmp, try to migrate from .ota-tmp if presented.
+
+        NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
+                        old /.ota-tmp to new /.ota-resources.
+        NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
+                          and interrupted again, and then retried with older otaclient again" is NOT SUPPORTED!
+                        User should finish up the OTA with new otaclient in the above case.
+        """
+        _ota_tmp_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_TMP_STORE,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+        if _ota_tmp_dir_on_standby.is_dir():
+            logger.warning(
+                f"detect .ota-tmp on standby slot {_ota_tmp_dir_on_standby}, "
+                "potential interrupted OTA by older otaclient, "
+                f"try to migrate the resources to {self._resource_dir_on_standby}"
+            )
+            if self._resource_dir_on_standby.is_dir():
+                for _entry in os.scandir(_ota_tmp_dir_on_standby):
+                    _entry_name = _entry.name
+                    if len(_entry.name) == SHA256DIGEST_HEX_LEN:
+                        try:
+                            bytes.fromhex(_entry_name)
+                        except ValueError:
+                            continue  # not an OTA resource file
+                        os.replace(
+                            _entry.path, self._resource_dir_on_standby / _entry_name
+                        )
+                shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
+            else:
+                os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
 
     def _calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
@@ -296,52 +380,12 @@ class OTAUpdater(OTAUpdateOperator):
         )
         self._metrics.delta_calculation_start_timestamp = _current_time
 
-        # NOTE(20250825): in case of OTA by previous otaclient interrupted, migrate the
-        #                 old /.ota-tmp to new /.ota-resources.
-        # NOTE(20250825): the case of "OTA interrupted with older otaclient, and then retried with new otaclient
-        #                   and interrupted again, and then retried with older otaclient again" is NOT SUPPORTED!
-        #                 User should finish up the OTA with new otaclient in the above case.
-        _ota_tmp_dir_on_standby = Path(
-            replace_root(
-                cfg.OTA_TMP_STORE,
-                cfg.CANONICAL_ROOT,
-                self._standby_slot_mp,
-            )
-        )
-        if _ota_tmp_dir_on_standby.is_dir():
-            logger.warning(
-                f"detect .ota-tmp on standby slot {_ota_tmp_dir_on_standby}, "
-                "potential interrupted OTA by older otaclient, "
-                f"try to migrate the resources to {self._resource_dir_on_standby}"
-            )
-            if self._resource_dir_on_standby.is_dir():
-                for _entry in _ota_tmp_dir_on_standby.glob("*"):
-                    _entry_name = _entry.name
-                    if _entry.is_file() and len(_entry.name) == SHA256DIGEST_HEX_LEN:
-                        try:
-                            bytes.fromhex(_entry_name)
-                        except ValueError:
-                            continue  # not an OTA resource file
-                        os.replace(_entry, self._resource_dir_on_standby / _entry_name)
-                shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
-            else:
-                os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
-
-        if self._can_use_in_place_mode and self._resource_dir_on_standby.is_dir():
-            logger.info(
-                "OTA resource dir found on standby slot, speed up delta calculation with it ..."
-            )
-            ResourceScanner(
-                all_resource_digests=all_resource_digests,
-                resource_dir=self._resource_dir_on_standby,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            ).resume_ota()
-            logger.info("finish up scanning OTA resource dir")
-        self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
-
         try:
+            self._backward_compat_for_ota_tmp_at_delta_cal()
             if self._can_use_in_place_mode:
+                self._resume_ota_for_inplace_mode_at_delta_cal(all_resource_digests)
+                self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+
                 _inplace_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
@@ -351,7 +395,9 @@ class OTAUpdater(OTAUpdateOperator):
                     session_id=self.session_id,
                 )
 
-                verified_base_db = self._find_base_file_table_pre_calculate_delta()
+                verified_base_db = (
+                    self._find_base_filetable_for_inplace_mode_at_delta_cal()
+                )
                 if verified_base_db:
                     logger.info("use in-place mode with base file table assist ...")
                     InPlaceDeltaWithBaseFileTable(**_inplace_mode_params).process_slot(
@@ -360,11 +406,27 @@ class OTAUpdater(OTAUpdateOperator):
                 else:
                     logger.info("use in-place mode with full scanning ...")
                     InPlaceDeltaGenFullDiskScan(**_inplace_mode_params).process_slot()
-            else:
+
+                # after inplace mode delta generation finished, try to collect any resources
+                #   needed also from active slot.
+                # NOTE(20250822): when we find that the delta size(uncompressed) is very large,
+                #                   we might expect a major OS version bump.
+                #                 In such case, when we do second OTA, with inplace update mode, even previously
+                #                   we have already updated to the major OS version bump, 2nd OTA will still
+                #                   need to download the delta again, as standby slot still holds old OS.
+                #                 To cover this case, if delta size is too large, we will try to copy from active slot,
+                #                   to avoid downloading files we have already downloaded previously.
+                self._copy_from_active_slot_at_delta_cal(all_resource_digests)
+
+            else:  # rebuild mode
+                self._resource_dir_on_standby.mkdir(exist_ok=True, parents=True)
+                # for rebuild mode, copy from active slot's resource dir first if possible
+                self._copy_from_active_slot_at_delta_cal(all_resource_digests)
+
                 _rebuild_mode_params = DeltaGenParams(
                     file_table_db_helper=_fst_db_helper,
                     all_resource_digests=all_resource_digests,
-                    delta_src=Path(cfg.ACTIVE_SLOT_MNT),
+                    delta_src=self._active_slot_mp,
                     copy_dst=self._resource_dir_on_standby,
                     status_report_queue=self._status_report_queue,
                     session_id=self.session_id,
@@ -387,6 +449,8 @@ class OTAUpdater(OTAUpdateOperator):
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+
+    # ------ end of delta calculation related ------ #
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
@@ -472,8 +536,11 @@ class OTAUpdater(OTAUpdateOperator):
 
         # save the filetable to /opt/ota/image-meta
         shutil.rmtree(self._image_meta_dir_on_standby, ignore_errors=True)
+        self._image_meta_dir_on_standby.mkdir(exist_ok=True, parents=True)
         shutil.copytree(
-            self._ota_meta_store_on_standby, self._image_meta_dir_on_standby
+            self._ota_meta_store_on_standby,
+            self._image_meta_dir_on_standby,
+            dirs_exist_ok=True,
         )
 
         # prepare base file_table to the base OTA meta store for next OTA
@@ -497,10 +564,14 @@ class OTAUpdater(OTAUpdateOperator):
         )
         self._metrics.post_update_start_timestamp = _current_time
 
-        # NOTE(20240219): move persist file handling here
+        # NOTE(20240219): move persist file handling at post_update hook
         self._process_persistents(self._ota_metadata)
 
         self._preserve_ota_image_meta_at_post_update()
+        # NOTE(20250823): secure the resource dir and metadata dir
+        os.chmod(self._resource_dir_on_standby, 0o700)
+        os.chmod(self._ota_meta_store_on_standby, 0o700)
+
         self._preserve_client_squashfs()
         self._boot_controller.post_update(self.update_version)
 
