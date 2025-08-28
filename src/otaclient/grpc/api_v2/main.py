@@ -23,7 +23,12 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
 
-from otaclient._types import IPCRequest, IPCResponse, MultipleECUStatusFlags, CriticalZoneFlags
+from otaclient._types import (
+    CriticalZoneFlags,
+    IPCRequest,
+    IPCResponse,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import SharedOTAClientStatusReader
 
 logger = logging.getLogger(__name__)
@@ -36,7 +41,7 @@ def grpc_server_process(
     resp_queue: mp_Queue[IPCResponse],
     main_queue: mp_Queue[IPCRequest],
     ecu_status_flags: MultipleECUStatusFlags,
-    critical_zone_flags: CriticalZoneFlags
+    critical_zone_flags: CriticalZoneFlags,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
