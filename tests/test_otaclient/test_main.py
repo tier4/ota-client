@@ -178,6 +178,8 @@ class TestMain:
         ]
         mocker.patch(f"{MAIN_MODULE}.mp.get_context", return_value=mock_mp_ctx)
 
+        mock_on_shutdown = mocker.patch(f"{MAIN_MODULE}._on_shutdown")
+
         main.main()
 
         self.mock_ota_core_p.start.assert_called_once()
