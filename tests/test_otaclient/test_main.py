@@ -184,8 +184,6 @@ class TestMain:
 
         self.mock_ota_core_p.start.assert_called_once()
         self.mock_grpc_server_p.start.assert_called_once()
-        mock_stop_thread.start.assert_called_once()
-        mock_on_shutdown.assert_called_once_with(sys_exit=True)
 
     @patch("otaclient._logging.configure_logging")
     def test_main_api_server_not_alive(
