@@ -56,7 +56,6 @@ jobs:
           path: dist/*.whl
 
   build_squashfs_images:
-    runs-on: ubuntu-latest
     needs: build_python_packages
     strategy:
       fail-fast: false
@@ -65,8 +64,11 @@ jobs:
         include:
           - platform: x86_64
             base_image: ubuntu:22.04
+            runs-on: ubuntu-latest
           - platform: arm64
             base_image: arm64v8/ubuntu:22.04
+            runs-on: ubuntu-latest-arm64
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: checkout
         uses: actions/checkout@v5
