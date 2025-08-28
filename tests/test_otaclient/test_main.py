@@ -160,12 +160,7 @@ class TestMain:
         )
 
         mock_stop_thread = mocker.MagicMock()
-        mock_stop_thread.is_alive.side_effect = [True, False]
-        mock_thread = mocker.MagicMock()
-        mocker.patch(
-            f"{MAIN_MODULE}.threading.Thread",
-            side_effect=[mock_thread, mock_stop_thread],
-        )
+        mock_stop_thread.is_alive.return_value = True
 
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
