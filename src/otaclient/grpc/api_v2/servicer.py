@@ -24,10 +24,10 @@ from typing import Callable, overload
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     ClientUpdateRequestV2,
+    CriticalZoneFlags,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
-    CriticalZoneFlags,
     RollbackRequestV2,
     StopRequestV2,
     UpdateRequestV2,
@@ -138,9 +138,7 @@ class OTAClientAPIServicer:
 
     def _dispatch_local_request(
         self,
-        request: (
-            UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2
-        ),
+        request: UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2,
         response_type: (
             type[api_types.UpdateResponseEcu]
             | type[api_types.RollbackResponseEcu]
@@ -153,9 +151,7 @@ class OTAClientAPIServicer:
     ):
         try:
             self._op_queue.put_nowait(request)
-            _req_response = self._resp_queue.get(
-                timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT
-            )
+            _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
             assert (
                 _req_response.session_id == request.session_id
