@@ -112,7 +112,7 @@ class OTAClientAPIServicer:
             logger.error(f"failed to send request {request} to main process: {e!r}")
             return response_type(
                 ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.UNRECOVERABLE,
+                result=api_types.FailureType.RECOVERABLE,
             )
 
     @overload
