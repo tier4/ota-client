@@ -414,13 +414,20 @@ def mount_rw(
     target: StrOrPath,
     mount_point: StrOrPath,
     *,
+    enable_optimization: bool = True,
     raise_exception: bool = True,
     set_unbindable: bool = True,
 ) -> None:  # pragma: no cover
     """Mount the <target> to <mount_point> read-write.
 
     This is implemented by calling:
-        mount -o rw,noatime --make-private --make-unbindable <target> <mount_point>
+        mount -o rw --make-private --make-unbindable <target> <mount_point>
+
+    When <enable_optimization> is set to True, the following extra mount options will be added:
+        noatime: do not update file access time
+        commit: enlarge batch journal commits interval
+        data=writeback,journal_async_commit: enable async journal commits
+    See https://wiki.archlinux.org/title/Ext4, https://man.archlinux.org/man/ext4.5 for more details.
 
     NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
             mount events propagation to/from this mount point.
@@ -428,15 +435,20 @@ def mount_rw(
     Args:
         target (StrOrPath): target to be mounted.
         mount_point (StrOrPath): mount point to mount to.
+        enable_optimization (bool, optional): enable optimized mount options. Default to True.
         raise_exception (bool, optional): raise exception on subprocess call failed.
             Defaults to True.
         set_unbindable (bool, optional): whether to set the mount point as unbindable.
             Defaults to True.
     """
     # fmt: off
+    mount_options = ["rw"]
+    if enable_optimization:
+        mount_options.extend(["noatime","commit=20","data=writeback,journal_async_commit"])
+
     cmd = [
         "mount",
-        "-o", "rw,noatime",
+        "-o", ",".join(mount_options),
         "--make-private",
     ]
     if set_unbindable:
@@ -459,7 +471,7 @@ def bind_mount_ro(
     """Bind mount the <target> to <mount_point> read-only.
 
     This is implemented by calling:
-        mount -o bind,ro --make-private --make-unbindable <target> <mount_point>
+        mount -o bind,ro,noatime --make-private --make-unbindable <target> <mount_point>
 
     Args:
         target (StrOrPath): target to be mounted.
@@ -472,7 +484,7 @@ def bind_mount_ro(
     # fmt: off
     cmd = [
         "mount",
-        "-o", "bind,ro",
+        "-o", "bind,ro,noatime",
         "--make-private",
     ]
     if set_unbindable:
@@ -557,7 +569,7 @@ def mount_ro(
         # fmt: off
         cmd = [
             "mount",
-            "-o", "ro",
+            "-o", "ro,noatime",
             "--make-private",
         ]
         if set_unbindable:
