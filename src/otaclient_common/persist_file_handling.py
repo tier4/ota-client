@@ -23,10 +23,10 @@ from functools import lru_cache, partial
 from pathlib import Path
 
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import is_file_or_symlink
 from otaclient_common.linux import (
     ParsedGroup,
     ParsedPasswd,
+    is_file_or_symlink,
     map_gid_by_grpnam,
     map_uid_by_pwnam,
 )

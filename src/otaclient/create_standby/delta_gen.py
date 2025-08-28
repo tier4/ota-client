@@ -37,7 +37,7 @@ from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import is_directory, is_regular_file
+from otaclient_common.linux import is_directory, is_regular_file
 
 from ._common import ResourcesDigestWithSize
 

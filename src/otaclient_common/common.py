@@ -22,7 +22,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import stat
 import subprocess
 import time
 from pathlib import Path
@@ -31,7 +30,11 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient_common.linux import subprocess_run_wrapper
+from otaclient_common.linux import (
+    is_directory,
+    is_file_or_symlink,
+    subprocess_run_wrapper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -283,34 +286,3 @@ def ensure_otaproxy_start(
     raise ConnectionError(
         f"failed to ensure connection to {otaproxy_url} in {probing_timeout=}seconds"
     )
-
-
-def is_regular_file(path: Path) -> bool:
-    """Check if a file is regular."""
-    try:
-        path_stat = path.lstat()
-        return (
-            stat.S_ISREG(path_stat.st_mode)
-            and not stat.S_ISLNK(path_stat.st_mode)
-            and path_stat.st_size > 0
-        )
-    except OSError:
-        return False
-
-
-def is_file_or_symlink(path: Path) -> bool:
-    """Check if a file is regular or symlink."""
-    try:
-        path_stat = path.lstat()
-        return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
-    except OSError:
-        return False
-
-
-def is_directory(path: Path) -> bool:
-    """Check if a directory is regular."""
-    try:
-        path_stat = path.lstat()
-        return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
-    except OSError:
-        return False
