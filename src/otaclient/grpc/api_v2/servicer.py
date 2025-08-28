@@ -80,7 +80,7 @@ class OTAClientAPIServicer:
 
     def _local_stop(self, request: StopRequestV2) -> api_types.StopResponseEcu:
         """Thread worker for dispatching a local stop request."""
-        return self._dispatch_stop_request(request, api_types.StopResponseEcu)
+        return self._dispatch_local_stop_request(request, api_types.StopResponseEcu)
 
     def _local_client_update(
         self, request: ClientUpdateRequestV2
@@ -88,7 +88,7 @@ class OTAClientAPIServicer:
         """Thread worker for dispatching a local client update."""
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
 
-    def _dispatch_stop_request(
+    def _dispatch_local_stop_request(
             self,
             request: StopRequestV2,
             response_type: type[api_types.StopResponseEcu],
