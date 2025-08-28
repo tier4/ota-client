@@ -89,9 +89,9 @@ class OTAClientAPIServicer:
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
 
     def _dispatch_local_stop_request(
-            self,
-            request: StopRequestV2,
-            response_type: type[api_types.StopResponseEcu],
+        self,
+        request: StopRequestV2,
+        response_type: type[api_types.StopResponseEcu],
     ) -> api_types.StopResponseEcu:
         """Dispatch stop request to main process."""
         try:
