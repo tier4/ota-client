@@ -187,9 +187,6 @@ class ProcessFileHelper(Generic[T]):
                 # zero-copy write
                 dst.write(self._hash_bufferview[:read_size])
 
-            dst.flush()
-            os.fsync(dst_fd)
-
             # NOTE(20250616): hint kernel to drop the file cache pages.
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
