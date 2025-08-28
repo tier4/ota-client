@@ -254,6 +254,7 @@ def main() -> None:  # pragma: no cover
             main_queue=otaclient_main_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
+            critical_zone_flags=critical_zone_flags,
         ),
         name="otaclient_api_server",
     )
