@@ -420,7 +420,7 @@ def mount_rw(
     """Mount the <target> to <mount_point> read-write.
 
     This is implemented by calling:
-        mount -o rw --make-private --make-unbindable <target> <mount_point>
+        mount -o rw,noatime --make-private --make-unbindable <target> <mount_point>
 
     NOTE: pass args = ["--make-private", "--make-unbindable"] to prevent
             mount events propagation to/from this mount point.
@@ -436,7 +436,7 @@ def mount_rw(
     # fmt: off
     cmd = [
         "mount",
-        "-o", "rw",
+        "-o", "rw,noatime",
         "--make-private",
     ]
     if set_unbindable:
