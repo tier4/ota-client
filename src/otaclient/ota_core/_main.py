@@ -301,7 +301,6 @@ class OTAClient:
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
-            self._exit_from_dynamic_client()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
@@ -311,6 +310,8 @@ class OTAClient:
             except Exception as e:
                 logger.error(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
+
+            self._exit_from_dynamic_client()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
