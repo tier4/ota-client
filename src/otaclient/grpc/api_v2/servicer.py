@@ -27,6 +27,7 @@ from otaclient._types import (
     IPCRequest,
     IPCResEnum,
     IPCResponse,
+    CriticalZoneFlags,
     RollbackRequestV2,
     StopRequestV2,
     UpdateRequestV2,
@@ -56,6 +57,7 @@ class OTAClientAPIServicer:
         op_queue: mp_queue.Queue[IPCRequest],
         main_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        critical_zone_flags: CriticalZoneFlags,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -69,6 +71,7 @@ class OTAClientAPIServicer:
         self._main_queue = main_queue
 
         self._ecu_status_storage = ecu_status_storage
+        self._critical_zone_flags = critical_zone_flags
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -77,7 +80,7 @@ class OTAClientAPIServicer:
 
     def _local_stop(self, request: StopRequestV2) -> api_types.StopResponseEcu:
         """Thread worker for dispatching a local stop request."""
-        return self._dispatch_local_request(request, api_types.StopResponseEcu)
+        return self._dispatch_stop_request(request, api_types.StopResponseEcu)
 
     def _local_client_update(
         self, request: ClientUpdateRequestV2
@@ -85,19 +88,39 @@ class OTAClientAPIServicer:
         """Thread worker for dispatching a local client update."""
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
 
+    def _dispatch_stop_request(
+            self,
+            request: StopRequestV2,
+            response_type: type[api_types.StopResponseEcu],
+    ) -> api_types.StopResponseEcu:
+        """Dispatch stop request to main process."""
+        try:
+            if self._critical_zone_flags.is_critical_zone.is_set():
+                logger.error("Going through critical zone, rejecting stop request")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="In critical zone, stop request rejected",
+                )
+
+            self._main_queue.put_nowait(request)
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.NO_FAILURE,
+            )
+        except Exception as e:
+            logger.error(f"failed to send request {request} to main process: {e!r}")
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
+
     @overload
     def _dispatch_local_request(
         self,
         request: UpdateRequestV2,
         response_type: type[api_types.UpdateResponseEcu],
     ) -> api_types.UpdateResponseEcu: ...
-
-    @overload
-    def _dispatch_local_request(
-        self,
-        request: StopRequestV2,
-        response_type: type[api_types.StopResponseEcu],
-    ) -> api_types.StopResponseEcu: ...
 
     @overload
     def _dispatch_local_request(
@@ -116,69 +139,53 @@ class OTAClientAPIServicer:
     def _dispatch_local_request(
         self,
         request: (
-            UpdateRequestV2 | StopRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2
+            UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2
         ),
         response_type: (
             type[api_types.UpdateResponseEcu]
-            | type[api_types.StopResponseEcu]
             | type[api_types.RollbackResponseEcu]
             | type[api_types.ClientUpdateResponseEcu]
         ),
     ) -> (
         api_types.UpdateResponseEcu
-        | api_types.StopResponseEcu
         | api_types.RollbackResponseEcu
         | api_types.ClientUpdateResponseEcu
     ):
-        if isinstance(request, StopRequestV2):
-            try:
-                self._main_queue.put_nowait(request)
+        try:
+            self._op_queue.put_nowait(request)
+            _req_response = self._resp_queue.get(
+                timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT
+            )
+            assert isinstance(_req_response, IPCResponse), "unexpected msg"
+            assert (
+                _req_response.session_id == request.session_id
+            ), "mismatched session_id"
+
+            if _req_response.res == IPCResEnum.ACCEPT:
                 return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.NO_FAILURE,
                 )
-            except Exception as e:
-                logger.error(f"failed to send request {request} to main process: {e!r}")
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.UNRECOVERABLE,
+            else:
+                logger.error(
+                    f"local otaclient doesn't accept request: {_req_response.msg}"
                 )
-        else:
-            try:
-                self._op_queue.put_nowait(request)
-                _req_response = self._resp_queue.get(
-                    timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT
-                )
-                assert isinstance(_req_response, IPCResponse), "unexpected msg"
-                assert (
-                    _req_response.session_id == request.session_id
-                ), "mismatched session_id"
-
-                if _req_response.res == IPCResEnum.ACCEPT:
-                    return response_type(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.NO_FAILURE,
-                    )
-                else:
-                    logger.error(
-                        f"local otaclient doesn't accept request: {_req_response.msg}"
-                    )
-                    return response_type(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.RECOVERABLE,
-                    )
-            except AssertionError as e:
-                logger.error(f"local otaclient response with unexpected msg: {e!r}")
                 return response_type(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.RECOVERABLE,
                 )
-            except Exception as e:  # failed to get ACK from otaclient within timeout
-                logger.error(f"local otaclient failed to ACK request: {e!r}")
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.UNRECOVERABLE,
-                )
+        except AssertionError as e:
+            logger.error(f"local otaclient response with unexpected msg: {e!r}")
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+            )
+        except Exception as e:  # failed to get ACK from otaclient within timeout
+            logger.error(f"local otaclient failed to ACK request: {e!r}")
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.UNRECOVERABLE,
+            )
 
     def _add_ecu_into_response(
         self,
