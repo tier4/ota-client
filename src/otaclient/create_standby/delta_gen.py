@@ -37,6 +37,7 @@ from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
+from otaclient_common.linux import is_directory, is_non_empty_regular_file
 
 from ._common import ResourcesDigestWithSize
 
@@ -127,7 +128,7 @@ def _cleanup_all_files_under_folder(_dir: Path, _names: Iterator[str]) -> None:
     """Cleanup all non-directory files under a folder."""
     for _name in _names:
         _f = _dir / _name
-        if _f.is_symlink() or not _f.is_dir():
+        if not is_directory(_f):
             _f.unlink(missing_ok=True)
 
 
@@ -186,9 +187,6 @@ class ProcessFileHelper(Generic[T]):
                 hash_f.update(self._hash_bufferview[:read_size])
                 # zero-copy write
                 dst.write(self._hash_bufferview[:read_size])
-
-            dst.flush()
-            os.fsync(dst_fd)
 
             # NOTE(20250616): hint kernel to drop the file cache pages.
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
@@ -429,11 +427,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 # NOTE: we will recreate all the symlinks,
                 #       so we first remove all the symlinks
                 # NOTE: is_file also return True on symlink points to regular file!
-                if (
-                    delta_src_fpath.is_symlink()
-                    or not delta_src_fpath.is_file()
-                    or delta_src_fpath.stat().st_size == 0
-                ):
+                if not is_non_empty_regular_file(delta_src_fpath):
                     delta_src_fpath.unlink(missing_ok=True)
                 else:
                     self._max_pending_tasks.acquire()
@@ -542,11 +536,8 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
                 # ignore non-file file(include symlink)
                 # NOTE: is_file also return True on symlink points to regular file!
-                if delta_src_fpath.is_symlink() or not delta_src_fpath.is_file():
+                if not is_non_empty_regular_file(delta_src_fpath):
                     continue
-
-                if not delta_src_fpath.is_file() or delta_src_fpath.stat().st_size == 0:
-                    continue  # skip empty file
 
                 self._max_pending_tasks.acquire()
                 self._que.put_nowait(
@@ -653,7 +644,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 for fpath in delta_src_fpaths:
                     # NOTE(20250703): a file recorded as regular file on base slot
                     #                 might not be actually a regular file.
-                    if fpath.is_symlink() or not fpath.is_file():
+                    if not is_non_empty_regular_file(fpath):
                         continue
 
                     try:

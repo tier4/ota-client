@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import stat
 import subprocess
 from pathlib import Path
 from subprocess import check_call
@@ -241,8 +242,6 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
             try:
                 if _fastcopy_sendfile:
                     _fastcopy_sendfile(fsrc, fdst)
-                    fdst.flush()
-                    os.fsync(dst_fd)
                     return
             except OSError:
                 raise
@@ -252,8 +251,6 @@ def copyfile_nocache(src: StrOrPath, dst: StrOrPath) -> None:
                 pass
 
             _copyfileobj(fsrc, fdst)
-            fdst.flush()
-            os.fsync(dst_fd)
         finally:
             os.posix_fadvise(src_fd, 0, 0, os.POSIX_FADV_DONTNEED)
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
@@ -302,3 +299,34 @@ def fstrim_at_subprocess(
         stderr=subprocess.DEVNULL,
         shell=True,
     )
+
+
+def is_non_empty_regular_file(path: Path) -> bool:
+    """Check if a path is non empty regular."""
+    try:
+        path_stat = path.lstat()
+        return (
+            stat.S_ISREG(path_stat.st_mode)
+            and not stat.S_ISLNK(path_stat.st_mode)
+            and path_stat.st_size > 0
+        )
+    except OSError:
+        return False
+
+
+def is_file_or_symlink(path: Path) -> bool:
+    """Check if a path is regular or symlink."""
+    try:
+        path_stat = path.lstat()
+        return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
+    except OSError:
+        return False
+
+
+def is_directory(path: Path) -> bool:
+    """Check if a path is a real directory."""
+    try:
+        path_stat = path.lstat()
+        return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
+    except OSError:
+        return False
