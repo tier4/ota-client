@@ -222,7 +222,7 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
-    critical_zone_flags = CriticalZoneFlags(is_critical_zone=mp_ctx.Event())
+    critical_zone_flags = CriticalZoneFlags(is_critical_zone=mp_ctx.Semaphore(1))
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
