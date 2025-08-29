@@ -425,7 +425,7 @@ def mount_rw(
 
     When <enable_optimization> is set to True, the following extra mount options will be added:
         noatime: do not update file access time
-        commit: enlarge batch journal commits interval
+        commit=20: enlarge batch journal commits interval to 20s
         data=writeback,journal_async_commit: enable async journal commits
     See https://wiki.archlinux.org/title/Ext4, https://man.archlinux.org/man/ext4.5 for more details.
 
@@ -444,6 +444,8 @@ def mount_rw(
     # fmt: off
     mount_options = ["rw"]
     if enable_optimization:
+        # NOTE(20250829): the commit=20 is chosen by balancing the progress lost window length
+        #                 and the improvement we can get.
         mount_options.extend(["noatime","commit=20","data=writeback,journal_async_commit"])
 
     cmd = [
