@@ -6,14 +6,14 @@
 
 <!-- A list of things needed to be done before set the PR as ready-for-review. -->
 
-- [ ] test file that covers the bug case(s) is implemented.
-- [ ] local test is passed.
+- [ ] test file that covers the bug case(s) is/are implemented.
+- [ ] local tests are passing.
 
 ## Bug fix
 
 ### Current behavior
 
-### Behaivor after fix
+### Behavior after fix
 
 ## Related links & ticket
 
