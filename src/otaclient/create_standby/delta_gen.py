@@ -37,7 +37,7 @@ from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
 from otaclient_common._typing import StrOrPath
-from otaclient_common.linux import is_directory, is_regular_file
+from otaclient_common.linux import is_directory, is_non_empty_regular_file
 
 from ._common import ResourcesDigestWithSize
 
@@ -430,7 +430,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
                 # NOTE: we will recreate all the symlinks,
                 #       so we first remove all the symlinks
                 # NOTE: is_file also return True on symlink points to regular file!
-                if not is_regular_file(delta_src_fpath):
+                if not is_non_empty_regular_file(delta_src_fpath):
                     delta_src_fpath.unlink(missing_ok=True)
                 else:
                     self._max_pending_tasks.acquire()
@@ -539,7 +539,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
 
                 # ignore non-file file(include symlink)
                 # NOTE: is_file also return True on symlink points to regular file!
-                if not is_regular_file(delta_src_fpath):
+                if not is_non_empty_regular_file(delta_src_fpath):
                     continue
 
                 self._max_pending_tasks.acquire()
@@ -647,7 +647,7 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                 for fpath in delta_src_fpaths:
                     # NOTE(20250703): a file recorded as regular file on base slot
                     #                 might not be actually a regular file.
-                    if not is_regular_file(fpath):
+                    if not is_non_empty_regular_file(fpath):
                         continue
 
                     try:

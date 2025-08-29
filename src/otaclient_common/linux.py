@@ -305,8 +305,8 @@ def fstrim_at_subprocess(
     )
 
 
-def is_regular_file(path: Path) -> bool:
-    """Check if a file is regular."""
+def is_non_empty_regular_file(path: Path) -> bool:
+    """Check if a path is non empty regular."""
     try:
         path_stat = path.lstat()
         return (
@@ -319,7 +319,7 @@ def is_regular_file(path: Path) -> bool:
 
 
 def is_file_or_symlink(path: Path) -> bool:
-    """Check if a file is regular or symlink."""
+    """Check if a path is regular or symlink."""
     try:
         path_stat = path.lstat()
         return stat.S_ISREG(path_stat.st_mode) or stat.S_ISLNK(path_stat.st_mode)
@@ -328,7 +328,7 @@ def is_file_or_symlink(path: Path) -> bool:
 
 
 def is_directory(path: Path) -> bool:
-    """Check if a directory is regular."""
+    """Check if a path is a real directory."""
     try:
         path_stat = path.lstat()
         return stat.S_ISDIR(path_stat.st_mode) and not stat.S_ISLNK(path_stat.st_mode)
