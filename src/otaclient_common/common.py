@@ -30,7 +30,11 @@ from urllib.parse import urljoin
 
 import requests
 
-from otaclient_common.linux import subprocess_run_wrapper
+from otaclient_common.linux import (
+    is_directory,
+    is_file_or_symlink,
+    subprocess_run_wrapper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +153,10 @@ def copytree_identical(src: Path, dst: Path):
     NOTE: is_file/is_dir also returns True if it is a symlink and
     the link target is_file/is_dir
     """
-    if src.is_symlink() or not src.is_dir():
+    if not is_directory(src):
         raise ValueError(f"{src} is not a dir")
 
-    if dst.is_symlink() or not dst.is_dir():
+    if not is_directory(dst):
         logger.info(f"{dst=} doesn't exist or not a dir, cleanup and mkdir")
         dst.unlink(missing_ok=True)  # unlink doesn't follow the symlink
         dst.mkdir(mode=src.stat().st_mode, parents=True)
@@ -176,7 +180,7 @@ def copytree_identical(src: Path, dst: Path):
                 _dst_dir.symlink_to(os.readlink(_src_dir))
 
         # cover the edge case that dst is not a dir.
-        if _cur_dir_on_dst.is_symlink() or not _cur_dir_on_dst.is_dir():
+        if not is_directory(_cur_dir_on_dst):
             _cur_dir_on_dst.unlink(missing_ok=True)
             _cur_dir_on_dst.mkdir(parents=True)
             copy_stat(_cur_dir, _cur_dir_on_dst)
@@ -189,7 +193,7 @@ def copytree_identical(src: Path, dst: Path):
             # prepare dst
             #   src is file but dst is a folder
             #   delete the dst in advance
-            if (not _dst_f.is_symlink()) and _dst_f.is_dir():
+            if is_directory(_dst_f):
                 # if dst is a dir, remove it
                 shutil.rmtree(_dst_f, ignore_errors=True)
             else:
@@ -226,7 +230,7 @@ def copytree_identical(src: Path, dst: Path):
 
         for fname in files:
             _src_f = _cur_dir_on_src / fname
-            if not (_src_f.is_symlink() or _src_f.is_file()):
+            if not (is_file_or_symlink(_src_f)):
                 (_cur_dir_on_dst / fname).unlink(missing_ok=True)
 
 
