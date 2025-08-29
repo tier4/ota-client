@@ -145,16 +145,17 @@ class ClientUpdateControlFlags:
 class CriticalZoneFlags:
     """Flags for critical zone control."""
 
-    is_critical_zone: mp_sync.Event
+    is_critical_zone: mp_sync.Semaphore
+    timeout: int = 5 * 60 # 5 minutes
 
     def __enter__(self):
         """Enter critical zone."""
-        self.is_critical_zone.set()
+        self.is_critical_zone.acquire(timeout=self.timeout)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit critical zone."""
-        self.is_critical_zone.clear()
+        self.is_critical_zone.release()
         return False
 
 
