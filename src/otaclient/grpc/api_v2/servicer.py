@@ -95,24 +95,28 @@ class OTAClientAPIServicer:
     ) -> api_types.StopResponseEcu:
         """Dispatch stop request to main process."""
         try:
-            if self._critical_zone_flags.is_critical_zone.is_set():
-                logger.error("Going through critical zone, rejecting stop request")
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                    message="In critical zone, stop request rejected",
-                )
-
+            self._critical_zone_flags.is_critical_zone.acquire(block=False)
             self._main_queue.put_nowait(request)
+            self._critical_zone_flags.is_critical_zone.release()
+
             return response_type(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.NO_FAILURE,
+            )
+        except OSError:
+            # Critical zone is occupied
+            logger.error("Going through critical zone, rejecting stop request")
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+                message="In critical zone, stop request rejected",
             )
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")
             return response_type(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
+                message="Failed to process stop request",
             )
 
     @overload
@@ -434,15 +438,13 @@ class OTAClientAPIServicer:
 
     async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
         # TODO: implement security measure to avoid unauthorized stop request
-        _res = []
-        for _ecu_req in request.ecu:
-            _res.append(
-                api_types.StopResponseEcu(
-                    ecu_id=_ecu_req.ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                    message="stop API is not supported yet",
-                ),
+        _res = [
+            api_types.StopResponseEcu(
+                ecu_id=0, # placeholder
+                result=api_types.FailureType.RECOVERABLE,
+                message="stop API is not supported yet",
             )
+        ]
         return api_types.StopResponse(ecu=_res)
 
     async def rollback(
