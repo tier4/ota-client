@@ -146,7 +146,7 @@ class CriticalZoneFlags:
     """Flags for critical zone control."""
 
     is_critical_zone: mp_sync.Semaphore
-    timeout: int = 5 * 60 # 5 minutes
+    timeout: int = 5 * 60  # 5 minutes
 
     def __enter__(self):
         """Enter critical zone."""
