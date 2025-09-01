@@ -104,15 +104,12 @@ class OTAClientAPIServicer:
                     message="In critical zone, stop request rejected",
                 )
 
-            try:
-                self._main_queue.put_nowait(request)
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-            finally:
-                # Always release the semaphore after processing
-                self._critical_zone_flags.is_critical_zone.release()
+            self._main_queue.put_nowait(request)
+            self._critical_zone_flags.is_critical_zone.release()
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.NO_FAILURE,
+            )
 
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")
