@@ -10,7 +10,7 @@ For better understanding, adding reason/motivation of this PR are also recommend
 
 <!-- A list of things needed to be done before set the PR as ready-for-review. -->
 
-- [ ] test file(s) that covers the change(s) is/are implemented.
+- [ ] test file(s) that cover the change(s) are implemented.
 - [ ] local tests are passing.
 - [ ] design docs/implementation docs are prepared.
 
