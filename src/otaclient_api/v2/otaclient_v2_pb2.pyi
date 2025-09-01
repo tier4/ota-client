@@ -105,26 +105,6 @@ class UpdateResponse(_message.Message):
     ecu: _containers.RepeatedCompositeFieldContainer[UpdateResponseEcu]
     def __init__(self, ecu: _Optional[_Iterable[_Union[UpdateResponseEcu, _Mapping]]] = ...) -> None: ...
 
-class StopRequest(_message.Message):
-    __slots__ = []
-    def __init__(self) -> None: ...
-
-class StopResponseEcu(_message.Message):
-    __slots__ = ["ecu_id", "result", "message"]
-    ECU_ID_FIELD_NUMBER: _ClassVar[int]
-    RESULT_FIELD_NUMBER: _ClassVar[int]
-    MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    ecu_id: str
-    result: FailureType
-    message: str
-    def __init__(self, ecu_id: _Optional[str] = ..., result: _Optional[_Union[FailureType, str]] = ..., message: _Optional[str] = ...) -> None: ...
-
-class StopResponse(_message.Message):
-    __slots__ = ["ecu"]
-    ECU_FIELD_NUMBER: _ClassVar[int]
-    ecu: _containers.RepeatedCompositeFieldContainer[StopResponseEcu]
-    def __init__(self, ecu: _Optional[_Iterable[_Union[StopResponseEcu, _Mapping]]] = ...) -> None: ...
-
 class RollbackRequestEcu(_message.Message):
     __slots__ = ["ecu_id"]
     ECU_ID_FIELD_NUMBER: _ClassVar[int]
