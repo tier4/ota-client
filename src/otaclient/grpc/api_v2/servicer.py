@@ -436,16 +436,16 @@ class OTAClientAPIServicer:
             update_acked_ecus=set(),
         )
 
-#    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
-#        # TODO: implement security measure to avoid unauthorized stop request
-#        _res = [
-#            api_types.StopResponseEcu(
-#                ecu_id=0,  # placeholder
-#                result=api_types.FailureType.RECOVERABLE,
-#                message="stop API is not supported yet",
-#            )
-#        ]
-#        return api_types.StopResponse(ecu=_res)
+    #    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
+    #        # TODO: implement security measure to avoid unauthorized stop request
+    #        _res = [
+    #            api_types.StopResponseEcu(
+    #                ecu_id=0,  # placeholder
+    #                result=api_types.FailureType.RECOVERABLE,
+    #                message="stop API is not supported yet",
+    #            )
+    #        ]
+    #        return api_types.StopResponse(ecu=_res)
 
     async def rollback(
         self, request: api_types.RollbackRequest
