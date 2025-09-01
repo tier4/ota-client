@@ -42,7 +42,7 @@ service OtaClientService {
    * `Stop` service requests OTA client to stop updating.
    * Coming soon.
    */
-  //rpc Stop (StopRequest) returns (StopResponse) {}
+  rpc Stop (StopRequest) returns (StopResponse) {}
 
   /*
    * NOT YET
