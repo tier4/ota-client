@@ -112,7 +112,6 @@ message UpdateResponse {
 // Stop
 //
 
-/* Coming soon.
 // Request
 message StopRequest {
   // empty for now
@@ -128,7 +127,6 @@ message StopResponseEcu {
 message StopResponse {
   repeated StopResponseEcu ecu = 1;
 }
-*/
 
 //
 // Rollback
