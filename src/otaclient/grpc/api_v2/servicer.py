@@ -95,22 +95,25 @@ class OTAClientAPIServicer:
     ) -> api_types.StopResponseEcu:
         """Dispatch stop request to main process."""
         try:
-            self._critical_zone_flags.is_critical_zone.acquire(block=False)
-            self._main_queue.put_nowait(request)
-            self._critical_zone_flags.is_critical_zone.release()
+            # Check if critical zone is available
+            if not self._critical_zone_flags.is_critical_zone.acquire(block=False):
+                logger.error("Going through critical zone, rejecting stop request")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="In critical zone, stop request rejected",
+                )
 
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.NO_FAILURE,
-            )
-        except OSError:
-            # Critical zone is occupied
-            logger.error("Going through critical zone, rejecting stop request")
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
-                message="In critical zone, stop request rejected",
-            )
+            try:
+                self._main_queue.put_nowait(request)
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+            finally:
+                # Always release the semaphore after processing
+                self._critical_zone_flags.is_critical_zone.release()
+
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")
             return response_type(
