@@ -21,6 +21,11 @@ class OtaClientServiceStub(object):
                 request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
                 response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
                 )
+        self.Stop = channel.unary_unary(
+                '/OtaClientV2.OtaClientService/Stop',
+                request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
+                response_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
+                )
         self.Rollback = channel.unary_unary(
                 '/OtaClientV2.OtaClientService/Rollback',
                 request_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.RollbackRequest.SerializeToString,
@@ -69,6 +74,12 @@ class OtaClientServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Stop(self, request, context):
+        """
+        """
+        rpc Stop (StopRequest) returns (StopResponse) {}
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
     def Rollback(self, request, context):
         """
         NOT YET
@@ -109,6 +120,11 @@ def add_OtaClientServiceServicer_to_server(servicer, server):
                     servicer.Update,
                     request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.FromString,
                     response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.SerializeToString,
+            ),
+            'Stop': grpc.unary_unary_rpc_method_handler(
+                    servicer.Stop,
+                    request_deserializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.FromString,
+                    response_serializer=otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.SerializeToString,
             ),
             'Rollback': grpc.unary_unary_rpc_method_handler(
                     servicer.Rollback,
@@ -151,6 +167,23 @@ class OtaClientService(object):
         return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Update',
             otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateRequest.SerializeToString,
             otaclient__api_dot_v2_dot_otaclient__v2__pb2.UpdateResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def Stop(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/OtaClientV2.OtaClientService/Stop',
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopRequest.SerializeToString,
+            otaclient__api_dot_v2_dot_otaclient__v2__pb2.StopResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 
