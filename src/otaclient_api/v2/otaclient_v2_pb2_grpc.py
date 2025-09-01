@@ -65,8 +65,10 @@ class OtaClientServiceServicer(object):
 
     def Stop(self, request, context):
         """
-        `Stop` service requests OTA client to stop updating.
-        Coming soon.
+        `Stop` service requests the OTA client to stop any currently running update operations.
+        Each ECU attempts to halt its update process safely.
+        The response indicates whether the stop command was accepted.
+        If the update is in a critical zone, the stop command will be ignored.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
