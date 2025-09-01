@@ -440,7 +440,7 @@ class OTAClientAPIServicer:
         # TODO: implement security measure to avoid unauthorized stop request
         _res = [
             api_types.StopResponseEcu(
-                ecu_id=0,  # placeholder
+                ecu_id="0",  # placeholder, stop request does not contain ECU list
                 result=api_types.FailureType.RECOVERABLE,
                 message="stop API is not supported yet",
             )
