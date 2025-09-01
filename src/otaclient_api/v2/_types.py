@@ -692,13 +692,13 @@ class ClientUpdateResponse(
 # stop API
 
 
-#class StopRequest(MessageWrapper[pb2.StopRequest]):
+# class StopRequest(MessageWrapper[pb2.StopRequest]):
 #    __slots__ = calculate_slots(pb2.StopRequest)
 #
 #    def __init__(self) -> None: ...
 
 
-#class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
+# class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
 #    __slots__ = calculate_slots(pb2.StopResponseEcu)
 #    ecu_id: str
 #    result: FailureType
@@ -713,7 +713,7 @@ class ClientUpdateResponse(
 #    ) -> None: ...
 
 
-#class StopResponse(ECUList[StopResponseEcu], MessageWrapper[pb2.StopResponse]):
+# class StopResponse(ECUList[StopResponseEcu], MessageWrapper[pb2.StopResponse]):
 #    __slots__ = calculate_slots(pb2.StopResponse)
 #    ecu: RepeatedCompositeContainer[StopResponseEcu]
 #
