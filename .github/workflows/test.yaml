@@ -51,7 +51,7 @@ jobs:
           mkdir -p test_result
           docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-${{ matrix.test_base }}
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v5.3.0
+        uses: SonarSource/sonarqube-scan-action@v5.3.1
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
