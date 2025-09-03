@@ -9,8 +9,8 @@ For better understanding, adding reason/motivation of this PR are also recommend
 
 <!-- A list of things needed to be done before set the PR as ready-for-review. -->
 
-- [ ] test file(s) that covers the change(s) is implemented.
-- [ ] local test is passed.
+- [ ] test file(s) that cover the change(s) are implemented.
+- [ ] local tests are passing.
 
 ## Changes
 
@@ -20,13 +20,13 @@ For better understanding, adding reason/motivation of this PR are also recommend
 
 Does this PR introduce behavior change(s)?
 
-- [ ] Yes, internal behaivor (will not impact user experience).
-- [ ] Yes, external behaivor (will impact user experience).
+- [ ] Yes, internal behavior (will not impact user experience).
+- [ ] Yes, external behavior (will impact user experience).
 - [ ] No.
 
 ### Previous behavior
 
-<!-- Behaivor before the PR is introduced -->
+<!-- Behavior before the PR is introduced -->
 
 ### Behavior with this PR
 
@@ -34,7 +34,7 @@ Does this PR introduce behavior change(s)?
 
 ## Breaking change
 
-Does this PR introduce breaking change?
+Does this PR introduce breaking change(s)?
 
 - [ ] Yes.
 - [ ] No.
