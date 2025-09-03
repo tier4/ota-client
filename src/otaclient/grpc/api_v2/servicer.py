@@ -24,10 +24,12 @@ from typing import Callable, overload
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     ClientUpdateRequestV2,
+    CriticalZoneFlags,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
     RollbackRequestV2,
+    StopRequestV2,
     UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
@@ -53,7 +55,9 @@ class OTAClientAPIServicer:
         *,
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
+        main_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        critical_zone_flags: CriticalZoneFlags,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -64,19 +68,56 @@ class OTAClientAPIServicer:
 
         self._op_queue = op_queue
         self._resp_queue = resp_queue
+        self._main_queue = main_queue
 
         self._ecu_status_storage = ecu_status_storage
+        self._critical_zone_flags = critical_zone_flags
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
         """Thread worker for dispatching a local update."""
         return self._dispatch_local_request(request, api_types.UpdateResponseEcu)
 
+    def _local_stop(self, request: StopRequestV2) -> api_types.StopResponseEcu:
+        """Thread worker for dispatching a local stop request."""
+        return self._dispatch_local_stop_request(request, api_types.StopResponseEcu)
+
     def _local_client_update(
         self, request: ClientUpdateRequestV2
     ) -> api_types.ClientUpdateResponseEcu:
         """Thread worker for dispatching a local client update."""
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
+
+    def _dispatch_local_stop_request(
+        self,
+        request: StopRequestV2,
+        response_type: type[api_types.StopResponseEcu],
+    ) -> api_types.StopResponseEcu:
+        """Dispatch stop request to main process."""
+        try:
+            # Check if critical zone is available
+            if not self._critical_zone_flags.is_critical_zone.acquire(block=False):
+                logger.error("Going through critical zone, rejecting stop request")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="In critical zone, stop request rejected",
+                )
+
+            self._main_queue.put_nowait(request)
+            self._critical_zone_flags.is_critical_zone.release()
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.NO_FAILURE,
+            )
+
+        except Exception as e:
+            logger.error(f"failed to send request {request} to main process: {e!r}")
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+                message="Failed to process stop request",
+            )
 
     @overload
     def _dispatch_local_request(
@@ -112,8 +153,8 @@ class OTAClientAPIServicer:
         | api_types.RollbackResponseEcu
         | api_types.ClientUpdateResponseEcu
     ):
-        self._op_queue.put_nowait(request)
         try:
+            self._op_queue.put_nowait(request)
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
             assert (
@@ -150,6 +191,7 @@ class OTAClientAPIServicer:
         self,
         response: (
             api_types.UpdateResponse
+            | api_types.StopResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
@@ -159,6 +201,12 @@ class OTAClientAPIServicer:
         """Add ECU into response with specified failure type."""
         if isinstance(response, api_types.UpdateResponse):
             ecu_response = api_types.UpdateResponseEcu(
+                ecu_id=ecu_id,
+                result=failure_type,
+            )
+            response.add_ecu(ecu_response)
+        elif isinstance(response, api_types.StopResponse):
+            ecu_response = api_types.StopResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
             )
@@ -237,6 +285,17 @@ class OTAClientAPIServicer:
     @overload
     async def _handle_request(
         self,
+        request: api_types.StopRequest,
+        local_handler: Callable,
+        request_cls: type[StopRequestV2],
+        remote_call: Callable,
+        response_type: type[api_types.StopResponse],
+        update_acked_ecus: None,
+    ) -> api_types.StopResponse: ...
+
+    @overload
+    async def _handle_request(
+        self,
         request: api_types.RollbackRequest,
         local_handler: Callable,
         request_cls: type[RollbackRequestV2],
@@ -298,7 +357,6 @@ class OTAClientAPIServicer:
                     response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
                 )
             return response
-
         # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
@@ -377,6 +435,17 @@ class OTAClientAPIServicer:
             response_type=api_types.UpdateResponse,
             update_acked_ecus=set(),
         )
+
+    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
+        # TODO: implement security measure to avoid unauthorized stop request
+        _res = [
+            api_types.StopResponseEcu(
+                ecu_id="0",  # placeholder, stop request does not contain ECU list
+                result=api_types.FailureType.RECOVERABLE,
+                message="stop API is not supported yet",
+            )
+        ]
+        return api_types.StopResponse(ecu=_res)
 
     async def rollback(
         self, request: api_types.RollbackRequest
