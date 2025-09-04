@@ -74,12 +74,6 @@ class OtaClientServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Stop(self, request, context):
-        """
-        """
-        rpc Stop (StopRequest) returns (StopResponse) {}
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
     def Rollback(self, request, context):
         """
         NOT YET
