@@ -1605,7 +1605,7 @@ wheels = [
 [[package]]
 name = "ota-image-libs"
 version = "0.0.38.dev0"
-source = { git = "https://github.com/tier4/ota-image-libs?branch=refinement%2Ffile_entries_prepare#b296b4429635cc86731d2d300d958981106a1b17" }
+source = { git = "https://github.com/tier4/ota-image-libs?branch=refinement%2Ffile_entries_prepare#30cb64dfaef19c89b6fb84986e859f290bed7137" }
 dependencies = [
     { name = "cryptography" },
     { name = "msgpack" },
