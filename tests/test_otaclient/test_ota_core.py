@@ -271,8 +271,8 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
 
-        mock_exit_from_dynamic_client.assert_called_once()
         mock_publish.assert_called_once()
+        mock_exit_from_dynamic_client.assert_called_once()
 
     def test_client_update_normal_finished(self):
         """Test client update with normal completion."""
