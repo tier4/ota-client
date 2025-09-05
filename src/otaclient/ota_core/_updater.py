@@ -21,11 +21,12 @@ import time
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
+from typing import Iterable
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
-from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
+from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -320,7 +321,11 @@ class OTAUpdater(OTAUpdateOperator):
         self._metrics.post_update_start_timestamp = _current_time
 
         # NOTE(20240219): move persist file handling at post_update hook
-        self._process_persistents(self._ota_metadata)
+        process_persistents(
+            self._ota_metadata.iter_persist_entries(),
+            active_slot_mp=self._active_slot_mp,
+            standby_slot_mp=self._standby_slot_mp,
+        )
 
         self._preserve_ota_image_meta_at_post_update()
         # NOTE(20250823): secure the resource dir and metadata dir
@@ -329,39 +334,6 @@ class OTAUpdater(OTAUpdateOperator):
 
         self._preserve_client_squashfs()
         self._boot_controller.post_update(self.update_version)
-
-    def _process_persistents(self, ota_metadata: OTAMetadata):
-        logger.info("start persist files handling...")
-        _handler = PersistFilesHandler(
-            src_passwd_file=self._active_slot_mp / "etc/passwd",
-            src_group_file=self._active_slot_mp / "etc/group",
-            dst_passwd_file=self._standby_slot_mp / "etc/passwd",
-            dst_group_file=self._standby_slot_mp / "etc/group",
-            src_root=self._active_slot_mp,
-            dst_root=self._standby_slot_mp,
-        )
-
-        for persiste_entry in ota_metadata.iter_persist_entries():
-            # NOTE(20240520): with update_swapfile ansible role being used wildly,
-            #   now we just ignore the swapfile entries in the persistents.txt if any,
-            #   and issue a warning about it.
-            if persiste_entry in ["/swapfile", "/swap.img"]:
-                logger.warning(
-                    f"swapfile entry {persiste_entry} is listed in persistents.txt, ignored"
-                )
-                logger.warning(
-                    (
-                        "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
-                        "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
-                    )
-                )
-                continue
-
-            try:
-                _handler.preserve_persist_entry(persiste_entry)
-            except Exception as e:
-                _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
-                logger.warning(_err_msg)
 
     def _preserve_client_squashfs(self) -> None:
         """Copy the client squashfs file to the standby slot."""
@@ -445,6 +417,43 @@ class OTAUpdater(OTAUpdateOperator):
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
+
+
+def process_persistents(
+    _entries: Iterable[str], *, active_slot_mp: Path, standby_slot_mp: Path
+) -> None:
+    """Implementation of preserving files accross slots at OTA post update."""
+    logger.info("start persist files handling...")
+    _handler = PersistFilesHandler(
+        src_passwd_file=active_slot_mp / "etc/passwd",
+        src_group_file=active_slot_mp / "etc/group",
+        dst_passwd_file=standby_slot_mp / "etc/passwd",
+        dst_group_file=standby_slot_mp / "etc/group",
+        src_root=active_slot_mp,
+        dst_root=standby_slot_mp,
+    )
+
+    for persiste_entry in _entries:
+        # NOTE(20240520): with update_swapfile ansible role being used wildly,
+        #   now we just ignore the swapfile entries in the persistents.txt if any,
+        #   and issue a warning about it.
+        if persiste_entry in ["/swapfile", "/swap.img"]:
+            logger.warning(
+                f"swapfile entry {persiste_entry} is listed in persistents.txt, ignored"
+            )
+            logger.warning(
+                (
+                    "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
+                    "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
+                )
+            )
+            continue
+
+        try:
+            _handler.preserve_persist_entry(persiste_entry)
+        except Exception as e:
+            _err_msg = f"failed to preserve {persiste_entry}: {e!r}, skip"
+            logger.warning(_err_msg)
 
 
 class DownloadDeltaResourcesForLegacyOTAImage:
