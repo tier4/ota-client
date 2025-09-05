@@ -72,6 +72,7 @@ OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
+WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
 
 class OTAClient:
@@ -231,6 +232,7 @@ class OTAClient:
             # dynamic client is not running, no need to exit
             return
 
+        time.sleep(WAIT_BEFORE_DYNAMIC_CLIENT_EXIT)
         logger.info("exit from dynamic client...")
         self._client_update_control_flags.request_shutdown_event.set()
 
