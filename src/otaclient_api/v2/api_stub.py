@@ -30,6 +30,10 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         response = await self._stub.update(_types.UpdateRequest.convert(request))
         return response.export_pb()
 
+    async def Stop(self, request: pb2.StopRequest, context) -> pb2.StopResponse:
+        response = await self._stub.stop(_types.StopRequest.convert(request))
+        return response.export_pb()
+
     async def Rollback(
         self, request: pb2.RollbackRequest, context
     ) -> pb2.RollbackResponse:

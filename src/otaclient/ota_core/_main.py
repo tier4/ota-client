@@ -41,6 +41,7 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
+    CriticalZoneFlags,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -76,7 +77,7 @@ WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
 
 class OTAClient:
-    """The adapter between OTAClieng gRPC interface and the OTA implementation."""
+    """The adapter between OTAClient gRPC interface and the OTA implementation."""
 
     def __init__(
         self,
@@ -85,6 +86,7 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
+        critical_zone_flags: CriticalZoneFlags,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -93,6 +95,7 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
+        self._critical_zone_flags = critical_zone_flags
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -289,6 +292,7 @@ class OTAClient:
                 ca_chains_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 ecu_status_flags=self.ecu_status_flags,
+                critical_zone_flags=self._critical_zone_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
@@ -467,6 +471,7 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
+    critical_zone_flags: CriticalZoneFlags,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -490,6 +495,7 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
+        critical_zone_flags=critical_zone_flags,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

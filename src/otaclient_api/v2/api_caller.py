@@ -66,6 +66,25 @@ class OTAClientCall:
             raise ECUNoResponse(_msg) from e
 
     @staticmethod
+    async def stop_call(
+        ecu_id: str,
+        ecu_ipaddr: str,
+        ecu_port: int,
+        *,
+        request: _types.StopRequest,
+        timeout=None,
+    ) -> _types.StopResponse:
+        try:
+            ecu_addr = f"{ecu_ipaddr}:{ecu_port}"
+            async with grpc.aio.insecure_channel(ecu_addr) as channel:
+                stub = pb2_grpc.OtaClientServiceStub(channel)
+                resp = await stub.Stop(request.export_pb(), timeout=timeout)
+                return _types.StopResponse.convert(resp)
+        except Exception as e:
+            _msg = f"{ecu_id=} failed to respond to stop request on-time: {e!r}"
+            raise ECUNoResponse(_msg) from e
+
+    @staticmethod
     async def rollback_call(
         ecu_id: str,
         ecu_ipaddr: str,

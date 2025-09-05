@@ -30,7 +30,11 @@ import time
 from functools import partial
 
 from otaclient import __version__
-from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    CriticalZoneFlags,
+    MultipleECUStatusFlags,
+)
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -94,6 +98,12 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
             sys.exit(1)
 
 
+# Added for the stop process thread located in a separate module
+def shutdown(sys_exit: bool = False) -> None:
+    """Public interface to shutdown otaclient."""
+    _on_shutdown(sys_exit=sys_exit)
+
+
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
     # NOTE: the daemon_process needs to exit also.
@@ -106,6 +116,7 @@ def main() -> None:  # pragma: no cover
         otaproxy_control_thread,
         otaproxy_on_global_shutdown,
     )
+    from otaclient._stop_monitor import stop_request_thread
     from otaclient._utils import check_other_otaclient
     from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -201,6 +212,7 @@ def main() -> None:  # pragma: no cover
     # shared queues and flags
     local_otaclient_op_queue = mp_ctx.Queue()
     local_otaclient_resp_queue = mp_ctx.Queue()
+    otaclient_main_queue = mp_ctx.Queue()
     ecu_status_flags = MultipleECUStatusFlags(
         any_child_ecu_in_update=mp_ctx.Event(),
         any_requires_network=mp_ctx.Event(),
@@ -210,6 +222,7 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
+    critical_zone_flags = CriticalZoneFlags(is_critical_zone=mp_ctx.Semaphore(1))
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -225,6 +238,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
+            critical_zone_flags=critical_zone_flags,
         ),
         name="otaclient_ota_core",
     )
@@ -237,8 +251,10 @@ def main() -> None:  # pragma: no cover
                 SharedOTAClientStatusReader, name=_shm.name, key=_key
             ),
             op_queue=local_otaclient_op_queue,
+            main_queue=otaclient_main_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
+            critical_zone_flags=critical_zone_flags,
         ),
         name="otaclient_api_server",
     )
@@ -265,8 +281,24 @@ def main() -> None:  # pragma: no cover
         )
         _otaproxy_control_t.start()
 
+    _stop_request_thread = threading.Thread(
+        target=partial(
+            stop_request_thread,
+            otaclient_main_queue=otaclient_main_queue,
+            critical_zone_flags=critical_zone_flags,
+        ),
+        daemon=True,
+        name="otaclient_stop_request_thread",
+    )
+
+    _stop_request_thread.start()
+
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
+
+        if not _stop_request_thread.is_alive():
+            logger.info("Stop request received, shutting down...")
+            return _on_shutdown(sys_exit=True)
 
         if not _ota_core_p.is_alive():
             logger.error(
@@ -311,6 +343,8 @@ def main() -> None:  # pragma: no cover
                     del local_otaclient_op_queue
                 if local_otaclient_resp_queue:
                     del local_otaclient_resp_queue
+                if otaclient_main_queue:
+                    del otaclient_main_queue
 
                 # this is a python bug(https://github.com/python/cpython/issues/88887),
                 # and it is fixed since python3.12 (https://github.com/python/cpython/pull/131530).
