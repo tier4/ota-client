@@ -126,39 +126,6 @@ class OTAUpdater(OTAUpdateOperator):
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
-        to_download = len(delta_digests)
-        to_download_size = sum(delta_digests.values())
-        logger.info(
-            f"delta calculation finished: \n"
-            f"download_list len: {to_download} \n"
-            f"sum of original size of all resources to be downloaded: {human_readable_size(to_download_size)}"
-        )
-
-        _current_time = int(time.time())
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
-                    trigger_timestamp=_current_time,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._metrics.download_start_timestamp = _current_time
-
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetUpdateMetaReport(
-                    total_download_files_num=to_download,
-                    total_download_files_size=to_download_size,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._metrics.delta_download_files_num = to_download
-        self._metrics.delta_download_files_size = to_download_size
-
-        logger.info("start to download resources ...")
         _resource_meta = ResourceMeta(
             base_url=self.url_base,
             ota_metadata=self._ota_metadata,
@@ -183,29 +150,6 @@ class OTAUpdater(OTAUpdateOperator):
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
             _resource_meta.shutdown()
-
-    def _execute_update(self):
-        """Implementation of OTA updating."""
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
-
-        self._handle_upper_proxy()
-        self._process_metadata()
-        self._pre_update()
-
-        _delta_digests = DeltaCalCulator(
-            file_table_db_helper=FileTableDBHelper(self._ota_metadata.FSTABLE_DB),
-            standby_slot_mp=self._standby_slot_mp,
-            active_slot_mp=self._active_slot_mp,
-            status_report_queue=self._status_report_queue,
-            session_id=self.session_id,
-            metrics=self._metrics,
-            use_inplace_mode=self._can_use_in_place_mode,
-        ).calculate_delta()
-        self._download_delta_resources(_delta_digests)
-
-        self._apply_update()
-        self._post_update()
-        self._finalize_update()
 
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
@@ -256,8 +200,52 @@ class OTAUpdater(OTAUpdateOperator):
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
             )
 
-    def _apply_update(self) -> None:
-        """Apply the OTA update to the standby slot."""
+    def _in_update(self):
+        logger.info("start to calculate delta ...")
+        _delta_digests = DeltaCalCulator(
+            file_table_db_helper=FileTableDBHelper(self._ota_metadata.FSTABLE_DB),
+            standby_slot_mp=self._standby_slot_mp,
+            active_slot_mp=self._active_slot_mp,
+            status_report_queue=self._status_report_queue,
+            session_id=self.session_id,
+            metrics=self._metrics,
+            use_inplace_mode=self._can_use_in_place_mode,
+        ).calculate_delta()
+        to_download = len(_delta_digests)
+        to_download_size = sum(_delta_digests.values())
+        logger.info(
+            f"delta calculation finished: \n"
+            f"download_list len: {to_download} \n"
+            f"sum of original size of all resources to be downloaded: {human_readable_size(to_download_size)}"
+        )
+
+        _current_time = int(time.time())
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.DOWNLOADING_OTA_FILES,
+                    trigger_timestamp=_current_time,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.download_start_timestamp = _current_time
+
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    total_download_files_num=to_download,
+                    total_download_files_size=to_download_size,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.delta_download_files_num = to_download
+        self._metrics.delta_download_files_size = to_download_size
+
+        logger.info("start to download resources ...")
+        self._download_delta_resources(_delta_digests)
+
         logger.info("start to apply changes to standby slot...")
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
@@ -305,6 +293,27 @@ class OTAUpdater(OTAUpdateOperator):
             if entry.is_file():
                 shutil.move(str(entry), self._ota_meta_store_base_on_standby)
 
+    def _preserve_client_squashfs_at_post_update(self) -> None:
+        """Copy the client squashfs file to the standby slot."""
+        if not _env.is_dynamic_client_running():
+            logger.info(
+                "dynamic client is not running, no need to copy client squashfs file"
+            )
+            return
+
+        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
+            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        ).relative_to("/")
+        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+        ).relative_to("/")
+        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            shutil.copy(_src, _dst, follow_symlinks=False)
+        except FileNotFoundError as e:
+            logger.warning(f"failed to copy client squashfs file: {e!r}")
+
     def _post_update(self) -> None:
         """Post-update phase."""
         logger.info("enter post update phase...")
@@ -332,29 +341,8 @@ class OTAUpdater(OTAUpdateOperator):
         os.chmod(self._resource_dir_on_standby, 0o700)
         os.chmod(self._ota_meta_store_on_standby, 0o700)
 
-        self._preserve_client_squashfs()
+        self._preserve_client_squashfs_at_post_update()
         self._boot_controller.post_update(self.update_version)
-
-    def _preserve_client_squashfs(self) -> None:
-        """Copy the client squashfs file to the standby slot."""
-        if not _env.is_dynamic_client_running():
-            logger.info(
-                "dynamic client is not running, no need to copy client squashfs file"
-            )
-            return
-
-        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
-            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
-        ).relative_to("/")
-        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-        ).relative_to("/")
-        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
-        try:
-            os.makedirs(_dst, exist_ok=True)
-            shutil.copy(_src, _dst, follow_symlinks=False)
-        except FileNotFoundError as e:
-            logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _finalize_update(self) -> None:
         """Finalize the OTA update."""
@@ -403,8 +391,15 @@ class OTAUpdater(OTAUpdateOperator):
 
         Handles OTA failure and logging/finalizing on failure.
         """
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
-            self._execute_update()
+            self._handle_upper_proxy()
+            self._process_metadata()
+
+            self._pre_update()
+            self._in_update()
+            self._post_update()
+            self._finalize_update()
             # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
@@ -690,9 +685,7 @@ class DeltaCalCulator:
 
     def calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
-        logger.info("start to calculate delta ...")
         _current_time = int(time.time())
-
         all_resource_digests = ResourcesDigestWithSize.from_iterable(
             self._fst_db_helper.select_all_digests_with_size(),
         )
@@ -777,3 +770,7 @@ class DeltaCalCulator:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+
+
+class OTAImageMetaFilesHandler:
+    """Helper class for operating the image metafiles during OTA."""
