@@ -28,6 +28,7 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
+from ._update_libs import handle_upper_proxy
 from ._updater_base import OTAUpdateOperator
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ class OTAClientUpdater(OTAUpdateOperator):
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
 
         try:
-            self._handle_upper_proxy()
+            if self._upper_proxy:
+                handle_upper_proxy(self._upper_proxy)
             self._process_metadata(only_metadata_verification=True)
             self._download_client_package_resources()
             self._wait_sub_ecus()
