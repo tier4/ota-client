@@ -21,8 +21,13 @@ import sqlite3
 import stat
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Any
 
+from ota_image_libs.v1.file_table.utils import (
+    DirTypedDict,
+    NonRegularFileTypedDict,
+    RegularFileTypedDict,
+)
 from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
 from ota_metadata.file_table import (
@@ -56,40 +61,6 @@ class PrepareEntryFailed(Exception):
 
 
 #
-# ------ type hint helpers ------ #
-#
-
-
-class FileTableEntryTypedDict(TypedDict):
-    """The result of joining ft_inode and ft_* table."""
-
-    path: str
-    uid: int
-    gid: int
-    mode: int
-    links_count: Optional[int]
-    xattrs: Optional[bytes]
-
-
-class RegularFileTypedDict(FileTableEntryTypedDict):
-    digest: bytes
-    size: int
-    inode_id: int
-    contents: Optional[bytes]
-
-
-class NonRegularFileTypedDict(FileTableEntryTypedDict):
-    meta: Optional[bytes]
-
-
-class DirTypedDict(TypedDict):
-    path: str
-    uid: int
-    gid: int
-    mode: int
-
-
-#
 # ------ helper methods ------ #
 #
 
@@ -119,9 +90,9 @@ def prepare_non_regular(
     try:
         if stat.S_ISLNK(entry["mode"]):
             _symlink_target_raw = entry["meta"]
-            assert (
-                _symlink_target_raw
-            ), f"{entry!r} is symlink, but no symlink target is defined"
+            assert _symlink_target_raw, (
+                f"{entry!r} is symlink, but no symlink target is defined"
+            )
 
             _symlink_target = _symlink_target_raw.decode()
             _target_on_mnt.symlink_to(_symlink_target)
