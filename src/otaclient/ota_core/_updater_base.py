@@ -37,15 +37,12 @@ from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
-from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
 from ._common import download_exception_handler
 from ._download_resources import DownloadHelperForLegacyOTAImage
 
 logger = logging.getLogger(__name__)
-
-WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 
 class OTAUpdateOperator:
@@ -145,20 +142,6 @@ class OTAUpdateOperator:
             session_dir=self._session_workdir,
             ca_chains_store=ca_chains_store,
         )
-
-    def _handle_upper_proxy(self) -> None:
-        """Ensure the upper proxy is online before starting the local OTA update."""
-        if _upper_proxy := self._upper_proxy:
-            logger.info(
-                f"use {_upper_proxy} for local OTA update, "
-                f"wait for otaproxy@{_upper_proxy} online..."
-            )
-
-            # NOTE: will raise a built-in ConnnectionError at timeout
-            ensure_otaproxy_start(
-                _upper_proxy,
-                probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
-            )
 
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         """Process the metadata.jwt file and report."""
