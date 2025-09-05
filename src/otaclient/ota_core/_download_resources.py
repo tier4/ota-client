@@ -20,7 +20,14 @@ import threading
 import time
 from concurrent.futures import Future
 from functools import partial
+from pathlib import Path
 from typing import Generator, Iterable
+from urllib.parse import urljoin
+
+from ota_image_libs.v1.resource_table.db import (
+    PrepareResourceHelper,
+    ResourceTableDBHelper,
+)
 
 from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
@@ -36,7 +43,7 @@ from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
 
-class DownloadHelper:
+class _BaseDownloadHelper:
     def __init__(
         self,
         *,
@@ -118,6 +125,22 @@ class DownloadHelper:
             ):
                 yield _fut
 
+    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
+        """Shuffle the input digests to avoid multiple ECUs downloading
+        the same resources at the same time."""
+        _cur_batch = []
+        for _digest in _digests:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
+
+
+class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
     def _download_single_resource_at_thread(
         self, _digest: bytes, resource_meta: ResourceMeta
     ) -> DownloadResult:
@@ -135,20 +158,6 @@ class DownloadHelper:
             compression_alg=_download_info.compression_alg,
         )
 
-    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
-        """Shuffle the input digests to avoid multiple ECUs downloading
-        the same resources at the same time."""
-        _cur_batch = []
-        for _digest in _digests:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
-
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
     ) -> Generator[Future[DownloadResult]]:
@@ -157,6 +166,60 @@ class DownloadHelper:
                 partial(
                     self._download_single_resource_at_thread,
                     resource_meta=resource_meta,
+                ),
+                self._iter_digests_with_shuffle(resources_to_download),
+            ):
+                yield _fut
+
+
+RESOURCE_TABLE_DB_CONN = 3
+
+
+class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
+    def _download_single_resource_at_thread(
+        self, _digest: bytes, *, _rst_helper: PrepareResourceHelper, _base_url: str
+    ) -> DownloadResult:
+        downloader = self._downloader_mapper[threading.get_native_id()]
+
+        _entry, _gen = _rst_helper.prepare_resource_at_thread(_digest)
+        _res = DownloadResult(download_size=_entry.size)
+        for _requested_blob, _tmp_save_dst in _gen:
+            _this_res = downloader.download(
+                url=urljoin(_base_url, _requested_blob),
+                dst=_tmp_save_dst,
+                digest=_requested_blob,
+                # NOTE: do not do auto decompression, the PrepareResourceHelper
+                #       will do the decompression.
+            )
+            _res.retry_count += _this_res.retry_count
+            _res.traffic_on_wire += _this_res.traffic_on_wire
+        # after all the blobs are prepare, the `prepare_resource_at_thread` method will
+        #   rebuild the requested origin blob.
+        return _res
+
+    def download_resources2(
+        self,
+        resources_to_download: Iterable[bytes],
+        resource_db_helper: ResourceTableDBHelper,
+        *,
+        blob_storage_base_url: str,
+        resource_dir: Path,
+        download_tmp_dir: Path,
+    ) -> Generator[Future[DownloadResult]]:
+        _base_url = f"{blob_storage_base_url.rstrip('/')}/"
+        _rst_orm_pool = resource_db_helper.get_orm_pool(RESOURCE_TABLE_DB_CONN)
+        _rst_helper = PrepareResourceHelper(
+            _rst_orm_pool,
+            resource_dir=resource_dir,
+            download_tmp_dir=download_tmp_dir,
+        )
+
+        with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
+            for _fut in _mapper.ensure_tasks(
+                partial(
+                    self._download_single_resource_at_thread,
+                    _rst_helper=_rst_helper,
+                    _base_url=_base_url,
                 ),
                 self._iter_digests_with_shuffle(resources_to_download),
             ):
