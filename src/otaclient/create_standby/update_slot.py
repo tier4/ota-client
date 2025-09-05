@@ -22,7 +22,8 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from ota_metadata.file_table.utils import (
     RegularFileTypedDict,
     prepare_dir,
