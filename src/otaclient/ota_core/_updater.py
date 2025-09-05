@@ -155,12 +155,12 @@ class OTAUpdater(OTAUpdateOperator):
             ):
                 _now = time.time()
                 if download_exception_handler(_fut):
-                    err_count, file_size, downloaded_bytes = _fut.result()
+                    _download_res = _fut.result()
 
                     _merged_payload.processed_file_num += 1
-                    _merged_payload.processed_file_size += file_size
-                    _merged_payload.errors += err_count
-                    _merged_payload.downloaded_bytes += downloaded_bytes
+                    _merged_payload.processed_file_size += _download_res.download_size
+                    _merged_payload.errors += _download_res.retry_count
+                    _merged_payload.downloaded_bytes += _download_res.traffic_on_wire
                 else:
                     _merged_payload.errors += 1
 

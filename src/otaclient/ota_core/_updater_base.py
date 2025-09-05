@@ -41,7 +41,7 @@ from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
 from ._common import download_exception_handler
-from ._download_resources import DownloadHelper
+from ._download_resources import DownloadHelperForLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +99,9 @@ class OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -133,7 +133,7 @@ class OTAUpdateOperator:
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
-        self._download_helper = DownloadHelper(
+        self._download_helper = DownloadHelperForLegacyOTAImage(
             downloader_pool=_downloader_pool,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
