@@ -35,13 +35,14 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
-from ota_metadata.file_table.db import (
+from ota_image_libs.v1.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
 )
+
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base

@@ -13,7 +13,6 @@
 # limitations under the License.
 """Parse the CSV based OTA image metafiles and import into database."""
 
-
 from __future__ import annotations
 
 import logging
@@ -21,18 +20,21 @@ import re
 import stat
 from typing import NamedTuple
 
-from ota_metadata.file_table.db import (
-    FileTableDirectoryTypedDict,
+from ota_image_libs.v1.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
-    FiletableInodeTypedDict,
     FileTableNonRegularORM,
-    FileTableNonRegularTypedDict,
     FileTableRegularORM,
-    FileTableRegularTypedDict,
-    FileTableResource,
     FileTableResourceORM,
 )
+from ota_image_libs.v1.file_table.schema import (
+    FileTableDirectoryTypedDict,
+    FiletableInodeTypedDict,
+    FileTableNonRegularTypedDict,
+    FileTableRegularTypedDict,
+    FileTableResource,
+)
+
 from otaclient_common._typing import StrOrPath
 
 from .rs_table import ResourceTable, ResourceTableORM
