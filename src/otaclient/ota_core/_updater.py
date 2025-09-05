@@ -19,6 +19,7 @@ import os
 import shutil
 import time
 from pathlib import Path
+from queue import Queue
 from tempfile import TemporaryDirectory
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
@@ -47,6 +48,7 @@ from otaclient.create_standby.delta_gen import (
 from otaclient.create_standby.resume_ota import ResourceScanner, ResourceStreamer
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import (
     SHA256DIGEST_HEX_LEN,
     _env,
@@ -196,8 +198,17 @@ class OTAUpdater(OTAUpdateOperator):
         self._handle_upper_proxy()
         self._process_metadata()
         self._pre_update()
-        # _delta_digests = self._calculate_delta()
-        # self._download_delta_resources(_delta_digests)
+
+        _delta_digests = DeltaCalCulator(
+            file_table_db_helper=FileTableDBHelper(self._ota_metadata.FSTABLE_DB),
+            standby_slot_mp=self._standby_slot_mp,
+            active_slot_mp=self._active_slot_mp,
+            status_report_queue=self._status_report_queue,
+            session_id=self.session_id,
+            metrics=self._metrics,
+            use_inplace_mode=self._can_use_in_place_mode,
+        ).calculate_delta()
+        self._download_delta_resources(_delta_digests)
         self._apply_update()
         self._post_update()
         self._finalize_update()
@@ -498,9 +509,9 @@ class DeltaCalCulator:
         file_table_db_helper: FileTableDBHelper,
         standby_slot_mp: Path,
         active_slot_mp: Path,
-        status_report_queue,
+        status_report_queue: Queue[StatusReport],
         session_id: str,
-        metrics,
+        metrics: OTAMetricsData,
         use_inplace_mode: bool,
     ) -> None:
         self._status_report_queue = status_report_queue
@@ -655,7 +666,7 @@ class DeltaCalCulator:
             ).resume_ota()
             logger.info("finish up scanning OTA resource dir")
 
-    def _calculate_delta(self) -> ResourcesDigestWithSize:
+    def calculate_delta(self) -> ResourcesDigestWithSize:
         """Calculate the delta bundle."""
         logger.info("start to calculate delta ...")
         _current_time = int(time.time())
