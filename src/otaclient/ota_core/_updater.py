@@ -211,6 +211,10 @@ class OTAUpdater(OTAUpdateOperator):
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
+
+        # NOTE(20250905): if ota_resources dir on active slot presented,
+        #                 no need to use rebuild mode.
+        _ota_resources_dir_presented = self._resource_dir_on_active.is_dir()
         with TemporaryDirectory() as _tmp_dir:
             self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
@@ -218,7 +222,7 @@ class OTAUpdater(OTAUpdateOperator):
                 threshold_in_bytes=int(
                     self._ota_metadata.total_regulars_size
                     * STANDBY_SLOT_USED_SIZE_THRESHOLD
-                ),
+                ) if not _ota_resources_dir_presented else None,
             )
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
