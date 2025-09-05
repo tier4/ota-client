@@ -62,6 +62,10 @@ dev = [
   "ruff",
 ]
 
+# TODO: using dev branch of ota-image-libs
+[tool.uv.sources]
+ota-image-libs = { git = "https://github.com/tier4/ota-image-libs", branch = "refinement/file_entries_prepare" }
+
 [tool.hatch.version]
 source = "vcs"
 
