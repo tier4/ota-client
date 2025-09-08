@@ -96,20 +96,20 @@ class OTAClientAPIServicer:
         """Dispatch stop request to main process."""
         try:
             # Check if critical zone is available
-            with self._critical_zone_flag as _lock_acquired:
-                if _lock_acquired:
-                    logger.warning("stop function requested, interrupting OTA and exit now ...")
-                    self._main_queue.put_nowait(request)
-                    return response_type(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.NO_FAILURE,
-                    )
-                else:
+            with self._critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+                if not _lock_acquired:
                     return response_type(
                         ecu_id=self.my_ecu_id,
                         result=api_types.FailureType.RECOVERABLE,
                         message="In critical zone, stop request rejected",
                     )
+
+            logger.warning("stop function requested, interrupting OTA and exit now ...")
+            self._main_queue.put_nowait(request)
+            return response_type(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.NO_FAILURE,
+            )
 
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")

@@ -222,7 +222,7 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
-    critical_zone_flags = CriticalZoneFlag(lock=mp_ctx.Lock())
+    critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -238,7 +238,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
-            critical_zone_flags=critical_zone_flags,
+            critical_zone_flag=critical_zone_flag,
         ),
         name="otaclient_ota_core",
     )
@@ -254,7 +254,7 @@ def main() -> None:  # pragma: no cover
             main_queue=otaclient_main_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
-            critical_zone_flags=critical_zone_flags,
+            critical_zone_flags=critical_zone_flag,
         ),
         name="otaclient_api_server",
     )
@@ -285,7 +285,7 @@ def main() -> None:  # pragma: no cover
         target=partial(
             stop_request_thread,
             otaclient_main_queue=otaclient_main_queue,
-            critical_zone_flags=critical_zone_flags,
+            critical_zone_flags=critical_zone_flag,
         ),
         daemon=True,
         name="otaclient_stop_request_thread",

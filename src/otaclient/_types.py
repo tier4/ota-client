@@ -79,12 +79,12 @@ class CriticalZoneFlag:
         self._lock = lock
 
     @contextmanager
-    def stop_monitor_acquire_lock(self):
+    def acquire_lock_no_release(self):
         """stop_monitor_thread should hold the lock util otaclient shutdowns."""
         yield self._lock.acquire(block=False)
 
     @contextmanager
-    def ota_core_acquire_lock(self):
+    def acquire_lock_with_release(self):
         acquired = self._lock.acquire(block=False)
         try:
             yield acquired
