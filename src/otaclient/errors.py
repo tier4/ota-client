@@ -190,11 +190,10 @@ class ClientUpdateFailed(OTAErrorRecoverable):
         "failed to update client package, please check the log for more details"
     )
 
+
 class OTAStopRequested(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_STOP_REQUESTED
-    failure_description: str = (
-        "OTA stop requested, abort current OTA operation"
-    )
+    failure_description: str = "OTA stop requested, abort current OTA operation"
 
 
 #

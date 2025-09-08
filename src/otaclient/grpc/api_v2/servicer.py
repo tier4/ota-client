@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
 import multiprocessing.queues as mp_queue
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg

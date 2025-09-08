@@ -26,6 +26,11 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
 
+from ota_metadata.utils.cert_store import (
+    CACertStoreInvalid,
+    CAChainStore,
+    load_ca_cert_chains,
+)
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -57,11 +62,6 @@ from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
-from ota_metadata.utils.cert_store import (
-    CACertStoreInvalid,
-    CAChainStore,
-    load_ca_cert_chains,
-)
 
 from ._client_updater import OTAClientUpdater
 from ._updater import OTAUpdater

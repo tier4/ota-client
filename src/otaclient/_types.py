@@ -16,14 +16,14 @@
 
 from __future__ import annotations
 
+import multiprocessing.synchronize
+import multiprocessing.synchronize as mp_sync
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
-import multiprocessing.synchronize
-import multiprocessing.synchronize as mp_sync
-
 from _otaclient_version import __version__
+
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 

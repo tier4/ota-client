@@ -24,7 +24,6 @@ from tempfile import TemporaryDirectory
 from ota_metadata.file_table.db import FileTableDBHelper
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
-
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -47,7 +46,6 @@ from otaclient.create_standby.delta_gen import (
 from otaclient.create_standby.resume_ota import ResourceScanner, ResourceStreamer
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
-
 from otaclient_common import (
     SHA256DIGEST_HEX_LEN,
     _env,

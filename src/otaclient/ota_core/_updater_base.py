@@ -27,7 +27,6 @@ from urllib.parse import urlparse
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
-
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -38,7 +37,6 @@ from otaclient._types import CriticalZoneFlag, MultipleECUStatusFlags, UpdatePha
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
-
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
