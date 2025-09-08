@@ -26,11 +26,6 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
 
-from ota_metadata.utils.cert_store import (
-    CACertStoreInvalid,
-    CAChainStore,
-    load_ca_cert_chains,
-)
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -41,7 +36,7 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
-    CriticalZoneFlags,
+    CriticalZoneFlag,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -62,6 +57,11 @@ from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
+from ota_metadata.utils.cert_store import (
+    CACertStoreInvalid,
+    CAChainStore,
+    load_ca_cert_chains,
+)
 
 from ._client_updater import OTAClientUpdater
 from ._updater import OTAUpdater
@@ -86,7 +86,7 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
-        critical_zone_flags: CriticalZoneFlags,
+        critical_zone_flags: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -471,7 +471,7 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
-    critical_zone_flags: CriticalZoneFlags,
+    critical_zone_flags: CriticalZoneFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info

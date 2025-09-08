@@ -27,16 +27,18 @@ from urllib.parse import urlparse
 from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
+
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import CriticalZoneFlags, MultipleECUStatusFlags, UpdatePhase
+from otaclient._types import CriticalZoneFlag, MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
+
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
@@ -61,7 +63,7 @@ class OTAUpdateOperator:
         ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
-        critical_zone_flags: CriticalZoneFlags,
+        critical_zone_flags: CriticalZoneFlag,
         status_report_queue: Queue[StatusReport],
         session_id: str,
         metrics: OTAMetricsData,

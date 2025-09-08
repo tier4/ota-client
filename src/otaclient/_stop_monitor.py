@@ -16,19 +16,16 @@
 The API exposed by this module is meant to be controlled by main otaclient only.
 """
 
-# Standard library imports (alphabetical)
 from __future__ import annotations
 
 import logging
-import multiprocessing.queues as mp_queue
+from multiprocessing import queues as mp_queue
 from queue import Empty
 
-# Local application imports (alphabetical)
 from otaclient._logging import configure_logging
-from otaclient._types import CriticalZoneFlags, IPCRequest
+from otaclient._types import CriticalZoneFlag, IPCRequest
 
 STOP_REQUEST_CHECK_INTERVAL = 1  # seconds
-
 
 logger = logging.getLogger(__name__)
 configure_logging()
@@ -37,20 +34,21 @@ configure_logging()
 def stop_request_thread(
     *,
     otaclient_main_queue: mp_queue.Queue[IPCRequest],
-    critical_zone_flags: CriticalZoneFlags,
+    critical_zone_flag: CriticalZoneFlag,
 ):
     while True:
         try:
-            stop_message = otaclient_main_queue.get(timeout=STOP_REQUEST_CHECK_INTERVAL)
-            logger.info(f"Received stop message: {stop_message}")
-            if critical_zone_flags.is_critical_zone.acquire(block=False):
-                logger.info(
-                    "Critical zone flag is not set. Stopping thread for shutdown."
-                )
-                return
-            else:
-                logger.warning(
-                    "Received stop message while in critical zone, ignoring it."
-                )
+            stop_req = otaclient_main_queue.get(timeout=STOP_REQUEST_CHECK_INTERVAL)
+            logger.info(f"Received stop request: {stop_req}")
+            with critical_zone_flag.stop_monitor_acquire_lock() as _lock_acquired:
+                if _lock_acquired:
+                    logger.info(
+                        "Critical zone flag is not set. Stopping thread for shutdown."
+                    )
+                    return
+                else:
+                    logger.warning(
+                        "Received stop message while in critical zone, ignoring it."
+                    )
         except Empty:
             pass

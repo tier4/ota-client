@@ -24,6 +24,7 @@ from tempfile import TemporaryDirectory
 from ota_metadata.file_table.db import FileTableDBHelper
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
+
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -46,6 +47,7 @@ from otaclient.create_standby.delta_gen import (
 from otaclient.create_standby.resume_ota import ResourceScanner, ResourceStreamer
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
+
 from otaclient_common import (
     SHA256DIGEST_HEX_LEN,
     _env,
@@ -207,7 +209,6 @@ class OTAUpdater(OTAUpdateOperator):
         self._apply_update()
         with self.critical_zone_flags:
             self._post_update()
-        with self.critical_zone_flags:
             self._finalize_update()
 
     def _pre_update(self):
@@ -274,7 +275,7 @@ class OTAUpdater(OTAUpdateOperator):
     def _find_base_filetable_for_inplace_mode_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
-            Verfied base file_table fpath, or None if failed to find one.
+            Verified base file_table fpath, or None if failed to find one.
         """
         # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
         #       try to keep using that base file_table.

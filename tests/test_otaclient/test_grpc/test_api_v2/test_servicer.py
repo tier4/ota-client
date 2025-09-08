@@ -79,7 +79,7 @@ class TestOTAClientAPIServicer:
             op_queue=self.op_queue,
             resp_queue=self.resp_queue,
             main_queue=self.main_queue,
-            critical_zone_flags=self.critical_zone_flags,
+            critical_zone_flag=self.critical_zone_flags,
             executor=self.executor,
         )
 

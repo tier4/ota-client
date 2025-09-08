@@ -16,12 +16,14 @@
 
 from __future__ import annotations
 
-import multiprocessing.synchronize as mp_sync
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
-from _otaclient_version import __version__
+import multiprocessing.synchronize
+import multiprocessing.synchronize as mp_sync
 
+from _otaclient_version import __version__
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
 
@@ -65,6 +67,30 @@ class FailureType(StrEnum):
     NO_FAILURE = "NO_FAILURE"
     RECOVERABLE = "RECOVERABLE"
     UNRECOVERABLE = "UNRECOVERABLE"
+
+
+#
+# ------ otaclient context manager ------ #
+#
+
+
+class CriticalZoneFlag:
+    def __init__(self, lock: multiprocessing.synchronize.Lock):
+        self._lock = lock
+
+    @contextmanager
+    def stop_monitor_acquire_lock(self):
+        """stop_monitor_thread should hold the lock util otaclient shutdowns."""
+        yield self._lock.acquire(block=False)
+
+    @contextmanager
+    def ota_core_acquire_lock(self):
+        acquired = self._lock.acquire(block=False)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self._lock.release()
 
 
 #
@@ -139,24 +165,6 @@ class ClientUpdateControlFlags:
 
     notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
     request_shutdown_event: mp_sync.Event  # for requesting to shut down
-
-
-@dataclass
-class CriticalZoneFlags:
-    """Flags for critical zone control."""
-
-    is_critical_zone: mp_sync.Semaphore
-    timeout: int = 5 * 60  # 5 minutes
-
-    def __enter__(self):
-        """Enter critical zone."""
-        self.is_critical_zone.acquire(timeout=self.timeout)
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit critical zone."""
-        self.is_critical_zone.release()
-        return False
 
 
 #

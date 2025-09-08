@@ -17,14 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing.queues as mp_queue
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     ClientUpdateRequestV2,
-    CriticalZoneFlags,
+    CriticalZoneFlag,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
@@ -57,7 +57,7 @@ class OTAClientAPIServicer:
         op_queue: mp_queue.Queue[IPCRequest],
         main_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-        critical_zone_flags: CriticalZoneFlags,
+        critical_zone_flag: CriticalZoneFlag,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -71,7 +71,7 @@ class OTAClientAPIServicer:
         self._main_queue = main_queue
 
         self._ecu_status_storage = ecu_status_storage
-        self._critical_zone_flags = critical_zone_flags
+        self._critical_zone_flag = critical_zone_flag
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -96,20 +96,20 @@ class OTAClientAPIServicer:
         """Dispatch stop request to main process."""
         try:
             # Check if critical zone is available
-            if not self._critical_zone_flags.is_critical_zone.acquire(block=False):
-                logger.error("Going through critical zone, rejecting stop request")
-                return response_type(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.RECOVERABLE,
-                    message="In critical zone, stop request rejected",
-                )
-
-            self._main_queue.put_nowait(request)
-            self._critical_zone_flags.is_critical_zone.release()
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.NO_FAILURE,
-            )
+            with self._critical_zone_flag as _lock_acquired:
+                if _lock_acquired:
+                    logger.warning("stop function requested, interrupting OTA and exit now ...")
+                    self._main_queue.put_nowait(request)
+                    return response_type(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.NO_FAILURE,
+                    )
+                else:
+                    return response_type(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                        message="In critical zone, stop request rejected",
+                    )
 
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")
