@@ -248,7 +248,7 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
-            critical_zone_flags=critical_zone_flag,
+            critical_zone_flag=critical_zone_flag,
             stop_ota_flag=stop_ota_flag,
         ),
         name="otaclient_api_server",
@@ -280,13 +280,11 @@ def main() -> None:  # pragma: no cover
         time.sleep(HEALTH_CHECK_INTERVAL)
 
         if stop_ota_flag.shutdown_requested.is_set():
-            logger.info(f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
-            time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
             with critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if _lock_acquired:
                     logger.info(
-                        "Critical zone flag is not set. Shutting down..."
-                    )
+                        f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
+                    time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
                     return _on_shutdown(sys_exit=True)
                 else:
                     logger.warning(

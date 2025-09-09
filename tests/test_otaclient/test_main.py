@@ -140,7 +140,6 @@ class TestMain:
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
-        mocker.patch("otaclient._stop_monitor.stop_request_thread")
 
         mocker.patch(f"{MAIN_MODULE}.os.execve")
 
@@ -158,9 +157,6 @@ class TestMain:
             f"{MAIN_MODULE}.ClientUpdateControlFlags",
             return_value=mock_client_update_flags,
         )
-
-        mock_stop_thread = mocker.MagicMock()
-        mock_stop_thread.is_alive.return_value = True
 
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
@@ -192,7 +188,6 @@ class TestMain:
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
-        mocker.patch("otaclient._stop_monitor.stop_request_thread")
 
         mocker.patch(f"{MAIN_MODULE}.os.execve")
 
@@ -209,14 +204,6 @@ class TestMain:
         mocker.patch(
             f"{MAIN_MODULE}.ClientUpdateControlFlags",
             return_value=mock_client_update_flags,
-        )
-
-        mock_stop_thread = mocker.MagicMock()
-        mock_stop_thread.is_alive.return_value = True
-        mock_thread = mocker.MagicMock()
-        mocker.patch(
-            f"{MAIN_MODULE}.threading.Thread",
-            side_effect=[mock_thread, mock_stop_thread],
         )
 
         mock_mp_ctx = mocker.MagicMock()
