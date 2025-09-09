@@ -134,7 +134,7 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     def test_main_process_setup_and_health_check(
-            self, mock_logging, mocker: pytest_mock.MockerFixture
+        self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test the main function process setup and health check loop."""
         # Skip the full execution of main() by making time.sleep raise an exception after one call
@@ -170,7 +170,9 @@ class TestMain:
         # Mock CriticalZoneFlag and StopOTAFlag
         mock_critical_zone_flag = mocker.MagicMock()
         mock_critical_zone_flag.acquire.return_value = True
-        mock_critical_zone_flag_class = mocker.MagicMock(return_value=mock_critical_zone_flag)
+        mock_critical_zone_flag_class = mocker.MagicMock(
+            return_value=mock_critical_zone_flag
+        )
         mocker.patch(f"{MAIN_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
 
         mock_stop_ota_flag = mocker.MagicMock()
@@ -216,7 +218,7 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     def test_main_api_server_not_alive(
-            self, mock_logging, mocker: pytest_mock.MockerFixture
+        self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test main function when API server process dies."""
         # Mock the modules and functions imported in main()
@@ -288,7 +290,7 @@ class TestMain:
     )
     @patch("otaclient._logging.configure_logging")
     def test_main_dynamic_client_flags(
-            self, mock_logging, is_preparing, is_running, mocker: pytest_mock.MockerFixture
+        self, mock_logging, is_preparing, is_running, mocker: pytest_mock.MockerFixture
     ):
         """Test main function with different dynamic client flag combinations."""
         # Mock is_dynamic_client_preparing and is_dynamic_client_running
