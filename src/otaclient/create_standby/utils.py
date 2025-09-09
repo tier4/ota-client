@@ -83,7 +83,7 @@ def _check_fs_used_size_reach_threshold(
 
 
 def can_use_in_place_mode(
-    dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int
+    dev: StrOrPath, mnt_point: StrOrPath, threshold_in_bytes: int | None = None
 ) -> bool:  # pragma: no cover
     """
     Check whether target standby slot device is ready for in-place update mode.
@@ -95,4 +95,6 @@ def can_use_in_place_mode(
     """
     if not (_check_if_ext4(dev) and _check_if_fs_healthy(dev)):
         return False
-    return _check_fs_used_size_reach_threshold(dev, mnt_point, threshold_in_bytes)
+    if threshold_in_bytes is not None:
+        return _check_fs_used_size_reach_threshold(dev, mnt_point, threshold_in_bytes)
+    return True
