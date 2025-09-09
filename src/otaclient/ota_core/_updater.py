@@ -219,10 +219,14 @@ class OTAUpdater(OTAUpdateOperator):
             self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
-                threshold_in_bytes=int(
-                    self._ota_metadata.total_regulars_size
-                    * STANDBY_SLOT_USED_SIZE_THRESHOLD
-                ) if not _ota_resources_dir_presented else None,
+                threshold_in_bytes=(
+                    int(
+                        self._ota_metadata.total_regulars_size
+                        * STANDBY_SLOT_USED_SIZE_THRESHOLD
+                    )
+                    if not _ota_resources_dir_presented
+                    else None
+                ),
             )
         logger.info(
             f"check if we can use in-place mode to update standby slot: {use_inplace_mode}"
