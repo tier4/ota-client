@@ -16,16 +16,14 @@
 
 from __future__ import annotations
 
-import multiprocessing.synchronize
 import multiprocessing.synchronize as mp_sync
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
-from _otaclient_version import __version__
-
 from otaclient.configs.cfg import ecu_info
 from otaclient_common._typing import StrEnum
+from _otaclient_version import __version__
 
 #
 # ------ OTA status enums definitions ------ #
@@ -70,17 +68,16 @@ class FailureType(StrEnum):
 
 
 #
-# ------ otaclient context manager ------ #
+# ------ otaclient STOP OTA update related flags ------ #
 #
 
 
 class CriticalZoneFlag:
-    def __init__(self, lock: multiprocessing.synchronize.Lock):
+    def __init__(self, lock: mp_sync.Lock):
         self._lock = lock
 
     @contextmanager
     def acquire_lock_no_release(self):
-        """stop_monitor_thread should hold the lock util otaclient shutdowns."""
         yield self._lock.acquire(block=False)
 
     @contextmanager
@@ -91,6 +88,11 @@ class CriticalZoneFlag:
         finally:
             if acquired:
                 self._lock.release()
+
+
+@dataclass
+class StopOTAFlag:
+    shutdown_requested: mp_sync.Event
 
 
 #

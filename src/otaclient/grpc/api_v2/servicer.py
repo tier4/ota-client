@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import multiprocessing.queues as mp_queue
 from concurrent.futures import ThreadPoolExecutor
+import multiprocessing.queues as mp_queue
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
@@ -29,6 +29,7 @@ from otaclient._types import (
     IPCResEnum,
     IPCResponse,
     RollbackRequestV2,
+    StopOTAFlag,
     StopRequestV2,
     UpdateRequestV2,
 )
@@ -55,9 +56,9 @@ class OTAClientAPIServicer:
         *,
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
-        main_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
         critical_zone_flag: CriticalZoneFlag,
+        stop_ota_flag: StopOTAFlag,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -68,10 +69,10 @@ class OTAClientAPIServicer:
 
         self._op_queue = op_queue
         self._resp_queue = resp_queue
-        self._main_queue = main_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
+        self._stop_ota_flag = stop_ota_flag
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -105,7 +106,8 @@ class OTAClientAPIServicer:
                     )
 
             logger.warning("stop function requested, interrupting OTA and exit now ...")
-            self._main_queue.put_nowait(request)
+            # set the stop flag to notify main process to stop ongoing OTA
+            self._stop_ota_flag.shutdown_requested.set()
             return response_type(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.NO_FAILURE,
