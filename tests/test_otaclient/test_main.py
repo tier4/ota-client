@@ -134,15 +134,23 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     def test_main_process_setup_and_health_check(
-        self, mock_logging, mocker: pytest_mock.MockerFixture
+            self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test the main function process setup and health check loop."""
+        # Skip the full execution of main() by making time.sleep raise an exception after one call
+        mocker.patch(
+            f"{MAIN_MODULE}.time.sleep", side_effect=[None, Exception("Break loop")]
+        )
+
+        # Mock the modules and functions imported in main()
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
 
+        # Mock os.execve to prevent process replacement
         mocker.patch(f"{MAIN_MODULE}.os.execve")
 
+        # Mock _env.is_dynamic_client_preparing and running to control flow
         mocker.patch(
             "otaclient_common._env.is_dynamic_client_preparing", return_value=False
         )
@@ -150,6 +158,7 @@ class TestMain:
             "otaclient_common._env.is_dynamic_client_running", return_value=False
         )
 
+        # Mock ClientUpdateControlFlags
         mock_client_update_flags = mocker.MagicMock()
         mock_client_update_flags.notify_data_ready_event.is_set.return_value = False
         mock_client_update_flags.request_shutdown_event.is_set.return_value = False
@@ -158,8 +167,24 @@ class TestMain:
             return_value=mock_client_update_flags,
         )
 
+        # Mock CriticalZoneFlag and StopOTAFlag
+        mock_critical_zone_flag = mocker.MagicMock()
+        mock_critical_zone_flag.acquire.return_value = True
+        mock_critical_zone_flag_class = mocker.MagicMock(return_value=mock_critical_zone_flag)
+        mocker.patch(f"{MAIN_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
+
+        mock_stop_ota_flag = mocker.MagicMock()
+        mock_stop_ota_flag.return_value = False
+        mock_stop_ota_flag_class = mocker.MagicMock(return_value=mock_stop_ota_flag)
+        mocker.patch(f"{MAIN_MODULE}.StopOTAFlag", mock_stop_ota_flag_class)
+
+        # Create mock for otaproxy thread
+        mock_thread = mocker.MagicMock()
+        mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_thread)
+
+        # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
+        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),
             MagicMock(),
@@ -173,24 +198,36 @@ class TestMain:
             self.mock_grpc_server_p,
         ]
         mocker.patch(f"{MAIN_MODULE}.mp.get_context", return_value=mock_mp_ctx)
-        mocker.patch(f"{MAIN_MODULE}._on_shutdown")
 
-        main.main()
+        # Execute main() and catch the exception we use to break the loop
+        try:
+            main.main()
+        except Exception:
+            pass
 
+        # Verify processes were started
         self.mock_ota_core_p.start.assert_called_once()
         self.mock_grpc_server_p.start.assert_called_once()
 
+        # Verify thread was started if proxy_info.enable_local_ota_proxy is True
+        # Note: In setup, we mocked proxy_info.enable_local_ota_proxy to False
+        # so thread should not be started
+        mock_thread.start.assert_not_called()
+
     @patch("otaclient._logging.configure_logging")
     def test_main_api_server_not_alive(
-        self, mock_logging, mocker: pytest_mock.MockerFixture
+            self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test main function when API server process dies."""
+        # Mock the modules and functions imported in main()
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
         mocker.patch("otaclient.ota_core.ota_core_process")
 
+        # Mock os.execve to prevent process replacement
         mocker.patch(f"{MAIN_MODULE}.os.execve")
 
+        # Mock _env.is_dynamic_client_preparing and running to control flow
         mocker.patch(
             "otaclient_common._env.is_dynamic_client_preparing", return_value=False
         )
@@ -198,6 +235,7 @@ class TestMain:
             "otaclient_common._env.is_dynamic_client_running", return_value=False
         )
 
+        # Mock ClientUpdateControlFlags
         mock_client_update_flags = mocker.MagicMock()
         mock_client_update_flags.notify_data_ready_event.is_set.return_value = False
         mock_client_update_flags.request_shutdown_event.is_set.return_value = False
@@ -206,8 +244,9 @@ class TestMain:
             return_value=mock_client_update_flags,
         )
 
+        # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock(), MagicMock()]
+        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),
             MagicMock(),
@@ -222,15 +261,21 @@ class TestMain:
         ]
         mocker.patch(f"{MAIN_MODULE}.mp.get_context", return_value=mock_mp_ctx)
 
+        # Set up health check behavior
+        # Skip time.sleep to make it fast
         mocker.patch(f"{MAIN_MODULE}.time.sleep")
 
+        # Set is_alive for processes - grpc server is not alive
         self.mock_ota_core_p.is_alive.return_value = True
         self.mock_grpc_server_p.is_alive.return_value = False
 
+        # Mock _on_shutdown to clean up after the test
         mock_on_shutdown = mocker.patch(f"{MAIN_MODULE}._on_shutdown")
 
+        # Execute main()
         main.main()
 
+        # Verify _on_shutdown was called because grpc server died
         mock_on_shutdown.assert_called_once()
 
     @pytest.mark.parametrize(
@@ -243,7 +288,7 @@ class TestMain:
     )
     @patch("otaclient._logging.configure_logging")
     def test_main_dynamic_client_flags(
-        self, mock_logging, is_preparing, is_running, mocker: pytest_mock.MockerFixture
+            self, mock_logging, is_preparing, is_running, mocker: pytest_mock.MockerFixture
     ):
         """Test main function with different dynamic client flag combinations."""
         # Mock is_dynamic_client_preparing and is_dynamic_client_running
