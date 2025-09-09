@@ -27,8 +27,8 @@ from otaclient._types import (
     CriticalZoneFlag,
     IPCRequest,
     IPCResponse,
-    StopOTAFlag,
     MultipleECUStatusFlags,
+    StopOTAFlag,
 )
 from otaclient._utils import SharedOTAClientStatusReader
 

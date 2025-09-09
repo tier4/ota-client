@@ -280,7 +280,9 @@ def main() -> None:  # pragma: no cover
         time.sleep(HEALTH_CHECK_INTERVAL)
 
         if stop_ota_flag.shutdown_requested.is_set():
-            logger.warning(f"Stop request received, shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
+            logger.warning(
+                f"Stop request received, shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
+            )
             time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
             return _on_shutdown(sys_exit=True)
 
