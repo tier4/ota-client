@@ -283,7 +283,8 @@ def main() -> None:  # pragma: no cover
             with critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if _lock_acquired:
                     logger.info(
-                        f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
+                        f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
+                    )
                     time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
                     return _on_shutdown(sys_exit=True)
                 else:
