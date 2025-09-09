@@ -207,7 +207,7 @@ class OTAUpdater(OTAUpdateOperator):
         _delta_digests = self._calculate_delta()
         self._download_delta_resources(_delta_digests)
         self._apply_update()
-        with self.critical_zone_flags.acquire_lock_with_release():
+        with self.critical_zone_flags.acquire_lock_with_release() as _lock_acquired:
             if not _lock_acquired:
                 raise ota_errors.OTAStopRequested(module=__name__)
             self._post_update()
