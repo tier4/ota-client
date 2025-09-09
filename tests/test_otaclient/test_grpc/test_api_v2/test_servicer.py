@@ -60,7 +60,6 @@ class TestOTAClientAPIServicer:
         # Setup mocks for queues and executor
         self.op_queue = mocker.MagicMock()
         self.resp_queue = mocker.MagicMock()
-        self.main_queue = mocker.MagicMock()
         self.executor = mocker.MagicMock(spec=ThreadPoolExecutor)
 
         # Setup mock for ECUStatusStorage
@@ -79,7 +78,6 @@ class TestOTAClientAPIServicer:
             ecu_status_storage=self.ecu_status_storage,
             op_queue=self.op_queue,
             resp_queue=self.resp_queue,
-            main_queue=self.main_queue,
             critical_zone_flag=self.critical_zone_flag,
             stop_ota_flag=self.stop_ota_flag,
             executor=self.executor,
