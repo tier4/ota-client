@@ -16,25 +16,21 @@ Python 3.8.10
 
 ## How to build
 
-1. setup a venv and install hatch:
+1. install `uv`: <https://docs.astral.sh/uv/getting-started/installation/>
 
-```shell
-python3 -m venv .venv
-# enable the venv
-. .venv/bin/activate
-python3 -m pip install -U pip
-python3 -m pip install hatch
+2. setup a venv environment:
+
+```bash
+uv sync --locked
 ```
 
-2. build the wheel package with hatch
+3. build the package
 
-```shell
-# enable the venv
-. .venv/bin/activate
-hatch build -t wheel
+```bash
+uv build --wheel
 ```
 
-3. the built package will be placed under `./dist` folder
+4. the built package will be placed under `./dist` folder
 
 ## How to test OTA client on the development PC
 
