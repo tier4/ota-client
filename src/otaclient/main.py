@@ -280,23 +280,30 @@ def main() -> None:  # pragma: no cover
         time.sleep(HEALTH_CHECK_INTERVAL)
 
         if stop_ota_flag.shutdown_requested.is_set():
-            logger.warning(
-                f"Stop request received, shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
-            )
+            logger.info(f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
             time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
-            return _on_shutdown(sys_exit=True)
+            with critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
+                if _lock_acquired:
+                    logger.info(
+                        "Critical zone flag is not set. Shutting down..."
+                    )
+                    return _on_shutdown(sys_exit=True)
+                else:
+                    logger.warning(
+                        "Received stop message while in critical zone, ignoring it."
+                    )
 
         if not _ota_core_p.is_alive():
             logger.error(
                 "ota_core process is dead! "
-                f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT}seconds ..."
+                f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
             return _on_shutdown(sys_exit=True)
 
         if not _grpc_server_p.is_alive():
             logger.error(
-                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}seconds ..."
+                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown(sys_exit=True)
