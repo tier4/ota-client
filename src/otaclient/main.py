@@ -280,13 +280,13 @@ def main() -> None:  # pragma: no cover
         time.sleep(HEALTH_CHECK_INTERVAL)
 
         if stop_ota_flag.shutdown_requested.is_set():
-            logger.info(f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds...")
+            logger.info(
+                f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
+            )
             time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
             with critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if _lock_acquired:
-                    logger.info(
-                        "Critical zone flag is not set. Shutting down..."
-                    )
+                    logger.info("Critical zone flag is not set. Shutting down...")
                     return _on_shutdown(sys_exit=True)
                 else:
                     logger.warning(
