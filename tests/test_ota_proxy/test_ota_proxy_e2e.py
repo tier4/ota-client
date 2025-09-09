@@ -20,11 +20,14 @@ import logging
 import multiprocessing
 import random
 import shutil
+import stat
 import time
+from dataclasses import dataclass
 from functools import partial
 from hashlib import sha256
 from multiprocessing.context import SpawnProcess
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote, unquote, urljoin
 
 import aiohttp
@@ -32,8 +35,7 @@ import pytest
 import uvicorn
 
 import ota_proxy
-from ota_metadata.legacy._parser import parse_regulars_from_txt
-from ota_metadata.legacy._types import RegularInf
+from ota_metadata.legacy2.csv_parser import de_escape, parse_regular_csv_line
 from ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
@@ -51,6 +53,19 @@ SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
 CLIENTS_NUM = 3
+
+
+@dataclass
+class RegularInf:
+    compressed_alg: str
+    gid: int
+    inode: Optional[int]
+    mode: int
+    nlink: Optional[int]
+    path: str
+    sha256hash: bytes
+    size: int
+    uid: int
 
 
 def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir: Path):
@@ -131,8 +146,24 @@ def parse_regulars():
     _count = 0
     with open(REGULARS_TXT_PATH, "r") as f:
         for _count, _line in enumerate(f, start=1):
-            _entry = parse_regulars_from_txt(_line)
-            regular_entries.append(_entry)
+            _ma = parse_regular_csv_line(_line)
+            regular_entries.append(
+                RegularInf(
+                    path=de_escape(_ma.group("path")),
+                    uid=int(_ma.group("uid")),
+                    gid=int(_ma.group("gid")),
+                    mode=int(_ma.group("mode"), 8) | stat.S_IFREG,
+                    sha256hash=bytes.fromhex(_ma.group("hash")),
+                    size=int(_ma.group("size")),
+                    inode=int(_inode) if (_inode := _ma.group("inode")) else None,
+                    nlink=int(_ma.group("nlink")),
+                    compressed_alg=(
+                        _compress_alg
+                        if (_compress_alg := _ma.group("compressed_alg"))
+                        else ""
+                    ),
+                )
+            )
     logger.info(f"will test with {_count} entries to download ...")
     return regular_entries
 
@@ -272,8 +303,9 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 if count % 1000 == 0:
                     logger.info(f"worker#{worker_id}: {count} finished ...")
 
+                _path = Path(entry.path)
                 url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f"/data/{entry.relative_to('/')}")
+                    cfg.OTA_IMAGE_URL, quote(f"/data/{_path.relative_to('/')}")
                 )
 
                 _retry_count = 0

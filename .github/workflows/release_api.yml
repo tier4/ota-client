@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: setup python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # use the minimum py ver we support to generate the wheel
           python-version: 3.8
