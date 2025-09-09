@@ -14,6 +14,24 @@ $ python3 --version
 Python 3.8.10
 ```
 
+## How to build
+
+1. install `uv`: <https://docs.astral.sh/uv/getting-started/installation/>
+
+2. setup a venv environment:
+
+```bash
+uv sync --locked
+```
+
+3. build the package
+
+```bash
+uv build --wheel
+```
+
+4. the built package will be placed under `./dist` folder
+
 ## How to test OTA client on the development PC
 
 ### Build the image for testing
