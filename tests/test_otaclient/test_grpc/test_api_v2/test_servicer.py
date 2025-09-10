@@ -69,9 +69,18 @@ class TestOTAClientAPIServicer:
         self.ecu_status_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         self.ecu_status_storage.export = mocker.AsyncMock()
 
-        # Setup mock for CriticalZoneFlags
-        self.critical_zone_flag = mocker.MagicMock()
-        self.stop_ota_flag = mocker.MagicMock()
+        # Mock CriticalZoneFlag and StopOTAFlag
+        mock_critical_zone_flag = mocker.MagicMock()
+        mock_critical_zone_flag.acquire.return_value = True
+        mock_critical_zone_flag_class = mocker.MagicMock(
+            return_value=mock_critical_zone_flag
+        )
+        mocker.patch(f"{SERVICER_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
+
+        mock_stop_ota_flag = mocker.MagicMock()
+        mock_stop_ota_flag.return_value = False
+        mock_stop_ota_flag_class = mocker.MagicMock(return_value=mock_stop_ota_flag)
+        mocker.patch(f"{SERVICER_MODULE}.StopOTAFlag", mock_stop_ota_flag_class)
 
         # Create the servicer instance
         self.servicer = OTAClientAPIServicer(
