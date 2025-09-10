@@ -105,7 +105,9 @@ class OTAClientAPIServicer:
                         message="In critical zone, stop request rejected",
                     )
 
-                logger.warning("stop function requested, interrupting OTA and exit now ...")
+                logger.warning(
+                    "stop function requested, interrupting OTA and exit now ..."
+                )
                 # set the stop flag to notify main process to stop ongoing OTA
                 self._stop_ota_flag.shutdown_requested.set()
                 return response_type(
@@ -351,7 +353,9 @@ class OTAClientAPIServicer:
         response = response_type()
 
         if self._stop_ota_flag.shutdown_requested.is_set():
-            logger.error("otaclient is stopping due to OTA STOP requested. Rejecting all further incoming request")
+            logger.error(
+                "otaclient is stopping due to OTA STOP requested. Rejecting all further incoming request"
+            )
             for _req in request.iter_ecu():
                 self._add_ecu_into_response(
                     response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE

@@ -202,7 +202,9 @@ class OTAUpdater(OTAUpdateOperator):
         self._process_metadata()
         with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
             if not _lock_acquired:
-                logger.error("Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping")
+                logger.error(
+                    "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
+                )
                 raise ota_errors.OTAStopRequested(module=__name__)
             self._pre_update()
         _delta_digests = self._calculate_delta()
@@ -210,7 +212,9 @@ class OTAUpdater(OTAUpdateOperator):
         self._apply_update()
         with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
             if not _lock_acquired:
-                logger.error("Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping")
+                logger.error(
+                    "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
+                )
                 raise ota_errors.OTAStopRequested(module=__name__)
             self._post_update()
             self._finalize_update()

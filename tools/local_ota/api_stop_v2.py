@@ -19,16 +19,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from pathlib import Path
-from typing import Iterator, List
-
-import yaml
-from pydantic import BaseModel, RootModel
-from typing_extensions import Self
 
 from otaclient_api.v2 import _types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common._typing import StrOrPath
 
 logger = logging.getLogger(__name__)
 
