@@ -75,7 +75,9 @@ class TestOTAClientAPIServicer:
         mock_critical_zone_flag_class = mocker.MagicMock(
             return_value=mock_critical_zone_flag
         )
-        mocker.patch(f"{SERVICER_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
+        mocker.patch(
+            f"{SERVICER_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class
+        )
 
         mock_stop_ota_flag = mocker.MagicMock()
         mock_stop_ota_flag.return_value = False
