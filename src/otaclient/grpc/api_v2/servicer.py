@@ -96,8 +96,8 @@ class OTAClientAPIServicer:
     ) -> api_types.StopResponseEcu:
         """Dispatch stop request to main process."""
         try:
-            # Check if critical zone is available
-            with self._critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+            # Check if critical zone lock is available
+            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if not _lock_acquired:
                     return response_type(
                         ecu_id=self.my_ecu_id,
@@ -105,13 +105,13 @@ class OTAClientAPIServicer:
                         message="In critical zone, stop request rejected",
                     )
 
-            logger.warning("stop function requested, interrupting OTA and exit now ...")
-            # set the stop flag to notify main process to stop ongoing OTA
-            self._stop_ota_flag.shutdown_requested.set()
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.NO_FAILURE,
-            )
+                logger.warning("stop function requested, interrupting OTA and exit now ...")
+                # set the stop flag to notify main process to stop ongoing OTA
+                self._stop_ota_flag.shutdown_requested.set()
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
 
         except Exception as e:
             logger.error(f"failed to send request {request} to main process: {e!r}")
@@ -321,30 +321,42 @@ class OTAClientAPIServicer:
         self,
         request: (
             api_types.UpdateRequest
+            | api_types.StopRequest
             | api_types.RollbackRequest
             | api_types.ClientUpdateRequest
         ),
         local_handler: Callable,
         request_cls: (
             type[UpdateRequestV2]
+            | type[StopRequestV2]
             | type[RollbackRequestV2]
             | type[ClientUpdateRequestV2]
         ),
         remote_call: Callable,
         response_type: (
             type[api_types.UpdateResponse]
+            | type[api_types.StopResponse]
             | type[api_types.RollbackResponse]
             | type[api_types.ClientUpdateResponse]
         ),
         update_acked_ecus: set[str] | None,
     ) -> (
         api_types.UpdateResponse
+        | api_types.StopResponse
         | api_types.RollbackResponse
         | api_types.ClientUpdateResponse
     ):
         """Handle incoming request."""
         logger.info(f"receive request: {request}")
         response = response_type()
+
+        if self._stop_ota_flag.shutdown_requested.is_set():
+            logger.error("otaclient is stopping due to OTA STOP requested. Rejecting all further incoming request")
+            for _req in request.iter_ecu():
+                self._add_ecu_into_response(
+                    response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
+                )
+            return response
 
         if not request.request_id:
             request.request_id = gen_request_id()
