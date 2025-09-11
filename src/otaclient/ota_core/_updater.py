@@ -246,9 +246,9 @@ class OTAUpdater(OTAUpdateOperator):
 
         self._boot_controller.pre_update(
             # NOTE: this option is deprecated and not used by bootcontroller
-            # NOTE(20250822): no matter we use inplace mode or not, always
-            #                 mount the active slot also.
+            # NOTE(20250822): no matter we use inplace mode or not, always mount the active slot also.
             standby_as_ref=use_inplace_mode,
+            erase_standby=not use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
 
