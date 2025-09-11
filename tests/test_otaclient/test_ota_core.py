@@ -124,6 +124,7 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
+        critical_zone_flag = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -148,6 +149,7 @@ class TestOTAUpdater:
             boot_controller=self._boot_control,
             upper_otaproxy=None,
             ecu_status_flags=ecu_status_flags,
+            critical_zone_flag=critical_zone_flag,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
@@ -191,6 +193,7 @@ class TestOTAClient:
             return_value=False
         )
         client_update_control_flags = mocker.MagicMock()
+        critical_zone_flag = mocker.MagicMock()
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
@@ -223,6 +226,7 @@ class TestOTAClient:
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
             client_update_control_flags=client_update_control_flags,
+            critical_zone_flag=critical_zone_flag,
             shm_metrics_reader=mocker.MagicMock(),
         )
 
@@ -340,6 +344,7 @@ class TestOTAClientUpdater:
         _, self.status_report_queue = ota_status_collector
         self.ecu_status_flags = mocker.MagicMock()
         self.client_update_control_flags = mocker.MagicMock()
+        self.critical_zone_flag = mocker.MagicMock()
 
         # Create a real temporary directory for the session
         self.session_workdir = tmp_path / "test_client_update"
@@ -379,6 +384,7 @@ class TestOTAClientUpdater:
             session_wd=session_workdir,
             ca_chains_store=self.ca_chains_store,
             ecu_status_flags=self.ecu_status_flags,
+            critical_zone_flag=self.critical_zone_flag,
             status_report_queue=self.status_report_queue,
             session_id=self.SESSION_ID,
             client_update_control_flags=self.client_update_control_flags,

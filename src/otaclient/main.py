@@ -30,7 +30,12 @@ import time
 from functools import partial
 
 from otaclient import __version__
-from otaclient._types import ClientUpdateControlFlags, MultipleECUStatusFlags
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    CriticalZoneFlag,
+    MultipleECUStatusFlags,
+    StopOTAFlag,
+)
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -48,6 +53,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 #   failure information from ota_core.
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
+SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
 METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
@@ -210,6 +216,8 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
+    critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
+    stop_ota_flag = StopOTAFlag(shutdown_requested=mp_ctx.Event())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -225,6 +233,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
+            critical_zone_flag=critical_zone_flag,
         ),
         name="otaclient_ota_core",
     )
@@ -239,6 +248,8 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
+            critical_zone_flag=critical_zone_flag,
+            stop_ota_flag=stop_ota_flag,
         ),
         name="otaclient_api_server",
     )
@@ -268,17 +279,24 @@ def main() -> None:  # pragma: no cover
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
+        if stop_ota_flag.shutdown_requested.is_set():
+            logger.info(
+                f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
+            )
+            time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
+            return _on_shutdown(sys_exit=True)
+
         if not _ota_core_p.is_alive():
             logger.error(
                 "ota_core process is dead! "
-                f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT}seconds ..."
+                f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
             return _on_shutdown(sys_exit=True)
 
         if not _grpc_server_p.is_alive():
             logger.error(
-                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT}seconds ..."
+                f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
             return _on_shutdown(sys_exit=True)
