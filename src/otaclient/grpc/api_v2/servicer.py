@@ -85,38 +85,6 @@ class OTAClientAPIServicer:
         """Thread worker for dispatching a local client update."""
         return self._dispatch_local_request(request, api_types.ClientUpdateResponseEcu)
 
-    def _dispatch_local_stop_request(
-        self,
-    ) -> api_types.StopResponseEcu:
-        """Dispatch stop request to main process."""
-        try:
-            # Check if critical zone lock is available
-            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
-                if not _lock_acquired:
-                    return api_types.StopResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.RECOVERABLE,
-                        message="In critical zone, stop request rejected",
-                    )
-
-                logger.warning(
-                    "stop function requested, interrupting OTA and exit now ..."
-                )
-                # set the stop flag to notify main process to stop ongoing OTA
-                self._stop_ota_flag.shutdown_requested.set()
-                return api_types.StopResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
-
-        except Exception as e:
-            logger.error(f"failed to send stop request to main process: {e!r}")
-            return api_types.StopResponseEcu(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
-                message="Failed to process stop request",
-            )
-
     @overload
     def _dispatch_local_request(
         self,
@@ -394,6 +362,47 @@ class OTAClientAPIServicer:
             )
         return response
 
+    def _handle_stop_request(
+            self,
+            request: StopRequestV2
+    ) -> api_types.StopResponseEcu:
+        """Dispatch stop request to main process."""
+        logger.info(f"handling request: {request}")
+        if not isinstance(request, StopRequestV2):
+            return api_types.StopResponseEcu(
+                ecu_id="",
+                result=api_types.FailureType.RECOVERABLE,
+                message="invalid stop request",
+            )
+
+        try:
+            # Check if critical zone lock is available
+            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
+                if not _lock_acquired:
+                    return api_types.StopResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                        message="In critical zone, stop request rejected",
+                    )
+
+                logger.warning(
+                    "stop function requested, interrupting OTA and exit now ..."
+                )
+                # set the stop flag to notify main process to stop ongoing OTA
+                self._stop_ota_flag.shutdown_requested.set()
+                return api_types.StopResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+
+        except Exception as e:
+            logger.error(f"failed to send stop request to main process: {e!r}")
+            return api_types.StopResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+                message="Failed to process stop request",
+            )
+
     # API methods
 
     async def update(
@@ -409,11 +418,22 @@ class OTAClientAPIServicer:
         )
 
     async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
-        # TODO: implement security measure to avoid unauthorized stop request
-        _res = [
-            self._dispatch_local_stop_request()
-        ]
-        return api_types.StopResponse(ecu=_res)
+        # TODO: implement security measures to avoid unauthorized stop request
+        if not isinstance(request, api_types.StopRequest):
+            return api_types.StopResponse(
+                ecu=[
+                    api_types.StopResponseEcu(
+                        ecu_id="",
+                        result=api_types.FailureType.RECOVERABLE,
+                        message="invalid stop request",
+                    )
+                ]
+            )
+        return api_types.StopResponse(
+            ecu=[
+                self._handle_stop_request(request=StopRequestV2()),
+            ]
+        )
 
     async def rollback(
         self, request: api_types.RollbackRequest
