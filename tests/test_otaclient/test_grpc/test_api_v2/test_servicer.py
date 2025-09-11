@@ -74,7 +74,8 @@ class TestOTAClientAPIServicer:
         self.critical_zone_flag.acquire_lock_no_release.return_value = True
 
         self.stop_ota_flag = mocker.MagicMock()
-        self.stop_ota_flag.shutdown_requested.return_value = None
+        self.stop_ota_flag.shutdown_requested = mocker.MagicMock()
+        self.stop_ota_flag.shutdown_requested.is_set.return_value = False
 
         # Create the servicer instance
         self.servicer = OTAClientAPIServicer(

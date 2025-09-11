@@ -157,8 +157,8 @@ class OTAClientAPIServicer:
         | api_types.RollbackResponseEcu
         | api_types.ClientUpdateResponseEcu
     ):
+        self._op_queue.put_nowait(request)
         try:
-            self._op_queue.put_nowait(request)
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
             assert isinstance(_req_response, IPCResponse), "unexpected msg"
             assert (
