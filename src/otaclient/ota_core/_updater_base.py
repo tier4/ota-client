@@ -25,6 +25,7 @@ from queue import Queue
 from typing import TypedDict
 from urllib.parse import urlparse
 
+from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.image_index.schema import ImageIdentifier
 from ota_image_libs.v1.image_manifest.schema import OTAReleaseKey
 from typing_extensions import NotRequired, Unpack
@@ -59,7 +60,6 @@ class OTAUpdateOperatorInit(TypedDict):
     raw_url_base: str
     cookies_json: str
     session_wd: Path
-    ca_chains_store: CAChainStore
     upper_otaproxy: NotRequired[str | None]
     ecu_status_flags: MultipleECUStatusFlags
     status_report_queue: Queue[StatusReport]
@@ -78,7 +78,6 @@ class OTAUpdateOperator:
         raw_url_base: str,
         cookies_json: str,
         session_wd: Path,
-        ca_chains_store: CAChainStore,
         upper_otaproxy: str | None = None,
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
@@ -86,8 +85,6 @@ class OTAUpdateOperator:
         metrics: OTAMetricsData,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
-        self._ca_chains_store = ca_chains_store
-
         self.update_version = version
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
@@ -198,14 +195,16 @@ class OTAUpdateOperator:
 
 
 class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
-    def __init__(self, **kwargs: Unpack[OTAUpdateOperatorInit]):
+    def __init__(
+        self, *, ca_store: CAChainStore, **kwargs: Unpack[OTAUpdateOperatorInit]
+    ):
         super().__init__(**kwargs)
 
         # ------ setup OTA metadata parser ------ #
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
-            ca_chains_store=self._ca_chains_store,
+            ca_chains_store=ca_store,
         )
 
         self._download_helper = DownloadHelperForLegacyOTAImage(
@@ -281,9 +280,10 @@ class OTAUpdateOperatorOTAImageV1(OTAUpdateOperator):
     def __init__(
         self,
         *,
+        ca_store: CACertStore,
         image_identifier: ImageIdentifier = DEFAULT_IMAGE_ID,
         **kwargs: Unpack[OTAUpdateOperatorInit],
-    ):
+    ) -> None:
         super().__init__(**kwargs)
         self._image_id = image_identifier
         self._download_helper = DownloadHelperForOTAImageV1(
@@ -291,11 +291,10 @@ class OTAUpdateOperatorOTAImageV1(OTAUpdateOperator):
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
-        # TODO:
         self._ota_image_helper = OTAImageHelper(
             session_dir=self._session_workdir,
             base_url=self.url_base,
-            ca_store=self._ca_chains_store,
+            ca_store=ca_store,
         )
 
     def _process_metadata(self, only_metadata_verification: bool = False):
