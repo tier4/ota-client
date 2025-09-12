@@ -18,9 +18,10 @@ import logging
 import os
 import shutil
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from queue import Queue
-from typing import Iterable
+from typing import Generator, Iterable
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
@@ -29,6 +30,7 @@ from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     StatusReport,
+    UpdateProgressReport,
 )
 from otaclient._types import UpdatePhase
 from otaclient.configs.cfg import cfg
@@ -48,11 +50,16 @@ from otaclient_common import (
 )
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import ensure_otaproxy_start
+from otaclient_common.downloader import DownloadResult
 from otaclient_common.persist_file_handling import PersistFilesHandler
+
+from ._common import download_exception_handler
 
 logger = logging.getLogger(__name__)
 
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
+DOWNLOAD_STATS_REPORT_BATCH = 300
+DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
 def handle_upper_proxy(_upper_proxy: str) -> None:
@@ -320,6 +327,58 @@ class DeltaCalCulator:
             raise ota_errors.UpdateDeltaGenerationFailed(
                 _err_msg, module=__name__
             ) from e
+
+
+def download_handler(
+    downloader: Generator[Future[DownloadResult]],
+    *,
+    metrics: OTAMetricsData,
+    status_report_queue: Queue[StatusReport],
+    session_id: str,
+) -> None:
+    _next_commit_before, _report_batch_cnt = 0, 0
+    _merged_payload = UpdateProgressReport(
+        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+    )
+    for _done_count, _fut in enumerate(downloader, start=1):
+        _now = time.time()
+        if download_exception_handler(_fut):
+            _download_res = _fut.result()
+
+            _merged_payload.processed_file_num += 1
+            _merged_payload.processed_file_size += _download_res.download_size
+            _merged_payload.errors += _download_res.retry_count
+            _merged_payload.downloaded_bytes += _download_res.traffic_on_wire
+        else:
+            _merged_payload.errors += 1
+
+        metrics.downloaded_bytes = _merged_payload.downloaded_bytes
+        metrics.downloaded_errors = _merged_payload.errors
+
+        if (
+            _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
+        ) > _report_batch_cnt or _now > _next_commit_before:
+            _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
+            _report_batch_cnt = _this_batch
+
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=_merged_payload,
+                    session_id=session_id,
+                )
+            )
+
+            _merged_payload = UpdateProgressReport(
+                operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
+            )
+
+    # for left-over items that cannot fill up the batch
+    status_report_queue.put_nowait(
+        StatusReport(
+            payload=_merged_payload,
+            session_id=session_id,
+        )
+    )
 
 
 def process_persistents(
