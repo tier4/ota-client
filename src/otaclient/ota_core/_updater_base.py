@@ -35,7 +35,6 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
-from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
@@ -53,7 +52,6 @@ class OTAUpdateOperator:
     def __init__(
         self,
         *,
-        boot_controller: BootControllerProtocol | None = None,
         version: str,
         raw_url_base: str,
         cookies_json: str,
@@ -66,7 +64,6 @@ class OTAUpdateOperator:
         metrics: OTAMetricsData,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
-        self._boot_controller = boot_controller
         self._ca_chains_store = ca_chains_store
 
         self.update_version = version

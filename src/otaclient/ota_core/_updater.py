@@ -21,7 +21,6 @@ import shutil
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
@@ -65,14 +64,9 @@ STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     """The implementation of OTA update logic."""
 
-    _boot_controller: BootControllerProtocol
-
-    if not TYPE_CHECKING:
-
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            if not self._boot_controller:
-                raise ValueError
+    def __init__(self, *args, boot_controller: BootControllerProtocol, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._boot_controller = boot_controller
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
