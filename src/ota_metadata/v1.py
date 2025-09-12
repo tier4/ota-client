@@ -102,13 +102,15 @@ class OTAImageHelper:
 
     def download_and_verify_image_index(
         self, condition: threading.Condition
-    ) -> Generator[DownloadInfo]:
+    ) -> Generator[list[DownloadInfo]]:
         _index_jwt_fpath = self._index_jwt_fpath
         with condition:
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self.base_url, INDEX_JWT_FNAME),
-                dst=_index_jwt_fpath,
-            )
+            yield [
+                DownloadInfo(
+                    url=urljoin_ensure_base(self.base_url, INDEX_JWT_FNAME),
+                    dst=_index_jwt_fpath,
+                )
+            ]
             condition.wait()  # wait for upper download the file
 
         logger.info("verify index.jwt signing cert ...")
@@ -124,13 +126,15 @@ class OTAImageHelper:
 
         _index_json_fpath = self._image_index_fpath
         with condition:
-            yield DownloadInfo(
-                url=urljoin_ensure_base(self.base_url, IMAGE_INDEX_FNAME),
-                dst=_index_json_fpath,
-                original_size=_index_json_descriptor.size,
-                digest=_index_json_descriptor.digest.digest_hex,
-                digest_alg=SUPPORTED_HASH_ALG,
-            )
+            yield [
+                DownloadInfo(
+                    url=urljoin_ensure_base(self.base_url, IMAGE_INDEX_FNAME),
+                    dst=_index_json_fpath,
+                    original_size=_index_json_descriptor.size,
+                    digest=_index_json_descriptor.digest.digest_hex,
+                    digest_alg=SUPPORTED_HASH_ALG,
+                )
+            ]
             condition.wait()
 
         logger.info("parse verified index.json ...")
@@ -138,7 +142,7 @@ class OTAImageHelper:
 
     def select_image_payload(
         self, _image_identifier: ImageIdentifier, condition: threading.Condition
-    ):
+    ) -> Generator[list[DownloadInfo]]:
         """Select one OTA image payload and download all the meta files required."""
         assert (_image_index := self.image_index)
         _manifest_descriptor = _image_index.find_image(_image_identifier)
@@ -147,9 +151,11 @@ class OTAImageHelper:
                 f"image indicated by {_image_identifier} cannot be found in OTA image!"
             )
         with condition:
-            yield self.download_from_descriptor(
-                self._image_manifest_fpath, _manifest_descriptor
-            )
+            yield [
+                self.download_from_descriptor(
+                    self._image_manifest_fpath, _manifest_descriptor
+                )
+            ]
             condition.wait()
 
         self.image_manifest = _image_manifest = ImageManifest.parse_metafile(
@@ -158,9 +164,11 @@ class OTAImageHelper:
 
         _image_config_descriptor = _image_manifest.config
         with condition:
-            yield self.download_from_descriptor(
-                self._image_config_fpath, _image_config_descriptor
-            )
+            yield [
+                self.download_from_descriptor(
+                    self._image_config_fpath, _image_config_descriptor
+                )
+            ]
             condition.wait()
         self.image_config = _image_config = ImageConfig.parse_metafile(
             self._image_config_fpath.read_text()
@@ -169,10 +177,12 @@ class OTAImageHelper:
         _sys_config_descriptor = _image_config.sys_config
         if _sys_config_descriptor:
             with condition:
-                yield self.download_from_descriptor(
-                    self._sys_config_fpath,
-                    _sys_config_descriptor,
-                )
+                yield [
+                    self.download_from_descriptor(
+                        self._sys_config_fpath,
+                        _sys_config_descriptor,
+                    )
+                ]
                 condition.wait()
             self.sys_config = SysConfig.parse_metafile(
                 self._sys_config_fpath.read_text()
