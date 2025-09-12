@@ -14,12 +14,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
-from hashlib import sha256
-from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
 from typing import TypedDict
@@ -28,12 +25,11 @@ from urllib.parse import urlparse
 from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.image_index.schema import ImageIdentifier
 from ota_image_libs.v1.image_manifest.schema import OTAReleaseKey
-from typing_extensions import NotRequired, Unpack
+from typing_extensions import Unpack
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_metadata.v1 import OTAImageHelper
-from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
@@ -58,9 +54,8 @@ logger = logging.getLogger(__name__)
 class OTAUpdateOperatorInit(TypedDict):
     version: str
     raw_url_base: str
-    cookies_json: str
     session_wd: Path
-    upper_otaproxy: NotRequired[str | None]
+    downloader_pool: DownloaderPool
     ecu_status_flags: MultipleECUStatusFlags
     status_report_queue: Queue[StatusReport]
     session_id: str
@@ -76,9 +71,8 @@ class OTAUpdateOperator:
         *,
         version: str,
         raw_url_base: str,
-        cookies_json: str,
         session_wd: Path,
-        upper_otaproxy: str | None = None,
+        downloader_pool: DownloaderPool,
         ecu_status_flags: MultipleECUStatusFlags,
         status_report_queue: Queue[StatusReport],
         session_id: str,
@@ -154,22 +148,6 @@ class OTAUpdateOperator:
         )
         self._metrics.target_firmware_version = version
 
-        # ------ parse cookies ------ #
-        logger.debug("process cookies_json...")
-        try:
-            cookies = json.loads(cookies_json)
-            assert isinstance(cookies, dict), (
-                f"invalid cookies, expecting json object: {cookies_json}"
-            )
-        except (JSONDecodeError, AssertionError) as e:
-            _err_msg = f"cookie is invalid: {cookies_json=}"
-            logger.error(_err_msg)
-            raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
-
-        # ------ parse upper proxy ------ #
-        logger.debug("configure proxy setting...")
-        self._upper_proxy = upper_otaproxy
-
         # ------ mount session wd as a tmpfs ------ #
         self._session_workdir = session_wd
         session_wd.mkdir(exist_ok=True, parents=True)
@@ -183,15 +161,7 @@ class OTAUpdateOperator:
         self.url_base = _url_base._replace(path=_path).geturl()
 
         # ------ setup downloader ------ #
-        self._downloader_pool = DownloaderPool(
-            instance_num=cfg.DOWNLOAD_THREADS,
-            hash_func=sha256,
-            chunk_size=cfg.CHUNK_SIZE,
-            cookies=cookies,
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies={"http": upper_otaproxy} if upper_otaproxy else None,
-        )
+        self._downloader_pool = downloader_pool
 
 
 class OTAUpdateOperatorInitLegacy(OTAUpdateOperatorInit):
