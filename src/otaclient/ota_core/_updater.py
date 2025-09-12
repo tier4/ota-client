@@ -21,6 +21,7 @@ import shutil
 import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
@@ -34,7 +35,7 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import UpdatePhase
 from otaclient._utils import wait_and_log
-from otaclient.boot_control import BootControllerProtocol
+from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
@@ -42,7 +43,6 @@ from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient_common import (
     _env,
     human_readable_size,
-    replace_root,
 )
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
@@ -65,57 +65,14 @@ STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     """The implementation of OTA update logic."""
 
-    def __init__(
-        self,
-        boot_controller: BootControllerProtocol,
-        **kwargs,
-    ) -> None:
-        # ------ init base class ------ #
-        super().__init__(**kwargs)
+    _boot_controller: BootControllerProtocol
 
-        # ------ init updater implementation ------ #
-        self._boot_controller = boot_controller
+    if not TYPE_CHECKING:
 
-        # ------ define runtime dirs ------ #
-        self._active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
-        self._resource_dir_on_active = Path(
-            replace_root(
-                cfg.OTA_RESOURCES_STORE,
-                cfg.CANONICAL_ROOT,
-                self._active_slot_mp,
-            )
-        )
-
-        self._standby_slot_mp = self._boot_controller.get_standby_slot_path()
-        self._resource_dir_on_standby = Path(
-            replace_root(
-                cfg.OTA_RESOURCES_STORE,
-                cfg.CANONICAL_ROOT,
-                self._standby_slot_mp,
-            )
-        )
-        self._ota_meta_store_on_standby = Path(
-            replace_root(
-                cfg.OTA_META_STORE,
-                cfg.CANONICAL_ROOT,
-                self._standby_slot_mp,
-            )
-        )
-        self._ota_meta_store_base_on_standby = Path(
-            replace_root(
-                cfg.OTA_META_STORE_BASE_FILE_TABLE,
-                cfg.CANONICAL_ROOT,
-                self._standby_slot_mp,
-            )
-        )
-        self._image_meta_dir_on_standby = Path(
-            replace_root(
-                cfg.IMAGE_META_DPATH,
-                cfg.CANONICAL_ROOT,
-                self._standby_slot_mp,
-            )
-        )
-        self._can_use_in_place_mode = False
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if not self._boot_controller:
+                raise ValueError
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
@@ -147,7 +104,6 @@ class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
         logger.info("enter local OTA update...")
-
         # NOTE(20250905): if ota_resources dir on active slot presented,
         #                 no need to use rebuild mode.
         _ota_resources_dir_presented = self._resource_dir_on_active.is_dir()

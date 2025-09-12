@@ -35,11 +35,13 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
+from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._download_resources import DownloadHelperForLegacyOTAImage
 from otaclient.ota_core._update_libs import metadata_download_err_handler
+from otaclient_common import replace_root
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,7 @@ class OTAUpdateOperator:
     def __init__(
         self,
         *,
+        boot_controller: BootControllerProtocol | None = None,
         version: str,
         raw_url_base: str,
         cookies_json: str,
@@ -63,6 +66,7 @@ class OTAUpdateOperator:
         metrics: OTAMetricsData,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
+        self._boot_controller = boot_controller
         self._ca_chains_store = ca_chains_store
 
         self.update_version = version
@@ -71,6 +75,46 @@ class OTAUpdateOperator:
         self._status_report_queue = status_report_queue
         self._metrics = metrics
         self._shm_metrics_reader = shm_metrics_reader
+
+        # ------ define runtime dirs ------ #
+        self._active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
+        self._resource_dir_on_active = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._active_slot_mp,
+            )
+        )
+
+        self._standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
+        self._resource_dir_on_standby = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+        self._ota_meta_store_on_standby = Path(
+            replace_root(
+                cfg.OTA_META_STORE,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+        self._ota_meta_store_base_on_standby = Path(
+            replace_root(
+                cfg.OTA_META_STORE_BASE_FILE_TABLE,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+        self._image_meta_dir_on_standby = Path(
+            replace_root(
+                cfg.IMAGE_META_DPATH,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
 
         # ------ report INITIALIZING status ------ #
         status_report_queue.put_nowait(
@@ -154,6 +198,7 @@ class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
+        self._can_use_in_place_mode = False
 
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         """Process the metadata.jwt file and report."""
