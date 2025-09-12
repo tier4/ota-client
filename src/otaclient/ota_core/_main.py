@@ -60,10 +60,9 @@ from otaclient.boot_control import get_boot_controller
 from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core._common import prepare_cookies, prepare_requests_proxy
+from otaclient.ota_core._common import create_downloader_pool
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
-from otaclient_common.downloader import DownloaderPool
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
@@ -284,18 +283,13 @@ class OTAClient:
         self._metrics.session_id = new_session_id
 
         url_base = request.url_base
-        cookies = prepare_cookies(request.cookies_json)
-        proxy = prepare_requests_proxy(self.proxy)
-        download_pool = DownloaderPool(
-            instance_num=cfg.DOWNLOAD_THREADS,
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
-            cookies=cookies,
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies=proxy,
         )
-
         try:
             logger.info("[update] entering local update...")
             if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
@@ -383,16 +377,12 @@ class OTAClient:
         logger.info(
             f"start new OTA client update request: {request_id}, session: {new_session_id=}"
         )
-        cookies = prepare_cookies(request.cookies_json)
-        proxy = prepare_requests_proxy(self.proxy)
-        download_pool = DownloaderPool(
-            instance_num=cfg.DOWNLOAD_THREADS,
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
-            cookies=cookies,
-            # NOTE(20221013): check requests document for how to set proxy,
-            #                 we only support using http proxy here.
-            proxies=proxy,
         )
 
         session_wd = self._update_session_dir / new_session_id

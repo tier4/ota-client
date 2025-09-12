@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import logging
 from concurrent.futures import Future
@@ -25,6 +26,7 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from otaclient import errors as ota_errors
+from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
 
@@ -96,5 +98,21 @@ def prepare_cookies(cookies_json: str) -> dict[str, str]:
         raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
 
 
-def prepare_requests_proxy(proxy: str | None) -> dict[str, str] | None:
-    return {"http": proxy} if proxy else None
+def create_downloader_pool(
+    raw_cookies_json: str,
+    proxy_url: str | None = None,
+    *,
+    download_threads: int,
+    chunk_size: int,
+    hash_func=hashlib.sha256,
+) -> DownloaderPool:
+    cookies = prepare_cookies(raw_cookies_json)
+    return DownloaderPool(
+        instance_num=download_threads,
+        hash_func=hash_func,
+        chunk_size=chunk_size,
+        cookies=cookies,
+        # NOTE(20221013): check requests document for how to set proxy,
+        #                 we only support using http proxy here.
+        proxies={"http": proxy_url} if proxy_url else None,
+    )
