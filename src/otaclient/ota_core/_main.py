@@ -63,6 +63,7 @@ from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
+from ._update_libs import handle_upper_proxy
 from ._updater import OTAUpdater
 
 logger = logging.getLogger(__name__)
@@ -409,6 +410,9 @@ class OTAClient:
                 )
 
             elif isinstance(request, UpdateRequestV2):
+                if self.proxy:
+                    handle_upper_proxy(self.proxy)
+
                 _update_thread = threading.Thread(
                     target=self.update,
                     args=[request],
@@ -426,6 +430,9 @@ class OTAClient:
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
 
             elif isinstance(request, ClientUpdateRequestV2):
+                if self.proxy:
+                    handle_upper_proxy(self.proxy)
+
                 _client_update_thread = threading.Thread(
                     target=self.client_update,
                     args=[request],

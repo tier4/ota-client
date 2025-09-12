@@ -52,7 +52,7 @@ from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._common import download_exception_handler
-from ._update_libs import DeltaCalCulator, handle_upper_proxy, process_persistents
+from ._update_libs import DeltaCalCulator, process_persistents
 from ._updater_base import OTAUpdateOperator
 
 logger = logging.getLogger(__name__)
@@ -383,10 +383,7 @@ class OTAUpdater(OTAUpdateOperator):
         """
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
-            if self._upper_proxy:
-                handle_upper_proxy(self._upper_proxy)
             self._process_metadata()
-
             self._pre_update()
             self._in_update()
             self._post_update()

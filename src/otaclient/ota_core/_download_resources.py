@@ -197,7 +197,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         #   rebuild the requested origin blob.
         return _res
 
-    def download_resources2(
+    def download_resources(
         self,
         resources_to_download: Iterable[bytes],
         resource_db_helper: ResourceTableDBHelper,
@@ -214,7 +214,9 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             download_tmp_dir=download_tmp_dir,
         )
 
-        with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
+        with self._downloader_pool_with_retry(
+            "download_ota_resources"
+        ) as _mapper, _rst_orm_pool:
             for _fut in _mapper.ensure_tasks(
                 partial(
                     self._download_single_resource_at_thread,
