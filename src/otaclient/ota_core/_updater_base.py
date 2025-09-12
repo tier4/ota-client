@@ -24,7 +24,6 @@ from pathlib import Path
 from queue import Queue
 from urllib.parse import urlparse
 
-from ota_metadata.legacy2 import _errors as ota_metadata_error
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient import errors as ota_errors
@@ -37,6 +36,7 @@ from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common.downloader import DownloaderPool
 
 from ._common import download_exception_handler
@@ -158,7 +158,7 @@ class OTAUpdateOperator:
         self._metrics.processing_metadata_start_timestamp = _current_time
 
         logger.info("verify and download OTA image metadata ...")
-        try:
+        with metadata_download_err_handler():
             _condition = threading.Condition()
             for _fut in self._download_helper.download_meta_files(
                 self._ota_metadata.download_metafiles(
@@ -169,48 +169,32 @@ class OTAUpdateOperator:
             ):
                 download_exception_handler(_fut)
 
-            _metadata_jwt = self._ota_metadata.metadata_jwt
-            assert _metadata_jwt, "invalid metadata jwt"
+        _metadata_jwt = self._ota_metadata.metadata_jwt
+        assert _metadata_jwt, "invalid metadata jwt"
 
-            logger.info(
-                "ota_metadata parsed finished: \n"
-                f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
-                f"total_regulars_size: {_metadata_jwt.total_regular_size}"
-            )
+        logger.info(
+            "ota_metadata parsed finished: \n"
+            f"total_regulars_num: {self._ota_metadata.total_regulars_num} \n"
+            f"total_regulars_size: {_metadata_jwt.total_regular_size}"
+        )
 
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=SetUpdateMetaReport(
-                        image_file_entries=self._ota_metadata.total_regulars_num,
-                        image_size_uncompressed=_metadata_jwt.total_regular_size,
-                        metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
-                    ),
-                    session_id=self.session_id,
-                )
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    image_file_entries=self._ota_metadata.total_regulars_num,
+                    image_size_uncompressed=_metadata_jwt.total_regular_size,
+                    metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+                ),
+                session_id=self.session_id,
             )
-            self._metrics.ota_image_total_files_size = _metadata_jwt.total_regular_size
-            self._metrics.ota_image_total_regulars_num = (
-                self._ota_metadata.total_regulars_num
-            )
-            self._metrics.ota_image_total_directories_num = (
-                self._ota_metadata.total_dirs_num
-            )
-            self._metrics.ota_image_total_symlinks_num = (
-                self._ota_metadata.total_symlinks_num
-            )
-        except ota_errors.OTAError:
-            raise  # raise top-level OTAError as it
-        except ota_metadata_error.MetadataJWTVerificationFailed as e:
-            _err_msg = f"failed to verify metadata.jwt: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTVerficationFailed(
-                _err_msg, module=__name__
-            ) from e
-        except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
-            _err_msg = f"metadata.jwt is invalid: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
-        except Exception as e:
-            _err_msg = f"failed to prepare ota metafiles: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
+        )
+        self._metrics.ota_image_total_files_size = _metadata_jwt.total_regular_size
+        self._metrics.ota_image_total_regulars_num = (
+            self._ota_metadata.total_regulars_num
+        )
+        self._metrics.ota_image_total_directories_num = (
+            self._ota_metadata.total_dirs_num
+        )
+        self._metrics.ota_image_total_symlinks_num = (
+            self._ota_metadata.total_symlinks_num
+        )

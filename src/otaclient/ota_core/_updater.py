@@ -47,7 +47,11 @@ from otaclient_common import (
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
-from ._update_libs import DeltaCalCulator, download_handler, process_persistents
+from ._update_libs import (
+    DeltaCalCulator,
+    download_resources_handler,
+    process_persistents,
+)
 from ._updater_base import OTAUpdateOperator
 
 logger = logging.getLogger(__name__)
@@ -115,7 +119,7 @@ class OTAUpdater(OTAUpdateOperator):
         )
 
         try:
-            download_handler(
+            download_resources_handler(
                 self._download_helper.download_resources(delta_digests, _resource_meta),
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
