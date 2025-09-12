@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import errno
+import json
 import logging
 from concurrent.futures import Future
 from http import HTTPStatus
@@ -81,3 +82,19 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
         return False
     finally:
         del exc, _fut  # drop ref to exc instance
+
+
+def prepare_cookies(cookies_json: str) -> dict[str, str]:
+    try:
+        cookies = json.loads(cookies_json)
+        if not isinstance(cookies, dict):
+            raise ValueError(f"invalid cookies, expecting json object: {cookies_json}")
+        return cookies
+    except (json.JSONDecodeError, ValueError) as e:
+        _err_msg = f"cookie is invalid: {cookies_json=}"
+        logger.error(_err_msg)
+        raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
+
+
+def prepare_requests_proxy(proxy: str | None) -> dict[str, str] | None:
+    return {"http": proxy} if proxy else None
