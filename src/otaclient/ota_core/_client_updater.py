@@ -28,12 +28,12 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
-from ._updater_base import OTAUpdateOperator
+from ._updater_base import OTAUpdateOperatorLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
 
-class OTAClientUpdater(OTAUpdateOperator):
+class OTAClientUpdater(OTAUpdateOperatorLegacyOTAImage):
     """The implementation of OTA client update logic."""
 
     def __init__(

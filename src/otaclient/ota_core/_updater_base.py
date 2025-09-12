@@ -22,6 +22,7 @@ from hashlib import sha256
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from ota_metadata.legacy2.metadata import OTAMetadata
@@ -36,11 +37,10 @@ from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg
 from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._common import download_exception_handler
+from otaclient.ota_core._download_resources import DownloadHelperForLegacyOTAImage
 from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common.downloader import DownloaderPool
-
-from ._common import download_exception_handler
-from ._download_resources import DownloadHelperForLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ class OTAUpdateOperator:
         metrics: OTAMetricsData,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
+        self._ca_chains_store = ca_chains_store
+
         self.update_version = version
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
@@ -121,7 +123,7 @@ class OTAUpdateOperator:
         self.url_base = _url_base._replace(path=_path).geturl()
 
         # ------ setup downloader ------ #
-        self._downloader_pool = _downloader_pool = DownloaderPool(
+        self._downloader_pool = DownloaderPool(
             instance_num=cfg.DOWNLOAD_THREADS,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
@@ -130,17 +132,27 @@ class OTAUpdateOperator:
             #                 we only support using http proxy here.
             proxies={"http": upper_otaproxy} if upper_otaproxy else None,
         )
-        self._download_helper = DownloadHelperForLegacyOTAImage(
-            downloader_pool=_downloader_pool,
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-        )
 
+
+class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
+    if not TYPE_CHECKING:
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._init_for_legacy_ota_image()
+
+    def _init_for_legacy_ota_image(self):
         # ------ setup OTA metadata parser ------ #
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
-            ca_chains_store=ca_chains_store,
+            ca_chains_store=self._ca_chains_store,
+        )
+
+        self._download_helper = DownloadHelperForLegacyOTAImage(
+            downloader_pool=self._downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
 
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:

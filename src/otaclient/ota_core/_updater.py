@@ -52,7 +52,7 @@ from ._update_libs import (
     download_resources_handler,
     process_persistents,
 )
-from ._updater_base import OTAUpdateOperator
+from ._updater_base import OTAUpdateOperatorLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ WAIT_BEFORE_REBOOT = 6
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
-class OTAUpdater(OTAUpdateOperator):
+class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     """The implementation of OTA update logic."""
 
     def __init__(
@@ -78,6 +78,13 @@ class OTAUpdater(OTAUpdateOperator):
 
         # ------ define runtime dirs ------ #
         self._active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
+        self._resource_dir_on_active = Path(
+            replace_root(
+                cfg.OTA_RESOURCES_STORE,
+                cfg.CANONICAL_ROOT,
+                self._active_slot_mp,
+            )
+        )
 
         self._standby_slot_mp = self._boot_controller.get_standby_slot_path()
         self._resource_dir_on_standby = Path(
