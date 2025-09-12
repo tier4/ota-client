@@ -69,7 +69,7 @@ class OTAImageHelper:
     ) -> None:
         self._session_dir = session_dir
         self.base_url = base_url
-        self.resource_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
+        self.blob_storage_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
         self._ca_store = ca_store
 
         # NOTE: to be downloaded
@@ -265,7 +265,7 @@ class OTAImageHelper:
             condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:
-        return urljoin_ensure_base(self.resource_url, digest_hex)
+        return urljoin_ensure_base(self.blob_storage_url, digest_hex)
 
     def download_from_descriptor(
         self, save_dst: Path, oci_descriptor: OCIDescriptor
@@ -277,7 +277,7 @@ class OTAImageHelper:
         """
         digest_hex = oci_descriptor.digest.digest_hex
         return DownloadInfo(
-            url=urljoin_ensure_base(self.resource_url, digest_hex),
+            url=urljoin_ensure_base(self.blob_storage_url, digest_hex),
             dst=save_dst,
             original_size=oci_descriptor.size,
             digest=digest_hex,
