@@ -64,7 +64,7 @@ from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
 from ._update_libs import handle_upper_proxy
-from ._updater import OTAUpdater
+from ._updater import OTAUpdater, OTAUpdaterOTAImageV1
 
 logger = logging.getLogger(__name__)
 
@@ -280,26 +280,51 @@ class OTAClient:
         self._metrics.session_id = new_session_id
         try:
             logger.info("[update] entering local update...")
-            if not self.ca_chains_store:
-                raise ota_errors.MetadataJWTVerficationFailed(
-                    "no CA chains are installed, reject any OTA update",
-                    module=__name__,
-                )
 
-            OTAUpdater(
-                version=request.version,
-                raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
-                session_wd=session_wd,
-                ca_store=self.ca_chains_store,
-                boot_controller=self.boot_controller,
-                ecu_status_flags=self.ecu_status_flags,
-                upper_otaproxy=self.proxy,
-                status_report_queue=self._status_report_queue,
-                session_id=new_session_id,
-                metrics=self._metrics,
-                shm_metrics_reader=self._shm_metrics_reader,
-            ).execute()
+            # TODO: 20250912: determine whether to use new OTA image or old OTA image
+            #       will be detected by looking for oci_layout file at the OTA image root.
+            if True:
+                if not self.ca_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        "no CA chains are installed, reject any OTA update",
+                        module=__name__,
+                    )
+
+                OTAUpdaterOTAImageV1(
+                    version=request.version,
+                    raw_url_base=request.url_base,
+                    cookies_json=request.cookies_json,
+                    session_wd=session_wd,
+                    ca_store=self.ca_store,
+                    boot_controller=self.boot_controller,
+                    ecu_status_flags=self.ecu_status_flags,
+                    upper_otaproxy=self.proxy,
+                    status_report_queue=self._status_report_queue,
+                    session_id=new_session_id,
+                    metrics=self._metrics,
+                    shm_metrics_reader=self._shm_metrics_reader,
+                )
+            else:
+                if not self.ca_chains_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        "no CA chains are installed, reject any OTA update",
+                        module=__name__,
+                    )
+
+                OTAUpdater(
+                    version=request.version,
+                    raw_url_base=request.url_base,
+                    cookies_json=request.cookies_json,
+                    session_wd=session_wd,
+                    ca_store=self.ca_chains_store,
+                    boot_controller=self.boot_controller,
+                    ecu_status_flags=self.ecu_status_flags,
+                    upper_otaproxy=self.proxy,
+                    status_report_queue=self._status_report_queue,
+                    session_id=new_session_id,
+                    metrics=self._metrics,
+                    shm_metrics_reader=self._shm_metrics_reader,
+                ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(

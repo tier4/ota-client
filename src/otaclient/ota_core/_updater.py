@@ -54,6 +54,7 @@ from ._update_libs import (
 )
 from ._updater_base import (
     OTAUpdateOperatorInitLegacy,
+    OTAUpdateOperatorInitOTAImageV1,
     OTAUpdateOperatorLegacyOTAImage,
     OTAUpdateOperatorOTAImageV1,
 )
@@ -377,8 +378,13 @@ class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
 class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1):
     """The implementation of OTA update logic."""
 
-    def __init__(self, *args, boot_controller: BootControllerProtocol, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        *,
+        boot_controller: BootControllerProtocol,
+        **kwargs: Unpack[OTAUpdateOperatorInitOTAImageV1],
+    ):
+        super().__init__(**kwargs)
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 

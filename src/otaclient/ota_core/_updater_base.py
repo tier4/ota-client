@@ -280,7 +280,7 @@ DEFAULT_IMAGE_ID = ImageIdentifier(
 )
 
 
-class OTAUpdateOperatorV1(OTAUpdateOperatorInit):
+class OTAUpdateOperatorInitOTAImageV1(OTAUpdateOperatorInit):
     ca_store: CACertStore
 
 
