@@ -67,7 +67,7 @@ from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
 from ._update_libs import handle_upper_proxy
-from ._updater import OTAUpdater, OTAUpdaterOTAImageV1
+from ._updater import OTAUpdaterLegacy, OTAUpdaterOTAImageV1
 
 logger = logging.getLogger(__name__)
 
@@ -321,7 +321,7 @@ class OTAClient:
                         module=__name__,
                     )
 
-                OTAUpdater(
+                OTAUpdaterLegacy(
                     version=request.version,
                     raw_url_base=request.url_base,
                     session_wd=session_wd,

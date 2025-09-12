@@ -55,8 +55,8 @@ from ._update_libs import (
 from ._updater_base import (
     OTAUpdateOperatorInitLegacy,
     OTAUpdateOperatorInitOTAImageV1,
-    OTAUpdateOperatorLegacyOTAImage,
-    OTAUpdateOperatorOTAImageV1,
+    OTAUpdateOperatorLegacyBase,
+    OTAUpdateOperatorOTAImageV1Base,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ WAIT_BEFORE_REBOOT = 6
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
-class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
+class OTAUpdaterLegacy(OTAUpdateOperatorLegacyBase):
     """The implementation of OTA update logic."""
 
     def __init__(
@@ -375,7 +375,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
-class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1):
+class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
     """The implementation of OTA update logic."""
 
     def __init__(

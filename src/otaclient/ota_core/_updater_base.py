@@ -168,7 +168,7 @@ class OTAUpdateOperatorInitLegacy(OTAUpdateOperatorInit):
     ca_store: CAChainStore
 
 
-class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
+class OTAUpdateOperatorLegacyBase(OTAUpdateOperator):
     def __init__(
         self, *, ca_store: CAChainStore, **kwargs: Unpack[OTAUpdateOperatorInit]
     ):
@@ -254,7 +254,7 @@ class OTAUpdateOperatorInitOTAImageV1(OTAUpdateOperatorInit):
     ca_store: CACertStore
 
 
-class OTAUpdateOperatorOTAImageV1(OTAUpdateOperator):
+class OTAUpdateOperatorOTAImageV1Base(OTAUpdateOperator):
     def __init__(
         self,
         *,
