@@ -25,10 +25,13 @@ from queue import Queue
 from typing import TypedDict
 from urllib.parse import urlparse
 
+from ota_image_libs.v1.image_index.schema import ImageIdentifier
+from ota_image_libs.v1.image_manifest.schema import OTAReleaseKey
 from typing_extensions import NotRequired, Unpack
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -37,10 +40,13 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
-from otaclient.configs.cfg import cfg
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
-from otaclient.ota_core._download_resources import DownloadHelperForLegacyOTAImage
+from otaclient.ota_core._download_resources import (
+    DownloadHelperForLegacyOTAImage,
+    DownloadHelperForOTAImageV1,
+)
 from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common import replace_root
 from otaclient_common.downloader import DownloaderPool
@@ -262,4 +268,98 @@ class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
         )
         self._metrics.ota_image_total_symlinks_num = (
             self._ota_metadata.total_symlinks_num
+        )
+
+
+DEFAULT_IMAGE_ID = ImageIdentifier(
+    ecu_id=ecu_info.ecu_id,
+    release_key=OTAReleaseKey.dev,
+)
+
+
+class OTAUpdateOperatorOTAImageV1(OTAUpdateOperator):
+    def __init__(
+        self,
+        *,
+        image_identifier: ImageIdentifier = DEFAULT_IMAGE_ID,
+        **kwargs: Unpack[OTAUpdateOperatorInit],
+    ):
+        super().__init__(**kwargs)
+        self._image_id = image_identifier
+        self._download_helper = DownloadHelperForOTAImageV1(
+            downloader_pool=self._downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+        )
+        # TODO:
+        self._ota_image_helper = OTAImageHelper(
+            session_dir=self._session_workdir,
+            base_url=self.url_base,
+            ca_store=self._ca_chains_store,
+        )
+
+    def _process_metadata(self, only_metadata_verification: bool = False):
+        _current_time = int(time.time())
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.PROCESSING_METADATA,
+                    trigger_timestamp=_current_time,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.processing_metadata_start_timestamp = _current_time
+
+        logger.info("verify and download OTA image metadata ...")
+        with metadata_download_err_handler():
+            _condition = threading.Condition()
+            for _fut in self._download_helper.download_meta_files(
+                self._ota_image_helper.download_and_verify_image_index(
+                    condition=_condition,
+                ),
+                condition=_condition,
+            ):
+                download_exception_handler(_fut)
+
+            if only_metadata_verification:
+                return
+
+            for _fut in self._download_helper.download_meta_files(
+                self._ota_image_helper.select_image_payload(
+                    self._image_id,
+                    condition=_condition,
+                ),
+                condition=_condition,
+            ):
+                download_exception_handler(_fut)
+
+        image_config = self._ota_image_helper.image_config
+        assert image_config
+        regular_files_count = image_config.sys_image_regular_files_count
+        sys_image_size = image_config.sys_image_size or 0
+
+        logger.info(
+            "ota_metadata parsed finished: \n"
+            f"total_regulars_num: {regular_files_count} \n"
+            f"total_regulars_size: {sys_image_size}"
+        )
+
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetUpdateMetaReport(
+                    image_file_entries=regular_files_count,
+                    image_size_uncompressed=sys_image_size,
+                    metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.ota_image_total_files_size = sys_image_size
+        self._metrics.ota_image_total_regulars_num = regular_files_count
+        self._metrics.ota_image_total_directories_num = (
+            image_config.sys_image_dirs_count
+        )
+        self._metrics.ota_image_total_symlinks_num = (
+            image_config.sys_image_non_regular_files_count
         )
