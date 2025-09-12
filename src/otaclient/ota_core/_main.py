@@ -32,6 +32,7 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
     load_ca_store,
 )
+from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -282,6 +283,7 @@ class OTAClient:
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
 
+        url_base = request.url_base
         cookies = prepare_cookies(request.cookies_json)
         proxy = prepare_requests_proxy(self.proxy)
         download_pool = DownloaderPool(
@@ -296,10 +298,8 @@ class OTAClient:
 
         try:
             logger.info("[update] entering local update...")
-
-            # TODO: 20250912: determine whether to use new OTA image or old OTA image
-            #       will be detected by looking for oci_layout file at the OTA image root.
-            if True:
+            if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
+                logger.info(f"{url_base} hosts new OTA image version1")
                 if not self.ca_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
                         "no CA chains are installed, reject any OTA update",
@@ -318,8 +318,9 @@ class OTAClient:
                     session_id=new_session_id,
                     metrics=self._metrics,
                     shm_metrics_reader=self._shm_metrics_reader,
-                )
+                ).execute()
             else:
+                logger.info(f"{url_base} hosts legacy OTA image")
                 if not self.ca_chains_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
                         "no CA chains are installed, reject any OTA update",
