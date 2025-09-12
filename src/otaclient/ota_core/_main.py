@@ -28,8 +28,8 @@ from typing import Callable, NoReturn, Optional
 
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
-    CAChainStore,
     load_ca_cert_chains,
+    load_ca_store,
 )
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
@@ -179,7 +179,13 @@ class OTAClient:
             _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
             logger.error(_err_msg)
 
-            self.ca_chains_store = CAChainStore()
+        self.ca_store = None
+        try:
+            self.ca_store = load_ca_store(cfg.CERT_DPATH)
+        except CACertStoreInvalid as e:
+            _err_msg = f"failed to import ca_chains_store: {e!r}, "
+            "OTA with OTA image v1 will NOT occur on no CA chains installed!!!"
+            logger.error(_err_msg)
 
         self.started = True
         logger.info("otaclient started")
@@ -285,7 +291,7 @@ class OTAClient:
                 raw_url_base=request.url_base,
                 cookies_json=request.cookies_json,
                 session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
+                ca_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
@@ -352,7 +358,7 @@ class OTAClient:
                 raw_url_base=request.url_base,
                 cookies_json=request.cookies_json,
                 session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
+                ca_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
                 upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,

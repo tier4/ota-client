@@ -30,7 +30,7 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
-from ._updater_base import OTAUpdateOperatorInit, OTAUpdateOperatorLegacyOTAImage
+from ._updater_base import OTAUpdateOperatorInitLegacy, OTAUpdateOperatorLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class OTAClientUpdater(OTAUpdateOperatorLegacyOTAImage):
         self,
         *,
         client_update_control_flags: ClientUpdateControlFlags,
-        **kwargs: Unpack[OTAUpdateOperatorInit],
+        **kwargs: Unpack[OTAUpdateOperatorInitLegacy],
     ) -> None:
         # ------ init base class ------ #
         super().__init__(**kwargs)

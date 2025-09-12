@@ -194,6 +194,10 @@ class OTAUpdateOperator:
         )
 
 
+class OTAUpdateOperatorInitLegacy(OTAUpdateOperatorInit):
+    ca_store: CAChainStore
+
+
 class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
     def __init__(
         self, *, ca_store: CAChainStore, **kwargs: Unpack[OTAUpdateOperatorInit]
@@ -274,6 +278,10 @@ DEFAULT_IMAGE_ID = ImageIdentifier(
     ecu_id=ecu_info.ecu_id,
     release_key=OTAReleaseKey.dev,
 )
+
+
+class OTAUpdateOperatorV1(OTAUpdateOperatorInit):
+    ca_store: CACertStore
 
 
 class OTAUpdateOperatorOTAImageV1(OTAUpdateOperator):

@@ -23,6 +23,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
+from typing_extensions import Unpack
 
 from ota_metadata.file_table.utils import save_fstable
 from ota_metadata.legacy2.metadata import ResourceMeta
@@ -51,7 +52,11 @@ from ._update_libs import (
     download_resources_handler,
     process_persistents,
 )
-from ._updater_base import OTAUpdateOperatorLegacyOTAImage, OTAUpdateOperatorOTAImageV1
+from ._updater_base import (
+    OTAUpdateOperatorInitLegacy,
+    OTAUpdateOperatorLegacyOTAImage,
+    OTAUpdateOperatorOTAImageV1,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +69,13 @@ STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     """The implementation of OTA update logic."""
 
-    def __init__(self, *args, boot_controller: BootControllerProtocol, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        *,
+        boot_controller: BootControllerProtocol,
+        **kwargs: Unpack[OTAUpdateOperatorInitLegacy],
+    ):
+        super().__init__(**kwargs)
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
