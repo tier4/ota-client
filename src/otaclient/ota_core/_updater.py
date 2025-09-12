@@ -20,7 +20,6 @@ import os
 import shutil
 import time
 from pathlib import Path
-from queue import Queue
 from tempfile import TemporaryDirectory
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
@@ -32,7 +31,6 @@ from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
-    UpdateProgressReport,
 )
 from otaclient._types import UpdatePhase
 from otaclient._utils import wait_and_log
@@ -41,8 +39,6 @@ from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
-from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core._download_resources import DownloadHelperForLegacyOTAImage
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -51,17 +47,13 @@ from otaclient_common import (
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
-from ._common import download_exception_handler
-from ._update_libs import DeltaCalCulator, process_persistents
+from ._update_libs import DeltaCalCulator, download_handler, process_persistents
 from ._updater_base import OTAUpdateOperator
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATUS_QUERY_INTERVAL = 1
 WAIT_BEFORE_REBOOT = 6
-DOWNLOAD_STATS_REPORT_BATCH = 300
-DOWNLOAD_REPORT_INTERVAL = 1  # second
-
 
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
@@ -121,14 +113,14 @@ class OTAUpdater(OTAUpdateOperator):
             ota_metadata=self._ota_metadata,
             copy_dst=self._resource_dir_on_standby,
         )
+
         try:
-            DownloadDeltaResourcesForLegacyOTAImage(
-                download_helper=self._download_helper,
-                resource_meta=_resource_meta,
+            download_handler(
+                self._download_helper.download_resources(delta_digests, _resource_meta),
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
-            )(delta_digests)
+            )
         except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "
@@ -400,75 +392,3 @@ class OTAUpdater(OTAUpdateOperator):
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
-
-
-class DownloadDeltaResourcesForLegacyOTAImage:
-    def __init__(
-        self,
-        *,
-        download_helper: DownloadHelperForLegacyOTAImage,
-        resource_meta: ResourceMeta,
-        metrics: OTAMetricsData,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
-    ) -> None:
-        self._download_helper = download_helper
-        self._resource_meta = resource_meta
-        self._metrics = metrics
-        self._status_report_queue = status_report_queue
-        self.session_id = session_id
-
-    def __call__(self, delta_digests: ResourcesDigestWithSize) -> None:
-        _next_commit_before, _report_batch_cnt = 0, 0
-        _merged_payload = UpdateProgressReport(
-            operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-        )
-        for _done_count, _fut in enumerate(
-            self._download_helper.download_resources(
-                delta_digests,
-                self._resource_meta,
-            ),
-            start=1,
-        ):
-            _now = time.time()
-            if download_exception_handler(_fut):
-                _download_res = _fut.result()
-
-                _merged_payload.processed_file_num += 1
-                _merged_payload.processed_file_size += _download_res.download_size
-                _merged_payload.errors += _download_res.retry_count
-                _merged_payload.downloaded_bytes += _download_res.traffic_on_wire
-            else:
-                _merged_payload.errors += 1
-
-            self._metrics.downloaded_bytes = _merged_payload.downloaded_bytes
-            self._metrics.downloaded_errors = _merged_payload.errors
-
-            if (
-                _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
-            ) > _report_batch_cnt or _now > _next_commit_before:
-                _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
-                _report_batch_cnt = _this_batch
-
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=_merged_payload,
-                        session_id=self.session_id,
-                    )
-                )
-
-                _merged_payload = UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
-                )
-
-        # for left-over items that cannot fill up the batch
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=_merged_payload,
-                session_id=self.session_id,
-            )
-        )
-
-
-class OTAImageMetaFilesHandler:
-    """Helper class for operating the image metafiles during OTA."""
