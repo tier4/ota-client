@@ -22,6 +22,7 @@ import shutil
 import threading
 import time
 from functools import partial
+from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
@@ -58,8 +59,10 @@ from otaclient.boot_control import get_boot_controller
 from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._common import prepare_cookies, prepare_requests_proxy
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
+from otaclient_common.downloader import DownloaderPool
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
@@ -278,6 +281,19 @@ class OTAClient:
         session_wd = self._update_session_dir / new_session_id
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
+
+        cookies = prepare_cookies(request.cookies_json)
+        proxy = prepare_requests_proxy(self.proxy)
+        download_pool = DownloaderPool(
+            instance_num=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+            cookies=cookies,
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies=proxy,
+        )
+
         try:
             logger.info("[update] entering local update...")
 
@@ -293,12 +309,11 @@ class OTAClient:
                 OTAUpdaterOTAImageV1(
                     version=request.version,
                     raw_url_base=request.url_base,
-                    cookies_json=request.cookies_json,
                     session_wd=session_wd,
                     ca_store=self.ca_store,
                     boot_controller=self.boot_controller,
+                    downloader_pool=download_pool,
                     ecu_status_flags=self.ecu_status_flags,
-                    upper_otaproxy=self.proxy,
                     status_report_queue=self._status_report_queue,
                     session_id=new_session_id,
                     metrics=self._metrics,
@@ -314,12 +329,11 @@ class OTAClient:
                 OTAUpdater(
                     version=request.version,
                     raw_url_base=request.url_base,
-                    cookies_json=request.cookies_json,
                     session_wd=session_wd,
                     ca_store=self.ca_chains_store,
                     boot_controller=self.boot_controller,
+                    downloader_pool=download_pool,
                     ecu_status_flags=self.ecu_status_flags,
-                    upper_otaproxy=self.proxy,
                     status_report_queue=self._status_report_queue,
                     session_id=new_session_id,
                     metrics=self._metrics,
@@ -368,6 +382,17 @@ class OTAClient:
         logger.info(
             f"start new OTA client update request: {request_id}, session: {new_session_id=}"
         )
+        cookies = prepare_cookies(request.cookies_json)
+        proxy = prepare_requests_proxy(self.proxy)
+        download_pool = DownloaderPool(
+            instance_num=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+            cookies=cookies,
+            # NOTE(20221013): check requests document for how to set proxy,
+            #                 we only support using http proxy here.
+            proxies=proxy,
+        )
 
         session_wd = self._update_session_dir / new_session_id
         try:
@@ -381,12 +406,11 @@ class OTAClient:
             OTAClientUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
                 session_wd=session_wd,
                 ca_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
-                upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
+                downloader_pool=download_pool,
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
