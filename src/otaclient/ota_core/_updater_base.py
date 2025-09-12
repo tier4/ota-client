@@ -22,8 +22,10 @@ from hashlib import sha256
 from json.decoder import JSONDecodeError
 from pathlib import Path
 from queue import Queue
-from typing import TYPE_CHECKING
+from typing import TypedDict
 from urllib.parse import urlparse
+
+from typing_extensions import NotRequired, Unpack
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
@@ -44,6 +46,20 @@ from otaclient_common import replace_root
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
+
+
+class OTAUpdateOperatorInit(TypedDict):
+    version: str
+    raw_url_base: str
+    cookies_json: str
+    session_wd: Path
+    ca_chains_store: CAChainStore
+    upper_otaproxy: NotRequired[str | None]
+    ecu_status_flags: MultipleECUStatusFlags
+    status_report_queue: Queue[StatusReport]
+    session_id: str
+    metrics: OTAMetricsData
+    shm_metrics_reader: SharedOTAClientMetricsReader
 
 
 class OTAUpdateOperator:
@@ -176,13 +192,9 @@ class OTAUpdateOperator:
 
 
 class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
-    if not TYPE_CHECKING:
+    def __init__(self, **kwargs: Unpack[OTAUpdateOperatorInit]):
+        super().__init__(**kwargs)
 
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            self._init_for_legacy_ota_image()
-
-    def _init_for_legacy_ota_image(self):
         # ------ setup OTA metadata parser ------ #
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
@@ -195,7 +207,6 @@ class OTAUpdateOperatorLegacyOTAImage(OTAUpdateOperator):
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
-        self._can_use_in_place_mode = False
 
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         """Process the metadata.jwt file and report."""

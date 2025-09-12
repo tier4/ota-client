@@ -19,6 +19,8 @@ import shutil
 import threading
 import time
 
+from typing_extensions import Unpack
+
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAUpdatePhaseChangeReport, StatusReport
 from otaclient._types import ClientUpdateControlFlags, UpdatePhase
@@ -28,7 +30,7 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
-from ._updater_base import OTAUpdateOperatorLegacyOTAImage
+from ._updater_base import OTAUpdateOperatorInit, OTAUpdateOperatorLegacyOTAImage
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +40,9 @@ class OTAClientUpdater(OTAUpdateOperatorLegacyOTAImage):
 
     def __init__(
         self,
+        *,
         client_update_control_flags: ClientUpdateControlFlags,
-        **kwargs,
+        **kwargs: Unpack[OTAUpdateOperatorInit],
     ) -> None:
         # ------ init base class ------ #
         super().__init__(**kwargs)

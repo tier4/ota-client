@@ -67,6 +67,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyOTAImage):
     def __init__(self, *args, boot_controller: BootControllerProtocol, **kwargs):
         super().__init__(*args, **kwargs)
         self._boot_controller = boot_controller
+        self._can_use_in_place_mode = False
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
