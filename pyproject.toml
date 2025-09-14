@@ -52,6 +52,7 @@ dev = [
   "black>=24,<26",
   "coverage>=7,<8",
   "pre-commit>=3,<5",
+  "pyinstaller~=6.16",
   "pytest~=8.3",
   # pin pytest-asyncio to 0.23.8 for now,
   #   as 0.24 and newer will break the tests.
