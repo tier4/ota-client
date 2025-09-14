@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from multiprocessing import freeze_support
 
 from otaclient import main
 
 if __name__ == "__main__":
+    freeze_support()
     main.main()
