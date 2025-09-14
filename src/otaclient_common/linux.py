@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import stat
@@ -23,12 +24,14 @@ from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
 
-from otaclient_common._typing import StrOrPath
+from otaclient_common._typing import StrOrPath, copy_callable_typehint
 
 try:
     from shutil import _fastcopy_sendfile  # type: ignore
 except ImportError:
     _fastcopy_sendfile = None
+
+logger = logging.getLogger(__name__)
 
 #
 # ------ swapfile handling ------ #
@@ -167,6 +170,29 @@ def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> 
 #
 # ------ subprocess call ------ #
 #
+
+
+@copy_callable_typehint(subprocess.run)
+def pyinstaller_aware_subprocess_run(args, *p_pargs, env=None, **p_kwargs):
+    """
+    See https://pyinstaller.org/en/stable/runtime-information.html#ld-library-path-libpath-considerations
+        for more details.
+    """
+    logger.debug(f"subprocess call: {args}")
+    lp_key = "LD_LIBRARY_PATH"  # for GNU/Linux and *BSD.
+    lp_orig_key = f"{lp_key}_ORIG"
+
+    if env is None:
+        env = dict(os.environ)
+
+    lp_orig = env.pop(lp_orig_key, None)
+    if lp_orig is not None:
+        env[lp_key] = lp_orig  # restore the original, unmodified value
+    else:
+        # This happens when LD_LIBRARY_PATH was not set.
+        # Remove the env var as a last resort:
+        env.pop(lp_key, None)
+    return subprocess.run(args, *p_pargs, env=env, **p_kwargs)
 
 
 def subprocess_run_wrapper(
