@@ -1,7 +1,6 @@
 [build-system]
 build-backend = "hatchling.build"
 requires = [
-  "hatch-vcs",
   "hatchling>=1.20",
 ]
 
@@ -23,9 +22,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
 ]
-dynamic = [
-  "version",
-]
+version = "3.11.0"
 dependencies = [
   "anyio>=4.5.1,<5",
   "aiohttp>=3.10.11,<3.13",
@@ -62,17 +59,8 @@ dev = [
   "ruff",
 ]
 
-[tool.hatch.version]
-source = "vcs"
-
 [tool.hatch.metadata]
 allow-direct-references = true
-
-[tool.hatch.build.hooks.vcs]
-version-file = "src/_otaclient_version.py"
-
-[tool.hatch.metadata.hooks.custom]
-path = "scripts/hatch_build_lock_deps.py"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
