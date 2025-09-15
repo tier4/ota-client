@@ -21,7 +21,7 @@ import itertools
 import logging
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from queue import Empty, SimpleQueue
@@ -40,9 +40,21 @@ logger = logging.getLogger(__name__)
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
 
+    @classmethod
+    def caused_by(cls, *args, cause: BaseException):
+        _new = cls(*args)
+        _new.__cause__ = cause
+        return _new
+
+    @property
+    def cause(self) -> BaseException | None:
+        return self.__cause__
+
+
+class WatchdogFailed(TasksEnsureFailed): ...
+
 
 class _RetryOnEntryTracker:
-
     def __init__(self, max_entries: int) -> None:
         self._max_entries = max_entries
         self._register: OrderedDict[int, int] = OrderedDict()
@@ -59,7 +71,6 @@ class _RetryOnEntryTracker:
 
 
 class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
-
     def __init__(
         self,
         max_concurrent: int,
@@ -95,6 +106,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._total_retry_counter = itertools.count(start=1)
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
+        self._exc_deque: deque[Exception] = deque(maxlen=1)
 
         self._watchdog_check_interval = watchdog_check_interval
         self._rtm_watchdog_funcs: list[Callable[[], Any]] = []
@@ -125,6 +137,9 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 for _func in _checker_funcs:
                     _func()
             except Exception as e:
+                self._exc_deque.append(
+                    WatchdogFailed.caused_by(f"watchdog failed: {e!r}", cause=e)
+                )
                 self._rtm_shutdown(f"watchdog failed: {e!r}")
 
     def _task_done_cb_at_thread(
@@ -136,7 +151,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._fut_queue.put_nowait(fut)
 
         # release semaphore only on success
-        if not fut.exception():
+        _exc = fut.exception()
+        if not _exc:
             self._concurrent_semaphore.release()
             return
 
@@ -149,7 +165,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             self._max_total_retry is not None
             and _total_retry_count > self._max_total_retry
         ):
-            _err_msg = f"{_total_retry_count=} exceeds {self._max_total_retry=}, abort"
+            _err_msg = f"{_total_retry_count=} exceeds {self._max_total_retry=}, abort! last exc: {_exc}"
+            self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=_exc))
             return self._rtm_shutdown(_err_msg)
 
         # check continues retry on the same entry
@@ -157,9 +174,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if (
             _max_entry_retry := self._max_retry_on_entry
         ) is not None and _retry_on_entry > _max_entry_retry:
-            _err_msg = (
-                f"{_retry_on_entry=} on {item=} exceed {_max_entry_retry=}, abort"
-            )
+            _err_msg = f"{_retry_on_entry=} on {item=} exceed {_max_entry_retry=}, abort! last exc: {_exc}"
+            self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=_exc))
             return self._rtm_shutdown(_err_msg)
 
         # finally, retry to re-schedule the failed workitem
@@ -192,7 +208,16 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 with contextlib.suppress(Empty):
                     while True:  # drain the _fut_queue
                         self._fut_queue.get_nowait()
-                raise TasksEnsureFailed(self._failure_msg)  # raise exc to upper caller
+
+                try:
+                    _last_exc = self._exc_deque.pop()
+                except Exception:
+                    _last_exc = TasksEnsureFailed(self._failure_msg)
+
+                try:
+                    raise _last_exc  # raise exc to upper caller
+                finally:
+                    del _last_exc
 
             try:
                 done_fut = self._fut_queue.get_nowait()
@@ -285,7 +310,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 if TYPE_CHECKING:
 
     class ThreadPoolExecutorWithRetry:
-
         def __init__(
             self,
             max_concurrent: int,
