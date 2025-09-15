@@ -284,6 +284,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     )
             except Exception as e:
                 _err_msg = f"tasks dispatcher failed: {e!r}, abort"
+                self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=e))
                 self._rtm_shutdown(_err_msg)
                 return
 
