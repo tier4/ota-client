@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
@@ -22,6 +23,7 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
             resp = _downloader._session.get(_hint_file_url, timeout=DOWNLOAD_TIMEOUT)
             if resp.status_code in [HTTPStatus.OK]:
                 return True
+            time.sleep(1)
         return False
     finally:
         downloader_pool.release_instance()

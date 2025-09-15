@@ -37,6 +37,7 @@ from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
+    OTAUpdatePhaseChangeReport,
     SetOTAClientMetaReport,
     StatusReport,
 )
@@ -49,6 +50,7 @@ from otaclient._types import (
     IPCResponse,
     MultipleECUStatusFlags,
     OTAStatus,
+    UpdatePhase,
     UpdateRequestV2,
 )
 from otaclient._utils import (
@@ -263,9 +265,15 @@ class OTAClient:
         NOTE that update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        self._live_ota_status = OTAStatus.UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA update request:{request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -274,9 +282,9 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA update request:{request_id}, session: {new_session_id=}"
-        )
+
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
 
         session_wd = self._update_session_dir / new_session_id
         self._metrics.request_id = request_id
@@ -363,9 +371,15 @@ class OTAClient:
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
             return
 
-        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -374,9 +388,10 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
-        )
+
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
+
         download_pool = create_downloader_pool(
             request.cookies_json,
             self.proxy,
@@ -384,7 +399,6 @@ class OTAClient:
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
         )
-
         session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[client update] entering local update...")
@@ -456,9 +470,6 @@ class OTAClient:
                 )
 
             elif isinstance(request, UpdateRequestV2):
-                if self.proxy:
-                    handle_upper_proxy(self.proxy)
-
                 _update_thread = threading.Thread(
                     target=self.update,
                     args=[request],
@@ -476,9 +487,6 @@ class OTAClient:
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
 
             elif isinstance(request, ClientUpdateRequestV2):
-                if self.proxy:
-                    handle_upper_proxy(self.proxy)
-
                 _client_update_thread = threading.Thread(
                     target=self.client_update,
                     args=[request],
