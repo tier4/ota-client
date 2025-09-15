@@ -55,6 +55,12 @@ IMAGE_CONFIG_SAVE_FNAME = "image_config.json"
 SYS_CONFIG_SAVE_FNAME = "sys_config.json"
 
 
+class SignCertInvalid(Exception): ...
+
+
+class ImageMetadataInvalid(Exception): ...
+
+
 def _get_arch() -> Literal["x86_64", "arm64"] | None:
     _arch = os.uname().machine
     if _arch in ["x86_64", "amd64"]:
@@ -114,15 +120,27 @@ class OTAImageHelper:
             condition.wait()  # wait for upper download the file
 
         logger.info("verify index.jwt signing cert ...")
-        _index_jwt = _index_jwt_fpath.read_text()
-        _sign_cert_chain = get_index_jwt_sign_cert_chain(_index_jwt)
-        self._ca_store.verify(_sign_cert_chain.ee, interm_cas=_sign_cert_chain.interms)
+        try:
+            _index_jwt = _index_jwt_fpath.read_text()
+            _sign_cert_chain = get_index_jwt_sign_cert_chain(_index_jwt)
+        except Exception as e:
+            raise ImageMetadataInvalid(f"index.jwt header is invalid: {e}") from e
+
+        try:
+            self._ca_store.verify(
+                _sign_cert_chain.ee, interm_cas=_sign_cert_chain.interms
+            )
+        except Exception as e:
+            raise SignCertInvalid(f"fail to verify sign cert: {e}") from e
 
         logger.info("verify index.json against index.jwt ...")
-        _verified_claims = decode_index_jwt_with_verification(
-            _index_jwt, _sign_cert_chain
-        )
-        _index_json_descriptor = _verified_claims.image_index
+        try:
+            _verified_claims = decode_index_jwt_with_verification(
+                _index_jwt, _sign_cert_chain
+            )
+            _index_json_descriptor = _verified_claims.image_index
+        except Exception as e:
+            raise ImageMetadataInvalid(f"claims in index.jwt is invalid: {e}") from e
 
         _index_json_fpath = self._image_index_fpath
         with condition:
@@ -138,7 +156,10 @@ class OTAImageHelper:
             condition.wait()
 
         logger.info("parse verified index.json ...")
-        self.image_index = ImageIndex.parse_metafile(_index_json_fpath.read_text())
+        try:
+            self.image_index = ImageIndex.parse_metafile(_index_json_fpath.read_text())
+        except Exception as e:
+            raise ImageMetadataInvalid(f"image index is invalid: {e}") from e
 
     def select_image_payload(
         self, _image_identifier: ImageIdentifier, condition: threading.Condition
@@ -147,7 +168,7 @@ class OTAImageHelper:
         assert (_image_index := self.image_index)
         _manifest_descriptor = _image_index.find_image(_image_identifier)
         if not _manifest_descriptor:
-            raise ValueError(
+            raise ImageMetadataInvalid(
                 f"image indicated by {_image_identifier} cannot be found in OTA image!"
             )
         with condition:
@@ -158,9 +179,14 @@ class OTAImageHelper:
             ]
             condition.wait()
 
-        self.image_manifest = _image_manifest = ImageManifest.parse_metafile(
-            self._image_manifest_fpath.read_text()
-        )
+        try:
+            self.image_manifest = _image_manifest = ImageManifest.parse_metafile(
+                self._image_manifest_fpath.read_text()
+            )
+        except Exception as e:
+            raise ImageMetadataInvalid(
+                f"image manifest for {_image_identifier} is invalid: {e}"
+            ) from e
 
         _image_config_descriptor = _image_manifest.config
         with condition:
@@ -170,9 +196,15 @@ class OTAImageHelper:
                 )
             ]
             condition.wait()
-        self.image_config = _image_config = ImageConfig.parse_metafile(
-            self._image_config_fpath.read_text()
-        )
+
+        try:
+            self.image_config = _image_config = ImageConfig.parse_metafile(
+                self._image_config_fpath.read_text()
+            )
+        except Exception as e:
+            raise ImageMetadataInvalid(
+                f"image config for {_image_identifier} is invalid: {e}"
+            ) from e
 
         _sys_config_descriptor = _image_config.sys_config
         if _sys_config_descriptor:
@@ -184,9 +216,15 @@ class OTAImageHelper:
                     )
                 ]
                 condition.wait()
-            self.sys_config = SysConfig.parse_metafile(
-                self._sys_config_fpath.read_text()
-            )
+
+            try:
+                self.sys_config = SysConfig.parse_metafile(
+                    self._sys_config_fpath.read_text()
+                )
+            except Exception as e:
+                raise ImageMetadataInvalid(
+                    f"sys config for {_image_identifier} is invalid: {e}"
+                ) from e
 
         # download the file_table and resource_table, note that file_table and resource_table
         #   are zstd compressed, we will also handle that here
@@ -206,12 +244,17 @@ class OTAImageHelper:
                 ]
                 condition.wait()
 
-            _file_table_descriptor.export_blob_from_resource_dir(
-                _tmp_dir, self._file_table_dbf, auto_decompress=True
-            )
-            _resource_table_descriptor.export_blob_from_resource_dir(
-                _tmp_dir, self._resource_table_dbf, auto_decompress=True
-            )
+            try:
+                _file_table_descriptor.export_blob_from_resource_dir(
+                    _tmp_dir, self._file_table_dbf, auto_decompress=True
+                )
+                _resource_table_descriptor.export_blob_from_resource_dir(
+                    _tmp_dir, self._resource_table_dbf, auto_decompress=True
+                )
+            except Exception as e:
+                raise ImageMetadataInvalid(
+                    f"file_table and/or resource_table are invalid: {e}"
+                ) from e
 
     def select_otaclient_package(
         self,
