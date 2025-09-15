@@ -38,7 +38,10 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
@@ -86,6 +89,10 @@ class _BaseDownloadHelper:
                 ),
             ) as _pool:
                 yield _pool
+        except TasksEnsureFailed as e:
+            if e.cause:
+                raise e.cause from None
+            raise
         finally:
             self._downloader_pool.release_all_instances()
 
