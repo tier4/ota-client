@@ -28,6 +28,7 @@ from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
 from ota_metadata.file_table.utils import find_saved_fstable
 from ota_metadata.legacy2 import _errors as ota_metadata_error
+from ota_metadata.v1 import ImageMetadataInvalid, SignCertInvalid
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -389,6 +390,7 @@ def metadata_download_err_handler():
         yield
     except ota_errors.OTAError:
         raise  # raise top-level OTAError as it
+    # legacy OTA image
     except ota_metadata_error.MetadataJWTVerificationFailed as e:
         _err_msg = f"failed to verify metadata.jwt: {e!r}"
         logger.error(_err_msg)
@@ -397,6 +399,15 @@ def metadata_download_err_handler():
         _err_msg = f"metadata.jwt is invalid: {e!r}"
         logger.error(_err_msg)
         raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
+    # OTA image version1
+    except SignCertInvalid as e:
+        _err_msg = f"failed to verify sign certificate: {e}"
+        logger.error(_err_msg)
+        raise ota_errors.MetadataJWTVerficationFailed(_err_msg, module=__name__) from e
+    except ImageMetadataInvalid as e:
+        _err_msg = f"image metadata invalid: {e}"
+        logger.error(_err_msg)
+        raise ota_errors.OTAImageInvalid(_err_msg, module=__name__) from e
     except Exception as e:
         _err_msg = f"failed to prepare ota metafiles: {e!r}"
         logger.error(_err_msg)
