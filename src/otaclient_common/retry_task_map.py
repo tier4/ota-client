@@ -115,7 +115,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if callable(watchdog_func):
             self._rtm_watchdog_funcs.append(watchdog_func)
 
-        self._failure_msg = ""
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
@@ -137,10 +136,9 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 for _func in _checker_funcs:
                     _func()
             except Exception as e:
-                self._exc_deque.append(
-                    WatchdogFailed.caused_by(f"watchdog failed: {e!r}", cause=e)
-                )
-                self._rtm_shutdown(f"watchdog failed: {e!r}")
+                _err_msg = f"watchdog failed: {e!r}"
+                self._exc_deque.append(WatchdogFailed.caused_by(_err_msg, cause=e))
+                self._rtm_shutdown(_err_msg)
 
     def _task_done_cb_at_thread(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
@@ -212,12 +210,14 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 try:
                     _last_exc = self._exc_deque.pop()
                 except Exception:
-                    _last_exc = TasksEnsureFailed(self._failure_msg)
+                    _last_exc = TasksEnsureFailed(
+                        "execution interrupted due to thread pool shutdown"
+                    )
 
-                try:
+                try:  # raise exc to upper caller
                     if _last_exc.cause:
                         raise _last_exc.cause
-                    raise _last_exc  # raise exc to upper caller
+                    raise _last_exc
                 finally:
                     del _last_exc
 
@@ -233,22 +233,22 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         """
         Called by task_done_cb or dispatcher to shutdown threadpool on failure.
         """
-        if self._rtm_lower_pool_shutdown:
-            return  # no need to shutdown again
-
         # NOTE: only one shutdown is allowed
         if self._rtm_shutdown_lock.acquire(blocking=False):
             try:
+                if self._rtm_lower_pool_shutdown:
+                    return  # no need to shutdown again
+
                 _err_msg = f"shutdown executor and drain workitem queue: {msg}"
                 logger.warning(_err_msg)
-                self._failure_msg = _err_msg
 
                 # wait MUST be False to prevent deadlock when calling _on_shutdown from worker
                 self.shutdown(wait=False)
-                # drain the worker queues
                 with contextlib.suppress(Empty):
-                    while True:
+                    while True:  # drain the worker queues
                         self._work_queue.get_nowait()
+                # remember to add one sentinel back to the work_queue
+                self._work_queue.put_nowait(None)  # type: ignore
             finally:
                 self._rtm_shutdown_lock.release()
 
@@ -262,7 +262,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         with self._rtm_start_lock:
             if self._rtm_started or self._rtm_lower_pool_shutdown:
                 try:
-                    raise ValueError(
+                    raise TasksEnsureFailed(
                         "ensure_tasks cannot be started more than once or lower pool has already shutdown"
                     )
                 finally:  # do not hold refs to input params
