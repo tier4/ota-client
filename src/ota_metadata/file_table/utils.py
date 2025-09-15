@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from ota_image_libs.common import MsgPackedDict
-from ota_image_libs.v1.file_table.utils import (
+from ota_image_libs.v1.file_table.db import (
     DirTypedDict,
     NonRegularFileTypedDict,
     RegularFileTypedDict,
