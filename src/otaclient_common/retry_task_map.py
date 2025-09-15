@@ -106,7 +106,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._total_retry_counter = itertools.count(start=1)
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
-        self._exc_deque: deque[Exception] = deque(maxlen=1)
+        self._exc_deque: deque[TasksEnsureFailed] = deque(maxlen=1)
 
         self._watchdog_check_interval = watchdog_check_interval
         self._rtm_watchdog_funcs: list[Callable[[], Any]] = []
@@ -215,6 +215,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                     _last_exc = TasksEnsureFailed(self._failure_msg)
 
                 try:
+                    if _last_exc.cause:
+                        raise _last_exc.cause
                     raise _last_exc  # raise exc to upper caller
                 finally:
                     del _last_exc
