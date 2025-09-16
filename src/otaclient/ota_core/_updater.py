@@ -44,6 +44,7 @@ from otaclient_common import (
     _env,
     human_readable_size,
 )
+from otaclient_common._io import remove_file
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
@@ -390,20 +391,34 @@ class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
+        _download_tmp = self._download_tmp_on_standby
         try:
+            # TODO: 20250916: implement OTA download resume
+            pass
+        except Exception as e:
+            logger.warning(
+                "failed to recover the download dir from previous interrupted OTA, "
+                f"continue with cleanup the tmp download dir: {e}"
+            )
+            remove_file(_download_tmp)
+
+        try:
+            _download_tmp.mkdir(exist_ok=True)
             download_resources_handler(
                 self._download_helper.download_resources(
                     delta_digests,
                     self._ota_image_helper.resource_table_helper,
                     blob_storage_base_url=self._ota_image_helper.blob_storage_url,
                     resource_dir=self._resource_dir_on_standby,
-                    # TODO: dedicated download dir
-                    download_tmp_dir=self._resource_dir_on_standby,
+                    download_tmp_dir=self._download_tmp_on_standby,
                 ),
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
             )
+            # NOTE: only remove the download tmp when download finished successfully!
+            #       this enables the OTA download resume feature.
+            shutil.rmtree(_download_tmp, ignore_errors=True)
         except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "

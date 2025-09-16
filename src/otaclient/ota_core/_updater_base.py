@@ -97,6 +97,15 @@ class OTAUpdateOperator:
         )
 
         self._standby_slot_mp = Path(cfg.STANDBY_SLOT_MNT)
+        # NOTE(20250916): currently OTA download dir is only used by
+        #                 new OTA image support implementation.
+        self._download_tmp_on_standby = Path(
+            replace_root(
+                cfg.OTA_DOWNLOAD_DIR,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
         self._resource_dir_on_standby = Path(
             replace_root(
                 cfg.OTA_RESOURCES_STORE,
