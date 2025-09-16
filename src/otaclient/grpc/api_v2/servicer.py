@@ -28,10 +28,10 @@ from otaclient._types import (
     IPCRequest,
     IPCResEnum,
     IPCResponse,
-    UpdateRequestV2,
-    StopRequestV2,
     RollbackRequestV2,
     StopOTAFlag,
+    StopRequestV2,
+    UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
