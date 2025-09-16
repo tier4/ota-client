@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from http import HTTPStatus
 from urllib.parse import urlsplit
 
 from otaclient_common.downloader import DownloaderPool
+
+logger = logging.getLogger(__name__)
 
 OTA_IMAGE_V1_HINT = "oci-layout"
 DOWNLOAD_TIMEOUT = 2  # hint file only takes 31bytes
@@ -20,10 +23,19 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
             _hint_file_url = urlsplit(_hint_file_url)._replace(scheme="http").geturl()
 
         for _ in range(RETRY_TIMES):
-            resp = _downloader._session.get(_hint_file_url, timeout=DOWNLOAD_TIMEOUT)
-            if resp.status_code in [HTTPStatus.OK]:
-                return True
+            try:
+                resp = _downloader._session.get(
+                    _hint_file_url, timeout=DOWNLOAD_TIMEOUT
+                )
+                if resp.status_code in [HTTPStatus.OK]:
+                    return True
+            except Exception:
+                pass
+
             time.sleep(1)
+        return False
+    except Exception as e:
+        logger.warning(f"unexpected failure during probing image version: {e}")
         return False
     finally:
         downloader_pool.release_instance()
