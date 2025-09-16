@@ -30,7 +30,6 @@ from otaclient._types import (
     IPCResponse,
     RollbackRequestV2,
     StopOTAFlag,
-    StopRequestV2,
     UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
@@ -103,13 +102,9 @@ class OTAClientAPIServicer:
         self,
         request: UpdateRequestV2 | ClientUpdateRequestV2,
         response_type: (
-            type[api_types.UpdateResponseEcu]
-            | type[api_types.ClientUpdateResponseEcu]
+            type[api_types.UpdateResponseEcu] | type[api_types.ClientUpdateResponseEcu]
         ),
-    ) -> (
-        api_types.UpdateResponseEcu
-        | api_types.ClientUpdateResponseEcu
-    ):
+    ) -> api_types.UpdateResponseEcu | api_types.ClientUpdateResponseEcu:
         self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
@@ -185,10 +180,7 @@ class OTAClientAPIServicer:
 
     def _create_local_request(
         self,
-        req_ecu: (
-            api_types.UpdateRequestEcu
-            | api_types.ClientUpdateRequestEcu
-        ),
+        req_ecu: api_types.UpdateRequestEcu | api_types.ClientUpdateRequestEcu,
         request_cls: (
             type[UpdateRequestV2]
             | type[RollbackRequestV2]
@@ -251,25 +243,15 @@ class OTAClientAPIServicer:
 
     async def _handle_update_request(
         self,
-        request: (
-            api_types.UpdateRequest
-            | api_types.ClientUpdateRequest
-        ),
+        request: api_types.UpdateRequest | api_types.ClientUpdateRequest,
         local_handler: Callable,
-        request_cls: (
-            type[UpdateRequestV2]
-            | type[ClientUpdateRequestV2]
-        ),
+        request_cls: type[UpdateRequestV2] | type[ClientUpdateRequestV2],
         remote_call: Callable,
         response_type: (
-            type[api_types.UpdateResponse]
-            | type[api_types.ClientUpdateResponse]
+            type[api_types.UpdateResponse] | type[api_types.ClientUpdateResponse]
         ),
         update_acked_ecus: set[str] | None,
-    ) -> (
-        api_types.UpdateResponse
-        | api_types.ClientUpdateResponse
-    ):
+    ) -> api_types.UpdateResponse | api_types.ClientUpdateResponse:
         """Handle incoming request."""
         logger.info(f"receive request: {request}")
         response = response_type()
