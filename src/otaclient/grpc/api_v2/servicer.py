@@ -344,10 +344,7 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _handle_stop_request(
-            self,
-            request: StopRequestV2
-    ) -> api_types.StopResponseEcu:
+    def _handle_stop_request(self, request: StopRequestV2) -> api_types.StopResponseEcu:
         """Dispatch stop request to main process."""
         logger.info(f"handling request: {request}")
         if not isinstance(request, StopRequestV2):
@@ -361,9 +358,7 @@ class OTAClientAPIServicer:
             # Check if critical zone lock is available
             with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if not _lock_acquired:
-                    logger.warning(
-                        "in critical zone, reject stop request ..."
-                    )
+                    logger.warning("in critical zone, reject stop request ...")
                     return api_types.StopResponseEcu(
                         ecu_id=self.my_ecu_id,
                         result=api_types.FailureType.RECOVERABLE,
@@ -417,7 +412,7 @@ class OTAClientAPIServicer:
             ]
         )
 
-        #if not isinstance(request, api_types.StopRequest):
+        # if not isinstance(request, api_types.StopRequest):
         #    return api_types.StopResponse(
         #        ecu=[
         #            api_types.StopResponseEcu(
@@ -427,11 +422,11 @@ class OTAClientAPIServicer:
         #            )
         #        ]
         #    )
-        #return api_types.StopResponse(
+        # return api_types.StopResponse(
         #    ecu=[
         #        self._handle_stop_request(request=StopRequestV2(request_id=gen_request_id(), session_id=gen_session_id("__stop"))),
         #    ]
-        #)
+        # )
 
     async def rollback(
         self, request: api_types.RollbackRequest

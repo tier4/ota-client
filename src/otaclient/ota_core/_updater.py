@@ -220,7 +220,9 @@ class OTAUpdater(OTAUpdateOperator):
                 )
                 raise ota_errors.OTAStopRequested(module=__name__)
 
-            logger.info("Entering critical zone for OTA update: post-update and finalize-update phases")
+            logger.info(
+                "Entering critical zone for OTA update: post-update and finalize-update phases"
+            )
 
             self._post_update()
             self._finalize_update()
