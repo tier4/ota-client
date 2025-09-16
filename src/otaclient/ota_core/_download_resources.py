@@ -31,6 +31,7 @@ from ota_image_libs.v1.resource_table.db import (
 
 from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient_common import EMPTY_FILE_SHA256_BYTE
+from otaclient_common._io import file_sha256_2
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
@@ -188,12 +189,20 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
     ) -> DownloadResult:
         downloader = self._downloader_mapper[threading.get_native_id()]
 
-        _entry, _gen = _rst_helper.prepare_resource_at_thread(_digest)
-        _res = DownloadResult(download_size=_entry.size)
-        for _requested_blob, _tmp_save_dst in _gen:
+        resource, prepare_resource_gen = _rst_helper.prepare_resource_at_thread(_digest)
+        _res = DownloadResult(download_size=resource.size)
+        for _requested_blob, _blob_save_dst in prepare_resource_gen:
+            # reuse already downloaded blobs from previous OTA if presented
+            if _blob_save_dst.is_file():
+                if not file_sha256_2(_blob_save_dst).digest() == resource.digest:
+                    # broken blob, cleanup and do the downloading again
+                    _blob_save_dst.unlink(missing_ok=True)
+                else:
+                    continue
+
             _this_res = downloader.download(
                 url=urljoin(_base_url, _requested_blob),
-                dst=_tmp_save_dst,
+                dst=_blob_save_dst,
                 digest=_requested_blob,
                 # NOTE: do not do auto decompression, the PrepareResourceHelper
                 #       will do the decompression.
