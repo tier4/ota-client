@@ -392,14 +392,20 @@ class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
         _download_tmp = self._download_tmp_on_standby
-        try:
-            # TODO: 20250916: implement OTA download resume
-            pass
-        except Exception as e:
-            logger.warning(
-                "failed to recover the download dir from previous interrupted OTA, "
-                f"continue with cleanup the tmp download dir: {e}"
+        if not _download_tmp.is_symlink() and _download_tmp.is_dir():
+            logger.info(
+                f"{_download_tmp} found, resuming previous interrupted OTA downloading ..."
             )
+            try:
+                # TODO: 20250916: implement OTA download resume
+                pass
+            except Exception as e:
+                logger.warning(
+                    "failed to recover the download dir from previous interrupted OTA, "
+                    f"continue with cleanup the tmp download dir: {e}"
+                )
+                remove_file(_download_tmp)
+        else:  # not a directory
             remove_file(_download_tmp)
 
         try:
