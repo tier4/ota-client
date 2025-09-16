@@ -40,6 +40,7 @@ from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
+from otaclient.ota_core._download_resources import ResumeOTADownloadHelper
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -397,8 +398,11 @@ class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
                 f"{_download_tmp} found, resuming previous interrupted OTA downloading ..."
             )
             try:
-                # TODO: 20250916: implement OTA download resume
-                pass
+                _processed_entries = ResumeOTADownloadHelper(
+                    _download_tmp,
+                    self._ota_image_helper.resource_table_helper,
+                )()
+                logger.info(f"total {_processed_entries} are checked")
             except Exception as e:
                 logger.warning(
                     "failed to recover the download dir from previous interrupted OTA, "

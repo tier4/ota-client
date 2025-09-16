@@ -28,7 +28,6 @@ from urllib.parse import urljoin
 from ota_image_libs.v1.resource_table.db import (
     PrepareResourceHelper,
     ResourceTableDBHelper,
-    ResourceTableORMPool,
 )
 
 from ota_metadata.legacy2.metadata import ResourceMeta
@@ -251,12 +250,13 @@ class ResumeOTADownloadHelper:
     def __init__(
         self,
         download_dir: Path,
-        rst_orm_pool: ResourceTableORMPool,
+        rst_helper: ResourceTableDBHelper,
         *,
         max_concurrent: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
+        db_conn_num: int = 1,  # serialize accessing
     ) -> None:
         self._download_dir = download_dir
-        self._rst_orm_pool = rst_orm_pool
+        self._rst_orm_pool = rst_helper.get_orm_pool(db_conn_num)
         self._se = threading.Semaphore(max_concurrent)
 
     def _check_one_resource_at_thread(self, _fpath: Path, _digest: bytes):
