@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
@@ -65,6 +66,34 @@ class FailureType(StrEnum):
     NO_FAILURE = "NO_FAILURE"
     RECOVERABLE = "RECOVERABLE"
     UNRECOVERABLE = "UNRECOVERABLE"
+
+
+#
+# ------ otaclient STOP OTA update related flags ------ #
+#
+
+
+class CriticalZoneFlag:
+    def __init__(self, lock: mp_sync.Lock):
+        self._lock = lock
+
+    @contextmanager
+    def acquire_lock_no_release(self):
+        yield self._lock.acquire(block=False)
+
+    @contextmanager
+    def acquire_lock_with_release(self):
+        acquired = self._lock.acquire(block=False)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self._lock.release()
+
+
+@dataclass
+class StopOTAFlag:
+    shutdown_requested: mp_sync.Event
 
 
 #
@@ -138,7 +167,7 @@ class ClientUpdateControlFlags:
     """Flags for controlling the client update process."""
 
     notify_data_ready_event: mp_sync.Event  # for notifying the squasfhs is ready
-    request_shutdown_event: mp_sync.Event  # for requesting to shutdown
+    request_shutdown_event: mp_sync.Event  # for requesting to shut down
 
 
 #
@@ -177,6 +206,11 @@ class UpdateRequestV2(IPCRequest):
 
 
 @dataclass
+class StopRequestV2(IPCRequest):
+    """Compatible with OTA API version 2."""
+
+
+@dataclass
 class ClientUpdateRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
@@ -187,4 +221,4 @@ class ClientUpdateRequestV2(IPCRequest):
 
 @dataclass
 class RollbackRequestV2(IPCRequest):
-    """Compatbile with OTA API version 2."""
+    """Compatible with OTA API version 2."""

@@ -67,7 +67,6 @@ WAIT_BEFORE_REBOOT = 6
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
-
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
@@ -201,12 +200,32 @@ class OTAUpdater(OTAUpdateOperator):
 
         self._handle_upper_proxy()
         self._process_metadata()
-        self._pre_update()
+        with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+            if not _lock_acquired:
+                logger.error(
+                    "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
+                )
+                raise ota_errors.OTAStopRequested(module=__name__)
+
+            logger.info("Entering critical zone for OTA update: pre-update phase")
+
+            self._pre_update()
         _delta_digests = self._calculate_delta()
         self._download_delta_resources(_delta_digests)
         self._apply_update()
-        self._post_update()
-        self._finalize_update()
+        with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+            if not _lock_acquired:
+                logger.error(
+                    "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
+                )
+                raise ota_errors.OTAStopRequested(module=__name__)
+
+            logger.info(
+                "Entering critical zone for OTA update: post-update and finalize-update phases"
+            )
+
+            self._post_update()
+            self._finalize_update()
 
     def _pre_update(self):
         """Prepare the standby slot and optimize the file_table."""
@@ -234,9 +253,8 @@ class OTAUpdater(OTAUpdateOperator):
         self._metrics.use_inplace_mode = use_inplace_mode
 
         self._boot_controller.pre_update(
-            # NOTE: this option is deprecated and not used by bootcontroller
-            # NOTE(20250822): no matter we use inplace mode or not, always mount
-            #                 mount the active slot also.
+            # NOTE: this option is deprecated and not used by boot controller
+            # NOTE(20250822): no matter we use inplace mode or not, always mount the active slot also.
             standby_as_ref=use_inplace_mode,
             erase_standby=not use_inplace_mode,
         )
@@ -272,7 +290,7 @@ class OTAUpdater(OTAUpdateOperator):
     def _find_base_filetable_for_inplace_mode_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
-            Verfied base file_table fpath, or None if failed to find one.
+            Verified base file_table fpath, or None if failed to find one.
         """
         # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
         #       try to keep using that base file_table.
