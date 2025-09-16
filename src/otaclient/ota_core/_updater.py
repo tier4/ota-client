@@ -206,6 +206,9 @@ class OTAUpdater(OTAUpdateOperator):
                     "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
                 )
                 raise ota_errors.OTAStopRequested(module=__name__)
+
+            logger.info("Entering critical zone for OTA update: pre-update phase")
+
             self._pre_update()
         _delta_digests = self._calculate_delta()
         self._download_delta_resources(_delta_digests)
@@ -216,6 +219,9 @@ class OTAUpdater(OTAUpdateOperator):
                     "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
                 )
                 raise ota_errors.OTAStopRequested(module=__name__)
+
+            logger.info("Entering critical zone for OTA update: post-update and finalize-update phases")
+
             self._post_update()
             self._finalize_update()
 
