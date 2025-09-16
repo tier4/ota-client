@@ -15,10 +15,11 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import random
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Generator, Iterable
@@ -27,11 +28,13 @@ from urllib.parse import urljoin
 from ota_image_libs.v1.resource_table.db import (
     PrepareResourceHelper,
     ResourceTableDBHelper,
+    ResourceTableORMPool,
 )
 
 from ota_metadata.legacy2.metadata import ResourceMeta
-from otaclient_common import EMPTY_FILE_SHA256_BYTE
-from otaclient_common._io import file_sha256_2
+from otaclient.configs.cfg import cfg
+from otaclient_common import EMPTY_FILE_SHA256_BYTE, SHA256DIGEST_HEX_LEN
+from otaclient_common._io import file_sha256_2, remove_file
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
@@ -242,3 +245,58 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
                 self._iter_digests_with_shuffle(resources_to_download),
             ):
                 yield _fut
+
+
+class ResumeOTADownloadHelper:
+    def __init__(
+        self,
+        download_dir: Path,
+        rst_orm_pool: ResourceTableORMPool,
+        *,
+        max_concurrent: int = cfg.MAX_CONCURRENT_PROCESS_FILE_TASKS,
+    ) -> None:
+        self._download_dir = download_dir
+        self._rst_orm_pool = rst_orm_pool
+        self._se = threading.Semaphore(max_concurrent)
+
+    def _check_one_resource_at_thread(self, _fpath: Path, _digest: bytes):
+        try:
+            if (
+                not self._rst_orm_pool.orm_check_entry_exist(digest=_digest)
+                or file_sha256_2(_fpath) != _digest
+            ):
+                remove_file(_fpath)
+        except Exception:
+            remove_file(_fpath)
+        finally:
+            self._se.release()
+
+    def __call__(self) -> int:
+        _count = 0
+        with ThreadPoolExecutor() as pool, os.scandir(self._download_dir) as it:
+            for entry in it:
+                if (
+                    not entry.is_file(follow_symlinks=False)
+                    or len(entry.name) < SHA256DIGEST_HEX_LEN
+                    or entry.name.startswith("tmp")
+                ):
+                    remove_file(entry.path)
+                    continue
+
+                entry_fname = entry.name
+                # NOTE: for slice, a prefix will be appended to the filename.
+                #       see ota-image-libs.v1.resource_table.db.PrepareResourceHelper
+                #           for more details.
+                _digest_hex = entry_fname[SHA256DIGEST_HEX_LEN]
+                try:
+                    _digest = bytes.fromhex(_digest_hex)
+                except Exception:
+                    remove_file(entry.path)
+                    continue
+
+                self._se.acquire()
+                _count += 1
+                pool.submit(
+                    self._check_one_resource_at_thread, Path(entry.path), _digest
+                )
+        return _count
