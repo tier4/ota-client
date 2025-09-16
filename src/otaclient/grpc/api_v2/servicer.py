@@ -402,7 +402,8 @@ class OTAClientAPIServicer:
         )
 
     async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
-        # TODO: implement security measures to avoid unauthorized stop request
+        # TODO: after security measures are implemented, the below needs to be updated to actually handle stop request
+        logger.warning("stop API is not supported yet, rejecting all stop request")
         return api_types.StopResponse(
             ecu=[
                 api_types.StopResponseEcu(
@@ -412,22 +413,6 @@ class OTAClientAPIServicer:
                 )
             ]
         )
-
-        # if not isinstance(request, api_types.StopRequest):
-        #    return api_types.StopResponse(
-        #        ecu=[
-        #            api_types.StopResponseEcu(
-        #                ecu_id="",
-        #                result=api_types.FailureType.RECOVERABLE,
-        #                message="invalid stop request",
-        #            )
-        #        ]
-        #    )
-        # return api_types.StopResponse(
-        #    ecu=[
-        #        self._handle_stop_request(request=StopRequestV2(request_id=gen_request_id(), session_id=gen_session_id("__stop"))),
-        #    ]
-        # )
 
     async def rollback(
         self, request: api_types.RollbackRequest
