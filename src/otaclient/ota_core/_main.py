@@ -381,7 +381,9 @@ class OTAClient:
                 )
             )
         except Exception as e:
-            logger.error(f"Exception occurred while doing client update! Begin Shutdown process. Error: {e!r}")
+            logger.error(
+                f"Exception occurred while doing client update! Begin Shutdown process. Error: {e!r}"
+            )
             self._client_update_control_flags.request_shutdown_event.set()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
