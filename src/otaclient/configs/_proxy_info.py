@@ -85,18 +85,22 @@ class ProxyInfo(BaseFixedConfig):
     )
 
     def get_proxy_for_local_ota(self) -> str | None:
-        """Tell local otaclient which proxy to use(or not use any).
-
-        NOTE(20250918): further disable otaproxy if is child ECU, let child ECU
-                        directly using upper proxy.
-        """
-        if self.enable_local_ota_proxy and self.upper_ota_proxy is None:
+        """Tell local otaclient which proxy to use(or not use any)."""
+        if self.should_enable_local_otaproxy:
             # if local otaproxy is enabled, local otaclient also uses it
             return f"http://{self.local_ota_proxy_listen_addr}:{self.local_ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
             return str(self.upper_ota_proxy)
         # default not using proxy
+
+    @cached_property
+    def should_enable_local_otaproxy(self) -> bool:
+        """
+        NOTE(20250918): further disable otaproxy if is child ECU, let child ECU
+                directly using upper proxy.
+        """
+        return self.enable_local_ota_proxy and self.upper_ota_proxy is None
 
     @cached_property
     def should_enable_cache(self) -> bool:
