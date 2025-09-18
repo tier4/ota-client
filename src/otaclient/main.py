@@ -249,8 +249,7 @@ def main() -> None:  # pragma: no cover
     # ------ setup main process ------ #
 
     _otaproxy_control_t = None
-    # NOTE(20250916): further disable otaproxy if is child ECU
-    if proxy_info.enable_local_ota_proxy and proxy_info.upper_ota_proxy is None:
+    if proxy_info.should_enable_local_otaproxy:
         _otaproxy_control_t = threading.Thread(
             target=partial(
                 otaproxy_control_thread,
