@@ -1,7 +1,7 @@
 exclude: '^$|.*_pb2(_grpc)?\.py'
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v6.0.0
     hooks:
       - id: check-yaml
         args: ["--allow-multiple-documents"]
@@ -14,7 +14,7 @@ repos:
           )
       - id: trailing-whitespace
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.12.7
+    rev: v0.12.11
     hooks:
       - id: ruff
         args: [--fix]

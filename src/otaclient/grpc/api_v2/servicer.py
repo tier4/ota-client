@@ -24,10 +24,13 @@ from typing import Callable, overload
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     ClientUpdateRequestV2,
+    CriticalZoneFlag,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
     RollbackRequestV2,
+    StopOTAFlag,
+    StopRequestV2,
     UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
@@ -54,6 +57,8 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        critical_zone_flag: CriticalZoneFlag,
+        stop_ota_flag: StopOTAFlag,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -66,6 +71,8 @@ class OTAClientAPIServicer:
         self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
+        self._critical_zone_flag = critical_zone_flag
+        self._stop_ota_flag = stop_ota_flag
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -88,30 +95,17 @@ class OTAClientAPIServicer:
     @overload
     def _dispatch_local_request(
         self,
-        request: RollbackRequestV2,
-        response_type: type[api_types.RollbackResponseEcu],
-    ) -> api_types.RollbackResponseEcu: ...
-
-    @overload
-    def _dispatch_local_request(
-        self,
         request: ClientUpdateRequestV2,
         response_type: type[api_types.ClientUpdateResponseEcu],
     ) -> api_types.ClientUpdateResponseEcu: ...
 
     def _dispatch_local_request(
         self,
-        request: UpdateRequestV2 | RollbackRequestV2 | ClientUpdateRequestV2,
+        request: UpdateRequestV2 | ClientUpdateRequestV2,
         response_type: (
-            type[api_types.UpdateResponseEcu]
-            | type[api_types.RollbackResponseEcu]
-            | type[api_types.ClientUpdateResponseEcu]
+            type[api_types.UpdateResponseEcu] | type[api_types.ClientUpdateResponseEcu]
         ),
-    ) -> (
-        api_types.UpdateResponseEcu
-        | api_types.RollbackResponseEcu
-        | api_types.ClientUpdateResponseEcu
-    ):
+    ) -> api_types.UpdateResponseEcu | api_types.ClientUpdateResponseEcu:
         self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
@@ -150,6 +144,7 @@ class OTAClientAPIServicer:
         self,
         response: (
             api_types.UpdateResponse
+            | api_types.StopResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
@@ -159,6 +154,12 @@ class OTAClientAPIServicer:
         """Add ECU into response with specified failure type."""
         if isinstance(response, api_types.UpdateResponse):
             ecu_response = api_types.UpdateResponseEcu(
+                ecu_id=ecu_id,
+                result=failure_type,
+            )
+            response.add_ecu(ecu_response)
+        elif isinstance(response, api_types.StopResponse):
+            ecu_response = api_types.StopResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
             )
@@ -180,11 +181,7 @@ class OTAClientAPIServicer:
 
     def _create_local_request(
         self,
-        req_ecu: (
-            api_types.UpdateRequestEcu
-            | api_types.RollbackRequestEcu
-            | api_types.ClientUpdateRequestEcu
-        ),
+        req_ecu: api_types.UpdateRequestEcu | api_types.ClientUpdateRequestEcu,
         request_cls: (
             type[UpdateRequestV2]
             | type[RollbackRequestV2]
@@ -224,7 +221,7 @@ class OTAClientAPIServicer:
         return local_request
 
     @overload
-    async def _handle_request(
+    async def _handle_update_request(
         self,
         request: api_types.UpdateRequest,
         local_handler: Callable,
@@ -235,18 +232,7 @@ class OTAClientAPIServicer:
     ) -> api_types.UpdateResponse: ...
 
     @overload
-    async def _handle_request(
-        self,
-        request: api_types.RollbackRequest,
-        local_handler: Callable,
-        request_cls: type[RollbackRequestV2],
-        remote_call: Callable,
-        response_type: type[api_types.RollbackResponse],
-        update_acked_ecus: None,
-    ) -> api_types.RollbackResponse: ...
-
-    @overload
-    async def _handle_request(
+    async def _handle_update_request(
         self,
         request: api_types.ClientUpdateRequest,
         local_handler: Callable,
@@ -256,34 +242,30 @@ class OTAClientAPIServicer:
         update_acked_ecus: set[str],
     ) -> api_types.ClientUpdateResponse: ...
 
-    async def _handle_request(
+    async def _handle_update_request(
         self,
-        request: (
-            api_types.UpdateRequest
-            | api_types.RollbackRequest
-            | api_types.ClientUpdateRequest
-        ),
+        request: api_types.UpdateRequest | api_types.ClientUpdateRequest,
         local_handler: Callable,
-        request_cls: (
-            type[UpdateRequestV2]
-            | type[RollbackRequestV2]
-            | type[ClientUpdateRequestV2]
-        ),
+        request_cls: type[UpdateRequestV2] | type[ClientUpdateRequestV2],
         remote_call: Callable,
         response_type: (
-            type[api_types.UpdateResponse]
-            | type[api_types.RollbackResponse]
-            | type[api_types.ClientUpdateResponse]
+            type[api_types.UpdateResponse] | type[api_types.ClientUpdateResponse]
         ),
         update_acked_ecus: set[str] | None,
-    ) -> (
-        api_types.UpdateResponse
-        | api_types.RollbackResponse
-        | api_types.ClientUpdateResponse
-    ):
+    ) -> api_types.UpdateResponse | api_types.ClientUpdateResponse:
         """Handle incoming request."""
         logger.info(f"receive request: {request}")
         response = response_type()
+
+        if self._stop_ota_flag.shutdown_requested.is_set():
+            logger.error(
+                "otaclient is stopping due to OTA STOP requested. Rejecting all further incoming request"
+            )
+            for _req in request.iter_ecu():
+                self._add_ecu_into_response(
+                    response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
+                )
+            return response
 
         if not request.request_id:
             request.request_id = gen_request_id()
@@ -298,7 +280,6 @@ class OTAClientAPIServicer:
                     response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
                 )
             return response
-
         # first: dispatch update request to all directly connected subECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
@@ -364,18 +345,73 @@ class OTAClientAPIServicer:
             )
         return response
 
+    def _handle_stop_request(self, request: StopRequestV2) -> api_types.StopResponseEcu:
+        """Dispatch stop request to main process."""
+        logger.info(f"handling request: {request}")
+        if not isinstance(request, StopRequestV2):
+            return api_types.StopResponseEcu(
+                ecu_id="",
+                result=api_types.FailureType.RECOVERABLE,
+                message="invalid stop request",
+            )
+
+        try:
+            # Check if critical zone lock is available
+            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
+                if not _lock_acquired:
+                    logger.warning("in critical zone, reject stop request ...")
+                    return api_types.StopResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.RECOVERABLE,
+                        message="In critical zone, stop request rejected",
+                    )
+
+                logger.warning(
+                    "stop function requested, interrupting OTA and exit now ..."
+                )
+                # set the stop flag to notify main process to stop ongoing OTA
+                self._stop_ota_flag.shutdown_requested.set()
+
+                logger.info("Stop OTA flag is set properly.")
+
+                return api_types.StopResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.NO_FAILURE,
+                )
+
+        except Exception as e:
+            logger.error(f"failed to send stop request to main process: {e!r}")
+            return api_types.StopResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.FailureType.RECOVERABLE,
+                message="Failed to process stop request",
+            )
+
     # API methods
 
     async def update(
         self, request: api_types.UpdateRequest
     ) -> api_types.UpdateResponse:
-        return await self._handle_request(
+        return await self._handle_update_request(
             request=request,
             local_handler=self._local_update,
             request_cls=UpdateRequestV2,
             remote_call=OTAClientCall.update_call,
             response_type=api_types.UpdateResponse,
             update_acked_ecus=set(),
+        )
+
+    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
+        # TODO: after security measures are implemented, the below needs to be updated to actually handle stop request
+        logger.warning("stop API is not supported yet, rejecting all stop request")
+        return api_types.StopResponse(
+            ecu=[
+                api_types.StopResponseEcu(
+                    ecu_id="",
+                    result=api_types.FailureType.RECOVERABLE,
+                    message="stop API is not supported yet",
+                )
+            ]
         )
 
     async def rollback(
@@ -396,7 +432,7 @@ class OTAClientAPIServicer:
     async def client_update(
         self, request: api_types.ClientUpdateRequest
     ) -> api_types.ClientUpdateResponse:
-        return await self._handle_request(
+        return await self._handle_update_request(
             request=request,
             local_handler=self._local_client_update,
             request_cls=ClientUpdateRequestV2,
