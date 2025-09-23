@@ -208,8 +208,8 @@ def test_parse_raw_jwt(_input, _expected) -> None:
         assert _expected is None, f"expecting {_input} is valid, but: {e!r}"
 
 
-class TestCryptographyCompatibility:
-    """Compatibility tests for cryptography library"""
+class TestCryptography:
+    """Tests for cryptography"""
 
     def test_ecdsa_signature_verification_basic(self):
         """Basic ECDSA signature verification test"""
@@ -519,27 +519,6 @@ class TestCryptographyCompatibility:
 
         # Signature verification
         parser.verify_metadata_signature(cert_pem)
-
-    def test_cryptography_version_compatibility(self):
-        """Cryptography library version compatibility test"""
-        import cryptography
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import ec
-        from cryptography.hazmat.primitives.asymmetric.ec import (
-            ECDSA,
-            EllipticCurvePublicKey,
-        )
-        from cryptography.x509 import load_pem_x509_certificate
-
-        # Output version information (for debugging)
-        print(f"cryptography version: {cryptography.__version__}")
-
-        # Check if basic APIs are available
-        assert hashes is not None
-        assert ec is not None
-        assert ECDSA is not None
-        assert EllipticCurvePublicKey is not None
-        assert load_pem_x509_certificate is not None
 
     def test_error_handling_with_invalid_certificates(self):
         """Error handling test for invalid certificates"""
