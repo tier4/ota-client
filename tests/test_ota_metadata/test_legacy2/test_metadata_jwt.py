@@ -23,9 +23,10 @@ import json
 from datetime import datetime, timezone
 
 import pytest
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives.asymmetric.ec import ECDSA
+from cryptography.hazmat.primitives.asymmetric.ec import ECDSA, EllipticCurvePublicKey
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509 import (
     BasicConstraints,
@@ -227,8 +228,6 @@ class TestCryptography:
         public_key.verify(signature, test_data, ECDSA(hashes.SHA256()))
 
         # Signature verification (invalid case - different data)
-        from cryptography.exceptions import InvalidSignature
-
         with pytest.raises(InvalidSignature):
             public_key.verify(signature, b"different data", ECDSA(hashes.SHA256()))
 
@@ -280,8 +279,6 @@ class TestCryptography:
         test_data = b"test data for public key verification"
         signature = private_key.sign(test_data, ECDSA(hashes.SHA256()))
         # Cast to EllipticCurvePublicKey for type checking
-        from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
-
         assert isinstance(loaded_public_key, EllipticCurvePublicKey)
         loaded_public_key.verify(signature, test_data, ECDSA(hashes.SHA256()))
 
