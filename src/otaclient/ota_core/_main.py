@@ -128,7 +128,7 @@ class OTAClient:
         self._metrics = OTAMetricsData()
         self._metrics.ecu_id = self.my_ecu_id
         self._metrics.enable_local_ota_proxy_cache = (
-            proxy_info.enable_local_ota_proxy_cache
+            proxy_info.should_enable_local_otaproxy and proxy_info.should_enable_cache
         )
 
         try:

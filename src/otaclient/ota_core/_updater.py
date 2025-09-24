@@ -669,7 +669,7 @@ class OTAUpdater(OTAUpdateOperator):
             )
         )
         self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
-        if proxy_info.enable_local_ota_proxy:
+        if proxy_info.should_enable_local_otaproxy:
             wait_and_log(
                 check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
                 check_for=False,
