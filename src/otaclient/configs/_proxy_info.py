@@ -13,7 +13,7 @@
 # limitations under the License.
 """proxy_info.yaml definition and parsing logic."""
 
-# TODO(20250924): once we clear out the all the hardcoded logics of preserving
+# TODO(20250924): once we clear out all the hardcoded logics of preserving
 #                 proxy_info.yaml across OTA, we should switch to let the OTA
 #                 update the proxy_info.yaml instead of implementing the logic
 #                 in proxy_info module to hardcoded disabling the otaproxy on child ECU.
