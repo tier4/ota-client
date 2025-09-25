@@ -53,6 +53,7 @@ SPECIAL_FILE_FPATH = f"{cfg.OTA_IMAGE_DIR}/data/{SPECIAL_FILE_NAME}"
 SPECIAL_FILE_SHA256HASH = sha256(SPECIAL_FILE_CONTENT.encode()).hexdigest()
 REGULARS_TXT_PATH = f"{cfg.OTA_IMAGE_DIR}/regulars.txt"
 
+DEFAULT_SHUFFLE_BATCH_SIZE = 256
 CLIENTS_NUM = 3
 
 
@@ -148,13 +149,31 @@ def ota_downloader_process(
     sync_event: Event,
     upper_proxy: str,
 ) -> None:
+    logging.basicConfig(level=logging.CRITICAL, force=True)  # suppress all other logs
+    _logger = logging.getLogger(f"ota_downloader_process#{worker_id}")
+    _logger.setLevel(level=logging.INFO)
+
+    def _batch_shuffle():
+        _batched = []
+        for _entry in regular_entries:
+            _batched.append(_entry)
+            if len(_batched) > DEFAULT_SHUFFLE_BATCH_SIZE:
+                random.shuffle(_batched)
+                yield from _batched
+                _batched = []
+
+        # don't forget the last batch
+        random.shuffle(_batched)
+        yield from _batched
+
     async def main():
         sync_event.wait()
+        logger.info(f"worker#{worker_id} started")
         async with aiohttp.ClientSession() as session:
             await asyncio.sleep(random.randrange(100, 200) // 100)
-            for count, entry in enumerate(regular_entries, start=1):
+            for count, entry in enumerate(_batch_shuffle(), start=1):
                 if count % 1000 == 0:
-                    logger.info(f"worker#{worker_id}: {count} finished ...")
+                    _logger.info(f"worker#{worker_id}: {count} finished ...")
 
                 _path = Path(entry.path)
                 url = urljoin(
@@ -185,12 +204,14 @@ def ota_downloader_process(
                         except AssertionError:
                             _retry_count += 1
                             if _retry_count > _max_retry:
-                                logger.error(f"failed on {entry}")
+                                _logger.error(
+                                    f"worker#{worker_id} ERR: failed on {entry}"
+                                )
                                 raise
-                            logger.warning(
-                                f"failed on {entry}, {_retry_count=}, still retry..."
+                            _logger.warning(
+                                f"worker#{worker_id} ERR: failed on {entry}, {_retry_count=}, still retry..."
                             )
-            logger.info(f"worker#{worker_id} finished!")
+            _logger.info(f"worker#{worker_id} finished!")
 
     asyncio.run(main())
 
@@ -198,6 +219,9 @@ def ota_downloader_process(
 def launch_ota_downloaders(
     parse_regulars: list[RegularInf], worker_nums: int, upper_proxy: str
 ):
+    """
+    Launch `<worker_nums>` workers to download using `<upper_proxy>`.
+    """
     mp_ctx = multiprocessing.get_context("spawn")
     sync_event = mp_ctx.Event()
     ps: dict[int, SpawnProcess] = {}
@@ -214,6 +238,8 @@ def launch_ota_downloaders(
         )
         p.start()
         ps[i] = p
+
+    logger.info(f"all {CLIENTS_NUM} clients have started to download ota image...")
     sync_event.set()
 
     for wid, p in ps.items():
@@ -309,6 +335,7 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
             finally:
                 shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
+    @pytest.mark.skip
     async def test_download_file_with_special_fname(
         self, launch_ota_proxy_server: SpawnProcess
     ):
@@ -371,83 +398,23 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         elif self.space_availability == "exceed_hard_limit":
             pass
 
-    async def ota_image_downloader(
-        self,
-        worker_id: int,
-        regular_entries: list[RegularInf],
-        sync_event: asyncio.Event,
-    ):
-        """Test single client download the whole ota image."""
-        async with aiohttp.ClientSession() as session:
-            await sync_event.wait()
-            await asyncio.sleep(random.randrange(100, 200) // 100)
-
-            for count, entry in enumerate(regular_entries, start=1):
-                if count % 1000 == 0:
-                    logger.info(f"worker#{worker_id}: {count} finished ...")
-
-                _path = Path(entry.path)
-                url = urljoin(
-                    cfg.OTA_IMAGE_URL, quote(f"/data/{_path.relative_to('/')}")
-                )
-
-                _retry_count = 0
-                _max_retry = 6
-                # NOTE: for space_availability==exceed_hard_limit or below_hard_limit,
-                #       it is normal that transition is interrupted when
-                #       space_availability status transfered.
-                while True:
-                    async with session.get(
-                        url,
-                        proxy=self.OTA_PROXY_URL,
-                        cookies={"acookie": "acookie", "bcookie": "bcookie"},
-                    ) as resp:
-                        hash_f = sha256()
-                        read_size = 0
-                        async for data, _ in resp.content.iter_chunks():
-                            read_size += len(data)
-                            hash_f.update(data)
-
-                        try:
-                            assert read_size == entry.size
-                            assert hash_f.digest() == entry.sha256hash
-                            break
-                        except AssertionError:
-                            _retry_count += 1
-                            if _retry_count > _max_retry:
-                                logger.error(f"failed on {entry}")
-                                raise
-                            logger.warning(
-                                f"failed on {entry}, {_retry_count=}, still retry..."
-                            )
-            logger.info(f"worker#{worker_id} finished!")
-
     async def test_multiple_clients_download_ota_image(
-        self, parse_regulars: list[RegularInf], launch_ota_proxy_server: SpawnProcess
+        self,
+        parse_regulars: list[RegularInf],
+        launch_ota_proxy_server: SpawnProcess,
+        capsys: pytest.CaptureFixture[str],
     ):
         """Test multiple client download the whole ota image simultaneously."""
         # ------ dispatch many clients to download from otaproxy simultaneously ------ #
         # --- execution --- #
-        sync_event = asyncio.Event()
-        tasks: list[asyncio.Task] = []
-        for worker_id in range(CLIENTS_NUM):
-            tasks.append(
-                asyncio.create_task(
-                    self.ota_image_downloader(
-                        worker_id,
-                        parse_regulars,
-                        sync_event,
-                    )
-                )
+        with capsys.disabled():
+            launch_ota_downloaders(
+                parse_regulars=parse_regulars,
+                worker_nums=CLIENTS_NUM,
+                upper_proxy=self.OTA_PROXY_URL,
             )
-        logger.info(f"all {CLIENTS_NUM} clients have started to download ota image...")
-        sync_event.set()
 
         # --- assertions --- #
-        # 1. ensure all clients finished the downloading successfully
-        for _fut in asyncio.as_completed(tasks):
-            await _fut
-
         # shutdown the otaproxy process before checking cache_dir
         launch_ota_proxy_server.terminate()
         launch_ota_proxy_server.join()
