@@ -168,6 +168,7 @@ class OTAClient:
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
         self.current_version = self.boot_controller.load_version()
+        self.standby_slot_version = self.boot_controller.load_standby_slot_version()
 
         status_report_queue.put_nowait(
             StatusReport(
@@ -184,6 +185,7 @@ class OTAClient:
             )
         )
         self._metrics.current_firmware_version = self.current_version
+        self._metrics.standby_slot_version = self.standby_slot_version
 
         self.ca_chains_store = None
         try:
