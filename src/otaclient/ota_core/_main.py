@@ -186,6 +186,9 @@ class OTAClient:
         )
         self._metrics.current_firmware_version = self.current_version
         self._metrics.standby_slot_version = self.standby_slot_version
+        logger.info(
+            f"current_firmware_version: {self.current_version}, standby_slot_version: {self.standby_slot_version}"
+        )
 
         self.ca_chains_store = None
         try:
