@@ -209,7 +209,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
                         _base_url, _resource_dl_info.compressed_origin_digest.hex()
                     ),
                     dst=_blob_save_dst,
-                    size=_resource_dl_info.compressed_origin_size,
+                    size=_resource_dl_info.size,
                     compression_alg=_resource_dl_info.compression_alg,
                     digest=_resource_dl_info.compressed_origin_digest.hex(),
                 )
