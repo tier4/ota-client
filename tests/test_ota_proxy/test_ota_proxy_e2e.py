@@ -168,7 +168,7 @@ def ota_downloader_process(
 
     async def main():
         sync_event.wait()
-        logger.info(f"worker#{worker_id} started")
+        _logger.info(f"worker#{worker_id} started")
         async with aiohttp.ClientSession() as session:
             await asyncio.sleep(random.randrange(100, 200) // 100)
             for count, entry in enumerate(_batch_shuffle(), start=1):
