@@ -205,11 +205,9 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             if _resource_dl_info.compression_alg:
                 assert _resource_dl_info.compressed_origin_digest
                 _this_res = downloader.download(
-                    url=urljoin(
-                        _base_url, _resource_dl_info.compressed_origin_digest.hex()
-                    ),
+                    url=urljoin(_base_url, _resource_dl_info.digest.hex()),
                     dst=_blob_save_dst,
-                    size=_resource_dl_info.size,
+                    size=_resource_dl_info.compressed_origin_size,
                     compression_alg=_resource_dl_info.compression_alg,
                     digest=_resource_dl_info.compressed_origin_digest.hex(),
                 )
