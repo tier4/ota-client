@@ -338,7 +338,6 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
                 finally:
                     shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
-    @pytest.mark.skip
     async def test_download_file_with_special_fname(
         self, launch_ota_proxy_server: SpawnProcess
     ):
