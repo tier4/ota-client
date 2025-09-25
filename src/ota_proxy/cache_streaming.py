@@ -28,7 +28,7 @@ from typing import Any, AsyncGenerator, Callable, TypeVar
 
 import anyio
 from anyio.to_thread import run_sync
-from typing_extensions import ParamSpec
+from typing_extensions import Concatenate, ParamSpec
 
 from ota_proxy.utils import read_file_once
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -151,9 +151,11 @@ class CacheTracker:
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
+        self.meta_set = asyncio.Event()
+
         self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
         self.save_path = base_dir / cache_identifier
-        self.cache_meta: CacheMeta | None = None
+        self._cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
         self._tracker_events = CacheTrackerEvents()
@@ -161,6 +163,15 @@ class CacheTracker:
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
+
+    @property
+    def cache_meta(self) -> CacheMeta | None:
+        return self._cache_meta
+
+    @cache_meta.setter
+    def cache_meta(self, value: CacheMeta):
+        self.meta_set.set()
+        self._cache_meta = value
 
     def _finalize_cache(self) -> None:
         """Finalize the caching, commit the cache entry to db.
@@ -212,9 +223,7 @@ class CacheTracker:
                 # first create the file
                 f.write(b"")
                 f.flush()
-                os.fsync(fd)
 
-                self.cache_meta = cache_meta
                 weakref.finalize(self, _unlink_no_error, self.fpath)
                 try:
                     while data := input_que.get():
@@ -229,7 +238,6 @@ class CacheTracker:
                         self._bytes_written += len(data)
                 finally:
                     f.flush()
-                    os.fsync(fd)
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             # NOTE(20240805): mark the writer succeeded in advance to release the
@@ -259,10 +267,8 @@ class CacheTracker:
 
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                self.cache_meta = cache_meta
                 f.write(data)
                 f.flush()
-                os.fsync(fd)
                 weakref.finalize(self, _unlink_no_error, self.fpath)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
             tracker_events.set_writer_finished()
@@ -416,24 +422,28 @@ class CacheWriterPool:
 
     async def _write_dispatcher(
         self,
-        tracker_event: CacheTrackerEvents,
-        fn: Callable[P, Any],
+        tracker: CacheTracker,
+        fn: Callable[Concatenate[CacheMeta, P], Any],
+        cache_meta: CacheMeta,
         *args: P.args,
         **kwargs: P.kwargs,
     ) -> None:
+        tracker_event = tracker._tracker_events
         try:
             if self._se.locked():
-                burst_suppressed_logger.warning(
-                    "exceed pending write tasks threshold, dropping caching"
-                )
+                _err_msg = "exceed pending write tasks threshold, dropping caching"
+                burst_suppressed_logger.warning(_err_msg)
                 tracker_event.set_writer_failed()
-            else:
-                await self._se.acquire()
-                self._pool.submit(fn, *args, **kwargs).add_done_callback(
-                    self._release_se_cb
-                )
+                raise CacheStreamingFailed(_err_msg)
+
+            await self._se.acquire()
+            # NOTE(20250925): set the cache_meta to the tracker here
+            tracker.cache_meta = cache_meta
+            self._pool.submit(fn, cache_meta, *args, **kwargs).add_done_callback(
+                self._release_se_cb
+            )
         finally:
-            del self, fn, args, kwargs
+            del self, tracker, fn, args, kwargs
 
     async def close(self) -> None:
         await run_sync(self._pool.shutdown)
@@ -454,7 +464,7 @@ class CacheWriterPool:
             A AsyncGenerator[bytes] to yield data chunk from, for upper otaproxy uvicorn APP.
 
         Raises:
-            CacheStreamingFailed if any exception happens.
+            CacheStreamingFailed if any exception occurs, or the writer pool queue is full.
         """
         tracker_event = tracker._tracker_events
         try:
@@ -463,7 +473,7 @@ class CacheWriterPool:
         except StopAsyncIteration:
             # no data chunk from upper, might indicate an empty file
             await self._write_dispatcher(
-                tracker_event,
+                tracker,
                 tracker._commit_cache_cb,
                 cache_meta,
             )
@@ -475,7 +485,7 @@ class CacheWriterPool:
             yield _second_chunk
         except StopAsyncIteration:  # no next chunk
             await self._write_dispatcher(
-                tracker_event,
+                tracker,
                 tracker.provider_write_once_in_thread,
                 cache_meta,
                 _first_chunk,
@@ -486,7 +496,7 @@ class CacheWriterPool:
         tee_que.put_nowait(_first_chunk)
         tee_que.put_nowait(_second_chunk)
         await self._write_dispatcher(
-            tracker_event,
+            tracker,
             tracker.provider_write_file_in_thread,
             cache_meta,
             tee_que,

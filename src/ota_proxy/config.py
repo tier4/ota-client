@@ -24,13 +24,13 @@ class Config:
     WRITE_CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     LOCAL_READ_SIZE = 2 * 1024 * 1024  # 2MiB
 
-    # adjust from 8 ~ 16 threads
-    CACHE_WRITE_WORKERS_NUM = max(8, min(16, (os.cpu_count() or 1) + 4))
-    # adjust from 16 ~ 32 threads
-    CACHE_READ_WORKERS_NUM = max(16, min(32, (os.cpu_count() or 1) + 4))
+    # 6~8 write threads
+    CACHE_WRITE_WORKERS_NUM = max(6, min(8, (os.cpu_count() or 1) + 4))
+    # 6~16 read threads
+    CACHE_READ_WORKERS_NUM = max(6, min(16, (os.cpu_count() or 1) + 4))
 
-    MAX_PENDING_WRITE = CACHE_WRITE_WORKERS_NUM * 10
-    MAX_PENDING_READ = CACHE_READ_WORKERS_NUM * 10
+    MAX_PENDING_WRITE = 384
+    MAX_PENDING_READ = 512
 
     # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 70  # in p%
