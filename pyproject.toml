@@ -129,6 +129,9 @@ source = [
   "ota_proxy",
   "otaclient_manifest",
 ]
+disable_warnings = [
+    "no-data-collected",
+]
 
 [tool.coverage.report]
 omit = [
