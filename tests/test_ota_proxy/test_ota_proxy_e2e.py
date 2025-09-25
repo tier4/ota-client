@@ -310,30 +310,33 @@ class TestOTAProxyServer(ThreadpoolExecutorFixtureMixin):
         )
 
     @pytest.fixture(autouse=True)
-    async def launch_ota_proxy_server(self, setup_ota_proxy_server):
+    async def launch_ota_proxy_server(
+        self, setup_ota_proxy_server, capsys: pytest.CaptureFixture[str]
+    ):
         """
         NOTE: launch ota_proxy in different space availability condition
         """
         logger.info("launch otaproxy process ...")
         mp_ctx = multiprocessing.get_context("spawn")
         p = mp_ctx.Process(target=setup_ota_proxy_server)
-        try:
-            p.start()
-            logger.info("wait 3 seconds for otaproxy process starts ...")
-            await asyncio.sleep(3)  # wait before otaproxy server is ready
-
-            # ensure the mocked background space checker is running, see
-            #   ota_proxy_process above.
-            if self.enable_cache_for_test:
-                assert (self.ota_cache_dir / "flag").is_file()
-            yield p
-        finally:
-            logger.info("shutting down otaproxy process ...")
+        with capsys.disabled():
             try:
-                p.terminate()
-                p.join()
+                p.start()
+                logger.info("wait 3 seconds for otaproxy process starts ...")
+                await asyncio.sleep(3)  # wait before otaproxy server is ready
+
+                # ensure the mocked background space checker is running, see
+                #   ota_proxy_process above.
+                if self.enable_cache_for_test:
+                    assert (self.ota_cache_dir / "flag").is_file()
+                yield p
             finally:
-                shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
+                logger.info("shutting down otaproxy process ...")
+                try:
+                    p.terminate()
+                    p.join()
+                finally:
+                    shutil.rmtree(self.ota_cache_dir, ignore_errors=True)
 
     @pytest.mark.skip
     async def test_download_file_with_special_fname(
