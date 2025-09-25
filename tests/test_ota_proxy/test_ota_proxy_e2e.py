@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from functools import partial
 from hashlib import sha256
 from multiprocessing.context import SpawnProcess
+from multiprocessing.synchronize import Event
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote, unquote, urljoin
@@ -138,6 +139,88 @@ def ota_proxy_process(condition: str, enable_cache_for_test: bool, ota_cache_dir
     )
     _server = uvicorn.Server(_config)
     anyio.run(_server.serve, backend="asyncio", backend_options={"use_uvloop": True})
+
+
+def ota_downloader_process(
+    *,
+    regular_entries: list[RegularInf],
+    worker_id: int,
+    sync_event: Event,
+    upper_proxy: str,
+) -> None:
+    async def main():
+        sync_event.wait()
+        async with aiohttp.ClientSession() as session:
+            await asyncio.sleep(random.randrange(100, 200) // 100)
+            for count, entry in enumerate(regular_entries, start=1):
+                if count % 1000 == 0:
+                    logger.info(f"worker#{worker_id}: {count} finished ...")
+
+                _path = Path(entry.path)
+                url = urljoin(
+                    cfg.OTA_IMAGE_URL, quote(f"/data/{_path.relative_to('/')}")
+                )
+
+                _retry_count = 0
+                _max_retry = 6
+                # NOTE: for space_availability==exceed_hard_limit or below_hard_limit,
+                #       it is normal that transition is interrupted when
+                #       space_availability status transfered.
+                while True:
+                    async with session.get(
+                        url,
+                        proxy=upper_proxy,
+                        cookies={"acookie": "acookie", "bcookie": "bcookie"},
+                    ) as resp:
+                        hash_f = sha256()
+                        read_size = 0
+                        async for data, _ in resp.content.iter_chunks():
+                            read_size += len(data)
+                            hash_f.update(data)
+
+                        try:
+                            assert read_size == entry.size
+                            assert hash_f.digest() == entry.sha256hash
+                            break
+                        except AssertionError:
+                            _retry_count += 1
+                            if _retry_count > _max_retry:
+                                logger.error(f"failed on {entry}")
+                                raise
+                            logger.warning(
+                                f"failed on {entry}, {_retry_count=}, still retry..."
+                            )
+            logger.info(f"worker#{worker_id} finished!")
+
+    asyncio.run(main())
+
+
+def launch_ota_downloaders(
+    parse_regulars: list[RegularInf], worker_nums: int, upper_proxy: str
+):
+    mp_ctx = multiprocessing.get_context("spawn")
+    sync_event = mp_ctx.Event()
+    ps: dict[int, SpawnProcess] = {}
+    for i in range(worker_nums):
+        p = mp_ctx.Process(
+            target=ota_downloader_process,
+            kwargs=dict(
+                regular_entries=parse_regulars,
+                worker_id=i,
+                sync_event=sync_event,
+                upper_proxy=upper_proxy,
+            ),
+            daemon=True,
+        )
+        p.start()
+        ps[i] = p
+    sync_event.set()
+
+    for wid, p in ps.items():
+        p.join()
+        if p.exitcode != 0:
+            logger.error(f"worker#{wid} failed!")
+            raise ValueError
 
 
 @pytest.fixture(scope="module")
