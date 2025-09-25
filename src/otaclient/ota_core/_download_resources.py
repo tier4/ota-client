@@ -25,10 +25,8 @@ from pathlib import Path
 from typing import Generator, Iterable
 from urllib.parse import urljoin
 
-from ota_image_libs.v1.resource_table.db import (
-    PrepareResourceHelper,
-    ResourceTableDBHelper,
-)
+from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
+from ota_image_libs.v1.resource_table.utils import PrepareResourceHelper
 
 from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient.configs.cfg import cfg
@@ -193,22 +191,35 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
 
         resource, prepare_resource_gen = _rst_helper.prepare_resource_at_thread(_digest)
         _res = DownloadResult(download_size=resource.size)
-        for _requested_blob, _blob_save_dst in prepare_resource_gen:
+        for _resource_dl_info in prepare_resource_gen:
+            _blob_save_dst = _resource_dl_info.save_dst
             # reuse already downloaded blobs from previous OTA if presented
             if _blob_save_dst.is_file():
                 if not file_sha256_2(_blob_save_dst).digest() == resource.digest:
                     # broken blob, cleanup and do the downloading again
                     _blob_save_dst.unlink(missing_ok=True)
                 else:
-                    continue
+                    continue  # re-use valid resource
 
-            _this_res = downloader.download(
-                url=urljoin(_base_url, _requested_blob),
-                dst=_blob_save_dst,
-                digest=_requested_blob,
-                # NOTE: do not do auto decompression, the PrepareResourceHelper
-                #       will do the decompression.
-            )
+            # compressed resource, try to decompress during downloading
+            if _resource_dl_info.compression_alg:
+                assert _resource_dl_info.compressed_origin_digest
+                _this_res = downloader.download(
+                    url=urljoin(
+                        _base_url, _resource_dl_info.compressed_origin_digest.hex()
+                    ),
+                    dst=_blob_save_dst,
+                    size=_resource_dl_info.compressed_origin_size,
+                    compression_alg=_resource_dl_info.compression_alg,
+                    digest=_resource_dl_info.compressed_origin_digest.hex(),
+                )
+            else:
+                _this_res = downloader.download(
+                    url=urljoin(_base_url, _resource_dl_info.digest.hex()),
+                    dst=_blob_save_dst,
+                    digest=_resource_dl_info.digest.hex(),
+                )
+
             _res.retry_count += _this_res.retry_count
             _res.traffic_on_wire += _this_res.traffic_on_wire
         # after all the blobs are prepare, the `prepare_resource_at_thread` method will
