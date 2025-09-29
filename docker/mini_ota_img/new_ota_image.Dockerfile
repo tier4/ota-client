@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1-labs
 ARG SYS_IMG=ghcr.io/tier4/ota-client/sys_img_for_test:ubuntu_22.04
 ARG UBUNTU_BASE=ubuntu:22.04
-ARG BUSYBOX_VER=busybox:1.37.0
 
 #
 # ------ stage 1: prepare base image ------ #
@@ -78,7 +77,7 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
 # NOTE: use busybox so that the overall image size will not increase much,
 #       while enable us to examine the built OTA image.
 
-FROM ${BUSYBOX_VER}
+FROM ${UBUNTU_BASE}
 
 ARG SYS_IMG
 
