@@ -16,7 +16,7 @@ FROM ${SYS_IMG} AS sys_img
 
 FROM ${UBUNTU_BASE} AS ota_img_builder
 
-ARG OTA_IMAGE_BUILDER_RELEASE="https://github.com/tier4/ota-image-builder/releases/download/v0.3.1/ota-image-builder-x86_64"
+ARG OTA_IMAGE_BUILDER_RELEASE="https://github.com/tier4/ota-image-builder/releases/download/v0.3.2/ota-image-builder-x86_64"
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -27,9 +27,9 @@ ENV ROOTFS="/rootfs"
 ENV CERTS_DIR="/certs"
 ENV BUILD_ROOT="/tmp/build_root"
 
-COPY --from=sys_img / /${OTA_IMAGE_DIR}
-COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}
-COPY ./tests/ota_image_builder ${BUILD_ROOT}
+COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
+COPY ./tests/data/ota_image_builder ${BUILD_ROOT}
+# COPY --chmod=755 ./ota-image-builder ${BUILD_ROOT}/ota-image-builder
 
 WORKDIR ${BUILD_ROOT}
 
@@ -42,23 +42,28 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
     wget ${OTA_IMAGE_BUILDER_RELEASE} -O ${BUILD_ROOT}/ota-image-builder; \
     chmod +x ota-image-builder; \
     # --- generate certs --- #
+    pushd ${CERTS_DIR}; \
     bash ${CERTS_DIR}/gen_certs.sh; \
+    popd; \
     # --- start to build the OTA image --- #
-    ./ota-image-builder init --annotations-file full_annotations.yaml; \
-    ./ota-image-builder add-image \
+    mkdir -p ${OTA_IMAGE_SERVER_ROOT}; \
+    ./ota-image-builder -d init \
+        --annotations-file full_annotations.yaml \
+        ${OTA_IMAGE_SERVER_ROOT}; \
+    ./ota-image-builder -d add-image \
         --annotations-file full_annotations.yaml \
         --release-key dev \
         --sys-config "autoware:sys_config.yaml" \
         --rootfs ${ROOTFS} \
         ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder add-image \
+    ./ota-image-builder -d add-image \
         --annotations-file full_annotations.yaml \
         --release-key prd \
         --sys-config "autoware:sys_config.yaml" \
-        --rootfs ${ROOTFS} \
+        --rootfs ${ROOTFS}/var \
         ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder finalize ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder sign \
+    ./ota-image-builder -d finalize ${OTA_IMAGE_SERVER_ROOT}; \
+    ./ota-image-builder -d sign \
         --sign-cert ${CERTS_DIR}/sign.pem \
         --sign-key ${CERTS_DIR}/sign.key \
         --ca-cert ${CERTS_DIR}/test.interm.pem \
