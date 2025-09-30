@@ -561,7 +561,10 @@ class OTACache:
             await (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
-            if _cache_meta := tracker.cache_meta:
+            await tracker.meta_set.wait()
+            if (
+                _cache_meta := tracker.cache_meta
+            ) and not tracker._tracker_events.writer_failed:
                 return (
                     await self._read_pool.subscribe_tracker(tracker),
                     _cache_meta.export_headers_to_client(),
@@ -585,6 +588,7 @@ class OTACache:
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
+
             wrapped_fd = self._cache_write_pool.stream_writing_cache(
                 fd=remote_fd,
                 tracker=tracker,
@@ -595,6 +599,7 @@ class OTACache:
             tracker._tracker_events.set_writer_failed()
             raise
         finally:
+            tracker.meta_set.set()  # unlock any waiting subscriber
             del tracker  # prevent future subscribe to this tracker
 
     # exposed API
