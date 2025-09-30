@@ -21,4 +21,3 @@ RUN set -eux; \
     wget -qO- https://astral.sh/uv/install.sh | sh
 
 ENTRYPOINT [ "/bin/bash", "/entry_point.sh" ]
-
