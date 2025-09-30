@@ -15,7 +15,7 @@ RUN --mount=type=bind,source=/ota-image,target=/ota-image,from=ota_image,ro \
     set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        git ca-certificates wget python3 python3-disutils; \
+        git ca-certificates wget python3 python3-setuptools; \
     export UV_INSTALL_DIR=/usr/bin; \
     wget -qO- https://astral.sh/uv/install.sh | sh
 
