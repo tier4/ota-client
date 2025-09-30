@@ -16,7 +16,7 @@ COPY --from=ota_image_v1 /certs /certs_ota-image_v1
 RUN set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        git ca-certificates wget python3.8 python3.8-disutils; \
+        git ca-certificates wget python3.8 python3.8-distutils; \
     export UV_INSTALL_DIR=/usr/bin; \
     wget -qO- https://astral.sh/uv/install.sh | sh
 
