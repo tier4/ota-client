@@ -48,15 +48,6 @@ jobs:
           fetch-depth: 0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build test base docker image
-        uses: docker/bake-action@v5
-        with:
-          workdir: docker/test_base
-          files: ./docker-compose_tests.yml
-          set: |
-            *.cache-from=type=gha,scope=test-ci-pr-${{ github.event.number }}
-            *.cache-to=type=gha,mode=max,scope=test-ci-pr-${{ github.event.number }}
-            *.output=type=docker
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           mkdir -p test_result
