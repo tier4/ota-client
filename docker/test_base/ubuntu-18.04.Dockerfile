@@ -15,9 +15,9 @@ RUN --mount=type=bind,source=/ota-image,target=/ota-image,from=ota_image,ro \
     set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        git ca-certificates wget python3.8; \
+        git ca-certificates wget python3.8 python3.8-disutils; \
+    export UV_INSTALL_DIR=/usr/bin; \
     wget -qO- https://astral.sh/uv/install.sh | sh
 
-ENV PATH="/root/.local/bin:${PATH}"
-ENTRYPOINT [ "/bin/bash", "-c", "/entry_point.sh" ]
+ENTRYPOINT [ "/bin/bash", "/entry_point.sh" ]
 
