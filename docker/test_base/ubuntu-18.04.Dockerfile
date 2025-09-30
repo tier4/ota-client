@@ -7,12 +7,13 @@ FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04-ota_image_v1 AS ota_
 
 FROM ${UBUNTU_BASE}
 
+COPY --from=ota_image /ota-image /ota-image
+COPY --from=ota_image /certs /certs
+COPY --from=ota_image_v1 /ota-image /ota-image_v1
+COPY --from=ota_image_v1 /certs /certs_ota-image_v1
+
 # bootstrapping the python environment
-RUN --mount=type=bind,source=/ota-image,target=/ota-image,from=ota_image,ro \
-    --mount=type=bind,source=/certs,target=/certs,from=ota_image,ro \
-    --mount=type=bind,source=/ota-image,target=/ota-image_v1,from=ota_image_v1,ro \
-    --mount=type=bind,source=/certs,target=/certs_ota-image_v1,from=ota_image_v1,ro \
-    set -eux; \
+RUN set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
         git ca-certificates wget python3.8 python3.8-disutils; \
