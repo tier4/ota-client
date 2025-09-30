@@ -1,23 +1,22 @@
 ARG UBUNTU_BASE
+ARG UV_VERSION=0.8.22
 
 FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04 AS ota_image
 
+FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04-ota_image_v1 AS ota_image_v1
+
 FROM ${UBUNTU_BASE}
 
-COPY --from=ota_image /ota-image /ota-image
-COPY --from=ota_image /certs /certs
-
-# copy and setup the entry_point.sh
-COPY --chmod=755 ./entry_point.sh /entry_point.sh
-
 # bootstrapping the python environment
-RUN set -eux; \
+RUN --mount=type=bind,source=/ota-image,target=/ota-image,from=ota_image,ro \
+    --mount=type=bind,source=/certs,target=/certs,from=ota_image,ro \
+    --mount=type=bind,source=/ota-image,target=/ota-image_v1,from=ota_image_v1,ro \
+    --mount=type=bind,source=/certs,target=/certs_ota-image_v1,from=ota_image_v1,ro \
+    set -eux; \
     apt-get update; \
     apt-get install -y -qq --no-install-recommends \
-        python3 \
-        python3-pip \
-        git; \
-    python3 -m pip install -U pip; \
-    python3 -m pip install uv
+        git ca-certificates wget python3; \
+    wget -qO- https://astral.sh/uv/install.sh | sh
 
-ENTRYPOINT [ "/entry_point.sh" ]
+ENV PATH="/root/.local/bin:${PATH}"
+ENTRYPOINT [ "/bin/bash", "-c", "/entry_point.sh" ]
