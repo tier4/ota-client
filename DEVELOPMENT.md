@@ -44,13 +44,6 @@ Test containers for ubuntu 18.04, 20.04 and 22.04 are defined.
 The `./docker/test_base/entry_point.sh` will be mounted into the test container as entrypoint,
 you can adjust the script as needed.
 
-To be noticed that, if the Dockerfiles of the test containers are updated,
-you need to rebuild the test containers by the following command:
-
-```bash
-docker compose -f docker/test_base/docker-compose_tests.yml build
-```
-
 ### Run all tests at once
 
 The following example will run all tests in the container for ubuntu 20.04:
