@@ -10,32 +10,16 @@ x-common: &_common
 
 services:
   tester-ubuntu-18.04:
-    build:
-      context: .
-      dockerfile: ubuntu-18.04.Dockerfile
-      args:
-        UBUNTU_BASE: ubuntu:18.04
-    pull_policy: never
-    image: ota-test_ubuntu1804
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_18.04
     container_name: ota-test_ubuntu1804
     <<: *_common
 
   tester-ubuntu-20.04:
-    build:
-      context: .
-      args:
-        UBUNTU_BASE: ubuntu:20.04
-    pull_policy: never
-    image: ota-test_ubuntu2004
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_20.04
     container_name: ota-test_ubuntu2004
     <<: *_common
 
   tester-ubuntu-22.04:
-    build:
-      context: .
-      args:
-        UBUNTU_BASE: ubuntu:22.04
-    pull_policy: never
-    image: ota-test_ubuntu2204
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
     container_name: ota-test_ubuntu2204
     <<: *_common
