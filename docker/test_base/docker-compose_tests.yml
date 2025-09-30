@@ -12,6 +12,7 @@ services:
   tester-ubuntu-18.04:
     build:
       context: .
+      dockerfile: ubuntu-18.04.Dockerfile
       args:
         UBUNTU_BASE: ubuntu:18.04
     pull_policy: never
