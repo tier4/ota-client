@@ -214,9 +214,9 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         "execution interrupted due to thread pool shutdown"
                     )
 
+                # NOTE: still raise TaskEnsureFailed to upper,
+                #       let choose to upper dig into the TaskEnsureFailed or not.
                 try:  # raise exc to upper caller
-                    if _last_exc.cause:
-                        raise _last_exc.cause
                     raise _last_exc
                 finally:
                     del _last_exc
