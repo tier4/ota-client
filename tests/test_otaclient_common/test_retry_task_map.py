@@ -151,6 +151,8 @@ class TestRetryTaskMap:
                 ):
                     ...
 
+            _cause = exc_info.value.cause
+            assert type(_cause) is _RetryTaskMapTestErr
             logger.info(
                 f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
             )
@@ -178,6 +180,8 @@ class TestRetryTaskMap:
                 ):
                     ...
 
+            _cause = exc_info.value.cause
+            assert type(_cause) is _RetryTaskMapTestErr
             logger.info(
                 f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
             )
