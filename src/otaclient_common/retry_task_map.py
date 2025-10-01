@@ -211,18 +211,18 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         self._fut_queue.get_nowait()
 
                 try:
-                    _last_exc = self._exc_deque.pop()
+                    _wrapped_exc = self._exc_deque.pop()
                 except Exception:
-                    _last_exc = TasksEnsureFailed(
+                    _wrapped_exc = TasksEnsureFailed(
                         "execution interrupted due to thread pool shutdown"
                     )
 
                 # NOTE: still raise TaskEnsureFailed to upper,
                 #       let choose to upper dig into the TaskEnsureFailed or not.
                 try:  # raise exc to upper caller
-                    raise _last_exc
+                    raise _wrapped_exc
                 finally:
-                    del _last_exc
+                    del _wrapped_exc
 
             try:
                 done_fut = self._fut_queue.get_nowait()
