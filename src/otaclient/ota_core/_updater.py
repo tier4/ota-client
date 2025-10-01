@@ -33,7 +33,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import UpdatePhase
+from otaclient._types import CriticalZoneFlag, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -72,9 +72,11 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         self,
         *,
         boot_controller: BootControllerProtocol,
+        critical_zone_flag: CriticalZoneFlag,
         **kwargs: Unpack[OTAUpdateOperatorInitLegacy],
     ):
         super().__init__(**kwargs)
+        self.critical_zone_flag = critical_zone_flag
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
@@ -355,10 +357,32 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
             self._process_metadata()
-            self._pre_update()
+            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+                if not _lock_acquired:
+                    logger.error(
+                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
+                    )
+                    raise ota_errors.OTAStopRequested(module=__name__)
+
+                logger.info("Entering critical zone for OTA update: pre-update phase")
+
+                self._pre_update()
+
             self._in_update()
-            self._post_update()
-            self._finalize_update()
+
+            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+                if not _lock_acquired:
+                    logger.error(
+                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
+                    )
+                    raise ota_errors.OTAStopRequested(module=__name__)
+
+                logger.info(
+                    "Entering critical zone for OTA update: post-update and finalize-update phases"
+                )
+                self._post_update()
+                self._finalize_update()
+
             # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
