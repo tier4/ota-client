@@ -108,6 +108,10 @@ class _BaseDownloadHelper:
         _download_info: Generator[list[DownloadInfo]],
         condition: threading.Condition,
     ) -> Generator[Future[list[DownloadResult]]]:
+        """
+        Raises:
+            TaskEnsureFailed on work pool interrupted.
+        """
         with self._downloader_pool_with_retry(
             "download_ota_image_metafiles"
         ) as _mapper:
@@ -156,6 +160,10 @@ class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
     ) -> Generator[Future[DownloadResult]]:
+        """
+        Raises:
+            TaskEnsureFailed on work pool interrupted.
+        """
         with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
             for _fut in _mapper.ensure_tasks(
                 partial(
