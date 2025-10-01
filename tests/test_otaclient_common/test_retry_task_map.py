@@ -46,7 +46,7 @@ class _RetryTaskMapTestErr(Exception):
 def _thread_initializer(msg: str) -> None:
     """For testing thread worker initializer."""
     thread_native_id = threading.get_native_id()
-    logger.info(f"thread worker #{thread_native_id} initialized: {msg}")
+    logger.info(f"thread worker(pid: {thread_native_id}) initialized: {msg}")
 
 
 class ThreadSafeTracker:
