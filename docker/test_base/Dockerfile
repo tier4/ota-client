@@ -20,6 +20,11 @@ RUN set -eux; \
     apt-get install -y -qq --no-install-recommends \
         git ca-certificates wget python3 python3-setuptools; \
     export UV_INSTALL_DIR=/usr/bin; \
-    wget -qO- "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+    wget -qO- "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh; \
+    apt-get clean; \
+    rm -rf; \
+        /tmp/* \
+        /var/lib/apt/lists/* \
+        /var/tmp/*
 
 ENTRYPOINT [ "/bin/bash", "/entry_point.sh" ]
