@@ -50,6 +50,12 @@ class TasksEnsureFailed(Exception):
     def cause(self) -> BaseException | None:
         return self.__cause__
 
+    def __repr__(self) -> str:
+        _base = super().__repr__()
+        return f"{_base}, caused by {self.cause!r}"
+
+    __str__ = __repr__
+
 
 class _TaskSubmitFailedAfterPoolShutdown(Exception): ...
 
