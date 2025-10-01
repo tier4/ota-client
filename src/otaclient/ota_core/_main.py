@@ -22,15 +22,12 @@ import shutil
 import threading
 import time
 from functools import partial
+from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
 
-from ota_metadata.utils.cert_store import (
-    CACertStoreInvalid,
-    CAChainStore,
-    load_ca_cert_chains,
-)
+from ota_metadata.utils.cert_store import CACertStoreInvalid, load_ca_cert_chains
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -41,7 +38,6 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
-    CriticalZoneFlag,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -59,11 +55,13 @@ from otaclient.boot_control import get_boot_controller
 from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._common import create_downloader_pool
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
+from ._update_libs import handle_upper_proxy
 from ._updater import OTAUpdater
 
 logger = logging.getLogger(__name__)
@@ -73,11 +71,10 @@ OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
-WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
 
 class OTAClient:
-    """The adapter between OTAClient gRPC interface and the OTA implementation."""
+    """The adapter between OTAClieng gRPC interface and the OTA implementation."""
 
     def __init__(
         self,
@@ -86,7 +83,6 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
-        critical_zone_flag: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -95,7 +91,6 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
-        self._critical_zone_flag = critical_zone_flag
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -182,8 +177,6 @@ class OTAClient:
             _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
             logger.error(_err_msg)
 
-            self.ca_chains_store = CAChainStore()
-
         self.started = True
         logger.info("otaclient started")
 
@@ -235,7 +228,6 @@ class OTAClient:
             # dynamic client is not running, no need to exit
             return
 
-        time.sleep(WAIT_BEFORE_DYNAMIC_CLIENT_EXIT)
         logger.info("exit from dynamic client...")
         self._client_update_control_flags.request_shutdown_event.set()
 
@@ -258,9 +250,15 @@ class OTAClient:
         NOTE that update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        self._live_ota_status = OTAStatus.UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA update request:{request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -269,13 +267,21 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA update request:{request_id}, session: {new_session_id=}"
-        )
+
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
 
         session_wd = self._update_session_dir / new_session_id
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
+
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+        )
         try:
             logger.info("[update] entering local update...")
             if not self.ca_chains_store:
@@ -287,13 +293,11 @@ class OTAClient:
             OTAUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
                 session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
+                ca_store=self.ca_chains_store,
                 boot_controller=self.boot_controller,
+                downloader_pool=download_pool,
                 ecu_status_flags=self.ecu_status_flags,
-                critical_zone_flag=self._critical_zone_flag,
-                upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 metrics=self._metrics,
@@ -307,6 +311,7 @@ class OTAClient:
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
+            self._exit_from_dynamic_client()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
@@ -316,8 +321,6 @@ class OTAClient:
             except Exception as e:
                 logger.error(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
-
-            self._exit_from_dynamic_client()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
@@ -329,9 +332,15 @@ class OTAClient:
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
             return
 
-        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -340,10 +349,17 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
-        )
 
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
+
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+        )
         session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[client update] entering local update...")
@@ -356,12 +372,11 @@ class OTAClient:
             OTAClientUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
                 session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
+                ca_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
-                upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
+                downloader_pool=download_pool,
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
@@ -380,10 +395,7 @@ class OTAClient:
                     session_id=new_session_id,
                 )
             )
-        except Exception as e:
-            logger.error(
-                f"Exception occurred while doing client update! Begin Shutdown process. Error: {e!r}"
-            )
+        except Exception:
             self._client_update_control_flags.request_shutdown_event.set()
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
@@ -474,7 +486,6 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
-    critical_zone_flag: CriticalZoneFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -498,7 +509,6 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
-        critical_zone_flag=critical_zone_flag,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
