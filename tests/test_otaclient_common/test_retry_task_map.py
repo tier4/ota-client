@@ -50,7 +50,6 @@ def _thread_initializer(msg: str) -> None:
 
 
 class ThreadSafeTracker:
-
     def __init__(self) -> None:
         self._impl = {}
         self._lock = threading.Lock()
@@ -64,7 +63,6 @@ class ThreadSafeTracker:
 
 
 class TestRetryTaskMap:
-
     # NOTE: setup fixture here is per-test-function
     @pytest.fixture(autouse=True)
     def setup(self) -> None:
@@ -117,12 +115,18 @@ class TestRetryTaskMap:
             backoff_factor=BACKOFF_FACTOR,
             backoff_max=BACKOFF_MAX,
         ) as executor:
-            with pytest.raises(retry_task_map.TasksEnsureFailed):
+            with pytest.raises(retry_task_map.TasksEnsureFailed) as exc_info:
                 for _fut in executor.ensure_tasks(
                     self.workload_aways_failed, range(TASKS_COUNT)
                 ):
                     if _fut.exception():
                         failure_count += 1
+
+            _cause = exc_info.value.cause
+            assert type(_cause) is ValueError
+            logger.info(
+                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
+            )
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
@@ -138,7 +142,7 @@ class TestRetryTaskMap:
             backoff_factor=BACKOFF_FACTOR,
             backoff_max=BACKOFF_MAX,
         ) as executor:
-            with pytest.raises(retry_task_map.TasksEnsureFailed):
+            with pytest.raises(retry_task_map.TasksEnsureFailed) as exc_info:
                 for _ in executor.ensure_tasks(
                     self.workload_aways_failed,
                     range(TASKS_COUNT),
@@ -146,6 +150,10 @@ class TestRetryTaskMap:
                     ensure_tasks_pull_interval=0.0001,
                 ):
                     ...
+
+            logger.info(
+                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
+            )
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
@@ -161,7 +169,7 @@ class TestRetryTaskMap:
             backoff_factor=BACKOFF_FACTOR,
             backoff_max=BACKOFF_MAX,
         ) as executor:
-            with pytest.raises(retry_task_map.TasksEnsureFailed):
+            with pytest.raises(retry_task_map.TasksEnsureFailed) as exc_info:
                 for _ in executor.ensure_tasks(
                     self.workload_aways_failed,
                     range(TASKS_COUNT),
@@ -169,6 +177,10 @@ class TestRetryTaskMap:
                     ensure_tasks_pull_interval=0.00001,
                 ):
                     ...
+
+            logger.info(
+                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
+            )
 
         assert any(
             _per_entry_failure >= MAX_RETRY_ON_ENTRY
