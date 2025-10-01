@@ -124,9 +124,7 @@ class TestRetryTaskMap:
 
             _cause = exc_info.value.cause
             assert type(_cause) is ValueError
-            logger.info(
-                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
-            )
+            logger.info(f"interrupted as expected by {exc_info=}, caused by {_cause!r}")
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
@@ -153,9 +151,7 @@ class TestRetryTaskMap:
 
             _cause = exc_info.value.cause
             assert type(_cause) is _RetryTaskMapTestErr
-            logger.info(
-                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
-            )
+            logger.info(f"interrupted as expected by {exc_info=}, caused by {_cause!r}")
 
         total_failure_count = next(self._total_failure_counter) - 1
         logger.info(f"{total_failure_count=}")
@@ -182,9 +178,7 @@ class TestRetryTaskMap:
 
             _cause = exc_info.value.cause
             assert type(_cause) is _RetryTaskMapTestErr
-            logger.info(
-                f"interrupted as expected by {exc_info=}, caused by {exc_info.value.cause}"
-            )
+            logger.info(f"interrupted as expected by {exc_info=}, caused by {_cause!r}")
 
         assert any(
             _per_entry_failure >= MAX_RETRY_ON_ENTRY
