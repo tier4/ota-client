@@ -26,9 +26,12 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from otaclient import errors as ota_errors
+from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
+
+WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 
 class OTAClientError(Exception): ...
@@ -84,6 +87,20 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
         return False
     finally:
         del exc, _fut  # drop ref to exc instance
+
+
+def handle_upper_proxy(_upper_proxy: str) -> None:
+    """Ensure the upper proxy is online before starting the local OTA update."""
+    logger.info(
+        f"use {_upper_proxy} for local OTA update, "
+        f"wait for otaproxy@{_upper_proxy} online..."
+    )
+
+    # NOTE: will raise a built-in ConnnectionError at timeout
+    ensure_otaproxy_start(
+        _upper_proxy,
+        probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
+    )
 
 
 def prepare_cookies(cookies_json: str) -> dict[str, str]:

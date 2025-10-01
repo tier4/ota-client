@@ -62,7 +62,7 @@ from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
-from ._update_libs import handle_upper_proxy
+from ._common import handle_upper_proxy
 from ._updater import OTAUpdater
 
 logger = logging.getLogger(__name__)

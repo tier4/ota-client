@@ -60,7 +60,6 @@ from otaclient_common import (
     replace_root,
 )
 from otaclient_common._typing import StrOrPath
-from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloadResult
 from otaclient_common.persist_file_handling import PersistFilesHandler
 
@@ -68,23 +67,8 @@ from ._common import download_exception_handler
 
 logger = logging.getLogger(__name__)
 
-WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
-
-
-def handle_upper_proxy(_upper_proxy: str) -> None:
-    """Ensure the upper proxy is online before starting the local OTA update."""
-    logger.info(
-        f"use {_upper_proxy} for local OTA update, "
-        f"wait for otaproxy@{_upper_proxy} online..."
-    )
-
-    # NOTE: will raise a built-in ConnnectionError at timeout
-    ensure_otaproxy_start(
-        _upper_proxy,
-        probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
-    )
 
 
 class DeltaCalCulator:
