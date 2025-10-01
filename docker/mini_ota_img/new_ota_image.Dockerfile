@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1-labs
 ARG SYS_IMG=ghcr.io/tier4/ota-client/sys_img_for_test:ubuntu_22.04
 ARG UBUNTU_BASE=ubuntu:22.04
 
@@ -28,7 +27,6 @@ ENV BUILD_ROOT="/tmp/build_root"
 
 COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
 COPY ./tests/data/ota_image_builder ${BUILD_ROOT}
-# COPY --chmod=755 ./ota-image-builder ${BUILD_ROOT}/ota-image-builder
 
 WORKDIR ${BUILD_ROOT}
 
@@ -68,7 +66,9 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
         --ca-cert ${CERTS_DIR}/test.interm.pem \
         ${OTA_IMAGE_SERVER_ROOT}; \
     # --- clean up --- #
-    rm ${CERTS_DIR}/*.sh
+    # although the keys are only for tests, and only used for
+    #   this test OTA image, still clean it up.
+    rm -rf ${CERTS_DIR}/*.key
 
 #
 # ------ stage 4: output OTA image ------ #
