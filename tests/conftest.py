@@ -77,6 +77,8 @@ class TestConfiguration:
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "ota_metadata.legacy.parser"
 
+    COOKIES_JSON = '{"CloudFront-Policy": "eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9maXJtd2FyZS1pbWFnZS5jaS53ZWIuYXV0by94Ml9kZXYvOWZjMTA2ZjAtMWJlZC00YzMyLTg5ZmEtNjUzOWYxZDc1NWJlLyoiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3NTEzMzI0OTN9fX1dfQ__", "CloudFront-Signature": "iGhqJjjLnNUNuF8zdy0wJVUVXABsIPdCgy0rrnLHXT8MANJtcFydyf0LcxKzbIR9654ek0NmkYgeUakv5U96pacGWfNgVO0z-5BxZiZjaph9PLFqX0kanmSUGTk2vdQm0o67qg~hiTBh0~OzdXK12J~UucObr4xgm7TxH08QFbVxRzvSkFVVqNhd2JqFp70ihgS~AGtn8ZmOUsHRNIfqiLkz4HdvqgvnpJTmvEyFYeaooSEw1usJ3svbUzhJ3WB25UiShUymGtcG5QHVcApB-jH40hfW8qd42l06OQb6J2E6XMEw710PczGWeZf3WbV7nmSE-2C5J7pZXZadePXi8w__", "CloudFront-Key-Pair-Id": "K2HIO3GARJTNVV"}'
+
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
     CERTS_DIR = "/certs"
