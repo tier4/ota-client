@@ -16,6 +16,8 @@ Python 3.8.10
 
 ## How to build
 
+You can build the python wheel package as follow:
+
 1. install `uv`: <https://docs.astral.sh/uv/getting-started/installation/>
 
 2. setup a venv environment:
@@ -34,53 +36,40 @@ uv build --wheel
 
 ## How to test OTA client on the development PC
 
-### Build the image for testing
+### Use docker compose to run tests in a container
 
-Build the `ota-test_base` image for running tests under a container as follow:
+The test containers are defined in `docker/test_base/docker-compose_tests.yml`,
+Test containers for ubuntu 18.04, 20.04 and 22.04 are defined.
 
-```bash
-docker compose -f docker/test_base/docker-compose_tests.yml build
-```
-
-This `ota-test_base` image contains a copy of pre-build minimum `ota-image` under `/ota-image` folder, and pre-installed dependencies needed for running and testing OTA client.
-`tester` in the following commands is the service name of the test base container, which is defined in the `docker-compose_tests.yml`(e.g. `tester-ubuntu-22.04`).
+The `./docker/test_base/entry_point.sh` will be mounted into the test container as entrypoint,
+you can adjust the script as needed.
 
 ### Run all tests at once
 
+The following example will run all tests in the container for ubuntu 20.04:
+
 ```bash
-docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester
+# at project root directory
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04
 ```
 
 ### Run specific tests manually by override the command
 
-Directly execute pytest is also possible by override the command:
+Specify to only run specific tests is also possible as follow:
 
 ```bash
-docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester \
+# at project root directory
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04 \
    tests/<specific_test_file>  [<test_file_2> [...]]
 ```
 
-### Run specific tests manually by dropping to bash shell
+### Control the test container interactively
 
 Directly drop to bash shell in the test base container as follow:
 
 ```bash
-docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint bash --rm tester
-```
-
-And then run specific tests as you want after copying the source code to the container based on the `entry_point.sh`:
-
-```bash
-# copy the source code to the container
-cp -r /otaclient_src /test_root
-# change the working directory to the test_root
-cd /test_root
-# create the hatch environment
-hatch env create dev
-# enter the hatch environment
-hatch shell dev
-# inside the container
-python3 -m pytest tests/<specific_test_file> [<test_file_2> [...]]
+# at the project root directory
+docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-20.04
 ```
 
 ## How to update protobuf
