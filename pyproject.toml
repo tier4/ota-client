@@ -130,11 +130,6 @@ source = [
   "ota_proxy",
   "otaclient_manifest",
 ]
-disable_warnings = [
-    "no-data-collected",
-    "module-not-measured",
-    "module-not-imported",
-]
 
 [tool.coverage.report]
 omit = [
