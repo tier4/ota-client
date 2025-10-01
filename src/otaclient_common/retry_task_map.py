@@ -51,6 +51,9 @@ class TasksEnsureFailed(Exception):
         return self.__cause__
 
 
+class _TaskSubmitFailedAfterPoolShutdown(Exception): ...
+
+
 class WatchdogFailed(TasksEnsureFailed): ...
 
 
@@ -278,13 +281,20 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         return  # directly exit on shutdown
 
                     self._concurrent_semaphore.acquire()
-                    fut = self.submit(func, item)
+                    try:
+                        fut = self.submit(func, item)
+                    except RuntimeError:
+                        raise _TaskSubmitFailedAfterPoolShutdown from None
+
                     fut.add_done_callback(
                         partial(self._task_done_cb_at_thread, item=item, func=func)
                     )
             except Exception as e:
                 _err_msg = f"tasks dispatcher failed: {e!r}, abort"
-                self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=e))
+                if not isinstance(e, _TaskSubmitFailedAfterPoolShutdown):
+                    self._exc_deque.append(
+                        TasksEnsureFailed.caused_by(_err_msg, cause=e)
+                    )
                 self._rtm_shutdown(_err_msg)
                 return
 
