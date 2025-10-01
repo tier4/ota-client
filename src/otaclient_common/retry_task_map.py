@@ -228,7 +228,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 try:  # raise exc to upper caller
                     raise _wrapped_exc
                 finally:
-                    del _wrapped_exc # break circular ref
+                    del _wrapped_exc  # break circular ref
 
             try:
                 done_fut = self._fut_queue.get_nowait()
