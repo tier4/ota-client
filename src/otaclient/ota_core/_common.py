@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import errno
+import hashlib
+import json
 import logging
 from concurrent.futures import Future
 from http import HTTPStatus
@@ -24,6 +26,7 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from otaclient import errors as ota_errors
+from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
 
@@ -81,3 +84,35 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
         return False
     finally:
         del exc, _fut  # drop ref to exc instance
+
+
+def prepare_cookies(cookies_json: str) -> dict[str, str]:
+    try:
+        cookies = json.loads(cookies_json)
+        if not isinstance(cookies, dict):
+            raise ValueError(f"invalid cookies, expecting json object: {cookies_json}")
+        return cookies
+    except (json.JSONDecodeError, ValueError) as e:
+        _err_msg = f"cookie is invalid: {cookies_json=}"
+        logger.error(_err_msg)
+        raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
+
+
+def create_downloader_pool(
+    raw_cookies_json: str,
+    proxy_url: str | None = None,
+    *,
+    download_threads: int,
+    chunk_size: int,
+    hash_func=hashlib.sha256,
+) -> DownloaderPool:
+    cookies = prepare_cookies(raw_cookies_json)
+    return DownloaderPool(
+        instance_num=download_threads,
+        hash_func=hash_func,
+        chunk_size=chunk_size,
+        cookies=cookies,
+        # NOTE(20221013): check requests document for how to set proxy,
+        #                 we only support using http proxy here.
+        proxies={"http": proxy_url} if proxy_url else None,
+    )
