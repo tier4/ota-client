@@ -31,12 +31,14 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    ThreadPoolExecutorWithRetry,
+)
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
 
-class DownloadHelper:
+class _BaseDownloadHelper:
     def __init__(
         self,
         *,
@@ -118,6 +120,22 @@ class DownloadHelper:
             ):
                 yield _fut
 
+    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
+        """Shuffle the input digests to avoid multiple ECUs downloading
+        the same resources at the same time."""
+        _cur_batch = []
+        for _digest in _digests:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
+
+
+class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
     def _download_single_resource_at_thread(
         self, _digest: bytes, resource_meta: ResourceMeta
     ) -> DownloadResult:
@@ -134,20 +152,6 @@ class DownloadHelper:
             size=_download_info.original_size,
             compression_alg=_download_info.compression_alg,
         )
-
-    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
-        """Shuffle the input digests to avoid multiple ECUs downloading
-        the same resources at the same time."""
-        _cur_batch = []
-        for _digest in _digests:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
 
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
