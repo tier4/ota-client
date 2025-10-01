@@ -36,6 +36,7 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
     apt-get install -y -qq --no-install-recommends \
         ca-certificates wget; \
     apt-get clean; \
+    rm -rf /var/lib/apt/lists/*; \
     wget ${OTA_IMAGE_BUILDER_RELEASE} -O ${BUILD_ROOT}/ota-image-builder; \
     chmod +x ota-image-builder; \
     # --- generate certs --- #
