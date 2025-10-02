@@ -21,7 +21,8 @@ import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from ota_metadata.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from ota_metadata.file_table.utils import find_saved_fstable, save_fstable
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from otaclient import errors as ota_errors
