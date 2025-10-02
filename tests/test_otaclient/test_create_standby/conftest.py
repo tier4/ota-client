@@ -23,15 +23,15 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
-from ota_image_libs.v1.file_table.db import FileTableDBHelper
-
-from ota_metadata.file_table.db import (
+from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
 )
+
 from ota_metadata.legacy2.csv_parser import (
     parse_dirs_from_csv_file,
     parse_regulars_from_csv_file,
