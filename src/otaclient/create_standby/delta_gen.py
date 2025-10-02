@@ -28,9 +28,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Generic, Iterator, NamedTuple, TypedDict, TypeVar
 
-from ota_metadata.file_table.db import (
-    FileTableDBHelper,
-)
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
