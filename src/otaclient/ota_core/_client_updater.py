@@ -109,7 +109,8 @@ class OTAClientUpdater(OTAUpdateOperatorLegacyBase):
             ):
                 download_exception_handler(_fut)
         except Exception as e:
-            logger.error(f"failed to download otaclient package: {e!r}")
+            _err_msg = f"failed to download otaclient package: {e!r}"
+            logger.error(_err_msg, exc_info=e)
             raise ota_errors.OTAClientPackageDownloadFailed(module=__name__) from e
         finally:
             self._downloader_pool.shutdown()
