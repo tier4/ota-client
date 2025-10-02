@@ -34,9 +34,12 @@ from typing import Generator, Iterable
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
-from ota_metadata.errors import ImageMetadataInvalid, SignCertInvalid
+from ota_metadata.errors import (
+    ImageMetadataInvalid,
+    NoCAStoreAvailable,
+    SignCertInvalid,
+)
 from ota_metadata.file_table.utils import find_saved_fstable
-from ota_metadata.legacy2 import _errors as ota_metadata_error
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -378,31 +381,22 @@ def download_resources_handler(
 
 @contextlib.contextmanager
 def metadata_download_err_handler():
+    """A context manager that parses the exception during metadata files downloading."""
     try:
         yield
     except ota_errors.OTAError:
         raise  # raise top-level OTAError as it
-    # legacy OTA image
-    except ota_metadata_error.MetadataJWTVerificationFailed as e:
-        _err_msg = f"failed to verify metadata.jwt: {e!r}"
-        logger.error(_err_msg)
-        raise ota_errors.MetadataJWTVerficationFailed(_err_msg, module=__name__) from e
-    except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
-        _err_msg = f"metadata.jwt is invalid: {e!r}"
-        logger.error(_err_msg)
-        raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
-    # OTA image version1
-    except SignCertInvalid as e:
+    except (SignCertInvalid, NoCAStoreAvailable) as e:
         _err_msg = f"failed to verify sign certificate: {e}"
-        logger.error(_err_msg)
+        logger.error(_err_msg, exc_info=e)
         raise ota_errors.MetadataJWTVerficationFailed(_err_msg, module=__name__) from e
     except ImageMetadataInvalid as e:
         _err_msg = f"image metadata invalid: {e}"
-        logger.error(_err_msg)
+        logger.error(_err_msg, exc_info=e)
         raise ota_errors.OTAImageInvalid(_err_msg, module=__name__) from e
     except Exception as e:
         _err_msg = f"failed to prepare ota metafiles: {e!r}"
-        logger.error(_err_msg)
+        logger.error(_err_msg, exc_info=e)
         raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
 
 
