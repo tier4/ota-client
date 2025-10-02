@@ -21,7 +21,7 @@ import itertools
 import logging
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from queue import Empty, SimpleQueue
@@ -40,9 +40,30 @@ logger = logging.getLogger(__name__)
 class TasksEnsureFailed(Exception):
     """Exception for tasks ensuring failed."""
 
+    @classmethod
+    def caused_by(cls, *args, cause: BaseException):
+        _new = cls(*args)
+        _new.__cause__ = cause
+        return _new
+
+    @property
+    def cause(self) -> BaseException | None:
+        return self.__cause__
+
+    def __repr__(self) -> str:
+        _base = super().__repr__()
+        return f"{_base}, caused by {self.cause!r}"
+
+    __str__ = __repr__
+
+
+class _TaskSubmitFailedAfterPoolShutdown(Exception): ...
+
+
+class WatchdogFailed(TasksEnsureFailed): ...
+
 
 class _RetryOnEntryTracker:
-
     def __init__(self, max_entries: int) -> None:
         self._max_entries = max_entries
         self._register: OrderedDict[int, int] = OrderedDict()
@@ -59,7 +80,6 @@ class _RetryOnEntryTracker:
 
 
 class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
-
     def __init__(
         self,
         max_concurrent: int,
@@ -95,6 +115,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._total_retry_counter = itertools.count(start=1)
         self._concurrent_semaphore = threading.Semaphore(max_concurrent)
         self._fut_queue: SimpleQueue[Future[Any]] = SimpleQueue()
+        self._exc_deque: deque[TasksEnsureFailed] = deque(maxlen=1)
 
         self._watchdog_check_interval = watchdog_check_interval
         self._rtm_watchdog_funcs: list[Callable[[], Any]] = []
@@ -103,7 +124,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if callable(watchdog_func):
             self._rtm_watchdog_funcs.append(watchdog_func)
 
-        self._failure_msg = ""
         super().__init__(
             max_workers=max_workers,
             thread_name_prefix=thread_name_prefix,
@@ -125,7 +145,9 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 for _func in _checker_funcs:
                     _func()
             except Exception as e:
-                self._rtm_shutdown(f"watchdog failed: {e!r}")
+                _err_msg = f"watchdog failed: {e!r}"
+                self._exc_deque.append(WatchdogFailed.caused_by(_err_msg, cause=e))
+                self._rtm_shutdown(_err_msg)
 
     def _task_done_cb_at_thread(
         self, fut: Future[Any], /, *, item: T, func: Callable[[T], Any]
@@ -136,7 +158,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         self._fut_queue.put_nowait(fut)
 
         # release semaphore only on success
-        if not fut.exception():
+        _exc = fut.exception()
+        if not _exc:
             self._concurrent_semaphore.release()
             return
 
@@ -149,7 +172,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
             self._max_total_retry is not None
             and _total_retry_count > self._max_total_retry
         ):
-            _err_msg = f"{_total_retry_count=} exceeds {self._max_total_retry=}, abort"
+            _err_msg = f"{_total_retry_count=} exceeds {self._max_total_retry=}, abort! last exc: {_exc}"
+            self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=_exc))
             return self._rtm_shutdown(_err_msg)
 
         # check continues retry on the same entry
@@ -157,9 +181,8 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         if (
             _max_entry_retry := self._max_retry_on_entry
         ) is not None and _retry_on_entry > _max_entry_retry:
-            _err_msg = (
-                f"{_retry_on_entry=} on {item=} exceed {_max_entry_retry=}, abort"
-            )
+            _err_msg = f"{_retry_on_entry=} on {item=} exceed {_max_entry_retry=}, abort! last exc: {_exc}"
+            self._exc_deque.append(TasksEnsureFailed.caused_by(_err_msg, cause=_exc))
             return self._rtm_shutdown(_err_msg)
 
         # finally, retry to re-schedule the failed workitem
@@ -192,7 +215,20 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                 with contextlib.suppress(Empty):
                     while True:  # drain the _fut_queue
                         self._fut_queue.get_nowait()
-                raise TasksEnsureFailed(self._failure_msg)  # raise exc to upper caller
+
+                try:
+                    _wrapped_exc = self._exc_deque.pop()
+                except Exception:
+                    _wrapped_exc = TasksEnsureFailed(
+                        "execution interrupted due to thread pool shutdown"
+                    )
+
+                # NOTE: still raise TaskEnsureFailed to upper,
+                #       let choose to upper dig into the TaskEnsureFailed or not.
+                try:  # raise exc to upper caller
+                    raise _wrapped_exc
+                finally:
+                    del _wrapped_exc  # break circular ref
 
             try:
                 done_fut = self._fut_queue.get_nowait()
@@ -206,22 +242,22 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         """
         Called by task_done_cb or dispatcher to shutdown threadpool on failure.
         """
-        if self._rtm_lower_pool_shutdown:
-            return  # no need to shutdown again
-
         # NOTE: only one shutdown is allowed
         if self._rtm_shutdown_lock.acquire(blocking=False):
             try:
+                if self._rtm_lower_pool_shutdown:
+                    return  # no need to shutdown again
+
                 _err_msg = f"shutdown executor and drain workitem queue: {msg}"
                 logger.warning(_err_msg)
-                self._failure_msg = _err_msg
 
                 # wait MUST be False to prevent deadlock when calling _on_shutdown from worker
                 self.shutdown(wait=False)
-                # drain the worker queues
                 with contextlib.suppress(Empty):
-                    while True:
+                    while True:  # drain the worker queues
                         self._work_queue.get_nowait()
+                # remember to add one sentinel back to the work_queue
+                self._work_queue.put_nowait(None)  # type: ignore
             finally:
                 self._rtm_shutdown_lock.release()
 
@@ -235,7 +271,7 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
         with self._rtm_start_lock:
             if self._rtm_started or self._rtm_lower_pool_shutdown:
                 try:
-                    raise ValueError(
+                    raise TasksEnsureFailed(
                         "ensure_tasks cannot be started more than once or lower pool has already shutdown"
                     )
                 finally:  # do not hold refs to input params
@@ -251,12 +287,20 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
                         return  # directly exit on shutdown
 
                     self._concurrent_semaphore.acquire()
-                    fut = self.submit(func, item)
+                    try:
+                        fut = self.submit(func, item)
+                    except RuntimeError:
+                        raise _TaskSubmitFailedAfterPoolShutdown from None
+
                     fut.add_done_callback(
                         partial(self._task_done_cb_at_thread, item=item, func=func)
                     )
             except Exception as e:
                 _err_msg = f"tasks dispatcher failed: {e!r}, abort"
+                if not isinstance(e, _TaskSubmitFailedAfterPoolShutdown):
+                    self._exc_deque.append(
+                        TasksEnsureFailed.caused_by(_err_msg, cause=e)
+                    )
                 self._rtm_shutdown(_err_msg)
                 return
 
@@ -285,7 +329,6 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
 if TYPE_CHECKING:
 
     class ThreadPoolExecutorWithRetry:
-
         def __init__(
             self,
             max_concurrent: int,
