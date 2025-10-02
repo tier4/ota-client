@@ -158,14 +158,14 @@ class OTAUpdateOperator:
 
 
 class OTAUpdateOperatorInitLegacy(OTAUpdateOperatorInit):
-    ca_store: CAChainStore
+    ca_chains_store: CAChainStore
 
 
 class OTAUpdateOperatorLegacyBase(OTAUpdateOperator):
     def __init__(
         self,
         *,
-        ca_store: CAChainStore,
+        ca_chains_store: CAChainStore,
         **kwargs: Unpack[OTAUpdateOperatorInit],
     ):
         super().__init__(**kwargs)
@@ -174,7 +174,7 @@ class OTAUpdateOperatorLegacyBase(OTAUpdateOperator):
         self._ota_metadata = OTAMetadata(
             base_url=self.url_base,
             session_dir=self._session_workdir,
-            ca_chains_store=ca_store,
+            ca_chains_store=ca_chains_store,
         )
 
         self._download_helper = DownloadHelperForLegacyOTAImage(
