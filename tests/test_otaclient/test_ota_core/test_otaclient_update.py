@@ -68,13 +68,6 @@ class TestOTAClientUpdater:
             return_value=self.mock_ota_client_package,
         )
 
-        # Mock DownloaderPool
-        self.mock_downloader_pool = mocker.MagicMock()
-        self.patcher_downloader_pool = mocker.patch(
-            f"{OTA_UPDATER_BASE_MODULE}.DownloaderPool",
-            return_value=self.mock_downloader_pool,
-        )
-
         # Set up CA chains store
         self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
         self.downloader_pool = create_downloader_pool(
@@ -90,7 +83,9 @@ class TestOTAClientUpdater:
         self.rmtree_patcher = mocker.patch("shutil.rmtree")
 
     @pytest.fixture
-    def setup_client_updater(self, mocker: pytest_mock.MockerFixture, tmp_path: Path):
+    def setup_client_updater(
+        self, mocker: pytest_mock.MockerFixture, tmp_path: Path, mock_setup
+    ):
         # Create an instance of OTAClientUpdater for testing
         session_workdir = tmp_path / "session_workdir"
         client_updater = ota_core.OTAClientUpdater(
@@ -306,15 +301,18 @@ class TestOTAClientUpdater:
         # Import the exception class
         from otaclient_common.retry_task_map import TasksEnsureFailed
 
-        # Mock _download_client_package_resources to raise TasksEnsureFailed
-        mocker.patch.object(
-            client_updater._download_helper,
-            "download_meta_files",
-            side_effect=TasksEnsureFailed(),
+        mock_downloader_helper = mocker.MagicMock()
+        mock_downloader_helper.download_meta_files = mocker.MagicMock(
+            side_effect=TasksEnsureFailed
         )
+        mock_downloader_pool = mocker.MagicMock()
+
+        # Mock _download_client_package_resources to raise TasksEnsureFailed
+        mocker.patch.object(client_updater, "_download_helper", mock_downloader_helper)
+        mocker.patch.object(client_updater, "_downloader_pool", mock_downloader_pool)
 
         with pytest.raises(ota_errors.OTAClientPackageDownloadFailed):
             client_updater._download_client_package_resources()
 
         # Verify downloader pool was shut down
-        self.mock_downloader_pool.shutdown.assert_called_once()
+        mock_downloader_pool.shutdown.assert_called_once()
