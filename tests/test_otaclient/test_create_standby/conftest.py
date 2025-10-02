@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 import pytest
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
 from ota_metadata.file_table.db import (
-    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
