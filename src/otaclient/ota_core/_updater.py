@@ -96,11 +96,8 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
                 session_id=self.session_id,
             )
         except Exception as e:
-            _err_msg = (
-                "download aborted due to download stalls longer than "
-                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
-            )
-            logger.error(_err_msg)
+            _err_msg = f"download failed: {e!r}"
+            logger.error(_err_msg, exc_info=e)
             raise ota_errors.NetworkError(_err_msg, module=__name__) from e
         finally:
             # NOTE: after this point, we don't need downloader anymore

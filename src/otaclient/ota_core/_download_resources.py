@@ -32,6 +32,7 @@ from otaclient_common.downloader import (
     DownloadResult,
 )
 from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
 
@@ -110,19 +111,23 @@ class _BaseDownloadHelper:
     ) -> Generator[Future[list[DownloadResult]]]:
         """
         Raises:
-            TaskEnsureFailed on work pool interrupted.
+            Last exception that interrupts the work pool, or TaskEnsureFailed if no exc is wrapped.
         """
         with self._downloader_pool_with_retry(
             "download_ota_image_metafiles"
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(
-                partial(
-                    self._download_with_condition_at_thread,
-                    condition=condition,
-                ),
-                _download_info,
-            ):
-                yield _fut
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_with_condition_at_thread, condition=condition
+                    ),
+                    _download_info,
+                ):
+                    yield _fut
+            except TasksEnsureFailed as e:
+                if e.cause:
+                    raise e.cause from None
+                raise
 
     def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
         """Shuffle the input digests to avoid multiple ECUs downloading
@@ -162,14 +167,19 @@ class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
     ) -> Generator[Future[DownloadResult]]:
         """
         Raises:
-            TaskEnsureFailed on work pool interrupted.
+            Last exception that interrupts the work pool, or TaskEnsureFailed if no exc is wrapped.
         """
         with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
-            for _fut in _mapper.ensure_tasks(
-                partial(
-                    self._download_single_resource_at_thread,
-                    resource_meta=resource_meta,
-                ),
-                self._iter_digests_with_shuffle(resources_to_download),
-            ):
-                yield _fut
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_single_resource_at_thread,
+                        resource_meta=resource_meta,
+                    ),
+                    self._iter_digests_with_shuffle(resources_to_download),
+                ):
+                    yield _fut
+            except TasksEnsureFailed as e:
+                if e.cause:
+                    raise e.cause from None
+                raise
