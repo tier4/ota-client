@@ -35,13 +35,15 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
-from ota_metadata.file_table.db import (
+from ota_image_libs.v1.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
 )
+
+from ota_metadata.errors import NoCAStoreAvailable
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
@@ -53,11 +55,7 @@ from .csv_parser import (
     parse_regulars_from_csv_file,
     parse_symlinks_from_csv_file,
 )
-from .metadata_jwt import (
-    MetadataJWTClaimsLayout,
-    MetadataJWTParser,
-    MetadataJWTVerificationFailed,
-)
+from .metadata_jwt import MetadataJWTClaimsLayout, MetadataJWTParser
 from .rs_table import ResourceTableORM, ResourceTableORMPool
 
 logger = logging.getLogger(__name__)
@@ -97,7 +95,7 @@ class OTAMetadata:
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg)
+            raise NoCAStoreAvailable(_err_msg)
 
         self._ca_store = ca_chains_store
         self._base_url = base_url
@@ -413,7 +411,7 @@ class ResourceMeta:
         resource = self._rst_orm_pool.orm_select_entry(digest=digest)
         _digest_str = resource.digest.hex()
 
-        # v2 OTA image, with compression enabled
+        # Legacy OTA image revision 1, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
         if (
             self.compressed_data_dir_url
@@ -434,7 +432,7 @@ class ResourceMeta:
                 compression_alg=_compress_alg,
             )
 
-        # v1 OTA image, uncompressed and use full path as URL path
+        # Legacy OTA image, uncompressed and use full path as URL path
         # example: http://example.com/base_url/data/rootfs/full/path/file
         assert (_rs_fpath := resource.path), f"invalid {resource=}"
         _relative_rs_fpath = os.path.relpath(_rs_fpath, "/")
