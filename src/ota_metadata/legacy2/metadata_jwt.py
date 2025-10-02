@@ -36,7 +36,6 @@ Version1 OTA metafiles list:
 
 """
 
-
 from __future__ import annotations
 
 import base64
@@ -50,10 +49,13 @@ from cryptography.x509 import load_pem_x509_certificate
 from pydantic import BaseModel
 from typing_extensions import Self
 
+from ota_metadata.errors import (
+    ImageMetadataInvalid,
+    NoCAStoreAvailable,
+    SignCertInvalid,
+)
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrEnum
-
-from ._errors import MetadataJWTPayloadInvalid, MetadataJWTVerificationFailed
 
 logger = logging.getLogger(__name__)
 
@@ -128,14 +130,14 @@ class MetadataJWTParser:
         if not self.ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg)
+            raise NoCAStoreAvailable(_err_msg)
 
         try:
             cert_to_verify = load_pem_x509_certificate(metadata_cert)
         except Exception as e:
             _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
-            logger.exception(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg) from e
+            logger.exception(_err_msg, exc_info=e)
+            raise SignCertInvalid(_err_msg) from e
 
         hit_cachain = self.ca_chains_store.verify(cert_to_verify)
         if hit_cachain:
@@ -143,7 +145,7 @@ class MetadataJWTParser:
 
         _err_msg = f"metadata sign certificate {metadata_cert} could not be verified"
         logger.error(_err_msg)
-        raise MetadataJWTVerificationFailed(_err_msg)
+        raise SignCertInvalid(_err_msg)
 
     def verify_metadata_signature(self, metadata_cert: bytes):
         """Verify metadata against sign certificate.
@@ -163,8 +165,8 @@ class MetadataJWTParser:
             )
         except Exception as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
-            logger.error(msg)
-            raise MetadataJWTVerificationFailed(msg) from e
+            logger.error(msg, exc_info=e)
+            raise ImageMetadataInvalid(msg) from e
 
 
 class MetadataJWTClaimsLayout(BaseModel):
@@ -191,14 +193,24 @@ class MetadataJWTClaimsLayout(BaseModel):
 
     @classmethod
     def parse_payload(cls, payload: str | bytes) -> Self:
-        # NOTE: in version1, payload is a list of dict,
-        #   check module docstring for more details
-        claims: list[dict[str, Any]] = json.loads(payload)
+        """
+        NOTE: in version1, payload is a list of dict,
+          check module docstring for more details.
+
+        Raises:
+            ImageMetadataInvalid on invalide metadata.jwt.
+        """
+        try:
+            claims: list[dict[str, Any]] = json.loads(payload)
+        except Exception as e:
+            _err_msg = "metadata.jwt doesn't contain valid json payload"
+            logger.error(_err_msg, exc_info=e)
+            raise ImageMetadataInvalid(_err_msg) from e
 
         if not claims or not isinstance(claims, list):
             _err_msg = f"metadata.jwt v1 is a list of JSON object, invalid {payload=}"
             logger.error(_err_msg)
-            raise MetadataJWTPayloadInvalid(_err_msg)
+            raise ImageMetadataInvalid(_err_msg)
 
         _res_dict = {}
         for field_dict in claims:
@@ -212,5 +224,11 @@ class MetadataJWTClaimsLayout(BaseModel):
 
                 _res_dict[k] = v
                 if k == cls.VERSION_KEY and str(v) != str(cls.SCHEME_VERSION):
-                    raise MetadataJWTPayloadInvalid(f"expecting version 1, get {v}")
-        return cls.model_validate(_res_dict)
+                    raise ImageMetadataInvalid(f"expecting version 1, get {v}")
+
+        try:
+            return cls.model_validate(_res_dict)
+        except Exception as e:
+            _err_msg = f"metadata.jwt payload validation failed: {e!r}"
+            logger.error(_err_msg, exc_info=e)
+            raise ImageMetadataInvalid(_err_msg) from e
