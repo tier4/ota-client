@@ -163,7 +163,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
     def _in_update(self):
         logger.info("start to calculate delta ...")
         _delta_digests = DeltaCalCulator(
-            file_table_db_helper=FileTableDBHelper(self._ota_metadata.FSTABLE_DB),
+            file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
             standby_slot_mp=self._standby_slot_mp,
             active_slot_mp=self._active_slot_mp,
             status_report_queue=self._status_report_queue,
