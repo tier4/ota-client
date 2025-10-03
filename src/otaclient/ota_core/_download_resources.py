@@ -31,12 +31,15 @@ from otaclient_common.downloader import (
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
 )
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
+from otaclient_common.retry_task_map import (
+    TasksEnsureFailed,
+    ThreadPoolExecutorWithRetry,
+)
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
 
-class DownloadHelper:
+class _BaseDownloadHelper:
     def __init__(
         self,
         *,
@@ -106,18 +109,42 @@ class DownloadHelper:
         _download_info: Generator[list[DownloadInfo]],
         condition: threading.Condition,
     ) -> Generator[Future[list[DownloadResult]]]:
+        """
+        Raises:
+            Last exception that interrupts the work pool, or TaskEnsureFailed if no exc is wrapped.
+        """
         with self._downloader_pool_with_retry(
             "download_ota_image_metafiles"
         ) as _mapper:
-            for _fut in _mapper.ensure_tasks(
-                partial(
-                    self._download_with_condition_at_thread,
-                    condition=condition,
-                ),
-                _download_info,
-            ):
-                yield _fut
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_with_condition_at_thread, condition=condition
+                    ),
+                    _download_info,
+                ):
+                    yield _fut
+            except TasksEnsureFailed as e:
+                if e.cause:
+                    raise e.cause from None
+                raise
 
+    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
+        """Shuffle the input digests to avoid multiple ECUs downloading
+        the same resources at the same time."""
+        _cur_batch = []
+        for _digest in _digests:
+            _cur_batch.append(_digest)
+            if len(_cur_batch) >= self._shuffle_batch_size:
+                random.shuffle(_cur_batch)
+                yield from _cur_batch
+                _cur_batch.clear()
+        if _cur_batch:
+            random.shuffle(_cur_batch)
+            yield from _cur_batch
+
+
+class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
     def _download_single_resource_at_thread(
         self, _digest: bytes, resource_meta: ResourceMeta
     ) -> DownloadResult:
@@ -135,29 +162,24 @@ class DownloadHelper:
             compression_alg=_download_info.compression_alg,
         )
 
-    def _iter_digests_with_shuffle(self, _digests: Iterable[bytes]) -> Generator[bytes]:
-        """Shuffle the input digests to avoid multiple ECUs downloading
-        the same resources at the same time."""
-        _cur_batch = []
-        for _digest in _digests:
-            _cur_batch.append(_digest)
-            if len(_cur_batch) >= self._shuffle_batch_size:
-                random.shuffle(_cur_batch)
-                yield from _cur_batch
-                _cur_batch.clear()
-        if _cur_batch:
-            random.shuffle(_cur_batch)
-            yield from _cur_batch
-
     def download_resources(
         self, resources_to_download: Iterable[bytes], resource_meta: ResourceMeta
     ) -> Generator[Future[DownloadResult]]:
+        """
+        Raises:
+            Last exception that interrupts the work pool, or TaskEnsureFailed if no exc is wrapped.
+        """
         with self._downloader_pool_with_retry("download_ota_resources") as _mapper:
-            for _fut in _mapper.ensure_tasks(
-                partial(
-                    self._download_single_resource_at_thread,
-                    resource_meta=resource_meta,
-                ),
-                self._iter_digests_with_shuffle(resources_to_download),
-            ):
-                yield _fut
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_single_resource_at_thread,
+                        resource_meta=resource_meta,
+                    ),
+                    self._iter_digests_with_shuffle(resources_to_download),
+                ):
+                    yield _fut
+            except TasksEnsureFailed as e:
+                if e.cause:
+                    raise e.cause from None
+                raise
