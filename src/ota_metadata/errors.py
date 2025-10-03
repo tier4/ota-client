@@ -11,10 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Common errors that might be raised during parsing OTA image metadata."""
 
 
-class MetadataJWTPayloadInvalid(Exception):
-    """Raised when verification passed, but input metadata.jwt is invalid."""
+class SignCertInvalid(Exception): ...
 
 
-class MetadataJWTVerificationFailed(Exception): ...
+class ImageMetadataInvalid(Exception): ...
+
+
+class NoCAStoreAvailable(Exception): ...

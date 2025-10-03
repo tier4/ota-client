@@ -24,19 +24,21 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-
-from ota_metadata.file_table.db import (
-    FileTableDirectoryTypedDict,
+from ota_image_libs.v1.file_table.db import (
     FileTableDirORM,
     FileTableInodeORM,
-    FiletableInodeTypedDict,
-    FileTableNonRegularFiles,
     FileTableNonRegularORM,
-    FileTableNonRegularTypedDict,
     FileTableRegularORM,
-    FileTableRegularTypedDict,
     FileTableResourceORM,
 )
+from ota_image_libs.v1.file_table.schema import (
+    FileTableDirectoryTypedDict,
+    FiletableInodeTypedDict,
+    FileTableNonRegularFiles,
+    FileTableNonRegularTypedDict,
+    FileTableRegularTypedDict,
+)
+
 from ota_metadata.legacy2.csv_parser import (
     parse_create_file_table_row,
     parse_dirs_csv_line,

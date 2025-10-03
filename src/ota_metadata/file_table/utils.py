@@ -21,8 +21,14 @@ import sqlite3
 import stat
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Any
 
+from ota_image_libs.common import MsgPackedDict
+from ota_image_libs.v1.file_table.db import (
+    DirTypedDict,
+    NonRegularFileTypedDict,
+    RegularFileTypedDict,
+)
 from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
 from ota_metadata.file_table import (
@@ -55,38 +61,9 @@ class PrepareEntryFailed(Exception):
         return f"failed to process {self.entry} due to: {self.__cause__}"
 
 
-#
-# ------ type hint helpers ------ #
-#
-
-
-class FileTableEntryTypedDict(TypedDict):
-    """The result of joining ft_inode and ft_* table."""
-
-    path: str
-    uid: int
-    gid: int
-    mode: int
-    links_count: Optional[int]
-    xattrs: Optional[bytes]
-
-
-class RegularFileTypedDict(FileTableEntryTypedDict):
-    digest: bytes
-    size: int
-    inode_id: int
-    contents: Optional[bytes]
-
-
-class NonRegularFileTypedDict(FileTableEntryTypedDict):
-    meta: Optional[bytes]
-
-
-class DirTypedDict(TypedDict):
-    path: str
-    uid: int
-    gid: int
-    mode: int
+def _set_xattr(path: StrOrPath, _in: MsgPackedDict) -> None:
+    for k, v in _in.items():
+        os.setxattr(path, k, v, follow_symlinks=False)
 
 
 #
@@ -107,6 +84,8 @@ def prepare_dir(entry: DirTypedDict, *, target_mnt: StrOrPath) -> None:
         _target_on_mnt.mkdir(exist_ok=True, parents=True)
         os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
         os.chmod(_target_on_mnt, mode=entry["mode"])
+        if xattrs := entry["xattrs"]:
+            _set_xattr(_target_on_mnt, xattrs)
     except Exception as e:
         burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
         raise
@@ -136,10 +115,21 @@ def prepare_non_regular(
             )
             # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
             #   changing mode of symlink will even result in exception raised.
-            return
 
-        # NOTE: legacy OTA image doesn't support char dev, so not process char device
-        # NOTE: just ignore unknown entries
+        elif stat.S_ISCHR(entry["mode"]):
+            # NOTE: we only support placeholder char file with 0,0 devnode.
+            os.mknod(_target_on_mnt, mode=entry["mode"] | stat.S_IFCHR, device=0)
+            os.chown(
+                _target_on_mnt,
+                uid=entry["uid"],
+                gid=entry["gid"],
+                follow_symlinks=False,
+            )
+        else:
+            return  # silently ignore unknown file type
+
+        if xattrs := entry["xattrs"]:
+            _set_xattr(_target_on_mnt, xattrs)
     except Exception as e:
         burst_suppressed_logger.exception(f"failed on preparing {dict(entry)}: {e!r}")
         raise
@@ -159,9 +149,8 @@ def prepare_regular_copy(
             os.chown(_target_on_mnt, uid=_uid, gid=_gid)
             os.chmod(_target_on_mnt, mode=_mode)
 
-        # NOTE: old OTA image doesn't suppport xattrs
-        # if _xattr := entry["xattrs"]:
-        #     _set_xattr(_target_on_mnt, _in=_xattr)
+        if _xattr := entry["xattrs"]:
+            _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:
         _target_on_mnt.unlink(missing_ok=True)
@@ -187,9 +176,8 @@ def prepare_regular_inlined(
             os.chown(_target_on_mnt, uid=_uid, gid=_gid)
             os.chmod(_target_on_mnt, mode=_mode)
 
-        # NOTE: old OTA image doesn't suppport xattrs
-        # if _xattr := entry["xattrs"]:
-        #     _set_xattr(_target_on_mnt, _in=_xattr)
+        if _xattr := entry["xattrs"]:
+            _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:
         _target_on_mnt.unlink(missing_ok=True)
@@ -210,30 +198,11 @@ def prepare_regular_hardlink(
         if not hardlink_skip_apply_permission:
             os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
             os.chmod(_target_on_mnt, mode=entry["mode"])
-
-            # NOTE: old OTA image doesn't suppport xattrs
-            # if _xattr := entry["xattrs"]:
-            #     _set_xattr(_target_on_mnt, _in=_xattr)
+            if _xattr := entry["xattrs"]:
+                _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:
         _target_on_mnt.unlink(missing_ok=True)
-        raise PrepareEntryFailed(entry) from e
-
-
-def prepare_regular_move(
-    entry: RegularFileTypedDict, _rs: StrOrPath, *, target_mnt: StrOrPath
-) -> Path:
-    try:
-        _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
-        os.replace(str(_rs), _target_on_mnt)
-        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-        os.chmod(_target_on_mnt, mode=entry["mode"])
-
-        # NOTE: old OTA image doesn't suppport xattrs
-        # if _xattr := entry["xattrs"]:
-        #     _set_xattr(_target_on_mnt, _in=_xattr)
-        return _target_on_mnt
-    except Exception as e:
         raise PrepareEntryFailed(entry) from e
 
 

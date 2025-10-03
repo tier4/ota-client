@@ -19,7 +19,8 @@ import os
 from hashlib import sha256
 from pathlib import Path
 
-from ota_metadata.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
     InPlaceDeltaWithBaseFileTable,
