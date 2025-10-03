@@ -56,6 +56,10 @@ class BootControllerProtocol(Protocol):
         """Read the version info from the current slot."""
 
     @abstractmethod
+    def load_standby_slot_version(self) -> str:
+        """Read the version info from the standby slot."""
+
+    @abstractmethod
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
 

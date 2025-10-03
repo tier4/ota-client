@@ -175,6 +175,7 @@ class TestOTAClient:
 
     OTACLIENT_VERSION = "otaclient_version"
     CURRENT_FIRMWARE_VERSION = "firmware_version"
+    STANDBY_SLOT_VERSION = "standby_slot_version"
     UPDATE_FIRMWARE_VERSION = "update_firmware_version"
 
     UPDATE_COOKIES_JSON = r'{"test": "my-cookie"}'
@@ -204,6 +205,9 @@ class TestOTAClient:
 
         # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
+        self.boot_controller.load_standby_slot_version.return_value = (
+            self.STANDBY_SLOT_VERSION
+        )
         self.boot_controller.get_booted_ota_status = mocker.MagicMock(
             return_value=OTAStatus.SUCCESS
         )
