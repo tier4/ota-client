@@ -198,26 +198,26 @@ class DeltaCalCulator:
                 self._standby_slot_mp,
             )
         )
-        if _ota_tmp_dir_on_standby.is_dir():
-            logger.warning(
-                f"detect .ota-tmp on standby slot {_ota_tmp_dir_on_standby}, "
-                "potential interrupted OTA by older otaclient, "
-                f"try to migrate the resources to {self._resource_dir_on_standby}"
-            )
-            if self._resource_dir_on_standby.is_dir():
-                for _entry in os.scandir(_ota_tmp_dir_on_standby):
-                    _entry_name = _entry.name
-                    if len(_entry.name) == SHA256DIGEST_HEX_LEN:
-                        try:
-                            bytes.fromhex(_entry_name)
-                        except ValueError:
-                            continue  # not an OTA resource file
-                        os.replace(
-                            _entry.path, self._resource_dir_on_standby / _entry_name
-                        )
-                shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
-            else:
-                os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
+        if not _ota_tmp_dir_on_standby.is_dir():
+            return
+
+        logger.warning(
+            f"detect .ota-tmp on standby slot {_ota_tmp_dir_on_standby}, "
+            "potential interrupted OTA by older otaclient, "
+            f"try to migrate the resources to {self._resource_dir_on_standby}"
+        )
+        if self._resource_dir_on_standby.is_dir():
+            for _entry in os.scandir(_ota_tmp_dir_on_standby):
+                _entry_name = _entry.name
+                if len(_entry.name) == SHA256DIGEST_HEX_LEN:
+                    try:
+                        bytes.fromhex(_entry_name)
+                    except ValueError:
+                        continue  # not an OTA resource file
+                    os.replace(_entry.path, self._resource_dir_on_standby / _entry_name)
+            shutil.rmtree(_ota_tmp_dir_on_standby, ignore_errors=True)
+        else:
+            os.replace(_ota_tmp_dir_on_standby, self._resource_dir_on_standby)
 
     def _resume_ota_for_inplace_mode_at_delta_cal(
         self, all_resource_digests: ResourcesDigestWithSize
