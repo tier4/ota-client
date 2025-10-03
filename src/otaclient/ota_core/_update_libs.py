@@ -350,9 +350,6 @@ def download_resources_handler(
         else:
             _merged_payload.errors += 1
 
-        metrics.downloaded_bytes = _merged_payload.downloaded_bytes
-        metrics.downloaded_errors = _merged_payload.errors
-
         if (
             _this_batch := _done_count // DOWNLOAD_STATS_REPORT_BATCH
         ) > _report_batch_cnt or _now > _next_commit_before:
@@ -366,6 +363,8 @@ def download_resources_handler(
                 )
             )
 
+            metrics.downloaded_bytes += _merged_payload.downloaded_bytes
+            metrics.downloaded_errors += _merged_payload.errors
             _merged_payload = UpdateProgressReport(
                 operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
             )
