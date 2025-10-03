@@ -136,7 +136,7 @@ class MetadataJWTParser:
             cert_to_verify = load_pem_x509_certificate(metadata_cert)
         except Exception as e:
             _err_msg = f"invalid certificate {metadata_cert}: {e!r}"
-            logger.exception(_err_msg, exc_info=e)
+            logger.exception(_err_msg)
             raise SignCertInvalid(_err_msg) from e
 
         hit_cachain = self.ca_chains_store.verify(cert_to_verify)
@@ -165,7 +165,7 @@ class MetadataJWTParser:
             )
         except Exception as e:
             msg = f"failed to verify metadata against sign cert: {e!r}"
-            logger.error(msg, exc_info=e)
+            logger.exception(msg)
             raise ImageMetadataInvalid(msg) from e
 
 
@@ -204,7 +204,7 @@ class MetadataJWTClaimsLayout(BaseModel):
             claims: list[dict[str, Any]] = json.loads(payload)
         except Exception as e:
             _err_msg = "metadata.jwt doesn't contain valid json payload"
-            logger.error(_err_msg, exc_info=e)
+            logger.exception(_err_msg)
             raise ImageMetadataInvalid(_err_msg) from e
 
         if not claims or not isinstance(claims, list):
@@ -230,5 +230,5 @@ class MetadataJWTClaimsLayout(BaseModel):
             return cls.model_validate(_res_dict)
         except Exception as e:
             _err_msg = f"metadata.jwt payload validation failed: {e!r}"
-            logger.error(_err_msg, exc_info=e)
+            logger.exception(_err_msg)
             raise ImageMetadataInvalid(_err_msg) from e

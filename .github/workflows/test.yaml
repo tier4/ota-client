@@ -56,12 +56,3 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         if: ${{ matrix.test_base == 'ubuntu-22.04' }}
-
-      # export the coverage report to the comment!
-      - name: Add coverage report to PR comment
-        continue-on-error: true
-        uses: MishaKav/pytest-coverage-comment@v1.1.57
-        with:
-          pytest-xml-coverage-path: test_result/coverage.xml
-          junitxml-path: test_result/pytest.xml
-        if: ${{ matrix.test_base == 'ubuntu-22.04' }}
