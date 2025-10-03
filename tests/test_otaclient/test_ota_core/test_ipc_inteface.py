@@ -130,7 +130,7 @@ class TestOTAClient:
                 url_base=self.OTA_IMAGE_URL,
                 cookies_json=self.UPDATE_COOKIES_JSON,
                 request_id="test-request-id",
-                session_id="test_updaste_interrupted",
+                session_id="test_update_interrupted",
             )
         )
 

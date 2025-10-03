@@ -143,7 +143,7 @@ class DeltaCalCulator:
     def _find_base_filetable_for_inplace_mode_at_delta_cal(self) -> StrOrPath | None:
         """
         Returns:
-            Verfied base file_table fpath, or None if failed to find one.
+            Verified base file_table fpath, or None if failed to find one.
         """
         # NOTE: if the previous OTA is interrupted, and it is base file_table assisted,
         #       try to keep using that base file_table.
@@ -424,7 +424,7 @@ def process_persistents(
             )
             logger.warning(
                 (
-                    "using persis file feature to preserve swapfile is MISUSE of persist file handling feature!"
+                    "using persist file feature to preserve swapfile is MISUSE of persist file handling feature!"
                     "please change your OTA image build setting and remove swapfile entries from persistents.txt!"
                 )
             )
