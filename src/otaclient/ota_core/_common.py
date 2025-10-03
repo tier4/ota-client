@@ -109,7 +109,7 @@ def prepare_cookies(cookies_json: str) -> dict[str, str]:
         if not isinstance(cookies, dict):
             raise ValueError(f"invalid cookies, expecting json object: {cookies_json}")
         return cookies
-    except (json.JSONDecodeError, ValueError) as e:
+    except ValueError as e:
         _err_msg = f"cookie is invalid: {cookies_json=}"
         logger.error(_err_msg)
         raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
