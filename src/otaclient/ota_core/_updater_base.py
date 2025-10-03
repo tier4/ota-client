@@ -24,7 +24,7 @@ from pathlib import Path
 from queue import Queue
 from urllib.parse import urlparse
 
-from ota_metadata.legacy2 import _errors as ota_metadata_error
+from ota_metadata.errors import ImageMetadataInvalid, SignCertInvalid
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient import errors as ota_errors
@@ -100,9 +100,9 @@ class OTAUpdateOperator:
         logger.debug("process cookies_json...")
         try:
             cookies = json.loads(cookies_json)
-            assert isinstance(
-                cookies, dict
-            ), f"invalid cookies, expecting json object: {cookies_json}"
+            assert isinstance(cookies, dict), (
+                f"invalid cookies, expecting json object: {cookies_json}"
+            )
         except (JSONDecodeError, AssertionError) as e:
             _err_msg = f"cookie is invalid: {cookies_json=}"
             logger.error(_err_msg)
@@ -191,7 +191,8 @@ class OTAUpdateOperator:
                 download_exception_handler(_fut)
 
             _metadata_jwt = self._ota_metadata.metadata_jwt
-            assert _metadata_jwt, "invalid metadata jwt"
+            if not _metadata_jwt:
+                raise ImageMetadataInvalid("invalid metadata jwt")
 
             logger.info(
                 "ota_metadata parsed finished: \n"
@@ -221,17 +222,17 @@ class OTAUpdateOperator:
             )
         except ota_errors.OTAError:
             raise  # raise top-level OTAError as it
-        except ota_metadata_error.MetadataJWTVerificationFailed as e:
+        except SignCertInvalid as e:
             _err_msg = f"failed to verify metadata.jwt: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTVerficationFailed(
                 _err_msg, module=__name__
             ) from e
-        except (ota_metadata_error.MetadataJWTPayloadInvalid, AssertionError) as e:
+        except ImageMetadataInvalid as e:
             _err_msg = f"metadata.jwt is invalid: {e!r}"
             logger.error(_err_msg)
             raise ota_errors.MetadataJWTInvalid(_err_msg, module=__name__) from e
         except Exception as e:
-            _err_msg = f"failed to prepare ota metafiles: {e!r}"
-            logger.error(_err_msg)
+            _err_msg = f"failed to prepare ota metafiles due to unspecific error: {e!r}"
+            logger.exception(_err_msg)
             raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
