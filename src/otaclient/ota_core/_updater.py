@@ -104,7 +104,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
             _resource_meta.shutdown()
 
     def _pre_update(self):
-        """Prepare the standby slot and optimize the file_table."""
+        """Pre-Update: Setting up boot control and preparing slots before OTA."""
         logger.info("enter local OTA update...")
         # NOTE(20250905): if ota_resources dir on active slot presented,
         #                 no need to use rebuild mode.
@@ -159,6 +159,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
             )
 
     def _in_update(self):
+        """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
         logger.info("start to calculate delta ...")
         _delta_digests = DeltaCalCulator(
             file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
@@ -273,7 +274,8 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
             logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _post_update(self) -> None:
-        """Post-update phase."""
+        """Post-Update: configure boot control switch slot, persist files handling,
+        preserve client squashfs image and OTA image metadata onto standby slot."""
         logger.info("enter post update phase...")
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
@@ -303,7 +305,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         self._boot_controller.post_update(self.update_version)
 
     def _finalize_update(self) -> None:
-        """Finalize the OTA update."""
+        """Finalize-Update: wait for all sub ECUs, and then reboot."""
         logger.info("local update finished, wait on all subecs...")
         _current_finalizing_time = int(time.time())
         self._status_report_queue.put_nowait(
