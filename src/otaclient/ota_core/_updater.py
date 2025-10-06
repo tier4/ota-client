@@ -19,7 +19,6 @@ import os
 import shutil
 import time
 from abc import abstractmethod
-from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Iterable
@@ -86,8 +85,8 @@ class OTAUpdaterBase(OTAUpdateInterface):
 
         # NOTE: should be updated by _process_metadata
         self.total_regulars_size = 0
-        self._fst_db: Path | None = None
-        self._iter_persist_entries_gen: Callable[[], Iterable[str]] | None = None
+        self._fst_db_helper: FileTableDBHelper | None = None
+        self._iter_persists_func: Callable[[], Iterable[str] | None] | None = None
 
     @abstractmethod
     def _process_metadata(self) -> None: ...
@@ -141,9 +140,9 @@ class OTAUpdaterBase(OTAUpdateInterface):
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
         self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
-        assert self._fst_db
+        assert self._fst_db_helper
         try:
-            save_fstable(self._fst_db, self._ota_meta_store_on_standby)
+            save_fstable(self._fst_db_helper.db_f, self._ota_meta_store_on_standby)
         except Exception as e:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
@@ -152,9 +151,9 @@ class OTAUpdaterBase(OTAUpdateInterface):
     def _in_update(self):
         """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
         logger.info("start to calculate delta ...")
-        assert self._fst_db
+        assert self._fst_db_helper
         _delta_digests = DeltaCalCulator(
-            file_table_db_helper=FileTableDBHelper(self._fst_db),
+            file_table_db_helper=self._fst_db_helper,
             standby_slot_mp=self._standby_slot_mp,
             active_slot_mp=self._active_slot_mp,
             status_report_queue=self._status_report_queue,
@@ -210,9 +209,10 @@ class OTAUpdaterBase(OTAUpdateInterface):
         )
         self._metrics.apply_update_start_timestamp = _current_time
 
+        assert self._fst_db_helper
         try:
             standby_slot_creator = UpdateStandbySlot(
-                file_table_db_helper=FileTableDBHelper(self._fst_db),
+                file_table_db_helper=self._fst_db_helper,
                 standby_slot_mount_point=str(self._standby_slot_mp),
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -282,9 +282,10 @@ class OTAUpdaterBase(OTAUpdateInterface):
         self._metrics.post_update_start_timestamp = _current_time
 
         # NOTE(20240219): move persist file handling at post_update hook
-        if self._iter_persist_entries_gen:
+        assert self._iter_persists_func
+        if _gen := self._iter_persists_func():
             process_persistents(
-                self._iter_persist_entries_gen(),
+                _gen,
                 active_slot_mp=self._active_slot_mp,
                 standby_slot_mp=self._standby_slot_mp,
             )
@@ -411,8 +412,8 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         super()._process_metadata(only_metadata_verification)
         self.total_regulars_size = self._ota_metadata.total_regulars_size
-        self._fst_db = self._ota_metadata._fst_db
-        self._iter_persist_entries_gen = self._ota_metadata.iter_persist_entries
+        self._fst_db_helper = self._ota_metadata.file_table_helper
+        self._iter_persists_func = self._ota_metadata.iter_persist_entries
 
 
 class OTAUpdateOperatorInitOTAImageV1(OTAUpdateInterfaceArgs):
@@ -443,6 +444,5 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         assert image_config
 
         self.total_regulars_size = image_config.sys_image_size
-        self._fst_db = self._ota_image_helper._file_table_dbf
-        if _persists_gen := self._ota_image_helper.get_persistents_list():
-            self._iter_persist_entries_gen = partial(iter, _persists_gen)
+        self._fst_db_helper = self._ota_image_helper.file_table_helper
+        self._iter_persists_func = self._ota_image_helper.get_persistents_list
