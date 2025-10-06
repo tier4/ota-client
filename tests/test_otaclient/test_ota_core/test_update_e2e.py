@@ -33,7 +33,7 @@ from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core import OTAUpdater
+from otaclient.ota_core import OTAUpdaterForLegacyOTAImage
 from otaclient.ota_core._common import create_downloader_pool
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -123,7 +123,7 @@ class TestOTAUpdater:
         )
 
         session_workdir = tmp_path / "session_workdir"
-        _updater = OTAUpdater(
+        _updater = OTAUpdaterForLegacyOTAImage(
             version=cfg.UPDATE_VERSION,
             raw_url_base=cfg.OTA_IMAGE_URL,
             session_wd=session_workdir,
