@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -25,9 +26,10 @@ from urllib.parse import urlparse
 from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
-from ota_metadata.legacy2.metadata import OTAMetadata
+from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_metadata.v1 import OTAImageHelper
+from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
@@ -36,15 +38,22 @@ from otaclient._status_monitor import (
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._download_resources import (
     DownloadHelperForLegacyOTAImage,
     DownloadHelperForOTAImageV1,
+    ResumeOTADownloadHelper,
 )
 from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common import replace_root
+from otaclient_common._io import remove_file
 from otaclient_common.downloader import DownloaderPool
+
+from ._update_libs import (
+    download_resources_handler,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +193,33 @@ class LegacyOTAImageSupportMixin(OTAUpdateInterface):
             download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
         )
 
+    def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
+        """Download all the resources needed for the OTA update."""
+        _resource_meta = ResourceMeta(
+            base_url=self.url_base,
+            ota_metadata=self._ota_metadata,
+            copy_dst=self._resource_dir_on_standby,
+        )
+
+        try:
+            download_resources_handler(
+                self._download_helper.download_resources(delta_digests, _resource_meta),
+                metrics=self._metrics,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            )
+        except Exception as e:
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
+        finally:
+            # NOTE: after this point, we don't need downloader anymore
+            self._downloader_pool.shutdown()
+            _resource_meta.shutdown()
+
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         """Process the metadata.jwt file and report."""
         _current_time = int(time.time())
@@ -254,6 +290,14 @@ class OTAImageV1SupportMixin(OTAUpdateInterface):
         image_identifier: ImageIdentifier = DEFAULT_IMAGE_ID,
     ) -> None:
         self._image_id = image_identifier
+        self._download_tmp_on_standby = Path(
+            replace_root(
+                cfg.OTA_DOWNLOAD_DIR,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+
         self._download_helper = DownloadHelperForOTAImageV1(
             downloader_pool=self._downloader_pool,
             max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
@@ -264,6 +308,57 @@ class OTAImageV1SupportMixin(OTAUpdateInterface):
             base_url=self.url_base,
             ca_store=ca_store,
         )
+
+    def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
+        """Download all the resources needed for the OTA update."""
+        _download_tmp = self._download_tmp_on_standby
+        if not _download_tmp.is_symlink() and _download_tmp.is_dir():
+            logger.info(
+                f"{_download_tmp} found, resuming previous interrupted OTA downloading ..."
+            )
+            try:
+                _processed_entries = ResumeOTADownloadHelper(
+                    _download_tmp,
+                    self._ota_image_helper.resource_table_helper,
+                    max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+                )()
+                logger.info(f"total {_processed_entries} are checked")
+            except Exception as e:
+                logger.warning(
+                    "failed to recover the download dir from previous interrupted OTA, "
+                    f"continue with cleanup the tmp download dir: {e}"
+                )
+                remove_file(_download_tmp)
+        else:  # not a directory
+            remove_file(_download_tmp)
+
+        try:
+            _download_tmp.mkdir(exist_ok=True)
+            download_resources_handler(
+                self._download_helper.download_resources(
+                    delta_digests,
+                    self._ota_image_helper.resource_table_helper,
+                    blob_storage_base_url=self._ota_image_helper.blob_storage_url,
+                    resource_dir=self._resource_dir_on_standby,
+                    download_tmp_dir=self._download_tmp_on_standby,
+                ),
+                metrics=self._metrics,
+                status_report_queue=self._status_report_queue,
+                session_id=self.session_id,
+            )
+            # NOTE: only remove the download tmp when download finished successfully!
+            #       this enables the OTA download resume feature.
+            shutil.rmtree(_download_tmp, ignore_errors=True)
+        except Exception as e:
+            _err_msg = (
+                "download aborted due to download stalls longer than "
+                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
+            )
+            logger.error(_err_msg)
+            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
+        finally:
+            # NOTE: after this point, we don't need downloader anymore
+            self._downloader_pool.shutdown()
 
     def _process_metadata(self, only_metadata_verification: bool = False):
         _current_time = int(time.time())
