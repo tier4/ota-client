@@ -288,7 +288,7 @@ class ResumeOTADownloadHelper:
         try:
             if (
                 not self._rst_orm_pool.orm_check_entry_exist(digest=_digest)
-                or file_sha256_2(_fpath) != _digest
+                or file_sha256_2(_fpath).digest() != _digest
             ):
                 remove_file(_fpath)
         except Exception:
