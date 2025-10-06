@@ -309,10 +309,10 @@ class ResumeOTADownloadHelper:
                     continue
 
                 entry_fname = entry.name
-                # NOTE: for slice, a prefix will be appended to the filename.
+                # NOTE: for slice, a suffix will be appended to the filename.
                 #       see ota-image-libs.v1.resource_table.db.PrepareResourceHelper
                 #           for more details.
-                _digest_hex = entry_fname[SHA256DIGEST_HEX_LEN]
+                _digest_hex = entry_fname[:SHA256DIGEST_HEX_LEN]
                 try:
                     _digest = bytes.fromhex(_digest_hex)
                 except Exception:
