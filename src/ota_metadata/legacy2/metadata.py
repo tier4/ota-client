@@ -356,10 +356,17 @@ class OTAMetadata:
 
     # helper methods
 
-    def iter_persist_entries(self) -> Generator[str]:
-        with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
-            for line in f:
-                yield line.strip()[1:-1]
+    def iter_persist_entries(self) -> Generator[str] | None:
+        _persists_cfg = self._session_dir / self.PERSIST_META_FNAME
+        if not _persists_cfg.is_file():
+            return
+
+        def _gen():
+            with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
+                for line in f:
+                    yield line.strip()[1:-1]
+
+        return _gen()
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
