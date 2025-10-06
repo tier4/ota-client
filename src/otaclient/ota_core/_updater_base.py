@@ -277,6 +277,16 @@ class OTAUpdateOperatorOTAImageV1Base(OTAUpdateOperator):
             ca_store=ca_store,
         )
 
+        # NOTE(20250916): currently OTA download dir is only used by
+        #                 new OTA image support implementation.
+        self._download_tmp_on_standby = Path(
+            replace_root(
+                cfg.OTA_DOWNLOAD_DIR,
+                cfg.CANONICAL_ROOT,
+                self._standby_slot_mp,
+            )
+        )
+
     def _process_metadata(self, only_metadata_verification: bool = False):
         _current_time = int(time.time())
         self._status_report_queue.put_nowait(
