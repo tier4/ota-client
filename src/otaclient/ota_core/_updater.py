@@ -18,14 +18,16 @@ import logging
 import os
 import shutil
 import time
+from abc import abstractmethod
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Callable, Generator
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 from typing_extensions import Unpack
 
 from ota_metadata.file_table.utils import save_fstable
-from ota_metadata.legacy2.metadata import ResourceMeta
+from ota_metadata.utils.cert_store import CAChainStore
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -48,12 +50,12 @@ from otaclient_common.linux import fstrim_at_subprocess
 
 from ._update_libs import (
     DeltaCalCulator,
-    download_resources_handler,
     process_persistents,
 )
 from ._updater_base import (
-    OTAUpdateOperatorInitLegacy,
-    OTAUpdateOperatorLegacyBase,
+    LegacyOTAImageSupportMixin,
+    OTAUpdateInterface,
+    OTAUpdateInterfaceArgs,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,7 +66,7 @@ WAIT_BEFORE_REBOOT = 6
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
-class OTAUpdater(OTAUpdateOperatorLegacyBase):
+class OTAUpdaterBase(OTAUpdateInterface):
     """The implementation of OTA update logic."""
 
     def __init__(
@@ -72,36 +74,24 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         *,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
-        **kwargs: Unpack[OTAUpdateOperatorInitLegacy],
+        **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         super().__init__(**kwargs)
         self.critical_zone_flag = critical_zone_flag
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
+        # NOTE: should be updated by _process_metadata
+        self.total_regulars_size = 0
+        self._fst_db: Path | None = None
+        self._iter_persist_entries_gen: Callable[[], Generator[str]] | None = None
+
+    @abstractmethod
+    def _process_metadata(self) -> None: ...
+
+    @abstractmethod
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
-        _resource_meta = ResourceMeta(
-            base_url=self.url_base,
-            ota_metadata=self._ota_metadata,
-            copy_dst=self._resource_dir_on_standby,
-        )
-
-        try:
-            download_resources_handler(
-                self._download_helper.download_resources(delta_digests, _resource_meta),
-                metrics=self._metrics,
-                status_report_queue=self._status_report_queue,
-                session_id=self.session_id,
-            )
-        except Exception as e:
-            _err_msg = f"download failed: {e!r}"
-            logger.error(_err_msg, exc_info=e)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
-        finally:
-            # NOTE: after this point, we don't need downloader anymore
-            self._downloader_pool.shutdown()
-            _resource_meta.shutdown()
 
     def _pre_update(self):
         """Pre-Update: Setting up boot control and preparing slots before OTA."""
@@ -114,10 +104,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
                 threshold_in_bytes=(
-                    int(
-                        self._ota_metadata.total_regulars_size
-                        * STANDBY_SLOT_USED_SIZE_THRESHOLD
-                    )
+                    int(self.total_regulars_size * STANDBY_SLOT_USED_SIZE_THRESHOLD)
                     if not _ota_resources_dir_presented
                     else None
                 ),
@@ -151,8 +138,9 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         #                 destination folder.
         logger.info("save the OTA image file_table to standby slot ...")
         self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
+        assert self._fst_db
         try:
-            save_fstable(self._ota_metadata._fst_db, self._ota_meta_store_on_standby)
+            save_fstable(self._fst_db, self._ota_meta_store_on_standby)
         except Exception as e:
             logger.error(
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
@@ -161,8 +149,9 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
     def _in_update(self):
         """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
         logger.info("start to calculate delta ...")
+        assert self._fst_db
         _delta_digests = DeltaCalCulator(
-            file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
+            file_table_db_helper=FileTableDBHelper(self._fst_db),
             standby_slot_mp=self._standby_slot_mp,
             active_slot_mp=self._active_slot_mp,
             status_report_queue=self._status_report_queue,
@@ -220,7 +209,7 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
 
         try:
             standby_slot_creator = UpdateStandbySlot(
-                file_table_db_helper=FileTableDBHelper(self._ota_metadata._fst_db),
+                file_table_db_helper=FileTableDBHelper(self._fst_db),
                 standby_slot_mount_point=str(self._standby_slot_mp),
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
@@ -290,8 +279,9 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         self._metrics.post_update_start_timestamp = _current_time
 
         # NOTE(20240219): move persist file handling at post_update hook
+        assert self._iter_persist_entries_gen
         process_persistents(
-            self._ota_metadata.iter_persist_entries(),
+            self._iter_persist_entries_gen(),
             active_slot_mp=self._active_slot_mp,
             standby_slot_mp=self._standby_slot_mp,
         )
@@ -392,3 +382,25 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
+
+
+class OTAUpdaterForLegacyOTAImageArgs(OTAUpdateInterfaceArgs):
+    ca_chains_store: CAChainStore
+
+
+class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
+    def __init__(
+        self,
+        *,
+        ca_chains_store: CAChainStore,
+        boot_controller: BootControllerProtocol,
+        critical_zone_flag: CriticalZoneFlag,
+        **kwargs: Unpack[OTAUpdateInterfaceArgs],
+    ):
+        OTAUpdaterBase.__init__(
+            self,
+            boot_controller=boot_controller,
+            critical_zone_flag=critical_zone_flag,
+            **kwargs,
+        )
+        self.setup_ota_image_support(ca_chains_store=ca_chains_store)
