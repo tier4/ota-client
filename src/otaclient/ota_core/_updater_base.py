@@ -19,6 +19,7 @@ import os
 import shutil
 import threading
 import time
+from abc import abstractmethod
 from pathlib import Path
 from queue import Queue
 from typing import TypedDict
@@ -32,14 +33,17 @@ from typing_extensions import Unpack
 from ota_metadata.legacy2.metadata import OTAMetadata
 from ota_metadata.utils.cert_store import CAChainStore
 from ota_metadata.v1 import OTAImageHelper
+from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import MultipleECUStatusFlags, UpdatePhase
+from otaclient._types import CriticalZoneFlag, MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
+from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._download_resources import (
@@ -48,9 +52,84 @@ from otaclient.ota_core._download_resources import (
 )
 from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common import _env, replace_root
+from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
+
+
+class OTAProtocol:
+    critical_zone_flag: CriticalZoneFlag
+    _boot_controller: BootControllerProtocol
+    update_version: str
+    _session_workdir: Path
+
+    @abstractmethod
+    def _process_metadata(self): ...
+
+    @abstractmethod
+    def _pre_update(self): ...
+
+    @abstractmethod
+    def _in_update(self): ...
+
+    @abstractmethod
+    def _download_delta_resources(
+        self, delta_digests: ResourcesDigestWithSize
+    ) -> None: ...
+
+    @abstractmethod
+    def _post_update(self): ...
+
+    @abstractmethod
+    def _finalize_update(self): ...
+
+    def execute(self) -> None:
+        """Main entry for executing local OTA update.
+
+        Handles OTA failure and logging/finalizing on failure.
+        """
+        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+        try:
+            self._process_metadata()
+            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+                if not _lock_acquired:
+                    logger.error(
+                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
+                    )
+                    raise ota_errors.OTAStopRequested(module=__name__)
+
+                logger.info("Entering critical zone for OTA update: pre-update phase")
+
+                self._pre_update()
+
+            self._in_update()
+
+            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
+                if not _lock_acquired:
+                    logger.error(
+                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
+                    )
+                    raise ota_errors.OTAStopRequested(module=__name__)
+
+                logger.info(
+                    "Entering critical zone for OTA update: post-update and finalize-update phases"
+                )
+                self._post_update()
+                self._finalize_update()
+
+            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
+        except ota_errors.OTAError as e:
+            logger.error(f"update failed: {e!r}")
+            self._boot_controller.on_operation_failure()
+            raise  # do not cover the OTA error again
+        except Exception as e:
+            _err_msg = f"unspecific error, update failed: {e!r}"
+            self._boot_controller.on_operation_failure()
+            raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
+        finally:
+            ensure_umount(self._session_workdir, ignore_error=True)
+            shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
 class OTAUpdateOperatorInit(TypedDict):
