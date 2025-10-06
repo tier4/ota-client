@@ -21,6 +21,7 @@ import time
 
 from typing_extensions import Unpack
 
+from ota_metadata.utils.cert_store import CAChainStore
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAUpdatePhaseChangeReport, StatusReport
 from otaclient._types import ClientUpdateControlFlags, UpdatePhase
@@ -30,22 +31,28 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
-from ._updater_base import OTAUpdateOperatorInitLegacy, OTAUpdateOperatorLegacyBase
+from ._updater_base import (
+    LegacyOTAImageSupportMixin,
+    OTAUpdateInterface,
+    OTAUpdateInterfaceArgs,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class OTAClientUpdater(OTAUpdateOperatorLegacyBase):
+class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInterface):
     """The implementation of OTA client update logic."""
 
     def __init__(
         self,
         *,
+        ca_chains_store: CAChainStore,
         client_update_control_flags: ClientUpdateControlFlags,
-        **kwargs: Unpack[OTAUpdateOperatorInitLegacy],
+        **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         # ------ init base class ------ #
-        super().__init__(**kwargs)
+        OTAUpdateInterface.__init__(self, **kwargs)
+        self.setup_ota_image_support(ca_chains_store=ca_chains_store)
 
         # --- Event flag to control client update ---- #
         self.client_update_control_flags = client_update_control_flags
