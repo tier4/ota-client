@@ -18,6 +18,7 @@ import logging
 import os
 import shutil
 import time
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
@@ -250,6 +251,27 @@ class OTAUpdater(OTAUpdateOperatorLegacyBase):
         for entry in self._ota_meta_store_on_standby.iterdir():
             if entry.is_file():
                 shutil.move(str(entry), self._ota_meta_store_base_on_standby)
+
+    def _preserve_client_squashfs_at_post_update(self) -> None:
+        """Copy the client squashfs file to the standby slot."""
+        if not _env.is_dynamic_client_running():
+            logger.info(
+                "dynamic client is not running, no need to copy client squashfs file"
+            )
+            return
+
+        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
+            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
+        ).relative_to("/")
+        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
+            cfg.OTACLIENT_INSTALLATION_RELEASE
+        ).relative_to("/")
+        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
+        try:
+            os.makedirs(_dst, exist_ok=True)
+            shutil.copy(_src, _dst, follow_symlinks=False)
+        except FileNotFoundError as e:
+            logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _post_update(self) -> None:
         """Post-Update: configure boot control switch slot, persist files handling,
