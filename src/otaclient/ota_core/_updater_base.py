@@ -210,7 +210,6 @@ class OTAUpdateOperatorLegacyBase(OTAUpdateOperator):
                 download_exception_handler(_fut)
 
         _metadata_jwt = self._ota_metadata.metadata_jwt
-        assert _metadata_jwt, "invalid metadata jwt"
 
         logger.info(
             "ota_metadata parsed finished: \n"

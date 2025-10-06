@@ -112,7 +112,8 @@ class OTAMetadata:
 
     @property
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
-        assert self._metadata_jwt, "metadata_jwt is not ready yet!"
+        if not self._metadata_jwt:
+            raise ValueError("metadata_jwt is not ready yet!")
         return self._metadata_jwt
 
     @property
