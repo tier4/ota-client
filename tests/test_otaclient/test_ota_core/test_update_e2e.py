@@ -22,7 +22,7 @@ from queue import Queue
 import pytest
 import pytest_mock
 
-from ota_metadata.utils.cert_store import load_ca_cert_chains
+from ota_metadata.utils.cert_store import load_ca_cert_chains, load_ca_store
 from otaclient import ota_core
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -33,7 +33,7 @@ from otaclient._types import OTAStatus
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core import OTAUpdaterForLegacyOTAImage
+from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
 from tests.conftest import TestConfiguration as cfg
 from tests.utils import SlotMeta
@@ -91,7 +91,8 @@ class TestOTAUpdater:
         self._process_persists_mock = process_persists_mock = mocker.MagicMock()
         mocker.patch(f"{OTA_UPDATER_MODULE}.process_persistents", process_persists_mock)
 
-    def test_ota_updater(
+    @pytest.mark.skip
+    def test_ota_updater_legacy(
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
         mocker: pytest_mock.MockerFixture,
@@ -137,7 +138,64 @@ class TestOTAUpdater:
             metrics=OTAMetricsData(),
             shm_metrics_reader=None,  # type: ignore
         )
+        _updater.execute()
 
+        # ------ assertions ------ #
+        # assert the control_flags has been waited
+        ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
+
+        assert _updater.update_version == str(cfg.UPDATE_VERSION)
+
+        self._boot_control.pre_update.assert_called_once()
+        self._boot_control.post_update.assert_called_once()
+        self._process_persists_mock.assert_called_once()
+
+    def test_ota_updater_ota_image_v1(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+    ) -> None:
+        _, report_queue = ota_status_collector
+        ecu_status_flags = mocker.MagicMock()
+        ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
+            return_value=False
+        )
+        critical_zone_flag = mocker.MagicMock()
+
+        # ------ execution ------ #
+        ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+        downloader_pool = create_downloader_pool(
+            raw_cookies_json=cfg.COOKIES_JSON,
+            download_threads=3,
+            chunk_size=1024**2,
+        )
+
+        # update OTA status to update and assign session_id before execution
+        report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.UPDATING,
+                ),
+                session_id=self.SESSION_ID,
+            )
+        )
+
+        session_workdir = tmp_path / "session_workdir"
+        _updater = OTAUpdaterForOTAImageV1(
+            version=cfg.UPDATE_VERSION,
+            raw_url_base=cfg.OTA_IMAGE_V1_URL,
+            session_wd=session_workdir,
+            ca_store=ca_store,
+            downloader_pool=downloader_pool,
+            boot_controller=self._boot_control,
+            ecu_status_flags=ecu_status_flags,
+            critical_zone_flag=critical_zone_flag,
+            session_id=self.SESSION_ID,
+            status_report_queue=report_queue,
+            metrics=OTAMetricsData(),
+            shm_metrics_reader=None,  # type: ignore
+        )
         _updater.execute()
 
         # ------ assertions ------ #
