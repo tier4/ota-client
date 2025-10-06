@@ -18,7 +18,6 @@ import logging
 import os
 import shutil
 import time
-from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from typing_extensions import Unpack
@@ -265,47 +264,6 @@ class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
             raise ota_errors.ApplyOTAUpdateFailed(
                 f"failed to apply update to standby slot: {e!r}", module=__name__
             ) from e
-
-    def _preserve_ota_image_meta_at_post_update(self):
-        self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
-        # after update_slot finished, we can finally remove the previous base file_table.
-        shutil.rmtree(self._ota_meta_store_base_on_standby, ignore_errors=True)
-
-        # save the filetable to /opt/ota/image-meta
-        shutil.rmtree(self._image_meta_dir_on_standby, ignore_errors=True)
-        self._image_meta_dir_on_standby.mkdir(exist_ok=True, parents=True)
-        shutil.copytree(
-            self._ota_meta_store_on_standby,
-            self._image_meta_dir_on_standby,
-            dirs_exist_ok=True,
-        )
-
-        # prepare base file_table to the base OTA meta store for next OTA
-        self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)
-        for entry in self._ota_meta_store_on_standby.iterdir():
-            if entry.is_file():
-                shutil.move(str(entry), self._ota_meta_store_base_on_standby)
-
-    def _preserve_client_squashfs_at_post_update(self) -> None:
-        """Copy the client squashfs file to the standby slot."""
-        if not _env.is_dynamic_client_running():
-            logger.info(
-                "dynamic client is not running, no need to copy client squashfs file"
-            )
-            return
-
-        _src = Path(cfg.ACTIVE_SLOT_MNT) / Path(
-            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE
-        ).relative_to("/")
-        _dst = Path(cfg.STANDBY_SLOT_MNT) / Path(
-            cfg.OTACLIENT_INSTALLATION_RELEASE
-        ).relative_to("/")
-        logger.info(f"copy client squashfs file from {_src} to {_dst}...")
-        try:
-            os.makedirs(_dst, exist_ok=True)
-            shutil.copy(_src, _dst, follow_symlinks=False)
-        except FileNotFoundError as e:
-            logger.warning(f"failed to copy client squashfs file: {e!r}")
 
     def _post_update(self) -> None:
         """Post-Update: configure boot control switch slot, persist files handling,
