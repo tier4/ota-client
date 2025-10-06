@@ -32,7 +32,7 @@ from otaclient._status_monitor import (
 from otaclient._types import CriticalZoneFlag, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.configs.cfg import cfg, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
@@ -42,7 +42,6 @@ from otaclient_common import (
     human_readable_size,
 )
 from otaclient_common._io import remove_file
-from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._update_libs import (
@@ -51,6 +50,7 @@ from ._update_libs import (
     process_persistents,
 )
 from ._updater_base import (
+    OTAProtocol,
     OTAUpdateOperatorInitOTAImageV1,
     OTAUpdateOperatorOTAImageV1Base,
 )
@@ -63,7 +63,7 @@ WAIT_BEFORE_REBOOT = 6
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
-class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
+class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base, OTAProtocol):
     """The implementation of OTA update logic."""
 
     def __init__(
@@ -336,52 +336,3 @@ class OTAUpdaterOTAImageV1(OTAUpdateOperatorOTAImageV1Base):
         self._boot_controller.finalizing_update(
             chroot=_env.get_dynamic_client_chroot_path()
         )
-
-    # API
-
-    def execute(self) -> None:
-        """Main entry for executing local OTA update.
-
-        Handles OTA failure and logging/finalizing on failure.
-        """
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
-        try:
-            self._process_metadata()
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
-                    )
-                    raise ota_errors.OTAStopRequested(module=__name__)
-
-                logger.info("Entering critical zone for OTA update: pre-update phase")
-
-                self._pre_update()
-
-            self._in_update()
-
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
-                    )
-                    raise ota_errors.OTAStopRequested(module=__name__)
-
-                logger.info(
-                    "Entering critical zone for OTA update: post-update and finalize-update phases"
-                )
-                self._post_update()
-                self._finalize_update()
-
-            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
-        except ota_errors.OTAError as e:
-            logger.error(f"update failed: {e!r}")
-            self._boot_controller.on_operation_failure()
-            raise  # do not cover the OTA error again
-        except Exception as e:
-            _err_msg = f"unspecific error, update failed: {e!r}"
-            self._boot_controller.on_operation_failure()
-            raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
-        finally:
-            ensure_umount(self._session_workdir, ignore_error=True)
-            shutil.rmtree(self._session_workdir, ignore_errors=True)
