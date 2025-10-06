@@ -24,6 +24,7 @@ import multiprocessing.shared_memory as mp_shm
 import os
 import secrets
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -43,7 +44,7 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
 )
 from otaclient.configs.cfg import cfg
-from otaclient_common.cmdhelper import ensure_umount
+from otaclient_common.cmdhelper import ensure_umount, subprocess_call
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
+SHUTDOWN_ON_DYNAMIC_APP_EXIT = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
 METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
@@ -66,7 +68,7 @@ _shm: mp_shm.SharedMemory | None = None
 _shm_metrics: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
+def _on_shutdown(sys_exit: bool = False):  # pragma: no cover
     global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -113,7 +115,6 @@ def main() -> None:  # pragma: no cover
         otaproxy_on_global_shutdown,
     )
     from otaclient._utils import check_other_otaclient
-    from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
@@ -128,9 +129,7 @@ def main() -> None:  # pragma: no cover
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
-    logger.info(
-        f"env.preparing_downloaded_dynamic_ota_client: {os.getenv(cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
-    )
+    logger.info(f"running as app image: {os.getenv(cfg.RUNNING_AS_APP_IMAGE)}")
     logger.info(
         f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
     )
@@ -145,40 +144,6 @@ def main() -> None:  # pragma: no cover
         )
     except Exception as e:
         logger.warning(f"failed to read system uptime: {e}")
-
-    if _env.is_dynamic_client_preparing():
-        logger.info("preparing downloaded dynamic ota client ...")
-        try:
-            logger.info("mounting dynamic client squashfs ...")
-            client_package_prepareter = OTAClientPackagePreparer(
-                squashfs_file=cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
-                mount_base=cfg.DYNAMIC_CLIENT_MNT,
-                active_root=cfg.ACTIVE_ROOT,
-                active_slot_mnt_point=cfg.ACTIVE_SLOT_MNT,
-                host_root_mnt_point=cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
-                bootloader=ecu_info.bootloader,
-            )
-            client_package_prepareter.mount_client_package()
-
-            _mount_base = cfg.DYNAMIC_CLIENT_MNT
-            logger.info(f"changing root to {_mount_base}")
-            os.chroot(_mount_base)
-            os.chdir("/")
-
-            logger.info("execve for dynamic client runnning ...")
-            running_env = os.environ.copy()
-            del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
-            running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
-            # the process should finish after this execve call
-            DYNAMIC_CLIENT_PYTHON_PATH = "/otaclient/venv/bin/python3"
-            os.execve(
-                path=DYNAMIC_CLIENT_PYTHON_PATH,
-                argv=[DYNAMIC_CLIENT_PYTHON_PATH, "-m", "otaclient"],
-                env=running_env,
-            )
-        except Exception as e:
-            logger.exception(f"Failed during dynamic client preparation: {e}")
-        return sys.exit(1)
 
     if not _env.is_dynamic_client_running():
         # in dynamic client, the pid file has already been created
@@ -343,19 +308,55 @@ def main() -> None:  # pragma: no cover
                         except Exception as e:
                             logger.error(f"failed to stop the resource tracker: {e!r}")
 
-                logger.info("execve for dynamic client preparation ...")
-                # Create a copy of the current environment and modify it
-                preparing_env = os.environ.copy()
-                preparing_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
-                # Execute with the modified environment
-                os.execve(
-                    path=sys.executable,
-                    argv=[sys.executable, "-m", "otaclient"],
-                    env=preparing_env,
+                logger.info("launching dynamic otaclient app with systemd ...")
+                # NOTE: the old otaclient's main process will just wait for the dynamic otaclient
+                #       finishes up running as we don't want the old otaclient restart.
+                # fmt: off
+                subprocess_call(
+                cmd = [
+                        "systemd-run",
+                        "--unit=otaclient_dynamic_app", "-G",
+                        "--wait",
+                        "-p", "Type=simple",
+                        "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
+                        "--setenv=RUNNING_AS_APP_IMAGE=",
+                        "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
+                        "-p", "PrivateMounts=yes",
+                        "-p", "TemporaryFileSystem=/tmp:nodev,size=700M",
+                        "-p", "ExecStartPre=/usr/bin/mkdir -p /run/otaclient/mnt/active_slot",
+                        "-p", "ExecStartPre=/usr/bin/mkdir -p /host_root/ota-cache",
+                        "-p", "BindPaths=/boot:/boot:rbind",
+                        "-p", "BindPaths=/dev:/dev",
+                        "-p", "BindPaths=/dev/shm:/dev/shm",
+                        "-p", "BindPaths=/etc:/etc",
+                        "-p", "BindPaths=/opt:/opt",
+                        "-p", "BindPaths=/proc:/proc",
+                        "-p", "BindPaths=/root:/root",
+                        "-p", "BindPaths=/sys:/sys",
+                        "-p", "BindPaths=/run:/run",
+                        "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
+                        "-p", "BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates",
+                        "-p", "BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo",
+                        "-p", "BindPaths=/:/host_root:rbind",
+                        "/usr/bin/bash", "-c",
+                        "mount -o bind /host_root/ota-cache /ota-cache && mount -o bind,ro /host_root /run/otaclient/mnt/active_slot "
+                        "&& /otaclient/venv/bin/python3 -m otaclient",
+                    ],
+                    chroot=_env.get_dynamic_client_chroot_path(),
+                    raise_exception=True,
                 )
+            # fmt: on
+            except subprocess.CalledProcessError as e:
+                logger.exception(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
             except Exception as e:
-                logger.exception(f"Failed during dynamic client preparation: {e}")
-                return _on_shutdown(sys_exit=True)
+                logger.exception(f"failed to launch dynamic client with systemd: {e}")
+            finally:
+                logger.warning(
+                    f"otaclient will exit in {SHUTDOWN_ON_DYNAMIC_APP_EXIT=}s ..."
+                )
+                time.sleep(SHUTDOWN_ON_DYNAMIC_APP_EXIT)
+                _on_shutdown(sys_exit=True)
+                sys.exit(1)  # just for typing
 
         # shutdown request
         if client_update_control_flags.request_shutdown_event.is_set():

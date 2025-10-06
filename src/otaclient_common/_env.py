@@ -14,6 +14,7 @@
 
 import functools
 import os
+import sys
 from typing import Optional
 
 from otaclient.configs.cfg import cfg
@@ -25,15 +26,20 @@ except AttributeError:
 
 
 @cache
-def is_dynamic_client_preparing() -> bool:
-    """Check if the preparing dynamic client is running."""
-    return bool(os.getenv(cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
+def is_running_as_app_image() -> bool:
+    """Check if the dynamic client is running."""
+    return bool(os.getenv(cfg.RUNNING_AS_APP_IMAGE))
+
+
+def is_running_as_downloaded_dynamic_app() -> bool:
+    """Check if the dynamic client is running."""
+    return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
 @cache
 def is_dynamic_client_running() -> bool:
     """Check if the dynamic client is running."""
-    return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
+    return is_running_as_app_image() or is_running_as_downloaded_dynamic_app()
 
 
 @cache
@@ -42,3 +48,6 @@ def get_dynamic_client_chroot_path() -> Optional[str]:
     if is_dynamic_client_running():
         return cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT
     return None
+
+
+RUN_AS_PYINSTALLER_BUNDLE = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
