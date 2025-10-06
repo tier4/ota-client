@@ -66,6 +66,7 @@ from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
+from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
@@ -186,16 +187,20 @@ class OTAClient:
         try:
             self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
-            _err_msg = f"failed to import ca_chains_store: {e!r}, "
-            "OTA with legacy OTA image will NOT occur on no CA chains installed!!!"
+            _err_msg = (
+                f"failed to import ca_chains_store: {e!r}, "
+                "OTA with legacy OTA image will NOT occur on no CA chains installed!!!"
+            )
             logger.error(_err_msg)
 
         self.ca_store = None
         try:
             self.ca_store = load_ca_store(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
-            _err_msg = f"failed to import ca_chains_store: {e!r}, "
-            "OTA with OTA image v1 will NOT occur on no CA store installed!!!"
+            _err_msg = (
+                f"failed to import ca_chains_store: {e!r}, "
+                "OTA with OTA image v1 will NOT occur on no CA store installed!!!"
+            )
             logger.error(_err_msg)
 
         self.started = True
@@ -307,6 +312,18 @@ class OTAClient:
         url_base = request.url_base
         try:
             logger.info("[update] entering local update...")
+            _common_args = OTAUpdateInterfaceArgs(
+                version=request.version,
+                raw_url_base=request.url_base,
+                session_wd=session_wd,
+                downloader_pool=download_pool,
+                ecu_status_flags=self.ecu_status_flags,
+                status_report_queue=self._status_report_queue,
+                session_id=new_session_id,
+                metrics=self._metrics,
+                shm_metrics_reader=self._shm_metrics_reader,
+            )
+
             if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
                 logger.info(f"{url_base} hosts new OTA image version1")
                 if not self.ca_store:
@@ -314,20 +331,11 @@ class OTAClient:
                         "no CA chains are installed, reject any OTA update",
                         module=__name__,
                     )
-
                 OTAUpdaterForOTAImageV1(
-                    version=request.version,
-                    raw_url_base=request.url_base,
-                    session_wd=session_wd,
                     ca_store=self.ca_store,
                     critical_zone_flag=self._critical_zone_flag,
                     boot_controller=self.boot_controller,
-                    downloader_pool=download_pool,
-                    ecu_status_flags=self.ecu_status_flags,
-                    status_report_queue=self._status_report_queue,
-                    session_id=new_session_id,
-                    metrics=self._metrics,
-                    shm_metrics_reader=self._shm_metrics_reader,
+                    **_common_args,
                 ).execute()
             else:
                 logger.info(f"{url_base} hosts legacy OTA image")
@@ -336,20 +344,11 @@ class OTAClient:
                         "no CA chains are installed, reject any OTA update",
                         module=__name__,
                     )
-
                 OTAUpdaterForLegacyOTAImage(
-                    version=request.version,
-                    raw_url_base=request.url_base,
-                    session_wd=session_wd,
                     ca_chains_store=self.ca_chains_store,
                     critical_zone_flag=self._critical_zone_flag,
                     boot_controller=self.boot_controller,
-                    downloader_pool=download_pool,
-                    ecu_status_flags=self.ecu_status_flags,
-                    status_report_queue=self._status_report_queue,
-                    session_id=new_session_id,
-                    metrics=self._metrics,
-                    shm_metrics_reader=self._shm_metrics_reader,
+                    **_common_args,
                 ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
