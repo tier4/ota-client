@@ -19,10 +19,12 @@ import os
 import shutil
 import time
 from abc import abstractmethod
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Callable, Generator
+from typing import Callable, Iterable
 
+from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 from typing_extensions import Unpack
 
@@ -54,6 +56,7 @@ from ._update_libs import (
 )
 from ._updater_base import (
     LegacyOTAImageSupportMixin,
+    OTAImageV1SupportMixin,
     OTAUpdateInterface,
     OTAUpdateInterfaceArgs,
 )
@@ -84,7 +87,7 @@ class OTAUpdaterBase(OTAUpdateInterface):
         # NOTE: should be updated by _process_metadata
         self.total_regulars_size = 0
         self._fst_db: Path | None = None
-        self._iter_persist_entries_gen: Callable[[], Generator[str]] | None = None
+        self._iter_persist_entries_gen: Callable[[], Iterable[str]] | None = None
 
     @abstractmethod
     def _process_metadata(self) -> None: ...
@@ -279,12 +282,12 @@ class OTAUpdaterBase(OTAUpdateInterface):
         self._metrics.post_update_start_timestamp = _current_time
 
         # NOTE(20240219): move persist file handling at post_update hook
-        assert self._iter_persist_entries_gen
-        process_persistents(
-            self._iter_persist_entries_gen(),
-            active_slot_mp=self._active_slot_mp,
-            standby_slot_mp=self._standby_slot_mp,
-        )
+        if self._iter_persist_entries_gen:
+            process_persistents(
+                self._iter_persist_entries_gen(),
+                active_slot_mp=self._active_slot_mp,
+                standby_slot_mp=self._standby_slot_mp,
+            )
 
         self._preserve_ota_image_meta_at_post_update()
         # NOTE(20250823): secure the resource dir and metadata dir
@@ -404,3 +407,42 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
             **kwargs,
         )
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
+
+    def _process_metadata(self, only_metadata_verification: bool = False) -> None:
+        super()._process_metadata(only_metadata_verification)
+        self.total_regulars_size = self._ota_metadata.total_regulars_size
+        self._fst_db = self._ota_metadata._fst_db
+        self._iter_persist_entries_gen = self._ota_metadata.iter_persist_entries
+
+
+class OTAUpdateOperatorInitOTAImageV1(OTAUpdateInterfaceArgs):
+    ca_store: CACertStore
+
+
+class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
+    def __init__(
+        self,
+        *,
+        ca_store: CACertStore,
+        boot_controller: BootControllerProtocol,
+        critical_zone_flag: CriticalZoneFlag,
+        **kwargs: Unpack[OTAUpdateInterfaceArgs],
+    ):
+        OTAUpdaterBase.__init__(
+            self,
+            boot_controller=boot_controller,
+            critical_zone_flag=critical_zone_flag,
+            **kwargs,
+        )
+        self.setup_ota_image_support(ca_store=ca_store)
+
+    def _process_metadata(self, only_metadata_verification: bool = False):
+        super()._process_metadata(only_metadata_verification)
+
+        image_config = self._ota_image_helper.image_config
+        assert image_config
+
+        self.total_regulars_size = image_config.sys_image_size
+        self._fst_db = self._ota_image_helper._file_table_dbf
+        if _persists_gen := self._ota_image_helper.get_persistents_list():
+            self._iter_persist_entries_gen = partial(iter, _persists_gen)
