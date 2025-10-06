@@ -14,13 +14,14 @@
 
 from ._client_updater import OTAClientUpdater
 from ._main import OTAClient, ota_core_process
-from ._updater import OTAUpdater
-from ._updater_base import OTAUpdateOperator
+from ._updater import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
+from ._updater_base import OTAUpdateInterface
 
 __all__ = [
     "ota_core_process",
     "OTAClient",
-    "OTAUpdateOperator",
-    "OTAUpdater",
+    "OTAUpdateInterface",
+    "OTAUpdaterForLegacyOTAImage",
+    "OTAUpdaterForOTAImageV1",
     "OTAClientUpdater",
 ]
