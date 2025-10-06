@@ -36,6 +36,7 @@ from typing import Generator
 from urllib.parse import quote
 
 from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
@@ -131,6 +132,10 @@ class OTAMetadata:
     @property
     def total_regulars_size(self) -> int:
         return self._total_regulars_size
+
+    @property
+    def file_table_helper(self) -> FileTableDBHelper:
+        return FileTableDBHelper(self._fst_db)
 
     def _prepare_metadata(
         self,
