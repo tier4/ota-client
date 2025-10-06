@@ -52,7 +52,7 @@ class Consts:
     DYNAMIC_CLIENT_MNT_HOST_ROOT = "/host_root"
     # downloaded squashfs location in local filesystem
     # this path should not be included in the mounted rootfs
-    DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
+    DYNAMIC_CLIENT_SQUASHFS_FILE = "/run/.otaclient.squashfs"
 
     OTA_TMP_STORE = "/.ota-tmp"
     """For backward-compatibility"""
@@ -91,7 +91,7 @@ class Consts:
     #
     # ------ env vars ------ #
     #
-    PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
+    RUNNING_AS_APP_IMAGE = "RUNNING_AS_APP_IMAGE"
     RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:
