@@ -62,6 +62,9 @@ dev = [
   "ruff",
 ]
 
+[tool.uv.sources]
+ota-image-libs = { git = "https://github.com/tier4/ota-image-libs", branch = "fix/file_table"}
+
 [tool.hatch.version]
 source = "vcs"
 
