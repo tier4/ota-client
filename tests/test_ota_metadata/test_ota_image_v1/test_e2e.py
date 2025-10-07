@@ -23,6 +23,7 @@ from typing import Any, Iterable
 
 from pytest_mock import MockerFixture
 
+from ota_metadata.utils.cert_store import load_ca_store
 from otaclient._types import MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
@@ -55,6 +56,9 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
         metrics=mocker.MagicMock(spec=OTAMetricsData),
         shm_metrics_reader=mocker.MagicMock(spec=SharedOTAClientMetricsReader),
     )  # type: ignore
+
+    ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+    ota_image_v1.setup_ota_image_support(ca_store=ca_store)
     ota_image_v1._process_metadata()
 
     # ------ check result ------ #
@@ -62,9 +66,9 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
     assert (_image_index := ota_image_helper.image_index)
     assert (_image_manifest := ota_image_helper.image_manifest)
     assert (_image_config := ota_image_helper.image_config)
-    logger.info(str(ota_image_helper.image_index))
-    logger.info(str(ota_image_helper.image_manifest))
-    logger.info(str(ota_image_helper.image_config))
+    logger.info(str(_image_index))
+    logger.info(str(_image_manifest))
+    logger.info(str(_image_config))
 
     fst_helper = ota_image_helper.file_table_helper
     _iter_helper(fst_helper.iter_dir_entries())
