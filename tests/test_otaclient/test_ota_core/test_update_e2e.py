@@ -91,7 +91,6 @@ class TestOTAUpdater:
         self._process_persists_mock = process_persists_mock = mocker.MagicMock()
         mocker.patch(f"{OTA_UPDATER_MODULE}.process_persistents", process_persists_mock)
 
-    @pytest.mark.skip
     def test_ota_updater_legacy(
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
