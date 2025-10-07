@@ -272,8 +272,7 @@ class OTAImageHelper:
         # NOTE: normally we will only put one otaclient release into the OTA image
         if len(_otaclient_package_manifests) != 1:
             logger.warning(
-                "multiple otaclient package manifest found in the OTA image"
-                "will pick the first one"
+                "multiple otaclient package manifest found in the OTA image. Will pick the first one"
             )
         _otaclient_package_manifest_descriptor = _otaclient_package_manifests[0]
 
