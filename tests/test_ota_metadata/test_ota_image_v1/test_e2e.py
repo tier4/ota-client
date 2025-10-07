@@ -34,12 +34,11 @@ from tests.conftest import cfg
 logger = logging.getLogger(__name__)
 
 
-def _iter_helper(_iter: Iterable[Any]):
-    _any = False
-    for _ in _iter:
-        if not _any:
-            _any = True
-    return _any
+def _iter_helper(_iter: Iterable[Any]) -> int:
+    _count = 0
+    for _count, _ in enumerate(_iter, start=1):
+        ...
+    return _count
 
 
 def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
@@ -71,6 +70,15 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
     logger.info(str(_image_config))
 
     fst_helper = ota_image_helper.file_table_helper
-    _iter_helper(fst_helper.iter_dir_entries())
-    _iter_helper(fst_helper.iter_non_regular_entries())
-    _iter_helper(fst_helper.iter_regular_entries())
+    assert (
+        _iter_helper(fst_helper.iter_dir_entries())
+        == _image_config.labels.sys_image_dirs_count
+    )
+    assert (
+        _iter_helper(fst_helper.iter_non_regular_entries())
+        == _image_config.labels.sys_image_non_regular_files_count
+    )
+    assert (
+        _iter_helper(fst_helper.iter_regular_entries())
+        == _image_config.sys_image_regular_files_count
+    )
