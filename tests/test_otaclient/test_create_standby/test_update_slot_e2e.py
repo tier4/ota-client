@@ -39,43 +39,43 @@ def verify_slot(_fst_db_helper: FileTableDBHelper, slot: Path):
     for _entry in _fst_db_helper.iter_regular_entries():
         _f_at_slot = Path(
             replace_root(
-                _entry["path"],
+                _entry.path,
                 "/",
                 slot,
             )
         )
         assert _f_at_slot.is_file()
-        assert sha256(_f_at_slot.read_bytes()).digest() == _entry["digest"]
-        assert _f_at_slot.stat().st_uid == _entry["uid"]
-        assert _f_at_slot.stat().st_gid == _entry["gid"]
-        assert _f_at_slot.stat().st_mode == _entry["mode"]
+        assert sha256(_f_at_slot.read_bytes()).digest() == _entry.digest
+        assert _f_at_slot.stat().st_uid == _entry.uid
+        assert _f_at_slot.stat().st_gid == _entry.gid
+        assert _f_at_slot.stat().st_mode == _entry.mode
 
     logger.info("verify all directories ...")
     for _entry in _fst_db_helper.iter_dir_entries():
         _d_at_slot = Path(
             replace_root(
-                _entry["path"],
+                _entry.path,
                 "/",
                 slot,
             )
         )
         assert _d_at_slot.is_dir()
-        assert _d_at_slot.stat().st_uid == _entry["uid"]
-        assert _d_at_slot.stat().st_gid == _entry["gid"]
-        assert _d_at_slot.stat().st_mode == _entry["mode"]
+        assert _d_at_slot.stat().st_uid == _entry.uid
+        assert _d_at_slot.stat().st_gid == _entry.gid
+        assert _d_at_slot.stat().st_mode == _entry.mode
 
     logger.info("verify all non-regular files ...")
     for _entry in _fst_db_helper.iter_non_regular_entries():
         _f_at_slot = Path(
             replace_root(
-                _entry["path"],
+                _entry.path,
                 "/",
                 slot,
             )
         )
         # NOTE: for old OTA image, non-regular-file category only has symlink
         if _f_at_slot.is_symlink():
-            assert _entry["meta"] and os.readlink(_f_at_slot) == _entry["meta"].decode()
+            assert _entry.meta and os.readlink(_f_at_slot) == _entry.meta.decode()
         else:
             raise ValueError(f"unknown non-regular file {_f_at_slot}")
 
