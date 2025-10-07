@@ -90,7 +90,7 @@ file_sha256 = partial(cal_file_digest, algorithm="sha256")
 file_sha256.__doc__ = "Generate file digest with sha256."
 
 file_sha256_2 = partial(file_digest2, algorithm="sha256")
-file_sha256.__doc__ = "Generate file digest with sha256, returns hash object."
+file_sha256_2.__doc__ = "Generate file digest with sha256, returns hash object."
 
 
 def write_str_to_file_atomic(
