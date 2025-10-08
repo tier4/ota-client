@@ -19,8 +19,8 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
-
 from otaclient._logging import LogType
+from otaclient._types import FailureType, OTAStatus
 from otaclient.configs.cfg import ecu_info
 
 logger = logging.getLogger(__name__)
@@ -68,9 +68,9 @@ class OTAMetricsData:
     otaclient_version: str = __version__
 
     # Status
-    failure_type: str = ""
+    failure_type: str = FailureType.NO_FAILURE
     failure_reason: str = ""
-    failed_status: str = ""
+    failed_status: str = OTAStatus.INITIALIZED
 
     # Mode
     use_inplace_mode: bool = False
