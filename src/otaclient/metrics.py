@@ -19,6 +19,7 @@ import logging
 from dataclasses import asdict, dataclass
 
 from _otaclient_version import __version__
+
 from otaclient._logging import LogType
 from otaclient._types import FailureType, OTAStatus
 from otaclient.configs.cfg import ecu_info
