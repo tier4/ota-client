@@ -27,6 +27,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
 
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
+
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
     load_ca_cert_chains,
@@ -331,10 +333,20 @@ class OTAClient:
                     raise ota_errors.MetadataJWTVerficationFailed(
                         _no_ca_err, module=__name__
                     )
+
+                # NOTE(20251009): currently the update API still doesn't support specify
+                #                 the image varient, provide a default value here.
+                image_id = ImageIdentifier(
+                    ecu_id=ecu_info.ecu_id,
+                    release_key=OTAReleaseKey.dev,
+                )
+                logger.info(f"selecting image payload {image_id} from OTA image")
+
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
                     critical_zone_flag=self._critical_zone_flag,
                     boot_controller=self.boot_controller,
+                    image_identifier=image_id,
                     **_common_args,
                 ).execute()
             else:

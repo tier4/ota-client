@@ -25,6 +25,7 @@ from typing import Callable, Iterable
 
 from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 from typing_extensions import Unpack
 
 from ota_metadata.file_table.utils import save_fstable
@@ -427,6 +428,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         ca_store: CACertStore,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
+        image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         OTAUpdaterBase.__init__(
@@ -435,7 +437,9 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
             critical_zone_flag=critical_zone_flag,
             **kwargs,
         )
-        self.setup_ota_image_support(ca_store=ca_store)
+        self.setup_ota_image_support(
+            ca_store=ca_store, image_identifier=image_identifier
+        )
 
     def _process_metadata(self, only_metadata_verification: bool = False):
         super()._process_metadata(only_metadata_verification)

@@ -24,7 +24,7 @@ from typing import TypedDict
 from urllib.parse import urlparse
 
 from ota_image_libs._crypto.x509_utils import CACertStore
-from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from ota_metadata.utils.cert_store import CAChainStore
@@ -37,7 +37,7 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
-from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.configs.cfg import cfg
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
@@ -276,20 +276,12 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
         )
 
 
-# NOTE(20251009): currently the update API still doesn't support specify
-#                 the image varient, provide a default value here.
-DEFAULT_IMAGE_ID = ImageIdentifier(
-    ecu_id=ecu_info.ecu_id,
-    release_key=OTAReleaseKey.dev,
-)
-
-
 class OTAImageV1SupportMixin(OTAUpdateInitializer):
     def setup_ota_image_support(
         self,
         *,
         ca_store: CACertStore,
-        image_identifier: ImageIdentifier = DEFAULT_IMAGE_ID,
+        image_identifier: ImageIdentifier,
     ) -> None:
         self._image_id = image_identifier
         self._download_tmp_on_standby = Path(
