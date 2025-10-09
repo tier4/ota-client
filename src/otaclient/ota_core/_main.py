@@ -324,12 +324,12 @@ class OTAClient:
                 shm_metrics_reader=self._shm_metrics_reader,
             )
 
+            _no_ca_err = "no CA chains are installed, reject any OTA update"
             if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
                 logger.info(f"{url_base} hosts new OTA image version1")
                 if not self.ca_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
-                        "no CA chains are installed, reject any OTA update",
-                        module=__name__,
+                        _no_ca_err, module=__name__
                     )
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
@@ -341,8 +341,7 @@ class OTAClient:
                 logger.info(f"{url_base} hosts legacy OTA image")
                 if not self.ca_chains_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
-                        "no CA chains are installed, reject any OTA update",
-                        module=__name__,
+                        _no_ca_err, module=__name__
                     )
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,

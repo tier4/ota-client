@@ -207,7 +207,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             _blob_save_dst = _resource_dl_info.save_dst
             # reuse already downloaded blobs from previous OTA if presented
             if _blob_save_dst.is_file():
-                if not file_sha256_2(_blob_save_dst).digest() == resource.digest:
+                if file_sha256_2(_blob_save_dst).digest() != resource.digest:
                     # broken blob, cleanup and do the downloading again
                     _blob_save_dst.unlink(missing_ok=True)
                 else:
