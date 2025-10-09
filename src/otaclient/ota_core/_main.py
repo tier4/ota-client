@@ -198,7 +198,7 @@ class OTAClient:
             self.ca_store = load_ca_store(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
             _err_msg = (
-                f"failed to import ca_chains_store: {e!r}, "
+                f"failed to import ca_store: {e!r}, "
                 "OTA with OTA image v1 will NOT occur on no CA store installed!!!"
             )
             logger.error(_err_msg)
