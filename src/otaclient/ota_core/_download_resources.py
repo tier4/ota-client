@@ -30,7 +30,7 @@ from ota_image_libs.v1.resource_table.utils import PrepareResourceHelper
 
 from ota_metadata.legacy2.metadata import ResourceMeta
 from otaclient_common import EMPTY_FILE_SHA256_BYTE, SHA256DIGEST_HEX_LEN
-from otaclient_common._io import file_sha256_2, remove_file
+from otaclient_common._io import file_sha256_digest, remove_file
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
@@ -207,7 +207,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             # reuse already downloaded blobs from previous OTA if presented,
             #   work together with ResumeOTADownload feature.
             if _blob_save_dst.is_file():
-                if file_sha256_2(_blob_save_dst).digest() != resource.digest:
+                if file_sha256_digest(_blob_save_dst).digest() != resource.digest:
                     # broken blob, cleanup and do the downloading again
                     _blob_save_dst.unlink(missing_ok=True)
                 else:
@@ -288,7 +288,7 @@ class ResumeOTADownloadHelper:
         try:
             if (
                 not self._rst_orm_pool.orm_check_entry_exist(digest=_digest)
-                or file_sha256_2(_fpath).digest() != _digest
+                or file_sha256_digest(_fpath).digest() != _digest
             ):
                 remove_file(_fpath)
         except Exception:
