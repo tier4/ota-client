@@ -56,7 +56,7 @@ from ._update_libs import (
 from ._updater_base import (
     LegacyOTAImageSupportMixin,
     OTAImageV1SupportMixin,
-    OTAUpdateInterface,
+    OTAUpdateInitializer,
     OTAUpdateInterfaceArgs,
 )
 
@@ -68,7 +68,7 @@ WAIT_BEFORE_REBOOT = 6
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
 
-class OTAUpdaterBase(OTAUpdateInterface):
+class OTAUpdaterBase(OTAUpdateInitializer):
     """The implementation of OTA update logic."""
 
     def __init__(

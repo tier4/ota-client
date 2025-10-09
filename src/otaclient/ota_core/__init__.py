@@ -15,12 +15,12 @@
 from ._client_updater import OTAClientUpdater
 from ._main import OTAClient, ota_core_process
 from ._updater import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
-from ._updater_base import OTAUpdateInterface
+from ._updater_base import OTAUpdateInitializer
 
 __all__ = [
     "ota_core_process",
     "OTAClient",
-    "OTAUpdateInterface",
+    "OTAUpdateInitializer",
     "OTAUpdaterForLegacyOTAImage",
     "OTAUpdaterForOTAImageV1",
     "OTAClientUpdater",

@@ -70,7 +70,7 @@ class OTAUpdateInterfaceArgs(TypedDict):
     shm_metrics_reader: SharedOTAClientMetricsReader
 
 
-class OTAUpdateInterface:
+class OTAUpdateInitializer:
     """The base common class of OTA update logic."""
 
     def __init__(
@@ -176,7 +176,7 @@ class OTAUpdateInterface:
 #
 
 
-class LegacyOTAImageSupportMixin(OTAUpdateInterface):
+class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
     """Mixin that add legacy OTA image support to OTAUpdateInterface implementation."""
 
     def setup_ota_image_support(self, *, ca_chains_store: CAChainStore) -> None:
@@ -284,7 +284,7 @@ DEFAULT_IMAGE_ID = ImageIdentifier(
 )
 
 
-class OTAImageV1SupportMixin(OTAUpdateInterface):
+class OTAImageV1SupportMixin(OTAUpdateInitializer):
     def setup_ota_image_support(
         self,
         *,

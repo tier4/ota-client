@@ -33,14 +33,14 @@ from otaclient_common.cmdhelper import ensure_umount
 from ._common import download_exception_handler
 from ._updater_base import (
     LegacyOTAImageSupportMixin,
-    OTAUpdateInterface,
+    OTAUpdateInitializer,
     OTAUpdateInterfaceArgs,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInterface):
+class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
     """The implementation of OTA client update logic."""
 
     def __init__(
@@ -51,7 +51,7 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInterface):
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         # ------ init base class ------ #
-        OTAUpdateInterface.__init__(self, **kwargs)
+        OTAUpdateInitializer.__init__(self, **kwargs)
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
 
         # --- Event flag to control client update ---- #
