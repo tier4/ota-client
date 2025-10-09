@@ -50,6 +50,7 @@ from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common import replace_root
 from otaclient_common._io import remove_file
 from otaclient_common.downloader import DownloaderPool
+from otaclient_common.linux import is_directory
 
 from ._update_libs import (
     download_resources_handler,
@@ -306,7 +307,7 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
         _download_tmp = self._download_tmp_on_standby
-        if not _download_tmp.is_symlink() and _download_tmp.is_dir():
+        if is_directory(_download_tmp):
             logger.info(
                 f"{_download_tmp} found, resuming previous interrupted OTA downloading ..."
             )
