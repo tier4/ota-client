@@ -285,6 +285,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             dir_save_fpath.unlink(missing_ok=True)
+            self._total_dirs_num = dirs_num
 
             symlinks_num, _ = parse_symlinks_from_csv_file(
                 symlink_save_fpath,
@@ -293,6 +294,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
+            self._total_symlinks_num = symlinks_num
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
