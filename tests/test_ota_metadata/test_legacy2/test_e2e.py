@@ -62,7 +62,7 @@ def test_metadata_jwt_parser_e2e() -> None:
 def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
     legacy_ota_image = LegacyOTAImageSupportMixin(
         version="dummy_version",
-        raw_url_base=cfg.OTA_IMAGE_V1_URL,
+        raw_url_base=cfg.OTA_IMAGE_URL,
         session_wd=tmp_path,
         downloader_pool=DownloaderPool(instance_num=3, hash_func=sha256),
         session_id=f"session_id_{os.urandom(2).hex()}",
