@@ -210,7 +210,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         )
         self._metrics.apply_update_start_timestamp = _current_time
 
-        assert self._fst_db_helper
         try:
             standby_slot_creator = UpdateStandbySlot(
                 file_table_db_helper=self._fst_db_helper,
