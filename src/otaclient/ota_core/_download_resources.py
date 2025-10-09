@@ -192,10 +192,9 @@ class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
                 raise
 
 
-RESOURCE_TABLE_DB_CONN = 3
-
-
 class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
+    RESOURCE_TABLE_DB_CONN = 3
+
     def _download_single_resource_at_thread(
         self, _digest: bytes, *, _rst_helper: PrepareResourceHelper, _base_url: str
     ) -> DownloadResult:
@@ -247,7 +246,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         download_tmp_dir: Path,
     ) -> Generator[Future[DownloadResult]]:
         _base_url = f"{blob_storage_base_url.rstrip('/')}/"
-        _rst_orm_pool = resource_db_helper.get_orm_pool(RESOURCE_TABLE_DB_CONN)
+        _rst_orm_pool = resource_db_helper.get_orm_pool(self.RESOURCE_TABLE_DB_CONN)
         _rst_helper = PrepareResourceHelper(
             _rst_orm_pool,
             resource_dir=resource_dir,
