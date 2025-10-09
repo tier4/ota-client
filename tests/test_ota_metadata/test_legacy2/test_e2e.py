@@ -36,8 +36,7 @@ from tests.conftest import (
     OTA_IMAGE_SIGN_CERT,
     cfg,
 )
-
-from ..conftest import iter_helper
+from tests.test_ota_metadata.conftest import iter_helper
 
 METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
 

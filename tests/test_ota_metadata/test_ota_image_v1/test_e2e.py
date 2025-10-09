@@ -29,8 +29,7 @@ from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._updater_base import OTAImageV1SupportMixin
 from otaclient_common.downloader import DownloaderPool
 from tests.conftest import cfg
-
-from ..conftest import iter_helper
+from tests.test_ota_metadata.conftest import iter_helper
 
 logger = logging.getLogger(__name__)
 
