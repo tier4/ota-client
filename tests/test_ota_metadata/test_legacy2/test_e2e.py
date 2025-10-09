@@ -13,23 +13,31 @@
 # limitations under the License.
 """Test OTA metadata loading with OTA image within the test container."""
 
-
 from __future__ import annotations
 
 import logging
-import threading
-from functools import partial
+import os
 from hashlib import sha256
 from pathlib import Path
+from queue import Queue
 
-import pytest
+from pytest_mock import MockerFixture
 
-from ota_metadata.legacy2.metadata import MetadataJWTParser, OTAMetadata
+from ota_metadata.legacy2.metadata import MetadataJWTParser
 from ota_metadata.utils.cert_store import load_ca_cert_chains
-from otaclient_common.download_info import DownloadInfo
+from otaclient._types import MultipleECUStatusFlags
+from otaclient._utils import SharedOTAClientMetricsReader
+from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._updater_base import LegacyOTAImageSupportMixin
 from otaclient_common.downloader import DownloaderPool
-from otaclient_common.retry_task_map import ThreadPoolExecutorWithRetry
-from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR, OTA_IMAGE_SIGN_CERT, OTA_IMAGE_URL
+from tests.conftest import (
+    CERTS_DIR,
+    OTA_IMAGE_DIR,
+    OTA_IMAGE_SIGN_CERT,
+    cfg,
+)
+
+from ..conftest import iter_helper
 
 METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
 
@@ -52,45 +60,33 @@ def test_metadata_jwt_parser_e2e() -> None:
     parser.verify_metadata_signature(sign_cert)
 
 
-class TestFullE2E:
+def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
+    legacy_ota_image = LegacyOTAImageSupportMixin(
+        version="dummy_version",
+        raw_url_base=cfg.OTA_IMAGE_V1_URL,
+        session_wd=tmp_path,
+        downloader_pool=DownloaderPool(instance_num=3, hash_func=sha256),
+        session_id=f"session_id_{os.urandom(2).hex()}",
+        ecu_status_flags=mocker.MagicMock(spec=MultipleECUStatusFlags),
+        status_report_queue=mocker.MagicMock(spec=Queue),
+        metrics=mocker.MagicMock(spec=OTAMetricsData),
+        shm_metrics_reader=mocker.MagicMock(spec=SharedOTAClientMetricsReader),
+    )  # type: ignore
 
-    @pytest.fixture(autouse=True)
-    def setup_test(self):
-        self.downloader = DownloaderPool(
-            instance_num=1,
-            hash_func=sha256,
-            chunk_size=1024**2,
-        )
+    ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+    legacy_ota_image.setup_ota_image_support(ca_chains_store=ca_chains_store)
+    legacy_ota_image._process_metadata()
 
-    def _download_to_thread(
-        self, _download_info_list: list[DownloadInfo], *, condition: threading.Condition
-    ):
-        _downloader_in_thread = self.downloader.get_instance()
-        with condition:
-            for _download_info in _download_info_list:
-                _downloader_in_thread.download(
-                    url=_download_info.url,
-                    dst=_download_info.dst,
-                    digest=_download_info.digest,
-                )
-            condition.notify()
-
-    def test_full_e2e(self, tmp_path: Path):
-        ota_metadata_parser = OTAMetadata(
-            base_url=OTA_IMAGE_URL,
-            session_dir=tmp_path,
-            ca_chains_store=load_ca_cert_chains(CERTS_DIR),
-        )
-
-        _condition = threading.Condition()
-        _metadata_processor = ota_metadata_parser.download_metafiles(_condition)
-
-        with ThreadPoolExecutorWithRetry(max_concurrent=6, max_workers=3) as mapper:
-            for _fut in mapper.ensure_tasks(
-                partial(self._download_to_thread, condition=_condition),
-                _metadata_processor,
-            ):
-                if _exc := _fut.exception():
-                    logger.exception(f"download failed: {_exc}")
-                    _metadata_processor.throw(_exc)
-                    raise _exc from None
+    # ------ check result ------ #
+    ota_metadata = legacy_ota_image._ota_metadata
+    fst_helper = ota_metadata.file_table_helper
+    assert iter_helper(fst_helper.iter_dir_entries()) == ota_metadata.total_dirs_num
+    # NOTE: for legacy OTA image, non_regular_files catagory only has symlink
+    assert (
+        iter_helper(fst_helper.iter_non_regular_entries())
+        == ota_metadata.total_symlinks_num
+    )
+    assert (
+        iter_helper(fst_helper.iter_regular_entries())
+        == ota_metadata.total_regulars_num
+    )

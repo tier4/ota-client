@@ -19,7 +19,6 @@ import os
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
-from typing import Any, Iterable
 
 from pytest_mock import MockerFixture
 
@@ -31,14 +30,9 @@ from otaclient.ota_core._updater_base import OTAImageV1SupportMixin
 from otaclient_common.downloader import DownloaderPool
 from tests.conftest import cfg
 
+from ..conftest import iter_helper
+
 logger = logging.getLogger(__name__)
-
-
-def _iter_helper(_iter: Iterable[Any]) -> int:
-    _count = 0
-    for _count, _ in enumerate(_iter, start=1):
-        ...
-    return _count
 
 
 def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
@@ -71,14 +65,14 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
 
     fst_helper = ota_image_helper.file_table_helper
     assert (
-        _iter_helper(fst_helper.iter_dir_entries())
+        iter_helper(fst_helper.iter_dir_entries())
         == _image_config.labels.sys_image_dirs_count
     )
     assert (
-        _iter_helper(fst_helper.iter_non_regular_entries())
+        iter_helper(fst_helper.iter_non_regular_entries())
         == _image_config.labels.sys_image_non_regular_files_count
     )
     assert (
-        _iter_helper(fst_helper.iter_regular_entries())
+        iter_helper(fst_helper.iter_regular_entries())
         == _image_config.sys_image_regular_files_count
     )
