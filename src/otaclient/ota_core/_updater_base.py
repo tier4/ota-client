@@ -276,6 +276,8 @@ class LegacyOTAImageSupportMixin(OTAUpdateInterface):
         )
 
 
+# NOTE(20251009): currently the update API still doesn't support specify
+#                 the image varient, provide a default value here.
 DEFAULT_IMAGE_ID = ImageIdentifier(
     ecu_id=ecu_info.ecu_id,
     release_key=OTAReleaseKey.dev,

@@ -364,7 +364,7 @@ class OTAMetadata:
             return
 
         def _gen():
-            with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
+            with open(_persists_cfg, "r") as f:
                 for line in f:
                     yield line.strip()[1:-1]
 
