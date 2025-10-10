@@ -20,6 +20,7 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from pytest_mock import MockerFixture
 
 from ota_metadata.utils.cert_store import load_ca_store
@@ -50,7 +51,10 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
     )  # type: ignore
 
     ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
-    ota_image_v1.setup_ota_image_support(ca_store=ca_store)
+    ota_image_v1.setup_ota_image_support(
+        ca_store=ca_store,
+        image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
+    )
     ota_image_v1._process_metadata()
 
     # ------ check result ------ #

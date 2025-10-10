@@ -21,6 +21,7 @@ from queue import Queue
 
 import pytest
 import pytest_mock
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains, load_ca_store
 from otaclient import ota_core
@@ -193,6 +194,7 @@ class TestOTAUpdater:
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
+            image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
             shm_metrics_reader=None,  # type: ignore
         )
         _updater.execute()
