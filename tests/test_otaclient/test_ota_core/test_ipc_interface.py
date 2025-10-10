@@ -28,7 +28,7 @@ from otaclient._status_monitor import (
 from otaclient._types import OTAStatus, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.errors import OTAErrorRecoverable
-from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdater
+from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdaterForLegacyOTAImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
 
@@ -60,7 +60,7 @@ class TestOTAClient:
 
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
-        self.ota_updater = mocker.MagicMock(spec=OTAUpdater)
+        self.ota_updater = mocker.MagicMock(spec=OTAUpdaterForLegacyOTAImage)
         self.ota_client_updater = mocker.MagicMock(spec=OTAClientUpdater)
 
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
@@ -73,7 +73,8 @@ class TestOTAClient:
 
         # patch inject mocked updater
         mocker.patch(
-            f"{OTA_CORE_MAIN_MODULE}.OTAUpdater", return_value=self.ota_updater
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForLegacyOTAImage",
+            return_value=self.ota_updater,
         )
         mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAClientUpdater",

@@ -25,9 +25,9 @@ from typing import Any
 
 from ota_image_libs.common import MsgPackedDict
 from ota_image_libs.v1.file_table.db import (
-    DirTypedDict,
-    NonRegularFileTypedDict,
-    RegularFileTypedDict,
+    DirRow,
+    NonRegularFileRow,
+    RegularFileRow,
 )
 from simple_sqlite3_orm.utils import check_db_integrity, lookup_table
 
@@ -78,26 +78,24 @@ def fpath_on_target(_canonical_path: StrOrPath, target_mnt: StrOrPath) -> Path:
     return _target_on_mnt
 
 
-def prepare_dir(entry: DirTypedDict, *, target_mnt: StrOrPath) -> None:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+def prepare_dir(entry: DirRow, *, target_mnt: StrOrPath) -> None:
+    _target_on_mnt = fpath_on_target(entry.path, target_mnt=target_mnt)
     try:
         _target_on_mnt.mkdir(exist_ok=True, parents=True)
-        os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-        os.chmod(_target_on_mnt, mode=entry["mode"])
-        if xattrs := entry["xattrs"]:
+        os.chown(_target_on_mnt, uid=entry.uid, gid=entry.gid)
+        os.chmod(_target_on_mnt, mode=entry.mode)
+        if xattrs := entry.xattrs:
             _set_xattr(_target_on_mnt, xattrs)
     except Exception as e:
         burst_suppressed_logger.exception(f"failed on preparing {entry!r}: {e!r}")
         raise
 
 
-def prepare_non_regular(
-    entry: NonRegularFileTypedDict, *, target_mnt: StrOrPath
-) -> None:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+def prepare_non_regular(entry: NonRegularFileRow, *, target_mnt: StrOrPath) -> None:
+    _target_on_mnt = fpath_on_target(entry.path, target_mnt=target_mnt)
     try:
-        if stat.S_ISLNK(entry["mode"]):
-            _symlink_target_raw = entry["meta"]
+        if stat.S_ISLNK(entry.mode):
+            _symlink_target_raw = entry.meta
             assert (
                 _symlink_target_raw
             ), f"{entry!r} is symlink, but no symlink target is defined"
@@ -109,26 +107,26 @@ def prepare_non_regular(
             #   Remember to always put chown before chmod !!!
             os.chown(
                 _target_on_mnt,
-                uid=entry["uid"],
-                gid=entry["gid"],
+                uid=entry.uid,
+                gid=entry.gid,
                 follow_symlinks=False,
             )
             # NOTE: changing mode of symlink is not needed and uneffective, and on some platform
             #   changing mode of symlink will even result in exception raised.
 
-        elif stat.S_ISCHR(entry["mode"]):
+        elif stat.S_ISCHR(entry.mode):
             # NOTE: we only support placeholder char file with 0,0 devnode.
-            os.mknod(_target_on_mnt, mode=entry["mode"] | stat.S_IFCHR, device=0)
+            os.mknod(_target_on_mnt, mode=entry.mode | stat.S_IFCHR, device=0)
             os.chown(
                 _target_on_mnt,
-                uid=entry["uid"],
-                gid=entry["gid"],
+                uid=entry.uid,
+                gid=entry.gid,
                 follow_symlinks=False,
             )
         else:
             return  # silently ignore unknown file type
 
-        if xattrs := entry["xattrs"]:
+        if xattrs := entry.xattrs:
             _set_xattr(_target_on_mnt, xattrs)
     except Exception as e:
         burst_suppressed_logger.exception(f"failed on preparing {dict(entry)}: {e!r}")
@@ -136,10 +134,10 @@ def prepare_non_regular(
 
 
 def prepare_regular_copy(
-    entry: RegularFileTypedDict, _rs: StrOrPath, *, target_mnt: StrOrPath
+    entry: RegularFileRow, _rs: StrOrPath, *, target_mnt: StrOrPath
 ) -> Path:
-    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    _uid, _gid, _mode = entry.uid, entry.gid, entry.mode
+    _target_on_mnt = fpath_on_target(entry.path, target_mnt=target_mnt)
     try:
         _target_on_mnt.touch(exist_ok=True, mode=_mode)
         copyfile_nocache(_rs, _target_on_mnt)
@@ -149,7 +147,7 @@ def prepare_regular_copy(
             os.chown(_target_on_mnt, uid=_uid, gid=_gid)
             os.chmod(_target_on_mnt, mode=_mode)
 
-        if _xattr := entry["xattrs"]:
+        if _xattr := entry.xattrs:
             _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:
@@ -157,14 +155,12 @@ def prepare_regular_copy(
         raise PrepareEntryFailed(entry) from e
 
 
-def prepare_regular_inlined(
-    entry: RegularFileTypedDict, *, target_mnt: StrOrPath
-) -> Path:
-    _contents = entry["contents"]
-    _uid, _gid, _mode = entry["uid"], entry["gid"], entry["mode"]
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+def prepare_regular_inlined(entry: RegularFileRow, *, target_mnt: StrOrPath) -> Path:
+    _contents = entry.contents
+    _uid, _gid, _mode = entry.uid, entry.gid, entry.mode
+    _target_on_mnt = fpath_on_target(entry.path, target_mnt=target_mnt)
     try:
-        assert _contents or entry["size"] == 0, "not an inlined entry!"
+        assert _contents or entry.size == 0, "not an inlined entry!"
 
         _target_on_mnt.touch(exist_ok=True, mode=_mode)
         if _contents:
@@ -176,7 +172,7 @@ def prepare_regular_inlined(
             os.chown(_target_on_mnt, uid=_uid, gid=_gid)
             os.chmod(_target_on_mnt, mode=_mode)
 
-        if _xattr := entry["xattrs"]:
+        if _xattr := entry.xattrs:
             _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:
@@ -185,20 +181,20 @@ def prepare_regular_inlined(
 
 
 def prepare_regular_hardlink(
-    entry: RegularFileTypedDict,
+    entry: RegularFileRow,
     _rs: StrOrPath,
     *,
     target_mnt: StrOrPath,
     hardlink_skip_apply_permission: bool = False,
 ) -> Path:
-    _target_on_mnt = fpath_on_target(entry["path"], target_mnt=target_mnt)
+    _target_on_mnt = fpath_on_target(entry.path, target_mnt=target_mnt)
     try:
         # NOTE: os.link will make dst a hardlink to src.
         os.link(_rs, _target_on_mnt)
         if not hardlink_skip_apply_permission:
-            os.chown(_target_on_mnt, uid=entry["uid"], gid=entry["gid"])
-            os.chmod(_target_on_mnt, mode=entry["mode"])
-            if _xattr := entry["xattrs"]:
+            os.chown(_target_on_mnt, uid=entry.uid, gid=entry.gid)
+            os.chmod(_target_on_mnt, mode=entry.mode)
+            if _xattr := entry.xattrs:
                 _set_xattr(_target_on_mnt, _in=_xattr)
         return _target_on_mnt
     except Exception as e:

@@ -36,6 +36,7 @@ from typing import Generator
 from urllib.parse import quote
 
 from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
@@ -131,6 +132,10 @@ class OTAMetadata:
     @property
     def total_regulars_size(self) -> int:
         return self._total_regulars_size
+
+    @property
+    def file_table_helper(self) -> FileTableDBHelper:
+        return FileTableDBHelper(self._fst_db)
 
     def _prepare_metadata(
         self,
@@ -280,6 +285,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             dir_save_fpath.unlink(missing_ok=True)
+            self._total_dirs_num = dirs_num
 
             symlinks_num, _ = parse_symlinks_from_csv_file(
                 symlink_save_fpath,
@@ -288,6 +294,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
+            self._total_symlinks_num = symlinks_num
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
@@ -351,10 +358,17 @@ class OTAMetadata:
 
     # helper methods
 
-    def iter_persist_entries(self) -> Generator[str]:
-        with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
-            for line in f:
-                yield line.strip()[1:-1]
+    def iter_persist_entries(self) -> Generator[str] | None:
+        _persists_cfg = self._session_dir / self.PERSIST_META_FNAME
+        if not _persists_cfg.is_file():
+            return
+
+        def _gen():
+            with open(_persists_cfg, "r") as f:
+                for line in f:
+                    yield line.strip()[1:-1]
+
+        return _gen()
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
