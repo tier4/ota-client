@@ -666,7 +666,7 @@ def ensure_mount(
         If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
-        if is_target_mounted(mnt_point, raise_exception=True):
+        if is_target_mounted(mnt_point, raise_exception=False):
             return
 
         try:

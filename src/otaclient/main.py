@@ -126,6 +126,8 @@ def _dynamic_otaclient_init():
             _host_root,
         )
     )
+    _host_root_ota_cache.mkdir(exist_ok=True, parents=True)
+
     # NOTE: otaclient mount space is located in /run/otaclient/mnt,
     #       which is bind mounted(the whole /run) into the APP image from host.
     _active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
@@ -193,7 +195,9 @@ def main() -> None:  # pragma: no cover
     except Exception as e:
         logger.warning(f"failed to read system uptime: {e}")
 
-    check_other_otaclient(cfg.OTACLIENT_PID_FILE)
+    # for dynamic loaded otaclient, skip other otaclient check
+    if not _env.is_running_as_downloaded_dynamic_app():
+        check_other_otaclient(cfg.OTACLIENT_PID_FILE)
 
     #
     # ------ start each processes ------ #
@@ -365,11 +369,11 @@ def main() -> None:  # pragma: no cover
                 # NOTE(20251010): we cannot use os.execve as if we are running as systemd managed
                 #                 APP image, os.execve will be executed from within the APP image.
                 # fmt: off
+                logger.info(f"launch dynamic otaclient with {_dynamic_service_unit}")
                 subprocess_call(
                     cmd = [
                         "systemd-run",
-                        f"--unit={_dynamic_service_unit}",
-                        "-G", "--wait",
+                        f"--unit={_dynamic_service_unit}", "-G", "--wait",
                         "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
                         "--setenv=RUNNING_AS_APP_IMAGE=",
                         "-p", "Type=simple",
@@ -377,6 +381,8 @@ def main() -> None:  # pragma: no cover
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
                         "-p", "PrivateMounts=yes",
                         "-p", "TemporaryFileSystem=/tmp:nodev,size=700M",
+                        "-p", "ExecStartPre=/usr/bin/mkdir -p /run/otaclient/mnt/active_slot",
+                        "-p", "ExecStartPre=/usr/bin/mkdir -p /host_root/ota-cache",
                         "-p", "BindPaths=/boot:/boot:rbind",
                         "-p", "BindPaths=/dev:/dev",
                         "-p", "BindPaths=/dev/shm:/dev/shm",
@@ -386,19 +392,19 @@ def main() -> None:  # pragma: no cover
                         "-p", "BindPaths=/root:/root",
                         "-p", "BindPaths=/sys:/sys:rbind",
                         "-p", "BindPaths=/run:/run",
-                        # for TLS certificates verification
                         "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
                         "-p", "BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates",
-                        # for using host time zone settings
                         "-p", "BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo",
                         "-p", "BindPaths=/:/host_root:rbind",
                         # NOTE: although new systemd compatible APP image runs from /otaclient/otaclient, for backward compatibility
                         #       concern, we still start the otaclient from /otaclient/venv/bin/python3.
                         #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
                         #       /otaclient/otaclient.
-                        # NOTE: for some unknown reason, on ubuntu 20.04, directly running /otaclient/venv/bin/python3 -m otaclient will
-                        #       not work, need to do it via `/bin/bash -c`.
-                        "/bin/bash", "-c", "/otaclient/venv/bin/python3 -m otaclient",
+                        # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
+                        #       with old otaclient APP image, we still setup the mount points here. 
+                        "/usr/bin/bash", "-c",
+                        "mount -o bind /host_root/ota-cache /ota-cache && mount -o bind,ro /host_root /run/otaclient/mnt/active_slot "
+                        "&& /otaclient/venv/bin/python3 -m otaclient",
                     ],
                     chroot=_env.get_dynamic_client_chroot_path(),
                     raise_exception=True,
