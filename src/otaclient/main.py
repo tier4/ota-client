@@ -314,6 +314,11 @@ def main() -> None:  # pragma: no cover
 
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
+            _dynamic_service_unit = f"otaclient_dynamic_app_{os.urandom(4).hex()}"
+            logger.info(
+                f"will launch dynamic otaclient app with systemd(service_unit: {_dynamic_service_unit}) ..."
+            )
+
             try:
                 # exit ota proxy thread if it is running
                 if _otaproxy_control_t and _otaproxy_control_t.is_alive():
@@ -354,9 +359,6 @@ def main() -> None:  # pragma: no cover
                         except Exception as e:
                             logger.error(f"failed to stop the resource tracker: {e!r}")
 
-                logger.info(
-                    "launching dynamic otaclient app with systemd and wait for it ..."
-                )
                 Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
                 # NOTE: the old otaclient's main process will just wait for the dynamic otaclient
                 #       finishes up running as we don't want the old otaclient restart.
@@ -366,11 +368,12 @@ def main() -> None:  # pragma: no cover
                 subprocess_call(
                     cmd = [
                         "systemd-run",
-                        f"--unit=otaclient_dynamic_app_{os.urandom(4).hex()}",
+                        f"--unit={_dynamic_service_unit}",
                         "-G", "--wait",
                         "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
                         "--setenv=RUNNING_AS_APP_IMAGE=",
                         "-p", "Type=simple",
+                        # NOTE: subprocess_call here will do a chroot back to host_root.
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
                         "-p", "PrivateMounts=yes",
                         "-p", "TemporaryFileSystem=/tmp:nodev,size=700M",
@@ -381,7 +384,7 @@ def main() -> None:  # pragma: no cover
                         "-p", "BindPaths=/opt:/opt",
                         "-p", "BindPaths=/proc:/proc",
                         "-p", "BindPaths=/root:/root",
-                        "-p", "BindPaths=/sys:/sys",
+                        "-p", "BindPaths=/sys:/sys:rbind",
                         "-p", "BindPaths=/run:/run",
                         # for TLS certificates verification
                         "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
@@ -393,7 +396,9 @@ def main() -> None:  # pragma: no cover
                         #       concern, we still start the otaclient from /otaclient/venv/bin/python3.
                         #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
                         #       /otaclient/otaclient.
-                        "/otaclient/venv/bin/python3 -m otaclient",
+                        # NOTE: for some unknown reason, on ubuntu 20.04, directly running /otaclient/venv/bin/python3 -m otaclient will
+                        #       not work, need to do it via `/bin/bash -c`.
+                        "/bin/bash", "-c", "/otaclient/venv/bin/python3 -m otaclient",
                     ],
                     chroot=_env.get_dynamic_client_chroot_path(),
                     raise_exception=True,

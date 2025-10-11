@@ -54,7 +54,7 @@ def get_dynamic_client_chroot_path() -> Optional[str]:
 
 
 @cache
-def get_downloaded_otaclient_squashfs() -> str:
+def get_otaclient_squashfs_download_dst() -> str:
     """Get the location to hold downloaded otaclient squashfs image."""
     if is_dynamic_client_running():
         return replace_root(
