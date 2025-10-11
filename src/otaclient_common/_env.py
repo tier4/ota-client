@@ -18,21 +18,24 @@ import sys
 from typing import Optional
 
 from otaclient.configs.cfg import cfg
+from otaclient_common import replace_root
 
 try:
     cache = functools.cache  # type: ignore[attr-defined]
 except AttributeError:
     cache = functools.lru_cache(maxsize=None)
 
+RUN_AS_PYINSTALLER_BUNDLE = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+
 
 @cache
 def is_running_as_app_image() -> bool:
-    """Check if the dynamic client is running."""
+    """Check if is the systemd managed client running."""
     return bool(os.getenv(cfg.RUNNING_AS_APP_IMAGE))
 
 
 def is_running_as_downloaded_dynamic_app() -> bool:
-    """Check if the dynamic client is running."""
+    """Check if is the downloaded dynamic client running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
 
 
@@ -50,4 +53,13 @@ def get_dynamic_client_chroot_path() -> Optional[str]:
     return None
 
 
-RUN_AS_PYINSTALLER_BUNDLE = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+@cache
+def get_downloaded_otaclient_squashfs() -> str:
+    """Get the location to hold downloaded otaclient squashfs image."""
+    if is_dynamic_client_running():
+        return replace_root(
+            cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
+            cfg.CANONICAL_ROOT,
+            cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
+        )
+    return cfg.DYNAMIC_CLIENT_SQUASHFS_FILE

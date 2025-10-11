@@ -52,7 +52,7 @@ class Consts:
     DYNAMIC_CLIENT_MNT_HOST_ROOT = "/host_root"
     # downloaded squashfs location in local filesystem
     # this path should not be included in the mounted rootfs
-    DYNAMIC_CLIENT_SQUASHFS_FILE = "/run/.otaclient.squashfs"
+    DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
 
     OTAPROXY_CACHE_DIR = "/ota-cache"
 
