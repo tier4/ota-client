@@ -445,7 +445,6 @@ class OTAClient:
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
-                critical_zone_flag=self._critical_zone_flag,
                 shm_metrics_reader=self._shm_metrics_reader,
             ).execute()
         except ota_errors.OTAError:

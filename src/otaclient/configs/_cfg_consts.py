@@ -54,6 +54,8 @@ class Consts:
     # this path should not be included in the mounted rootfs
     DYNAMIC_CLIENT_SQUASHFS_FILE = "/run/.otaclient.squashfs"
 
+    OTAPROXY_CACHE_DIR = "/ota-cache"
+
     OTA_TMP_STORE = "/.ota-tmp"
     """For backward-compatibility"""
     OTA_RESOURCES_STORE = "/.ota-resources"
