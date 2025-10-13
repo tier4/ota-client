@@ -1829,7 +1829,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.10.11,<3.13" },
+    { name = "aiohttp", specifier = ">=3.10.11,<3.14" },
     { name = "anyio", specifier = ">=4.5.1,<5" },
     { name = "cryptography", specifier = "==46.0.2" },
     { name = "grpcio", specifier = "==1.70.0" },
