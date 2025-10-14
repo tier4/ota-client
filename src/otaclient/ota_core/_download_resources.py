@@ -204,15 +204,6 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         _res = DownloadResult(download_size=resource.size)
         for _resource_dl_info in prepare_resource_gen:
             _blob_save_dst = _resource_dl_info.save_dst
-            # reuse already downloaded blobs from previous OTA if presented,
-            #   work together with ResumeOTADownload feature.
-            if _blob_save_dst.is_file():
-                if file_sha256_digest(_blob_save_dst).digest() != resource.digest:
-                    # broken blob, cleanup and do the downloading again
-                    _blob_save_dst.unlink(missing_ok=True)
-                else:
-                    continue  # re-use valid resource
-
             # compressed resource, try to decompress during downloading
             if _resource_dl_info.compression_alg:
                 assert _resource_dl_info.compressed_origin_digest
