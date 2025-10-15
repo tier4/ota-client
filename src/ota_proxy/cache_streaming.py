@@ -212,7 +212,6 @@ class CacheTracker:
                 # first create the file
                 f.write(b"")
                 f.flush()
-                os.fsync(fd)
 
                 self.cache_meta = cache_meta
                 weakref.finalize(self, _unlink_no_error, self.fpath)
@@ -229,7 +228,6 @@ class CacheTracker:
                         self._bytes_written += len(data)
                 finally:
                     f.flush()
-                    os.fsync(fd)
                     os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
 
             # NOTE(20240805): mark the writer succeeded in advance to release the
@@ -262,7 +260,6 @@ class CacheTracker:
                 self.cache_meta = cache_meta
                 f.write(data)
                 f.flush()
-                os.fsync(fd)
                 weakref.finalize(self, _unlink_no_error, self.fpath)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
             tracker_events.set_writer_finished()
