@@ -29,6 +29,11 @@ class Config:
     # 10~12 read threads
     CACHE_READ_WORKERS_NUM = max(10, min(12, (os.cpu_count() or 1) + 4))
 
+    # NOTE(20251015): enlarge the rw backlog's length as previous settings
+    #                 are too conservative and unmatching the r/w worker threads
+    #                 numbers. With testing, confirm the following settings
+    #                 will not cause write backlog overflow while otaproxy's
+    #                 memory usage is still normal and constrained.
     MAX_PENDING_WRITE = 384
     MAX_PENDING_READ = 512
 
