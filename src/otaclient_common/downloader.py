@@ -24,6 +24,7 @@ import os
 import threading
 import time
 from abc import abstractmethod
+from dataclasses import dataclass
 from functools import wraps
 from typing import (
     IO,
@@ -32,7 +33,6 @@ from typing import (
     Callable,
     Iterator,
     Mapping,
-    NamedTuple,
     Protocol,
     TypedDict,
 )
@@ -57,10 +57,11 @@ DEFAULT_CONNECTION_TIMEOUT = 16  # seconds
 DEFAULT_READ_TIMEOUT = 32  # seconds
 
 
-class DownloadResult(NamedTuple):
-    retry_count: int
-    download_size: int
-    traffic_on_wire: int
+@dataclass
+class DownloadResult:
+    retry_count: int = 0
+    download_size: int = 0
+    traffic_on_wire: int = 0
 
 
 # ------ errors definition ------ #

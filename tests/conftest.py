@@ -77,12 +77,22 @@ class TestConfiguration:
     OTACLIENT_STUB_MODULE_PATH = "otaclient.app.ota_client_stub"
     OTAMETA_MODULE_PATH = "ota_metadata.legacy.parser"
 
+    COOKIES_JSON = '{"CloudFront-Policy": "eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9maXJtd2FyZS1pbWFnZS5jaS53ZWIuYXV0by94Ml9kZXYvOWZjMTA2ZjAtMWJlZC00YzMyLTg5ZmEtNjUzOWYxZDc1NWJlLyoiLCJDb25kaXRpb24iOnsiRGF0ZUxlc3NUaGFuIjp7IkFXUzpFcG9jaFRpbWUiOjE3NTEzMzI0OTN9fX1dfQ__", "CloudFront-Signature": "iGhqJjjLnNUNuF8zdy0wJVUVXABsIPdCgy0rrnLHXT8MANJtcFydyf0LcxKzbIR9654ek0NmkYgeUakv5U96pacGWfNgVO0z-5BxZiZjaph9PLFqX0kanmSUGTk2vdQm0o67qg~hiTBh0~OzdXK12J~UucObr4xgm7TxH08QFbVxRzvSkFVVqNhd2JqFp70ihgS~AGtn8ZmOUsHRNIfqiLkz4HdvqgvnpJTmvEyFYeaooSEw1usJ3svbUzhJ3WB25UiShUymGtcG5QHVcApB-jH40hfW8qd42l06OQb6J2E6XMEw710PczGWeZf3WbV7nmSE-2C5J7pZXZadePXi8w__", "CloudFront-Key-Pair-Id": "K2HIO3GARJTNVV"}'
+
     # dummy ota-image setting
     OTA_IMAGE_DIR = "/ota-image"
     CERTS_DIR = "/certs"
     OTA_IMAGE_SERVER_ADDR = "127.0.0.1"
     OTA_IMAGE_SERVER_PORT = 8080
     OTA_IMAGE_URL = f"http://{OTA_IMAGE_SERVER_ADDR}:{OTA_IMAGE_SERVER_PORT}"
+
+    # ota-image_v1 setting
+    OTA_IMAGE_V1_DIR = "/ota-image_v1"
+    CERTS_OTA_IMAGE_V1_DIR = "/certs_ota-image_v1"
+    OTA_IMAGE_V1_SERVER_ADDR = "127.0.0.1"
+    OTA_IMAGE_V1_SERVER_PORT = 8081
+    OTA_IMAGE_V1_URL = f"http://{OTA_IMAGE_V1_SERVER_ADDR}:{OTA_IMAGE_V1_SERVER_PORT}"
+
     KERNEL_VERSION = str(KERNEL_VERSION)
     CURRENT_VERSION = "123.x"
     UPDATE_VERSION = "789.x"
@@ -124,23 +134,40 @@ class TestConfiguration:
 cfg = TestConfiguration()
 
 
-@pytest.fixture(autouse=True, scope="session")
-def run_http_server_subprocess():
+def _run_http_server_subprocess(host: str, port: int, directory: str):
     _server_p = Process(
         target=run_http_server,
-        args=[cfg.OTA_IMAGE_SERVER_ADDR, cfg.OTA_IMAGE_SERVER_PORT],
-        kwargs={"directory": cfg.OTA_IMAGE_DIR},
+        args=[host, port],
+        kwargs={"directory": directory},
         daemon=True,
     )
     try:
         _server_p.start()
         # NOTE: wait for 2 seconds for the server to fully start
         time.sleep(2)
-        logger.info(f"start background ota-image server on {cfg.OTA_IMAGE_URL}")
+        logger.info(f"start background ota-image server on {directory=}")
         yield
     finally:
-        logger.info("shutdown background ota-image server")
+        logger.info(f"shutdown background ota-image server on {directory=}")
         _server_p.kill()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def run_legacy_ota_image_server():
+    yield from _run_http_server_subprocess(
+        cfg.OTA_IMAGE_SERVER_ADDR,
+        cfg.OTA_IMAGE_SERVER_PORT,
+        cfg.OTA_IMAGE_DIR,
+    )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def run_ota_image_v1_server():
+    yield from _run_http_server_subprocess(
+        cfg.OTA_IMAGE_V1_SERVER_ADDR,
+        cfg.OTA_IMAGE_V1_SERVER_PORT,
+        cfg.OTA_IMAGE_V1_DIR,
+    )
 
 
 @pytest.fixture

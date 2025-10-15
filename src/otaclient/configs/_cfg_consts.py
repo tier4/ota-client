@@ -57,9 +57,9 @@ class Consts:
     OTA_TMP_STORE = "/.ota-tmp"
     """For backward-compatibility"""
     OTA_RESOURCES_STORE = "/.ota-resources"
-    """tmp store for local copy, located at standby slot."""
     OTA_META_STORE = "/.ota-meta"
     OTA_META_STORE_BASE_FILE_TABLE = "/.ota-meta/base"
+    OTA_DOWNLOAD_DIR = "/.ota-download"
 
     OPT_OTA_DPATH = "/opt/ota"
     OTACLIENT_INSTALLATION = "/opt/ota/client"

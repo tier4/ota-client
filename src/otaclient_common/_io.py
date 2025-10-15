@@ -72,12 +72,25 @@ def cal_file_digest(
 
     A wrapper for the _file_digest method.
     """
+    return digest_file(fpath, algorithm, chunk_size).hexdigest()
+
+
+def digest_file(
+    fpath: StrOrPath, algorithm: str, chunk_size: int = DEFAULT_FILE_CHUNK_SIZE
+) -> hashlib._Hash:
+    """Generate file digest with <algorithm> and returns Hash object.
+
+    A wrapper for the _file_digest method.
+    """
     with open(fpath, "rb") as f:
-        return _file_digest(f, algorithm, _bufsize=chunk_size).hexdigest()
+        return _file_digest(f, algorithm, _bufsize=chunk_size)
 
 
 file_sha256 = partial(cal_file_digest, algorithm="sha256")
 file_sha256.__doc__ = "Generate file digest with sha256."
+
+file_sha256_digest = partial(digest_file, algorithm="sha256")
+file_sha256_digest.__doc__ = "Generate file digest with sha256, returns hash object."
 
 
 def write_str_to_file_atomic(

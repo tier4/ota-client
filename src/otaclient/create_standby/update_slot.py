@@ -22,9 +22,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 
-from ota_metadata.file_table.db import FileTableDBHelper
+from ota_image_libs.v1.file_table.db import FileTableDBHelper
+
 from ota_metadata.file_table.utils import (
-    RegularFileTypedDict,
+    RegularFileRow,
     prepare_dir,
     prepare_non_regular,
     prepare_regular_copy,
@@ -112,10 +113,10 @@ class UpdateStandbySlot:
             self._interrupted.set()
 
     def _process_hardlinked_file_at_thread(
-        self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
+        self, _digest_hex: str, _entry: RegularFileRow, first_to_prepare: bool
     ):
-        _inode_id, _entry_size = _entry["inode_id"], _entry["size"]
-        _inlined = _entry["contents"] or _entry_size == 0
+        _inode_id, _entry_size = _entry.inode_id, _entry.size
+        _inlined = _entry.contents or _entry_size == 0
         with self._hardlink_group_lock:
             _link_group_head = self._hardlink_group.get(_inode_id)
             if _link_group_head is not None:
@@ -151,10 +152,10 @@ class UpdateStandbySlot:
                 self._internal_que.put_nowait(_entry_size)
 
     def _process_normal_file_at_thread(
-        self, _digest_hex: str, _entry: RegularFileTypedDict, first_to_prepare: bool
+        self, _digest_hex: str, _entry: RegularFileRow, first_to_prepare: bool
     ):
-        _entry_size = _entry["size"]
-        _inlined = _entry["contents"] or _entry_size == 0
+        _entry_size = _entry.size
+        _inlined = _entry.contents or _entry_size == 0
         if _inlined:
             prepare_regular_inlined(_entry, target_mnt=self._standby_slot_mp)
             self._internal_que.put_nowait(_entry_size)
@@ -194,7 +195,7 @@ class UpdateStandbySlot:
                         return
                     self._se.acquire()
 
-                    _digest = _entry["digest"]
+                    _digest = _entry.digest
                     _digest_hex = _digest.hex()
 
                     _first_to_prepare = False
@@ -202,7 +203,7 @@ class UpdateStandbySlot:
                         _first_to_prepare = True
                         _first_prepared_digest.add(_digest)
 
-                    _links_count = _entry["links_count"]
+                    _links_count = _entry.links_count
                     if _links_count is not None and _links_count > 1:
                         pool.submit(
                             self._process_hardlinked_file_at_thread,

@@ -22,15 +22,19 @@ import shutil
 import threading
 import time
 from functools import partial
+from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Callable, NoReturn, Optional
 
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
+
 from ota_metadata.utils.cert_store import (
     CACertStoreInvalid,
-    CAChainStore,
     load_ca_cert_chains,
+    load_ca_store,
 )
+from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -59,12 +63,18 @@ from otaclient.boot_control import get_boot_controller
 from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAMetricsData
+from otaclient.ota_core._common import create_downloader_pool
+from otaclient.ota_core._updater import (
+    OTAUpdaterForLegacyOTAImage,
+    OTAUpdaterForOTAImageV1,
+)
+from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
-from ._updater import OTAUpdater
+from ._common import handle_upper_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -179,10 +189,21 @@ class OTAClient:
         try:
             self.ca_chains_store = load_ca_cert_chains(cfg.CERT_DPATH)
         except CACertStoreInvalid as e:
-            _err_msg = f"failed to import ca_chains_store: {e!r}, OTA will NOT occur on no CA chains installed!!!"
+            _err_msg = (
+                f"failed to import ca_chains_store: {e!r}, "
+                "OTA with legacy OTA image will NOT occur on no CA chains installed!!!"
+            )
             logger.error(_err_msg)
 
-            self.ca_chains_store = CAChainStore()
+        self.ca_store = None
+        try:
+            self.ca_store = load_ca_store(cfg.CERT_DPATH)
+        except CACertStoreInvalid as e:
+            _err_msg = (
+                f"failed to import ca_store: {e!r}, "
+                "OTA with OTA image v1 will NOT occur on no CA store installed!!!"
+            )
+            logger.error(_err_msg)
 
         self.started = True
         logger.info("otaclient started")
@@ -258,9 +279,15 @@ class OTAClient:
         NOTE that update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        self._live_ota_status = OTAStatus.UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA update request:{request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -269,36 +296,71 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA update request:{request_id}, session: {new_session_id=}"
-        )
+
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
 
         session_wd = self._update_session_dir / new_session_id
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
+
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+        )
+        url_base = request.url_base
         try:
             logger.info("[update] entering local update...")
-            if not self.ca_chains_store:
-                raise ota_errors.MetadataJWTVerficationFailed(
-                    "no CA chains are installed, reject any OTA update",
-                    module=__name__,
-                )
-
-            OTAUpdater(
+            _common_args = OTAUpdateInterfaceArgs(
                 version=request.version,
                 raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
                 session_wd=session_wd,
-                ca_chains_store=self.ca_chains_store,
-                boot_controller=self.boot_controller,
+                downloader_pool=download_pool,
                 ecu_status_flags=self.ecu_status_flags,
-                critical_zone_flag=self._critical_zone_flag,
-                upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
                 session_id=new_session_id,
                 metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
-            ).execute()
+            )
+
+            _no_ca_err = "no CA chains are installed, reject any OTA update"
+            if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
+                logger.info(f"{url_base} hosts new OTA image version1")
+                if not self.ca_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        _no_ca_err, module=__name__
+                    )
+
+                # NOTE(20251009): currently the update API still doesn't support specify
+                #                 the image varient, provide a default value here.
+                image_id = ImageIdentifier(
+                    ecu_id=ecu_info.ecu_id,
+                    release_key=OTAReleaseKey.dev,
+                )
+                logger.info(f"selecting image payload {image_id} from OTA image")
+
+                OTAUpdaterForOTAImageV1(
+                    ca_store=self.ca_store,
+                    critical_zone_flag=self._critical_zone_flag,
+                    boot_controller=self.boot_controller,
+                    image_identifier=image_id,
+                    **_common_args,
+                ).execute()
+            else:
+                logger.info(f"{url_base} hosts legacy OTA image")
+                if not self.ca_chains_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        _no_ca_err, module=__name__
+                    )
+                OTAUpdaterForLegacyOTAImage(
+                    ca_chains_store=self.ca_chains_store,
+                    critical_zone_flag=self._critical_zone_flag,
+                    boot_controller=self.boot_controller,
+                    **_common_args,
+                ).execute()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
@@ -329,9 +391,15 @@ class OTAClient:
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
             return
 
-        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         request_id = request.request_id
         new_session_id = request.session_id
+        logger.info(
+            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
+        )
+
+        # NOTE(20250916): set OTA update status before ensuring upper otaproxy
+        #                 as local otaproxy needs OTA update status to start.
+        self._live_ota_status = OTAStatus.CLIENT_UPDATING
         self._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -340,10 +408,17 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        logger.info(
-            f"start new OTA client update request: {request_id}, session: {new_session_id=}"
-        )
 
+        if self.proxy:
+            handle_upper_proxy(self.proxy)
+
+        download_pool = create_downloader_pool(
+            request.cookies_json,
+            self.proxy,
+            download_threads=cfg.DOWNLOAD_THREADS,
+            hash_func=sha256,
+            chunk_size=cfg.CHUNK_SIZE,
+        )
         session_wd = self._update_session_dir / new_session_id
         try:
             logger.info("[client update] entering local update...")
@@ -356,12 +431,11 @@ class OTAClient:
             OTAClientUpdater(
                 version=request.version,
                 raw_url_base=request.url_base,
-                cookies_json=request.cookies_json,
                 session_wd=session_wd,
                 ca_chains_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
-                upper_otaproxy=self.proxy,
                 status_report_queue=self._status_report_queue,
+                downloader_pool=download_pool,
                 session_id=new_session_id,
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,

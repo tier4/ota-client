@@ -19,6 +19,9 @@ import shutil
 import threading
 import time
 
+from typing_extensions import Unpack
+
+from ota_metadata.utils.cert_store import CAChainStore
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAUpdatePhaseChangeReport, StatusReport
 from otaclient._types import ClientUpdateControlFlags, UpdatePhase
@@ -28,21 +31,28 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
-from ._updater_base import OTAUpdateOperator
+from ._updater_base import (
+    LegacyOTAImageSupportMixin,
+    OTAUpdateInitializer,
+    OTAUpdateInterfaceArgs,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class OTAClientUpdater(OTAUpdateOperator):
+class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
     """The implementation of OTA client update logic."""
 
     def __init__(
         self,
+        *,
+        ca_chains_store: CAChainStore,
         client_update_control_flags: ClientUpdateControlFlags,
-        **kwargs,
+        **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         # ------ init base class ------ #
-        super().__init__(**kwargs)
+        OTAUpdateInitializer.__init__(self, **kwargs)
+        self.setup_ota_image_support(ca_chains_store=ca_chains_store)
 
         # --- Event flag to control client update ---- #
         self.client_update_control_flags = client_update_control_flags
@@ -61,7 +71,6 @@ class OTAClientUpdater(OTAUpdateOperator):
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
 
         try:
-            self._handle_upper_proxy()
             self._process_metadata(only_metadata_verification=True)
             self._download_client_package_resources()
             self._wait_sub_ecus()
@@ -107,7 +116,8 @@ class OTAClientUpdater(OTAUpdateOperator):
             ):
                 download_exception_handler(_fut)
         except Exception as e:
-            logger.error(f"failed to download otaclient package: {e!r}")
+            _err_msg = f"failed to download otaclient package: {e!r}"
+            logger.exception(_err_msg)
             raise ota_errors.OTAClientPackageDownloadFailed(module=__name__) from e
         finally:
             self._downloader_pool.shutdown()

@@ -13,7 +13,6 @@
 # limitations under the License.
 """Implementation of otaclient CA cert chain store."""
 
-
 from __future__ import annotations
 
 import logging
@@ -23,6 +22,7 @@ from pathlib import Path
 from typing import Dict, Iterable
 
 from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
+from ota_image_libs._crypto.x509_utils import CACertStore
 
 from otaclient_common._typing import StrOrPath
 
@@ -187,3 +187,27 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
 
     logger.info(f"loaded CA cert chains: {list(ca_chains)}")
     return ca_chains
+
+
+def load_ca_store(cert_dir: StrOrPath) -> CACertStore:
+    """Load all CA certs from <cert_dir> into a single CA store.
+
+    Raises:
+        CACertStoreInvalid on failed import.
+    """
+    cert_dir = Path(cert_dir)
+
+    ca_store = CACertStore()
+    for _cert in cert_dir.glob("*"):
+        try:
+            _loaded_ca_cert = load_pem_x509_certificate(_cert.read_bytes())
+            ca_store.add_cert(_loaded_ca_cert)
+        except Exception as e:
+            logger.warning(f"{_cert} is not a valid x509 cert: {e}")
+
+    if not ca_store:
+        _err_msg = "all found CA chains are invalid, no CA chain is imported!!!"
+        logger.error(_err_msg)
+        raise CACertStoreInvalid(_err_msg)
+    logger.info(f"finish up loading CA store from {cert_dir}")
+    return ca_store

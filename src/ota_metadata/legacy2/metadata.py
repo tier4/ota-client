@@ -35,13 +35,16 @@ from pathlib import Path
 from typing import Generator
 from urllib.parse import quote
 
-from ota_metadata.file_table.db import (
+from ota_image_libs.v1.file_table.db import (
+    FileTableDBHelper,
     FileTableDirORM,
     FileTableInodeORM,
     FileTableNonRegularORM,
     FileTableRegularORM,
     FileTableResourceORM,
 )
+
+from ota_metadata.errors import NoCAStoreAvailable
 from ota_metadata.utils.cert_store import CAChainStore
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import urljoin_ensure_base
@@ -53,11 +56,7 @@ from .csv_parser import (
     parse_regulars_from_csv_file,
     parse_symlinks_from_csv_file,
 )
-from .metadata_jwt import (
-    MetadataJWTClaimsLayout,
-    MetadataJWTParser,
-    MetadataJWTVerificationFailed,
-)
+from .metadata_jwt import MetadataJWTClaimsLayout, MetadataJWTParser
 from .rs_table import ResourceTableORM, ResourceTableORMPool
 
 logger = logging.getLogger(__name__)
@@ -97,7 +96,7 @@ class OTAMetadata:
         if not ca_chains_store:
             _err_msg = "CA chains store is empty!!! immediately fail the verification"
             logger.error(_err_msg)
-            raise MetadataJWTVerificationFailed(_err_msg)
+            raise NoCAStoreAvailable(_err_msg)
 
         self._ca_store = ca_chains_store
         self._base_url = base_url
@@ -114,7 +113,8 @@ class OTAMetadata:
 
     @property
     def metadata_jwt(self) -> MetadataJWTClaimsLayout:
-        assert self._metadata_jwt, "metadata_jwt is not ready yet!"
+        if not self._metadata_jwt:
+            raise ValueError("metadata_jwt is not ready yet!")
         return self._metadata_jwt
 
     @property
@@ -132,6 +132,10 @@ class OTAMetadata:
     @property
     def total_regulars_size(self) -> int:
         return self._total_regulars_size
+
+    @property
+    def file_table_helper(self) -> FileTableDBHelper:
+        return FileTableDBHelper(self._fst_db)
 
     def _prepare_metadata(
         self,
@@ -281,6 +285,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             dir_save_fpath.unlink(missing_ok=True)
+            self._total_dirs_num = dirs_num
 
             symlinks_num, _ = parse_symlinks_from_csv_file(
                 symlink_save_fpath,
@@ -289,6 +294,7 @@ class OTAMetadata:
                 inode_start=inode_start,
             )
             symlink_save_fpath.unlink(missing_ok=True)
+            self._total_symlinks_num = symlinks_num
 
         logger.info(
             f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
@@ -352,10 +358,17 @@ class OTAMetadata:
 
     # helper methods
 
-    def iter_persist_entries(self) -> Generator[str]:
-        with open(self._session_dir / self.PERSIST_META_FNAME, "r") as f:
-            for line in f:
-                yield line.strip()[1:-1]
+    def iter_persist_entries(self) -> Generator[str] | None:
+        _persists_cfg = self._session_dir / self.PERSIST_META_FNAME
+        if not _persists_cfg.is_file():
+            return
+
+        def _gen():
+            with open(_persists_cfg, "r") as f:
+                for line in f:
+                    yield line.strip()[1:-1]
+
+        return _gen()
 
     def connect_fstable(self) -> sqlite3.Connection:
         _conn = sqlite3.connect(
@@ -413,7 +426,7 @@ class ResourceMeta:
         resource = self._rst_orm_pool.orm_select_entry(digest=digest)
         _digest_str = resource.digest.hex()
 
-        # v2 OTA image, with compression enabled
+        # Legacy OTA image revision 1, with compression enabled
         # example: http://example.com/base_url/data.zstd/a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3.<compression_alg>
         if (
             self.compressed_data_dir_url
@@ -434,7 +447,7 @@ class ResourceMeta:
                 compression_alg=_compress_alg,
             )
 
-        # v1 OTA image, uncompressed and use full path as URL path
+        # Legacy OTA image, uncompressed and use full path as URL path
         # example: http://example.com/base_url/data/rootfs/full/path/file
         assert (_rs_fpath := resource.path), f"invalid {resource=}"
         _relative_rs_fpath = os.path.relpath(_rs_fpath, "/")

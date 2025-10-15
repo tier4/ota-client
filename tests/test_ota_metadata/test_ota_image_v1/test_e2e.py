@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test OTA metadata loading with OTA image within the test container."""
 
 from __future__ import annotations
 
@@ -21,48 +20,27 @@ from hashlib import sha256
 from pathlib import Path
 from queue import Queue
 
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from pytest_mock import MockerFixture
 
-from ota_metadata.legacy2.metadata import MetadataJWTParser
-from ota_metadata.utils.cert_store import load_ca_cert_chains
+from ota_metadata.utils.cert_store import load_ca_store
 from otaclient._types import MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core._updater_base import LegacyOTAImageSupportMixin
+from otaclient.ota_core._updater_base import OTAImageV1SupportMixin
 from otaclient_common.downloader import DownloaderPool
-from tests.conftest import (
-    CERTS_DIR,
-    OTA_IMAGE_DIR,
-    OTA_IMAGE_SIGN_CERT,
-    cfg,
-)
+from tests.conftest import cfg
 from tests.test_ota_metadata.conftest import iter_helper
-
-METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
 
 logger = logging.getLogger(__name__)
 
 
-def test_metadata_jwt_parser_e2e() -> None:
-    metadata_jwt = METADATA_JWT.read_text()
-    sign_cert = OTA_IMAGE_SIGN_CERT.read_bytes()
-    ca_store = load_ca_cert_chains(CERTS_DIR)
-
-    parser = MetadataJWTParser(
-        metadata_jwt,
-        ca_chains_store=ca_store,
-    )
-
-    # step1: verify sign cert against CA store
-    parser.verify_metadata_cert(sign_cert)
-    # step2: verify metadata.jwt against sign cert
-    parser.verify_metadata_signature(sign_cert)
-
-
 def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
-    legacy_ota_image = LegacyOTAImageSupportMixin(
+    # ------ execution ------ #
+    # NOTE: directly bootstrap the mixin as we only check metadata downloading and parsing
+    ota_image_v1 = OTAImageV1SupportMixin(
         version="dummy_version",
-        raw_url_base=cfg.OTA_IMAGE_URL,
+        raw_url_base=cfg.OTA_IMAGE_V1_URL,
         session_wd=tmp_path,
         downloader_pool=DownloaderPool(instance_num=3, hash_func=sha256),
         session_id=f"session_id_{os.urandom(2).hex()}",
@@ -72,20 +50,32 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
         shm_metrics_reader=mocker.MagicMock(spec=SharedOTAClientMetricsReader),
     )  # type: ignore
 
-    ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
-    legacy_ota_image.setup_ota_image_support(ca_chains_store=ca_chains_store)
-    legacy_ota_image._process_metadata()
+    ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+    ota_image_v1.setup_ota_image_support(
+        ca_store=ca_store,
+        image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
+    )
+    ota_image_v1._process_metadata()
 
     # ------ check result ------ #
-    ota_metadata = legacy_ota_image._ota_metadata
-    fst_helper = ota_metadata.file_table_helper
-    assert iter_helper(fst_helper.iter_dir_entries()) == ota_metadata.total_dirs_num
-    # NOTE: for legacy OTA image, non_regular_files catagory only has symlink
+    ota_image_helper = ota_image_v1._ota_image_helper
+    assert (_image_index := ota_image_helper.image_index)
+    assert (_image_manifest := ota_image_helper.image_manifest)
+    assert (_image_config := ota_image_helper.image_config)
+    logger.info(str(_image_index))
+    logger.info(str(_image_manifest))
+    logger.info(str(_image_config))
+
+    fst_helper = ota_image_helper.file_table_helper
+    assert (
+        iter_helper(fst_helper.iter_dir_entries())
+        == _image_config.labels.sys_image_dirs_count
+    )
     assert (
         iter_helper(fst_helper.iter_non_regular_entries())
-        == ota_metadata.total_symlinks_num
+        == _image_config.labels.sys_image_non_regular_files_count
     )
     assert (
         iter_helper(fst_helper.iter_regular_entries())
-        == ota_metadata.total_regulars_num
+        == _image_config.sys_image_regular_files_count
     )
