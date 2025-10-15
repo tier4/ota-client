@@ -24,8 +24,10 @@ class Config:
     WRITE_CHUNK_SIZE = 2 * 1024 * 1024  # 2MiB
     LOCAL_READ_SIZE = 2 * 1024 * 1024  # 2MiB
 
-    CACHE_WRITE_WORKERS_NUM = max(16, min(16, (os.cpu_count() or 1) + 4))
-    CACHE_READ_WORKERS_NUM = max(32, min(32, (os.cpu_count() or 1) + 4))
+    # 8~10 write threads
+    CACHE_WRITE_WORKERS_NUM = max(8, min(10, (os.cpu_count() or 1) + 4))
+    # 10~12 read threads
+    CACHE_READ_WORKERS_NUM = max(10, min(12, (os.cpu_count() or 1) + 4))
 
     MAX_PENDING_WRITE = 384
     MAX_PENDING_READ = 512
