@@ -39,7 +39,6 @@ from .config import config as cfg
 from .db import CacheMeta
 from .errors import (
     CacheCommitFailed,
-    CacheProviderNotReady,
     CacheStreamingFailed,
     CacheStreamingInterrupt,
     ReaderPoolBusy,
@@ -281,10 +280,10 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> CacheMeta:
+    async def subscriber_wait_for_provider(self) -> CacheMeta | None:
         """
-        Raises:
-            CacheProviderNotReady if timeout waiting cache provider.
+        Returns:
+            CacheMeta if successfully waits for provider.
         """
         tracker_events = self._tracker_events
         _wait_count = 0
@@ -296,7 +295,7 @@ class CacheTracker:
                 ):
                     _err_msg = "timeout waiting provider starts caching or provider failed, abort"
                     burst_suppressed_logger.warning(_err_msg)
-                    raise CacheProviderNotReady
+                    return
 
                 await asyncio.sleep(
                     get_backoff(
@@ -309,7 +308,6 @@ class CacheTracker:
 
             if _cache_meta := self._cache_meta:
                 return _cache_meta
-            raise CacheProviderNotReady("provider might fail")
         finally:
             del self, tracker_events
 

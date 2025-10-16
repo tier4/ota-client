@@ -570,10 +570,6 @@ class OTACache:
                     cache_meta=cache_meta,
                 )
                 return wrapped_fd, resp_headers
-            else:
-                burst_suppressed_logger.warning(
-                    f"failed to reserve space for caching {cache_identifier}"
-                )
 
             tracker._tracker_events.set_writer_failed()
             return remote_fd, resp_headers
