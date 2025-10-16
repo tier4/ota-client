@@ -282,7 +282,7 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> None:
+    async def subscriber_wait_for_provider(self) -> CacheMeta:
         """
         Raises:
             CacheProviderNotReady if timeout waiting cache provider.
@@ -307,6 +307,10 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
+
+            if _cache_meta := self._cache_meta:
+                return _cache_meta
+            raise CacheProviderNotReady("provider might fail")
         finally:
             del self, tracker_events
 
@@ -644,9 +648,6 @@ class CacheReaderPool:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
-        # first we wait for provider ready
-        await tracker.subscriber_wait_for_provider()
-
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
         # then wait for task picked by reader thread worker pool
