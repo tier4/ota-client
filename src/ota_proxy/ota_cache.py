@@ -48,7 +48,7 @@ from .cache_streaming import (
 )
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError, CacheCommitFailed
+from .errors import BaseOTACacheError
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
@@ -351,10 +351,6 @@ class OTACache:
             burst_suppressed_logger.warning(f"exception during cache rotating: {e!r}")
             return False
 
-    def _commit_cache_callback(self, meta: CacheMeta):
-        if not self._lru_helper.commit_entry(meta):
-            raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
-
     # retrieve_file handlers
 
     async def _do_request(
@@ -534,7 +530,7 @@ class OTACache:
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=Path(self._base_dir),
-            commit_cache_cb=self._commit_cache_callback,
+            commit_cache_cb=self._lru_helper.commit_entry,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         try:
