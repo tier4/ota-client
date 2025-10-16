@@ -353,35 +353,8 @@ class OTACache:
             return False
 
     def _commit_cache_callback(self, meta: CacheMeta):
-        """The callback for committing CacheMeta to cache_db.
-
-        NOTE(20250618): this callback now is synced and exepcted to be run
-                        within a worker thread.
-        NOTE(20250618): now on failed db commit, this method will raise exception
-                        to indicate caller to drop the cache.
-
-        If caching is successful, and the space usage is reaching soft limit,
-        we will try to ensure free space for already cached file.
-        If space cannot be reserved, the meta will not be committed.
-
-        Args:
-            meta: inst of CacheMeta that represents a cached file.
-        """
-        if self._storage_below_soft_limit_event.is_set():
-            if not self._lru_helper.commit_entry(meta):
-                raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
-            return
-
-        # try to reserve space for the saved cache entry
-        if self._reserve_space(meta.cache_size):
-            if not self._lru_helper.commit_entry(meta):
-                raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
-            return
-
-        # cache successful, but reserving space failed,
-        # NOTE(20221018): let cache tracker remove the tmp file
-        burst_suppressed_logger.warning(f"failed to reserve space for {meta.url=}")
-        raise CacheCommitFailed
+        if not self._lru_helper.commit_entry(meta):
+            raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
 
     # retrieve_file handlers
 
@@ -578,12 +551,21 @@ class OTACache:
                 resp_headers_from_upper=resp_headers,
             )
 
-            wrapped_fd = self._cache_write_pool.stream_writing_cache(
-                fd=remote_fd,
-                tracker=tracker,
-                cache_meta=cache_meta,
-            )
-            return wrapped_fd, resp_headers
+            _file_size_from_request = cache_meta.cache_size
+            # need to LRU rotate cache for reserving space for new caches
+            if (
+                not self._storage_below_soft_limit_event.is_set()
+                and _file_size_from_request is not None
+            ):
+                _rotate_result = self._reserve_space(_file_size_from_request)
+                if _rotate_result:
+                    wrapped_fd = self._cache_write_pool.stream_writing_cache(
+                        fd=remote_fd,
+                        tracker=tracker,
+                        cache_meta=cache_meta,
+                    )
+                    return wrapped_fd, resp_headers
+            return remote_fd, resp_headers
         except Exception:
             tracker._tracker_events.set_writer_failed()
             raise
