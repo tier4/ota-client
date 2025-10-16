@@ -554,7 +554,11 @@ class OTACache:
                 not self._storage_below_soft_limit_event.is_set()
                 and _file_size_from_request is not None
             ):
-                _rotate_result = self._reserve_space_at_thread(_file_size_from_request)
+                _rotate_result = await asyncio.wrap_future(
+                    self._cache_write_pool._pool.submit(
+                        self._reserve_space_at_thread, _file_size_from_request
+                    )
+                )
                 if _rotate_result:
                     wrapped_fd = self._cache_write_pool.stream_writing_cache(
                         fd=remote_fd,
