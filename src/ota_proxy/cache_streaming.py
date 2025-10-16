@@ -92,11 +92,6 @@ class CacheTrackerEvents:
     def set_writer_finished(self) -> None:  # pragma: no cover
         self._writer_finished.set()
 
-    def on_deadline_set_failed(self, _) -> None:  # pragma: no cover
-        if not self._writer_started.is_set():
-            self._writer_failed.set()
-            self._writer_finished.set()
-
 
 class CacheTracker:
     """A tracker for an ongoing cache entry.
@@ -203,9 +198,19 @@ class CacheTracker:
 
     # exposed API
 
-    def gen_deadline_checker(self):
-        """Return a callable for deadline checker to set tracker failed if provider not enaged."""
-        return self._tracker_events.on_deadline_set_failed
+    def provider_handle_empty_file_in_thread(self, cache_meta: CacheMeta) -> None:
+        self._cache_meta = cache_meta
+        self._tracker_events.set_writer_finished()
+        # NOTE: subscriber is looking for writer_started, for enabling fastpath,
+        #       set the cache_meta and finish event first.
+        self._tracker_events.set_writer_started()
+        try:
+            if not self._commit_cache_cb(cache_meta):
+                raise ValueError
+        except Exception as e:
+            _err_msg = f"cache db commit failed for {self._cache_meta}: {e!r}"
+            burst_suppressed_logger.warning(_err_msg)
+            raise CacheCommitFailed(_err_msg) from e
 
     def provider_write_file_in_thread(
         self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
@@ -273,6 +278,8 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
             self._finalize_cache()
+        except CacheCommitFailed:
+            pass  # if only cache commit failed, no need to fail the whole tracker
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
@@ -474,7 +481,7 @@ class CacheWriterPool:
             # no data chunk from upper, might indicate an empty file
             await self._write_dispatcher(
                 tracker,
-                tracker._commit_cache_cb,
+                tracker.provider_handle_empty_file_in_thread,
                 cache_meta,
             )
             return
@@ -637,12 +644,22 @@ class CacheReaderPool:
             await self._read_dispatcher(read_file_once, fpath)
         )
 
-    async def subscribe_tracker(self, tracker: CacheTracker) -> AsyncGenerator[bytes]:
-        """
+    async def subscribe_tracker(
+        self, tracker: CacheTracker
+    ) -> AsyncGenerator[bytes] | bytes:
+        """After provider starts, subscribe to the tracker.
+
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
-            CacheProviderNotReady if timeout waiting cache provider ready.
         """
+        # fastpath for empty file
+        if (
+            (cache_meta := tracker._cache_meta)
+            and tracker._tracker_events.writer_finished
+            and cache_meta.cache_size == 0
+        ):
+            return b""
+
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
         # then wait for task picked by reader thread worker pool
