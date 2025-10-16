@@ -155,8 +155,9 @@ def inject_cache_retry_directory(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 def inject_cache_control_header_in_req(
     *,
-    digest: str,
     input_header: Mapping[str, str] | None = None,
+    digest: str,
+    resource_size: int | None,
     compression_alg: str | None = None,
 ) -> Mapping[str, str] | None:
     """Inject ota-file-cache-control header into request if extra info is available.
@@ -175,6 +176,7 @@ def inject_cache_control_header_in_req(
         cache_policy,
         file_sha256=digest,
         file_compression_alg=compression_alg,
+        file_size=resource_size,
     )
     prepared_headers[CACHE_CONTROL_HEADER] = cache_policy
     return prepared_headers
@@ -389,8 +391,9 @@ class Downloader:
         if digest and proxies:
             # NOTE: process headers AFTER proxies setting is parsed
             prepared_headers = inject_cache_control_header_in_req(
-                digest=digest,
                 input_header=headers,
+                resource_size=size,
+                digest=digest,
                 compression_alg=compression_alg,
             )
         else:

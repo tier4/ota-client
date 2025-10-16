@@ -227,6 +227,7 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
                 _this_res = downloader.download(
                     url=urljoin(_base_url, _resource_dl_info.digest.hex()),
                     dst=_blob_save_dst,
+                    size=_resource_dl_info.size,
                     digest=_resource_dl_info.digest.hex(),
                 )
 
