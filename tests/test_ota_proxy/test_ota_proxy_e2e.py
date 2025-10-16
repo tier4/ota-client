@@ -37,6 +37,7 @@ import uvicorn
 
 import ota_proxy
 from ota_metadata.legacy2.csv_parser import de_escape, parse_regular_csv_line
+from ota_proxy.cache_control_header import OTAFileCacheControl
 from ota_proxy.utils import url_based_hash
 from tests.conftest import ThreadpoolExecutorFixtureMixin, cfg
 
@@ -185,10 +186,23 @@ def ota_downloader_process(
                 # NOTE: for space_availability==exceed_hard_limit or below_hard_limit,
                 #       it is normal that transition is interrupted when
                 #       space_availability status transfered.
+                _header = {
+                    OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                        file_size=entry.size
+                    )
+                }
                 while True:
+                    if _retry_count > 0:
+                        _header = {
+                            OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
+                                file_size=entry.size, retry_caching=True
+                            )
+                        }
+
                     async with session.get(
                         url,
                         proxy=upper_proxy,
+                        headers=_header,
                         cookies={"acookie": "acookie", "bcookie": "bcookie"},
                     ) as resp:
                         hash_f = sha256()
