@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
+from ota_image_libs.v1.resource_table.utils import ResumeOTADownloadHelper
 
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from ota_metadata.utils.cert_store import CAChainStore
@@ -44,7 +45,6 @@ from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._download_resources import (
     DownloadHelperForLegacyOTAImage,
     DownloadHelperForOTAImageV1,
-    ResumeOTADownloadHelper,
 )
 from otaclient.ota_core._update_libs import metadata_download_err_handler
 from otaclient_common import replace_root
@@ -316,7 +316,7 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
                     _download_tmp,
                     self._ota_image_helper.resource_table_helper,
                     max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-                )()
+                ).check_download_dir()
                 logger.info(f"total {_processed_entries} are checked")
             except Exception as e:
                 logger.warning(
