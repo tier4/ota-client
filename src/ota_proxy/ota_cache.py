@@ -326,7 +326,7 @@ class OTACache:
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
 
-    def _reserve_space(self, size: int) -> bool:
+    def _reserve_space_at_thread(self, size: int) -> bool:
         """A helper that calls lru_helper's rotate_cache method.
 
         Args:
@@ -335,21 +335,20 @@ class OTACache:
         Returns:
             A bool indicates whether the space reserving is successful or not.
         """
-        _hashes = self._lru_helper.rotate_cache(size)
-        # NOTE: distinguish between [] and None! The fore one means we don't need
-        #       cache rotation for saving the cache file, the latter one means
-        #       cache rotation failed.
-        if _hashes is not None:
-            logger.debug(
-                f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
-            )
-            for entry_hash in _hashes:
-                # remove cache entry
-                f = self._base_dir_sync / entry_hash
-                f.unlink(missing_ok=True)
-            return True
-        else:
-            logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
+        try:
+            _hashes = self._lru_helper.rotate_cache(size)
+            # NOTE: distinguish between [] and None! The fore one means we don't need
+            #       cache rotation for saving the cache file, the latter one means
+            #       cache rotation failed.
+            if _hashes is not None:
+                for entry_hash in _hashes:
+                    # remove cache entry
+                    f = self._base_dir_sync / entry_hash
+                    f.unlink(missing_ok=True)
+                return True
+            return False
+        except Exception as e:
+            burst_suppressed_logger.warning(f"exception during cache rotating: {e!r}")
             return False
 
     def _commit_cache_callback(self, meta: CacheMeta):
@@ -532,7 +531,6 @@ class OTACache:
                     _cache_meta.export_headers_to_client(),
                 )
 
-        # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=Path(self._base_dir),
@@ -540,7 +538,6 @@ class OTACache:
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         try:
-            self._on_going_caching.register_tracker(cache_identifier, tracker)
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
@@ -557,13 +554,14 @@ class OTACache:
                 not self._storage_below_soft_limit_event.is_set()
                 and _file_size_from_request is not None
             ):
-                _rotate_result = self._reserve_space(_file_size_from_request)
+                _rotate_result = self._reserve_space_at_thread(_file_size_from_request)
                 if _rotate_result:
                     wrapped_fd = self._cache_write_pool.stream_writing_cache(
                         fd=remote_fd,
                         tracker=tracker,
                         cache_meta=cache_meta,
                     )
+                    self._on_going_caching.register_tracker(cache_identifier, tracker)
                     return wrapped_fd, resp_headers
 
             tracker._tracker_events.set_writer_failed()
