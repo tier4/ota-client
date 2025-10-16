@@ -83,7 +83,7 @@ class TestOngoingCachingRegister:
                 not _tracker._tracker_events._writer_finished.is_set()
             ):  # simulating cache streaming
                 await asyncio.sleep(0.1)
-            return False, _tracker.cache_meta
+            return False, _tracker._cache_meta
 
         # is provider
         logger.info(f"#{idx} is provider")
@@ -104,7 +104,7 @@ class TestOngoingCachingRegister:
             last_access=idx,
             file_sha256="some_filesha256_value",
         )
-        _tracker.cache_meta = cache_meta  # normally it was set by start_provider
+        _tracker._cache_meta = cache_meta  # normally it was set by start_provider
 
         # NOTE: we are not actually start the caching, so not setting
         #   executor, commit_cache_cb and below_hard_limit_event
@@ -117,7 +117,7 @@ class TestOngoingCachingRegister:
         # finished
         _tracker._tracker_events._writer_finished.set()
         logger.info(f"writer #{idx} finished")
-        return True, _tracker.cache_meta
+        return True, _tracker._cache_meta
 
     async def test_ongoing_cache_register(self):
         """
