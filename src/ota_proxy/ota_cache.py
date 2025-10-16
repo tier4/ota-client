@@ -561,6 +561,8 @@ class OTACache:
             await (self._base_dir / cache_identifier).unlink(missing_ok=True)
 
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
+            # NOTE(20251016): will try to wait for cache writer here instead of directly assessing
+            #                 whether the cache_meta is set for the tracker.
             await tracker.meta_set.wait()
             if (
                 _cache_meta := tracker.cache_meta
