@@ -179,6 +179,14 @@ class CacheTracker:
         if not self._cache_meta:
             return
 
+        # NOTE(20251016): if we failed to commit the cache entry, we should skip
+        #                 the cache file finalizing.
+        try:
+            self._commit_cache_cb(self._cache_meta)
+        except Exception as e:
+            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
+            return
+
         # NOTE(20251016): if the save_path is a file, we just assume that it comes from previous caching,
         #                 skip the file finalize but still commit the cache to db.
         #                 if the file is invalid/broken, the otaclient will tell us and we will do a cleanup
@@ -190,11 +198,6 @@ class CacheTracker:
             )
         else:
             os.link(self.fpath, self.save_path)
-
-        try:
-            self._commit_cache_cb(self._cache_meta)
-        except Exception as e:
-            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
 
     # exposed API
 

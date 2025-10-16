@@ -367,30 +367,21 @@ class OTACache:
         Args:
             meta: inst of CacheMeta that represents a cached file.
         """
-        try:
-            if not self._storage_below_soft_limit_event.is_set():
-                # case 1: try to reserve space for the saved cache entry
-                if self._reserve_space(meta.cache_size):
-                    if not self._lru_helper.commit_entry(meta):
-                        burst_suppressed_logger.warning(
-                            f"failed to commit cache for {meta.url=}"
-                        )
-                else:
-                    # case 2: cache successful, but reserving space failed,
-                    # NOTE(20221018): let cache tracker remove the tmp file
-                    burst_suppressed_logger.warning(
-                        f"failed to reserve space for {meta.url=}"
-                    )
-            else:
-                # case 3: commit cache and finish up
-                if not self._lru_helper.commit_entry(meta):
-                    burst_suppressed_logger.warning(
-                        f"failed to commit cache entry for {meta.url=}"
-                    )
-        except Exception as e:
-            _err_msg = f"failed on callback for {meta=}: {e!r}"
-            burst_suppressed_logger.error(_err_msg)
-            raise CacheCommitFailed(_err_msg) from e
+        if self._storage_below_soft_limit_event.is_set():
+            if not self._lru_helper.commit_entry(meta):
+                raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
+            return
+
+        # try to reserve space for the saved cache entry
+        if self._reserve_space(meta.cache_size):
+            if not self._lru_helper.commit_entry(meta):
+                raise CacheCommitFailed(f"failed to commit cache entry for {meta.url=}")
+            return
+
+        # cache successful, but reserving space failed,
+        # NOTE(20221018): let cache tracker remove the tmp file
+        burst_suppressed_logger.warning(f"failed to reserve space for {meta.url=}")
+        raise CacheCommitFailed
 
     # retrieve_file handlers
 
