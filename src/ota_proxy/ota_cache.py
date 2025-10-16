@@ -565,6 +565,8 @@ class OTACache:
                         cache_meta=cache_meta,
                     )
                     return wrapped_fd, resp_headers
+
+            tracker._tracker_events.set_writer_failed()
             return remote_fd, resp_headers
         except Exception:
             tracker._tracker_events.set_writer_failed()
