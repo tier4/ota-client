@@ -32,8 +32,18 @@ from .db import AsyncCacheMetaORM, CacheMeta, CacheMetaORMPool
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.db_error")
 
 
-def _con_factory(db_f: StrOrPath, thread_wait_timeout: int):
-    con = sqlite3.connect(db_f, check_same_thread=False, timeout=thread_wait_timeout)
+def _con_factory(db_f: StrOrPath, thread_wait_timeout: int, autocommit: bool = False):
+    if autocommit:
+        con = sqlite3.connect(
+            db_f,
+            check_same_thread=False,
+            timeout=thread_wait_timeout,
+            isolation_level=None,
+        )
+    else:
+        con = sqlite3.connect(
+            db_f, check_same_thread=False, timeout=thread_wait_timeout
+        )
 
     utils.enable_wal_mode(con, relax_sync_mode=True)
     utils.enable_mmap(con)
@@ -64,16 +74,19 @@ class LRUCacheHelper:
         self.bsize_list = list(bsize_dict)
         self.bsize_dict = bsize_dict.copy()
 
-        _configured_con_factory = partial(_con_factory, db_f, thread_wait_timeout)
+        _reader_con_factory = partial(
+            _con_factory, db_f, thread_wait_timeout, autocommit=True
+        )
         self._async_db = AsyncCacheMetaORM(
             table_name=table_name,
-            con_factory=_configured_con_factory,
+            con_factory=_reader_con_factory,
             number_of_cons=read_db_thread_nums,
             row_factory="table_spec_no_validation",
         )
+        _writer_con_factory = partial(_con_factory, db_f, thread_wait_timeout)
         self._db = CacheMetaORMPool(
             table_name=table_name,
-            con_factory=_configured_con_factory,
+            con_factory=_writer_con_factory,
             number_of_cons=write_db_thread_nums,
             row_factory="table_spec_no_validation",
         )
