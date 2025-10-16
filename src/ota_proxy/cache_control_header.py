@@ -27,7 +27,13 @@ logger = logging.getLogger(__name__)
 # NOTE: for request_error, only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.header_parse_error")
 
-VALID_DIRECTORIES = {"no_cache", "retry_caching", "file_sha256", "file_compression_alg"}
+VALID_DIRECTORIES = {
+    "no_cache",
+    "retry_caching",
+    "file_sha256",
+    "file_compression_alg",
+    "file_size",
+}
 HEADER_LOWERCASE = "ota-file-cache-control"
 HEADER_DIR_SEPARATOR = ","
 
@@ -38,6 +44,7 @@ class OTAFileCacheDirTypedDict(TypedDict, total=False):
     # added in revision 2:
     file_sha256: Optional[str]
     file_compression_alg: Optional[str]
+    file_size: Optional[int]
 
 
 def parse_header(_input: str) -> OTAFileCacheControl:
@@ -125,6 +132,7 @@ class OTAFileCacheControl:
     # added in revision 2:
     file_sha256: Optional[str] = None
     file_compression_alg: Optional[str] = None
+    file_size: Optional[int] = None
 
     # TODO: (20250618): to not change the callers of these methods,
     #                   currently just register these methods under OTAFileCacheControl class.

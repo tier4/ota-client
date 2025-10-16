@@ -183,8 +183,7 @@ class CacheTracker:
         #                 the cache file finalizing.
         try:
             self._commit_cache_cb(self._cache_meta)
-        except Exception as e:
-            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
+        except Exception:
             return
 
         # NOTE(20251016): if the save_path is a file, we just assume that it comes from previous caching,
