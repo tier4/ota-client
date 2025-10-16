@@ -38,6 +38,7 @@ from otaclient_common.common import get_backoff
 from .config import config as cfg
 from .db import CacheMeta
 from .errors import (
+    CacheCommitFailed,
     CacheProviderNotReady,
     CacheStreamingFailed,
     CacheStreamingInterrupt,
@@ -182,9 +183,12 @@ class CacheTracker:
         # NOTE(20251016): if we failed to commit the cache entry, we should skip
         #                 the cache file finalizing.
         try:
-            self._commit_cache_cb(self._cache_meta)
-        except Exception:
-            return
+            if not self._commit_cache_cb(self._cache_meta):
+                raise ValueError
+        except Exception as e:
+            _err_msg = f"cache db commit failed for {self._cache_meta}: {e!r}"
+            burst_suppressed_logger.warning(_err_msg)
+            raise CacheCommitFailed(_err_msg) from e
 
         # NOTE(20251016): if the save_path is a file, we just assume that it comes from previous caching,
         #                 skip the file finalize but still commit the cache to db.
@@ -242,6 +246,8 @@ class CacheTracker:
 
             if not tracker_events.writer_failed:
                 self._finalize_cache()
+        except CacheCommitFailed:
+            pass  # if only cache commit failed, no need to fail the whole tracker
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
@@ -371,7 +377,7 @@ class CacheTracker:
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], bool]
 
 
 class CachingRegister:

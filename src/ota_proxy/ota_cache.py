@@ -66,7 +66,7 @@ def create_cachemeta_for_request(
     compression_alg: str | None,
     /,
     resp_headers_from_upper: CIMultiDictProxy[str],
-) -> CacheMeta:
+) -> tuple[int | None, CacheMeta]:
     """Create CacheMeta inst for new incoming request.
 
     Use information from upper in prior, otherwise use pre-calculated information.
@@ -87,7 +87,7 @@ def create_cachemeta_for_request(
         file_sha256 = cache_identifier
         file_compression_alg = compression_alg or None
 
-    return CacheMeta(
+    return _upper_cache_policy.file_size, CacheMeta(
         file_sha256=file_sha256,
         file_compression_alg=file_compression_alg,
         url=raw_url,
@@ -527,6 +527,7 @@ class OTACache:
                     _cache_meta.export_headers_to_client(),
                 )
 
+        # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=Path(self._base_dir),
@@ -534,35 +535,36 @@ class OTACache:
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         try:
+            self._on_going_caching.register_tracker(cache_identifier, tracker)
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
-            cache_meta = create_cachemeta_for_request(
+            _file_size_from_request, cache_meta = create_cachemeta_for_request(
                 raw_url,
                 cache_identifier,
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
 
-            _file_size_from_request = cache_meta.cache_size
+            _should_skip_caching = False
             # need to LRU rotate cache for reserving space for new caches
             if (
                 not self._storage_below_soft_limit_event.is_set()
                 and _file_size_from_request is not None
             ):
-                _rotate_result = await asyncio.wrap_future(
+                _should_skip_caching = not await asyncio.wrap_future(
                     self._cache_write_pool._pool.submit(
                         self._reserve_space_at_thread, _file_size_from_request
                     )
                 )
-                if _rotate_result:
-                    wrapped_fd = self._cache_write_pool.stream_writing_cache(
-                        fd=remote_fd,
-                        tracker=tracker,
-                        cache_meta=cache_meta,
-                    )
-                    self._on_going_caching.register_tracker(cache_identifier, tracker)
-                    return wrapped_fd, resp_headers
+
+            if not _should_skip_caching:
+                wrapped_fd = self._cache_write_pool.stream_writing_cache(
+                    fd=remote_fd,
+                    tracker=tracker,
+                    cache_meta=cache_meta,
+                )
+                return wrapped_fd, resp_headers
 
             tracker._tracker_events.set_writer_failed()
             return remote_fd, resp_headers
