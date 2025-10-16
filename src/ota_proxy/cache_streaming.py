@@ -151,8 +151,6 @@ class CacheTracker:
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
     ):
-        self.meta_set = asyncio.Event()
-
         self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
         self.save_path = base_dir / cache_identifier
         self._cache_meta: CacheMeta | None = None
@@ -163,15 +161,6 @@ class CacheTracker:
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
-
-    @property
-    def cache_meta(self) -> CacheMeta | None:
-        return self._cache_meta
-
-    @cache_meta.setter
-    def cache_meta(self, value: CacheMeta):
-        self.meta_set.set()
-        self._cache_meta = value
 
     def _finalize_cache(self) -> None:
         """Finalize the caching, commit the cache entry to db.
@@ -187,7 +176,7 @@ class CacheTracker:
                             or poluted intentionally, assume that all files are normal files.
                         If `save_dst` exists and is not a regular file, we just give up caching this file.
         """
-        if not self.cache_meta:
+        if not self._cache_meta:
             return
 
         # NOTE(20251016): if the save_path is a file, we just assume that it comes from previous caching,
@@ -203,7 +192,7 @@ class CacheTracker:
             os.link(self.fpath, self.save_path)
 
         try:
-            self._commit_cache_cb(self.cache_meta)
+            self._commit_cache_cb(self._cache_meta)
         except Exception as e:
             burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
 
@@ -216,6 +205,7 @@ class CacheTracker:
     def provider_write_file_in_thread(
         self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
     ) -> None:
+        self._cache_meta = cache_meta
         tracker_events = self._tracker_events
         tracker_events.set_writer_started()
         try:
@@ -258,6 +248,7 @@ class CacheTracker:
             del self, input_que, cache_meta
 
     def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
+        self._cache_meta = cache_meta
         tracker_events = self._tracker_events
         tracker_events.set_writer_started()
         try:
@@ -363,7 +354,7 @@ class CacheTracker:
                         else:
                             # abort caching due to potential dead streaming coro
                             _err_msg = (
-                                f"failed to read stream for {self.cache_meta}: "
+                                f"failed to read stream for {self._cache_meta}: "
                                 "timeout getting data, potential partial read occurs"
                             )
                             burst_suppressed_logger.warning(_err_msg)
@@ -442,8 +433,6 @@ class CacheWriterPool:
                 raise CacheStreamingFailed(_err_msg)
 
             await self._se.acquire()
-            # NOTE(20250925): set the cache_meta to the tracker here
-            tracker.cache_meta = cache_meta
             self._pool.submit(fn, cache_meta, *args, **kwargs).add_done_callback(
                 self._release_se_cb
             )
