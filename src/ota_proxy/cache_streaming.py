@@ -190,14 +190,15 @@ class CacheTracker:
         if not self.cache_meta:
             return
 
-        if self.save_path.is_symlink():
-            self.save_path.unlink()
-        if self.save_path.exists():
-            if not self.save_path.is_file():
-                burst_suppressed_logger.warning(
-                    f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
-                )
-                return
+        # NOTE(20251016): if the save_path is a file, we just assume that it comes from previous caching,
+        #                 skip the file finalize but still commit the cache to db.
+        #                 if the file is invalid/broken, the otaclient will tell us and we will do a cleanup
+        #                 and re-caching later.
+        if self.save_path.is_file():
+            burst_suppressed_logger.warning(
+                f"{self.save_path} exists, assume it comes from previous caching, "
+                "skip finalizing the cache file for it ..."
+            )
         else:
             os.link(self.fpath, self.save_path)
 
