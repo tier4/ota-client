@@ -176,7 +176,7 @@ def inject_cache_control_header_in_req(
         cache_policy,
         file_sha256=digest,
         file_compression_alg=compression_alg,
-        file_size=resource_size,
+        file_size=str(resource_size),
     )
     prepared_headers[CACHE_CONTROL_HEADER] = cache_policy
     return prepared_headers

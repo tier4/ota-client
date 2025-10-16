@@ -44,7 +44,7 @@ class OTAFileCacheDirTypedDict(TypedDict, total=False):
     # added in revision 2:
     file_sha256: Optional[str]
     file_compression_alg: Optional[str]
-    file_size: Optional[int]
+    file_size: Optional[str]
 
 
 def parse_header(_input: str) -> OTAFileCacheControl:
@@ -132,7 +132,7 @@ class OTAFileCacheControl:
     # added in revision 2:
     file_sha256: Optional[str] = None
     file_compression_alg: Optional[str] = None
-    file_size: Optional[int] = None
+    file_size: Optional[str] = None
 
     # TODO: (20250618): to not change the callers of these methods,
     #                   currently just register these methods under OTAFileCacheControl class.

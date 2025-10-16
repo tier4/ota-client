@@ -188,14 +188,14 @@ def ota_downloader_process(
                 #       space_availability status transfered.
                 _header = {
                     OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
-                        file_size=entry.size
+                        file_size=str(entry.size)
                     )
                 }
                 while True:
                     if _retry_count > 0:
                         _header = {
                             OTAFileCacheControl.HEADER_LOWERCASE: OTAFileCacheControl.export_kwargs_as_header(
-                                file_size=entry.size, retry_caching=True
+                                file_size=str(entry.size), retry_caching=True
                             )
                         }
 
