@@ -597,7 +597,6 @@ class OTACache:
             tracker._tracker_events.set_writer_failed()
             raise
         finally:
-            tracker.meta_set.set()  # unlock any waiting subscriber
             del tracker  # prevent future subscribe to this tracker
 
     # exposed API
