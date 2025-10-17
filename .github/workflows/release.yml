@@ -21,7 +21,9 @@ jobs:
       - name: checkout
         uses: actions/checkout@v5
         with:
-          fetch-tags: true
+          # NOTE: this should be enough to let hatch-vcs determines the
+          #       version from git tags.
+          fetch-depth: 200
 
       - name: setup python
         uses: actions/setup-python@v6
