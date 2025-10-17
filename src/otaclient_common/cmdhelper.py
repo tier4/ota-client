@@ -666,13 +666,11 @@ def ensure_mount(
         If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
-        if is_target_mounted(mnt_point, raise_exception=False):
-            return
-
         try:
             mount_func(
                 target=target, mount_point=mnt_point, set_unbindable=set_unbindable
             )
+            is_target_mounted(mnt_point, raise_exception=True)
             return
         except CalledProcessError as e:
             logger.info(
@@ -708,10 +706,9 @@ def ensure_umount(
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
-        if not is_target_mounted(mnt_point, raise_exception=False):
-            return
-
         try:
+            if not is_target_mounted(mnt_point, raise_exception=False):
+                break
             umount(mnt_point, raise_exception=True)
         except CalledProcessError as e:
             logger.info(
