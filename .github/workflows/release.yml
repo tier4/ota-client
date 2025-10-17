@@ -42,6 +42,7 @@ jobs:
       - name: set environment variables
         id: set_env
         run: |
+          uv venv -c
           uv pip --no-managed-python install hatch
           # Remove everything after '+' to clean Git metadata
           OTACLIENT_VERSION=$(uv run --locked hatch version | cut -d'+' -f1)
