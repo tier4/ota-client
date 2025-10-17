@@ -24,6 +24,7 @@ jobs:
           # NOTE: this should be enough to let hatch-vcs determines the
           #       version from git tags.
           fetch-depth: 200
+          fetch-tags: true
 
       - name: setup python
         uses: actions/setup-python@v6
