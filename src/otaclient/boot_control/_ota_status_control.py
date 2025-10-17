@@ -82,6 +82,9 @@ class OTAStatusFilesControl:
             self._ota_status = OTAStatus.INITIALIZED
             return
 
+        # NOTE(20251017): as we separate the downloaded dynamic loading app and
+        #                 systemd managed otaclient app image, change to check
+        #                 is_running_as_downloaded_dynamic_app here.
         if _env.is_running_as_downloaded_dynamic_app():
             # TODO(airkei) [2025-06-17]: Currently, there is no way to know the "ClientUpdate" result status.
             # When the last "Update" is "Failure", Next OTA might show "Failure" on FMS Console in the middle of OTA.
