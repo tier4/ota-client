@@ -19,7 +19,9 @@ COPY ./scripts /build/scripts
 COPY ./pyproject.toml ./uv.lock ./README.md /build/
 
 WORKDIR /build
-RUN set -eux; \
+# NOTE: mount .git for hatch-vcs to determine the version
+RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
+    set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
         git ca-certificates wget python3 python3-setuptools; \
