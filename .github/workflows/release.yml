@@ -54,6 +54,7 @@ jobs:
           path: dist/*.whl
 
   build_squashfs_images:
+    # NOTE: this dependency is only for reliability getting the otaclient version 
     needs: build_python_packages
     strategy:
       fail-fast: false
