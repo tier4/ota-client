@@ -1,51 +1,43 @@
 ## otaclient application squashfs image creation howto
 
-Please note that upto otaclient v3.8.x, otaclient still cannot run inside container environment.
-Future PRs will implement the above feature.
-
-Also the container environment needed to be carefully setup to let otaclient run as expected. See related document for more details.
-
-### Steps to create otaclient application image
-
-1. download the otaclient whl package
-
-2. build docker image
+### Build otaclient APP container image
 
 ```bash
+# at the project root
 sudo docker build \
+    -f docker/app_img/Dockerfile \
     --no-cache \
     --build-arg=UBUNTU_BASE=ubuntu:22.04 \
-    --build-arg=OTACLIENT_VERSION=3.8.4 \
-    --build-arg=OTACLIENT_WHL=otaclient-3.8.4-py3-none-any.whl \
-    -t otaclient:3.8.4 .
+    --build-arg=OTACLIENT_VERSION=${OTACLIENT_VERSION} \
+    -t otaclient_app:${OTACLIENT_VERSION} .
 ```
 
-3. export docker image and create zstd compressed squashfs
+### Build otaclient APP squashfs image from APP container image
 
 ```bash
-# enter root shell
-sudo -s
-
-docker create --name otaclient_v3.8.4 otaclient:3.8.4
-docker export otaclient_v3.8.4 | mksquashfs - otaclient_v3.8.4.squashfs \
+# at the project root
+sudo docker create --name otaclient_app_export otaclient_app:${OTACLIENT_VERSION}
+sudo docker export otaclient_app_export | mksquashfs - dist/otaclient_${OTACLIENT_VERSION}.squashfs \
     -tar -b 1M \
     -mkfs-time 1729810800 \
     -all-time 1729810800 \
     -no-xattrs \
     -all-root \
     -progress \
-    -comp zstd \
-    -Xcompression-level 22
+    -comp gzip
+    # if squashfs zstd kernel support is available, use the following instead of gzip
+    # -comp zstd \
+    # -Xcompression-level 22
 ```
 
 ## Step to create otaclient app image update patch
 
 ```bash
-zstd --patch-from=otaclient_v3.7.1.squashfs otaclient_v3.8.2.squashfs -o v3.7.1-v3.8.2_patch
+zstd --patch-from=otaclient_${BASE_VERSION}.squashfs otaclient_${TARGET_VERSION}.squashfs -o ${BASE_VERSIOn}-${TARGET_VERSION}_patch
 ```
 
 ## Step to apply app image update patch
 
 ```bash
-zstd -d --patch-from=otaclient_v3.7.1.squashfs v3.7.1-v3.8.2_patch -o v3.8.2_from_patch.squashfs
+zstd -d --patch-from=otaclient_${BASE_VERSION}.squashfs ${BASE_VERSIOn}-${TARGET_VERSION}_patch -o otaclient_${TARGET_VERSION}.squashfs
 ```
