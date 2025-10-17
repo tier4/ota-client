@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import stat
@@ -23,12 +24,15 @@ from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
 
-from otaclient_common._typing import StrOrPath
+from otaclient_common._env import RUN_AS_PYINSTALLER_BUNDLE
+from otaclient_common._typing import StrOrPath, copy_callable_typehint
 
 try:
     from shutil import _fastcopy_sendfile  # type: ignore
 except ImportError:
     _fastcopy_sendfile = None
+
+logger = logging.getLogger(__name__)
 
 #
 # ------ swapfile handling ------ #
@@ -169,6 +173,31 @@ def map_gid_by_grpnam(*, src_db: ParsedGroup, dst_db: ParsedGroup, gid: int) -> 
 #
 
 
+@copy_callable_typehint(subprocess.run)
+def pyinstaller_aware_subprocess_run(args, *p_pargs, env=None, **p_kwargs):
+    """
+    See https://pyinstaller.org/en/stable/runtime-information.html#ld-library-path-libpath-considerations
+        for more details.
+    """
+    logger.debug(f"subprocess call: {args}")
+    lp_key = "LD_LIBRARY_PATH"  # for GNU/Linux and *BSD.
+    lp_orig_key = f"{lp_key}_ORIG"
+
+    if env is None:
+        _parsed_env = dict(os.environ)
+    else:
+        _parsed_env = dict(env)
+
+    lp_orig = _parsed_env.pop(lp_orig_key, None)
+    if lp_orig is not None:
+        _parsed_env[lp_key] = lp_orig  # restore the original, unmodified value
+    else:
+        # This happens when LD_LIBRARY_PATH was not set.
+        # Remove the env var as a last resort:
+        _parsed_env.pop(lp_key, None)
+    return subprocess.run(args, *p_pargs, env=_parsed_env, **p_kwargs)
+
+
 def subprocess_run_wrapper(
     cmd: str | list[str],
     *,
@@ -182,6 +211,8 @@ def subprocess_run_wrapper(
 
     NOTE: this is for the requirement of customized subprocess call
         in the future, like chroot or nsenter before execution.
+
+    NOTE(20250916): now subprocess_run_wrapper is pyinstaller awared.
 
     Args:
         cmd (str | list[str]): command to be executed.
@@ -204,7 +235,11 @@ def subprocess_run_wrapper(
 
         preexec_fn = _chroot
 
-    return subprocess.run(
+    _run_func = subprocess.run
+    if RUN_AS_PYINSTALLER_BUNDLE:
+        _run_func = pyinstaller_aware_subprocess_run
+
+    return _run_func(
         cmd,
         check=check,
         stderr=subprocess.PIPE,
@@ -212,7 +247,7 @@ def subprocess_run_wrapper(
         timeout=timeout,
         preexec_fn=preexec_fn,
         env=env,
-    )
+    )  # type: ignore
 
 
 #
@@ -275,15 +310,19 @@ def fstrim_at_subprocess(
         timeout: max execution time for fstrim.
     """
     _cmd = ["fstrim", str(target_mountpoint)]
+    _run_func = subprocess.run
+    if RUN_AS_PYINSTALLER_BUNDLE:
+        _run_func = pyinstaller_aware_subprocess_run
+
     if wait:  # spawned the fstrim subprocess, and wait for it finishes.
         try:
-            subprocess.run(
+            _run_func(
                 _cmd,
                 timeout=timeout,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-            )
+            )  # type: ignore
         except Exception:
             pass
         return
@@ -292,13 +331,13 @@ def fstrim_at_subprocess(
     #   the fstrim command execution from otaclient process.
     _cmd = ["nohup", "timeout", str(timeout), *_cmd]
     _detached_cmd = f"{shlex.join(_cmd)} &"
-    subprocess.run(
+    _run_func(
         _detached_cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         shell=True,
-    )
+    )  # type: ignore
 
 
 def is_non_empty_regular_file(path: Path) -> bool:
