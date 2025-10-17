@@ -381,8 +381,8 @@ def main() -> None:  # pragma: no cover
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
                         "-p", "PrivateMounts=yes",
                         "-p", "TemporaryFileSystem=/tmp:nodev,size=700M",
-                        "-p", "ExecStartPre=/usr/bin/mkdir -p /run/otaclient/mnt/active_slot",
-                        "-p", "ExecStartPre=/usr/bin/mkdir -p /host_root/ota-cache",
+                        "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
+                        "-p", "ExecStartPre=/bin/mkdir -p /host_root/ota-cache",
                         "-p", "BindPaths=/boot:/boot:rbind",
                         "-p", "BindPaths=/dev:/dev",
                         "-p", "BindPaths=/dev/shm:/dev/shm",
@@ -402,7 +402,7 @@ def main() -> None:  # pragma: no cover
                         #       /otaclient/otaclient.
                         # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
                         #       with old otaclient APP image, we still setup the mount points here. 
-                        "/usr/bin/bash", "-c",
+                        "/bin/bash", "-c",
                         "mount -o bind /host_root/ota-cache /ota-cache && mount -o bind,ro /host_root /run/otaclient/mnt/active_slot "
                         "&& /otaclient/venv/bin/python3 -m otaclient",
                     ],
