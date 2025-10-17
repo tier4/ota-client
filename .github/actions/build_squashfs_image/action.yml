@@ -50,8 +50,8 @@ runs:
         DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
         SQUASHFS: ${{ inputs.output_squashfs }}
       shell: bash
-      # zstd squashfs kernel support is unfortunately not configured on
-      #   NVIDIA Jetson BSP kernel.
+      # although zstd squashfs kernel support is available since ubuntu 18.04,
+      #   unfortunately it is not enabled by default on some of the systems we need to support.
       run: |
         docker create --name ${DOCKER_CONTAINER} ${DOCKER_IMAGE}
         docker export ${DOCKER_CONTAINER} | mksquashfs - ${SQUASHFS} \
