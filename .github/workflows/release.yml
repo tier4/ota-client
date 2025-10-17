@@ -16,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      OTACLIENT_WHL: ${{ steps.set_env.outputs.OTACLIENT_WHL }}
       OTACLIENT_VERSION: ${{ steps.set_env.outputs.OTACLIENT_VERSION }}
     steps:
       - name: checkout
@@ -26,27 +25,26 @@ jobs:
         uses: actions/setup-python@v6
         with:
           # use the minimum py ver we support to generate the wheel
-          python-version: 3.8
+          python-version-file: ".python-version"
 
-      - name: install build deps
-        run: |
-          python -m pip install -U pip
-          python -m pip install -U hatch
+      - name: install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.23"
 
       - name: build otaclient package
         env:
           # NOTE: see hatch_build_lock_deps.py for more details
           ENABLE_DEPS_LOCKED_BUILD: "yes"
         run: |
-          hatch build -t wheel
+          uv build --no-managed-python --wheel
 
       - name: set environment variables
         id: set_env
         run: |
-          OTACLIENT_WHL=$(basename $(ls dist/otaclient-*.whl))
+          uv pip --no-managed-python install hatch
           # Remove everything after '+' to clean Git metadata
-          OTACLIENT_VERSION=$(hatch version | cut -d'+' -f1)
-          echo OTACLIENT_WHL=${OTACLIENT_WHL} >> $GITHUB_OUTPUT
+          OTACLIENT_VERSION=$(uv run --locked hatch version | cut -d'+' -f1)
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
       - name: upload artifacts
@@ -79,7 +77,6 @@ jobs:
           platform: linux/${{ matrix.platform }}
           platform_suffix: ${{ matrix.platform }}
           base_image: ${{ matrix.base_image }}
-          whl: ${{ needs.build_python_packages.outputs.OTACLIENT_WHL }}
           version: ${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}
           output_squashfs: dist/otaclient-${{ matrix.platform }}-v${{ needs.build_python_packages.outputs.OTACLIENT_VERSION }}.squashfs
 
