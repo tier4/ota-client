@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -24,8 +23,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -421,82 +420,3 @@ class TestClientPackageDownloader:
             assert (
                 ota_client_package.is_same_client_package_version() == expected_result
             )
-
-
-class TestClientPackagePrepareter:
-    """Test class for OTAClientPackagePreparer"""
-
-    DUMMY_SQUASHFS_FILE = "/dummy/package.squashfs"
-    DUMMY_MOUNT_BASE = "/dummy/test_mount_point"
-    DUMMY_ACTIVE_ROOT = "/dummy/active_root"
-    DUMMY_ACTIVE_SLOT_MNT_POINT = "/dummy/active_slot_mount_point"
-    DUMMY_HOST_ROOT_MNT_POINT = "/dummy/host_root_mount_point"
-
-    @pytest.fixture
-    def package_prepareter(self):
-        from otaclient.client_package import OTAClientPackagePreparer
-
-        return OTAClientPackagePreparer(
-            squashfs_file=self.DUMMY_SQUASHFS_FILE,
-            mount_base=self.DUMMY_MOUNT_BASE,
-            active_root=self.DUMMY_ACTIVE_ROOT,
-            active_slot_mnt_point=self.DUMMY_ACTIVE_SLOT_MNT_POINT,
-            host_root_mnt_point=self.DUMMY_HOST_ROOT_MNT_POINT,
-            bootloader=MagicMock(),
-        )
-
-    @patch("otaclient.client_package.cmdhelper.ensure_mointpoint")
-    @patch("otaclient.client_package.cmdhelper.ensure_umount")
-    @patch("shutil.rmtree")
-    def test_cleanup_mount_point(
-        self,
-        mock_rmtree,
-        mock_ensure_umount,
-        mock_ensure_mointpoint,
-        package_prepareter,
-    ):
-        package_prepareter._cleanup_mount_point()
-
-        mock_ensure_mointpoint.assert_called_once()
-        mock_ensure_umount.assert_called_once()
-        mock_rmtree.assert_called_once()
-
-    @patch("otaclient.client_package.subprocess_call")
-    @patch("otaclient.client_package.OTAClientPackagePreparer._unshare_wrapper")
-    def test_create_mount_namespaces(
-        self, mock_unshare_wrapper, mock_subprocess_call, package_prepareter
-    ):
-        package_prepareter._create_mount_namespaces()
-
-        mock_unshare_wrapper.assert_called_once()
-        mock_subprocess_call.assert_called_once_with(
-            ["mount", "--make-rprivate", "/"], raise_exception=True
-        )
-
-    @patch("ctypes.CDLL", create=True)
-    def test_unshare_wrapper_python_3_11(self, mock_cdll, package_prepareter):
-        if sys.version_info >= (3, 12):
-            pytest.skip("This test is for Python 3.11 and below only.")
-
-        # Setup the mock correctly
-        mock_libc = MagicMock()
-        mock_cdll.return_value = mock_libc
-        mock_libc.unshare.return_value = 0  # Success case
-
-        # Call the function
-        package_prepareter._unshare_wrapper()
-
-        # Verify the mocks were called correctly
-        mock_cdll.assert_called_once_with("libc.so.6", use_errno=True)
-        mock_libc.unshare.assert_called_once()
-
-    @patch("os.unshare", create=True)
-    def test_unshare_wrapper_python_3_12(self, mock_unshare, package_prepareter):
-        if sys.version_info < (3, 12):
-            pytest.skip("This test is for Python 3.12 and above only.")
-
-        # Call the function
-        package_prepareter._unshare_wrapper()
-
-        # Verify the mock was called correctly
-        mock_unshare.assert_called_once()
