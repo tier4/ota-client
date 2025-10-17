@@ -37,12 +37,12 @@ jobs:
           # NOTE: see hatch_build_lock_deps.py for more details
           ENABLE_DEPS_LOCKED_BUILD: "yes"
         run: |
+          uv venv -c
           uv build --no-managed-python --wheel
 
       - name: set environment variables
         id: set_env
         run: |
-          uv venv -c
           uv pip --no-managed-python install hatch
           # Remove everything after '+' to clean Git metadata
           OTACLIENT_VERSION=$(uv run --locked hatch version | cut -d'+' -f1)
