@@ -35,7 +35,7 @@ jobs:
       - name: install uv
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.8.24"
+          version: "0.9.4"
 
       - name: build otaclient package
         env:

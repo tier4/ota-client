@@ -11,7 +11,7 @@ inputs:
     description: "The base image to use"
     required: true
   version:
-    description: "The OTA client version"
+    description: "The OTAClient version"
     required: true
   output_squashfs:
     description: "The output SquashFS file"
