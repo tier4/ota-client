@@ -44,7 +44,7 @@ RUN set -eux; \
     # add compatible layer for otaclient launching the dynamic otaclient app,
     #   see otaclient.main module for more details.
     mkdir -p ${COMPAT_VENV_PATH} ;\
-    echo '#!/bin/bash\n/'${OTACLIENT_INSTALLATION}'/otaclient\n' > ${COMPAT_VENV_PATH}/python3; \
+    echo '#!/bin/bash\n'${OTACLIENT_INSTALLATION}'/otaclient\n' > ${COMPAT_VENV_PATH}/python3; \
     chmod +x ${COMPAT_VENV_PATH}/python3; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
