@@ -40,7 +40,6 @@ runs:
       run: |
         docker build -f docker/app_img/Dockerfile --platform ${PLATFORM} \
           --build-arg=UBUNTU_BASE=${BASE_IMAGE} \
-          --build-arg=OTACLIENT_VERSION=${VERSION} \
           -t ${DOCKER_IMAGE} \
           .
 
