@@ -212,7 +212,7 @@ def subprocess_run_wrapper(
     NOTE: this is for the requirement of customized subprocess call
         in the future, like chroot or nsenter before execution.
 
-    NOTE(20250916): now subprocess_run_wrapper is pyinstaller awared.
+    NOTE(20250916): now subprocess_run_wrapper is pyinstaller aware.
 
     Args:
         cmd (str | list[str]): command to be executed.
