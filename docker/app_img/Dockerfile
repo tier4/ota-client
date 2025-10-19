@@ -5,11 +5,13 @@
 ARG UBUNTU_BASE=ubuntu:22.04
 ARG BUILD_BASE=python:3.13-bullseye
 ARG OTACLIENT_INSTALLATION="/otaclient"
-ARG UV_VERSION=0.8.22
+
+ARG UV_VERSION=0.9.4
+
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
 FROM ${BUILD_BASE} AS app_build
 
-ARG UV_VERSION=0.8.22
 ARG PYINSTALLER_VER=6.16.0
 
 RUN mkdir /build
@@ -18,24 +20,21 @@ COPY ./src /build/src
 COPY ./scripts /build/scripts
 COPY ./pyproject.toml ./uv.lock ./README.md /build/
 
+COPY --from=uv /uv /uvx /bin/
+
 WORKDIR /build
 # NOTE: mount .git for hatch-vcs to determine the version
 RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
     set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
-        git ca-certificates wget python3 python3-setuptools; \
-    export UV_INSTALL_DIR=/usr/bin; \
-    wget -qO- "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh; \
+        git python3 python3-setuptools; \
     uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
         pyinstaller -D -s --name otaclient src/otaclient/__main__.py
 
 FROM ${UBUNTU_BASE}
 
-ARG OTACLIENT_INSTALLATION="/otaclient"
-ARG OTACLIENT_VERSION
-
-ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
+ARG OTACLIENT_INSTALLATION
 
 COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
 

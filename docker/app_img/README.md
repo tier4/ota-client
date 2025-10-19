@@ -33,11 +33,11 @@ sudo docker export otaclient_app_export | mksquashfs - dist/otaclient_${OTACLIEN
 ## Step to create otaclient app image update patch
 
 ```bash
-zstd --patch-from=otaclient_${BASE_VERSION}.squashfs otaclient_${TARGET_VERSION}.squashfs -o ${BASE_VERSIOn}-${TARGET_VERSION}_patch
+zstd --patch-from=otaclient_${BASE_VERSION}.squashfs otaclient_${TARGET_VERSION}.squashfs -o ${BASE_VERSION}-${TARGET_VERSION}_patch
 ```
 
 ## Step to apply app image update patch
 
 ```bash
-zstd -d --patch-from=otaclient_${BASE_VERSION}.squashfs ${BASE_VERSIOn}-${TARGET_VERSION}_patch -o otaclient_${TARGET_VERSION}.squashfs
+zstd -d --patch-from=otaclient_${BASE_VERSION}.squashfs ${BASE_VERSION}-${TARGET_VERSION}_patch -o otaclient_${TARGET_VERSION}.squashfs
 ```
