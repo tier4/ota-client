@@ -77,6 +77,11 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v5
+        with:
+          # NOTE: this should be enough to let hatch-vcs determines the
+          #       version from git tags.
+          fetch-depth: 200
+          fetch-tags: true
 
       - name: build squashfs image for ${{ matrix.platform }}
         uses: ./.github/actions/build_squashfs_image
