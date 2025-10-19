@@ -4,7 +4,6 @@
 # NOTE: due to glibc compat issue, we need to pair ubuntu:22.04 with bullseye.
 ARG UBUNTU_BASE=ubuntu:22.04
 ARG BUILD_BASE=python:3.13-bullseye
-ARG OTACLIENT_INSTALLATION="/otaclient"
 
 ARG UV_VERSION=0.9.4
 
@@ -34,7 +33,8 @@ RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
 
 FROM ${UBUNTU_BASE}
 
-ARG OTACLIENT_INSTALLATION
+ARG OTACLIENT_INSTALLATION="/otaclient"
+ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
 
 COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
 
@@ -43,9 +43,9 @@ RUN set -eux; \
     mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo; \
     # add compatible layer for otaclient launching the dynamic otaclient app,
     #   see otaclient.main module for more details.
-    mkdir -p /otaclient/venv/bin ;\
-    echo '#!/bin/bash\n/otaclient/otaclient\n' > /otaclient/venv/bin/python3; \
-    chmod +x /otaclient/venv/bin/python3; \
+    mkdir -p ${COMPAT_VENV_PATH} ;\
+    echo '#!/bin/bash\n/'${OTACLIENT_INSTALLATION}'/otaclient\n' > ${COMPAT_VENV_PATH}/python3; \
+    chmod +x ${COMPAT_VENV_PATH}/python3; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
         # for e2label, mkfs.ext4
