@@ -22,6 +22,6 @@ ln -sf ${OTACLIENT_SRC}/scripts ${TEST_ROOT}
 echo "execute test with coverage"
 cd ${TEST_ROOT}
 # NOTE: use managed python3.13 provided by uv
-uv run --python ${PY_VER} coverage run -m pytest --junit-xml=${OUTPUT_DIR}/pytest.xml ${@:-}
+uv run --python ${PY_VER} coverage run -m pytest --junit-xml=${OUTPUT_DIR}/pytest.xml "$@"
 uv run --python ${PY_VER} coverage combine
 uv run --python ${PY_VER} coverage xml -o ${OUTPUT_DIR}/coverage.xml
