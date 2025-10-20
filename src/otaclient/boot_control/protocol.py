@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Protocol
 
 from otaclient._types import OTAStatus
+from otaclient.metrics import OTAMetricsData
 
 
 class BootControllerProtocol(Protocol):
@@ -58,6 +59,10 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
+
+    @abstractmethod
+    def store_metrics(self, metrics: OTAMetricsData) -> None:
+        """Store the OTA metrics data for later use."""
 
     #
     # ------ update ------ #

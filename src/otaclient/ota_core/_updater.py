@@ -36,7 +36,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import CriticalZoneFlag, UpdatePhase
+from otaclient._types import CriticalZoneFlag, OTAStatus, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -330,6 +330,8 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 self._metrics.shm_merge(_shm_metrics)
         except Exception as e:
             logger.error(f"failed to merge metrics: {e!r}")
+        self._ota_status = OTAStatus.UPDATING.name
+        self._boot_controller.store_metrics(self._metrics)
         self._metrics.publish()
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")

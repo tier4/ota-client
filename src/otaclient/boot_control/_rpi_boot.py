@@ -29,6 +29,7 @@ import otaclient.errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env, cmdhelper
 from otaclient_common._io import copyfile_atomic, write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
@@ -576,3 +577,6 @@ class RPIBootController(BootControllerProtocol):
 
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
+
+    def store_metrics(self, metrics: OTAMetricsData):
+        self._ota_status_control._store_current_metrics(metrics)

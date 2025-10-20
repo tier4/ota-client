@@ -27,6 +27,7 @@ import pytest
 from otaclient._types import OTAStatus
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.configs.cfg import cfg as otaclient_cfg
+from otaclient.metrics import OTAMetricsData
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
@@ -318,3 +319,138 @@ class TestOTAStatusFilesControl:
             == status_control._load_current_slot_in_use()
             == self.slot_a
         )
+
+    def test_store_and_load_metrics(self):
+        """Test metrics storage and loading functionality."""
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+        )
+
+        # Create sample metrics
+        metrics = OTAMetricsData(
+            session_id="test-session-123",
+            ota_image_total_files_size=1000000,
+            delta_download_files_num=100,
+        )
+
+        # Store metrics
+        status_control._store_current_metrics(metrics)
+
+        # Load metrics
+        loaded_metrics = status_control._load_current_metrics()
+
+        # Verify metrics were correctly stored and loaded
+        assert loaded_metrics is not None
+        assert loaded_metrics.session_id == metrics.session_id
+        assert (
+            loaded_metrics.ota_image_total_files_size
+            == metrics.ota_image_total_files_size
+        )
+        assert (
+            loaded_metrics.delta_download_files_num == metrics.delta_download_files_num
+        )
+
+    def test_load_metrics_no_file(self):
+        """Test loading metrics when file doesn't exist."""
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+        )
+
+        # Load metrics when no file exists
+        loaded_metrics = status_control._load_current_metrics()
+
+        # Should return None when file doesn't exist
+        assert loaded_metrics is None
+
+    @pytest.mark.parametrize(
+        "ota_status",
+        [OTAStatus.UPDATING, OTAStatus.ROLLBACKING],
+    )
+    def test_publish_metrics_after_reboot(self, ota_status: OTAStatus):
+        """Test metrics publication after reboot for UPDATING/ROLLBACKING states."""
+        # Create metrics file before initializing status control
+        metrics = OTAMetricsData(
+            session_id="test-session-456",
+            ota_image_total_files_size=2000000,
+            delta_download_files_num=200,
+        )
+
+        # Manually write metrics file
+        metrics_file = self.slot_a_ota_status_dir / otaclient_cfg.METRICS_FNAME
+        write_str_to_file_atomic(metrics_file, metrics.to_json())
+
+        # Write status file to simulate post-reboot state
+        write_str_to_file_atomic(self.slot_a_status_file, ota_status.name)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+
+        with patch.object(OTAMetricsData, "publish") as mock_publish:
+            _ = OTAStatusFilesControl(
+                active_slot=self.slot_a,
+                standby_slot=self.slot_b,
+                current_ota_status_dir=self.slot_a_ota_status_dir,
+                standby_ota_status_dir=self.slot_b_ota_status_dir,
+                finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            )
+
+            # Verify publish was called
+            mock_publish.assert_called_once()
+            # Get the metrics instance that was published
+            # Since publish is called on the metrics instance, we can verify it was called
+
+    @pytest.mark.parametrize(
+        "ota_status",
+        [OTAStatus.SUCCESS, OTAStatus.FAILURE],
+    )
+    def test_no_publish_metrics_for_non_updating_status(self, ota_status: OTAStatus):
+        """Test that metrics are not published for SUCCESS/FAILURE states."""
+        # Create metrics file
+        metrics = OTAMetricsData(
+            session_id="test-session-789",
+            ota_image_total_files_size=3000000,
+            delta_download_files_num=300,
+        )
+
+        metrics_file = self.slot_a_ota_status_dir / otaclient_cfg.METRICS_FNAME
+        write_str_to_file_atomic(metrics_file, metrics.to_json())
+
+        # Write status file
+        write_str_to_file_atomic(self.slot_a_status_file, ota_status.name)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+
+        with patch.object(OTAMetricsData, "publish") as mock_publish:
+            _ = OTAStatusFilesControl(
+                active_slot=self.slot_a,
+                standby_slot=self.slot_b,
+                current_ota_status_dir=self.slot_a_ota_status_dir,
+                standby_ota_status_dir=self.slot_b_ota_status_dir,
+                finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            )
+
+            # Verify publish was NOT called
+            mock_publish.assert_not_called()
+
+    def test_publish_metrics_with_missing_file(self):
+        """Test that missing metrics file doesn't cause errors during initialization."""
+        # Write status file for UPDATING state
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.UPDATING.name)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+
+        with patch.object(OTAMetricsData, "publish") as mock_publish:
+            _ = OTAStatusFilesControl(
+                active_slot=self.slot_a,
+                standby_slot=self.slot_b,
+                current_ota_status_dir=self.slot_a_ota_status_dir,
+                standby_ota_status_dir=self.slot_b_ota_status_dir,
+                finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            )
+
+            # Verify publish was NOT called when file is missing
+            mock_publish.assert_not_called()
