@@ -10,11 +10,8 @@ inputs:
   base_image:
     description: "The base image to use"
     required: true
-  whl:
-    description: "The OTA client wheel file"
-    required: true
   version:
-    description: "The OTA client version"
+    description: "The OTAClient version"
     required: true
   output_squashfs:
     description: "The output SquashFS file"
@@ -22,12 +19,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: download artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: artifacts-python-packages
-        path: dist
-
     - name: set temporary variables
       id: set-vars
       env:
@@ -38,32 +29,19 @@ runs:
         echo "DOCKER_IMAGE=otaclient-${PLATFORM_SUFFIX}:${VERSION}" >> $GITHUB_ENV
         echo "DOCKER_CONTAINER=otaclient-${PLATFORM_SUFFIX}_v${VERSION}" >> $GITHUB_ENV
 
-    - name: set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        install: true
-
     - name: build docker image
       env:
         DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
         PLATFORM: ${{ inputs.platform }}
         PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
         BASE_IMAGE: ${{ inputs.base_image }}
-        WHL: ${{ inputs.whl }}
         VERSION: ${{ inputs.version }}
       shell: bash
       run: |
-        cp dist/${WHL} docker/app_img/
-        pushd docker/app_img
-        docker build --platform ${PLATFORM} \
+        docker build -f docker/app_img/Dockerfile --platform ${PLATFORM} \
           --build-arg=UBUNTU_BASE=${BASE_IMAGE} \
-          --build-arg=OTACLIENT_VERSION=${VERSION} \
-          --build-arg=OTACLIENT_WHL=${WHL} \
           -t ${DOCKER_IMAGE} \
-          --output type=docker \
           .
-        popd
-        rm docker/app_img/${WHL}
 
     - name: export squashfs image
       env:
@@ -71,9 +49,10 @@ runs:
         DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
         SQUASHFS: ${{ inputs.output_squashfs }}
       shell: bash
-      # zstd is supported after ubuntu 22.04.
-      # so we need to use gzip for compression.
+      # although zstd squashfs kernel support is available since ubuntu 18.04,
+      #   unfortunately it is not enabled by default on some of the systems we need to support.
       run: |
+        mkdir -p $(dirname ${SQUASHFS})
         docker create --name ${DOCKER_CONTAINER} ${DOCKER_IMAGE}
         docker export ${DOCKER_CONTAINER} | mksquashfs - ${SQUASHFS} \
             -tar -b 1M \

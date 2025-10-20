@@ -14,6 +14,7 @@
 
 import functools
 import os
+import sys
 from typing import Optional
 
 from otaclient.configs.cfg import cfg
@@ -22,6 +23,8 @@ try:
     cache = functools.cache  # type: ignore[attr-defined]
 except AttributeError:
     cache = functools.lru_cache(maxsize=None)
+
+RUN_AS_PYINSTALLER_BUNDLE = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
 @cache

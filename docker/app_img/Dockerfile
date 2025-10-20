@@ -1,66 +1,56 @@
+# NOTE: due to newer version of mkfs.ext4 will enable some flags
+#       by default that are not supported by older version of ubuntu,
+#       we have to pin the ubuntu base to 22.04.
+# NOTE: due to glibc compat issue, we need to pair ubuntu:22.04 with bullseye.
 ARG UBUNTU_BASE=ubuntu:22.04
+ARG BUILD_BASE=python:3.13-bullseye
 
-FROM ${UBUNTU_BASE} AS image_build
+ARG UV_VERSION=0.9.4
 
-ARG OTACLIENT_WHL
-COPY ./${OTACLIENT_WHL} /tmp
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
 
-ARG OTACLIENT_INSTALLATION="/otaclient"
-ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
+FROM ${BUILD_BASE} AS app_build
 
-RUN set -eux; \
+ARG PYINSTALLER_VER=6.16.0
+
+RUN mkdir /build
+# minimum required files for building app
+COPY ./src /build/src
+COPY ./scripts /build/scripts
+COPY ./pyproject.toml ./uv.lock ./README.md /build/
+
+COPY --from=uv /uv /uvx /bin/
+
+WORKDIR /build
+# NOTE: mount .git for hatch-vcs to determine the version
+RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
+    set -eux; \
     apt-get update -qq; \
-    apt-get install --no-install-recommends -y \
-        python3-venv \
-        python3-pip; \
-    # setup virtual env
-    mkdir -p ${OTACLIENT_VENV}; \
-    cd ${OTACLIENT_INSTALLATION}; \
-    python3 -m venv ${OTACLIENT_VENV}; \
-    . ${OTACLIENT_VENV}/bin/activate; \
-    # install otaclient
-    python3 -m pip install -U pip; \
-    python3 -m pip install /tmp/${OTACLIENT_WHL}; \
-    # cleanup
-    apt-get clean; \
-    \
-    # NOTE: copy from docker official python3 dockerfile
-	find ${OTACLIENT_VENV} -depth \
-		\( \
-			\( -type d -a \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \) \
-			-o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
-		\) -exec rm -rf '{}' + \
-	; \
-	\
-    rm -rf \
-        /root/.cache \
-        /tmp/* \
-        /var/lib/apt/lists/* \
-        /var/tmp/*
+    apt-get install -y -qq --no-install-recommends \
+        git python3 python3-setuptools; \
+    uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
+        pyinstaller -D -s --name otaclient src/otaclient/__main__.py
 
 FROM ${UBUNTU_BASE}
 
-ARG OTACLIENT_VERSION
 ARG OTACLIENT_INSTALLATION="/otaclient"
+ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
 
-COPY --from=image_build ${OTACLIENT_INSTALLATION} ${OTACLIENT_INSTALLATION}
-
-ENV OTACLIENT_VERSION=${OTACLIENT_VERSION}
-ENV OTACLIENT_INSTALLATION=${OTACLIENT_INSTALLATION}
-ENV OTACLIENT_VENV=${OTACLIENT_INSTALLATION}/venv
-
-# Add necessary directories for OTA
-RUN mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo
+COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
 
 RUN set -eux; \
+    # add necessary runtime directories for OTA
+    mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo; \
+    # add compatible layer for otaclient launching the dynamic otaclient app,
+    #   see otaclient.main module for more details.
+    mkdir -p ${COMPAT_VENV_PATH} ;\
+    echo '#!/bin/bash\n'${OTACLIENT_INSTALLATION}'/otaclient\n' > ${COMPAT_VENV_PATH}/python3; \
+    chmod +x ${COMPAT_VENV_PATH}/python3; \
     apt-get update -qq; \
     apt-get install --no-install-recommends -y \
-        python3 \
         # for e2label, mkfs.ext4
         e2fsprogs \
-        # for lsblk, mount, umount, findmnt, blkid
-        util-linux \
-        # for ca-certificates
+        # for TLS certs verification
         ca-certificates; \
     apt-get clean; \
     rm -rf \
@@ -68,5 +58,3 @@ RUN set -eux; \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/*
-
-CMD ["sh", "-c", "${OTACLIENT_VENV}/bin/python3 -m otaclient"]
