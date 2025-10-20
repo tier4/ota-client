@@ -401,7 +401,7 @@ def main() -> None:  # pragma: no cover
                         #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
                         #       /otaclient/otaclient.
                         # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
-                        #       with old otaclient APP image, we still setup the mount points here. 
+                        #       with old otaclient APP image, we still setup the mount points here.
                         "/bin/bash", "-c",
                         "mount -o bind /host_root/ota-cache /ota-cache && mount -o bind,ro /host_root /run/otaclient/mnt/active_slot "
                         "&& /otaclient/venv/bin/python3 -m otaclient",
