@@ -13,4 +13,3 @@ services:
     image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
     container_name: ota-test_ubuntu2204
     <<: *_common
-
