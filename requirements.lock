@@ -85,7 +85,7 @@ multidict==6.6.4 ; python_full_version >= '3.9'
     #   aiohttp
     #   otaclient
     #   yarl
-ota-image-libs @ https://github.com/tier4/ota-image-libs/releases/download/v0.2.3/ota_image_libs-0.2.3-py3-none-any.whl
+ota-image-libs @ https://github.com/tier4/ota-image-libs/releases/download/v0.2.4/ota_image_libs-0.2.4-py3-none-any.whl
     # via otaclient
 otaclient-iot-logging-server-pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl
     # via otaclient
