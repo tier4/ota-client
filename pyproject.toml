@@ -102,18 +102,6 @@ testpaths = [
   "./tests",
 ]
 
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-  'py39',
-  'py310',
-  'py311',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
-
 [tool.coverage.run]
 concurrency = [
   "multiprocessing",
@@ -181,6 +169,10 @@ extend-exclude = [
   "*_pb2.py*",
   "*_pb2_grpc.py*",
 ]
+
+[tool.ruff.format]
+line-ending = "lf"
+docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
