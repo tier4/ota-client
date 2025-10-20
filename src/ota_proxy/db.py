@@ -38,12 +38,11 @@ from otaclient_common._typing import StrOrPath
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import export_kwargs_as_header_string
 from .config import config as cfg
+from .config import sqlite3_feature_flags
 
 logger = logging.getLogger(__name__)
 
 DB_TABLE_NAME = cfg.TABLE_NAME
-# RETURNING statement is available only after sqlite3 v3.35.0
-SQLITE3_SUPPORT_RETURNING = sqlite3.sqlite_version_info >= (3, 35, 0)
 
 
 class CacheMeta(TableSpec):
@@ -114,6 +113,7 @@ class CacheMetaORM(ORMBase[CacheMeta]):
 class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
     orm_bootstrap_table_name = DB_TABLE_NAME
     bucket_fn, last_access_fn = "bucket_idx", "last_access"
+    file_sha256_fn = "file_sha256"
 
     # fmt: off
     count_entries_with_limit = gen_sql_stmt(
@@ -136,10 +136,13 @@ class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
     )
     rotate_stmt = gen_sql_stmt(
         "DELETE", "FROM", orm_bootstrap_table_name,
-        "WHERE", f"{bucket_fn}=:{bucket_fn}",
+        "WHERE", file_sha256_fn, "IN", "(",
+            "SELECT", file_sha256_fn, "FROM", orm_bootstrap_table_name,
+            "WHERE", f"{bucket_fn}=:{bucket_fn}",
+            "ORDER BY", last_access_fn,
+            "LIMIT :limit",
+        ")",
         "RETURNING", "*",
-        "ORDER BY", last_access_fn,
-        "LIMIT :limit"
     )
     # fmt: on
 
@@ -152,7 +155,7 @@ class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
             if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
                 return
 
-            if not SQLITE3_SUPPORT_RETURNING:
+            if not sqlite3_feature_flags.RETURNING_AVAILABLE:
                 # first select entries met the requirements
                 cur = con.execute(self.select_entries_with_limit, _params)
                 rows_to_remove = list(cur)
@@ -160,9 +163,9 @@ class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
                 # delete the target entries
                 con.execute(self.delete_stmt, _params)
                 return rows_to_remove
-            else:
-                cur = con.execute(self.rotate_stmt, _params)
-                return list(cur)
+
+            cur = con.execute(self.rotate_stmt, _params)
+            return list(cur)
 
     def rotate_cache(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
         """
