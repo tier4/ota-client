@@ -16,6 +16,7 @@
 import contextlib
 import os
 import sqlite3
+from functools import cached_property
 
 from simple_sqlite3_orm import utils
 
@@ -99,20 +100,21 @@ class Config:
 
 
 class _Sqlite3FeatureFlags:
-    def __init__(self) -> None:
-        # RETURNING statement is available only after sqlite3 v3.35.0
-        self.RETURNING_AVAILABLE = sqlite3.sqlite_version_info >= (3, 35, 0)
-        self.STRICT_AVAILABLE = sqlite3.sqlite_version_info >= (3, 37, 0)
+    # RETURNING statement is available only after sqlite3 v3.35.0
+    RETURNING_AVAILABLE = sqlite3.sqlite_version_info >= (3, 35, 0)
+    STRICT_AVAILABLE = sqlite3.sqlite_version_info >= (3, 37, 0)
 
+    @cached_property
+    def SQLITE_ENABLE_UPDATE_DELETE_LIMIT(self) -> bool:
         try:
             with contextlib.closing(sqlite3.connect(":memory:")) as conn:
-                self.SQLITE_ENABLE_UPDATE_DELETE_LIMIT = bool(
+                return bool(
                     utils.check_pragma_compile_time_options(
                         conn, "SQLITE_ENABLE_UPDATE_DELETE_LIMIT"
                     )
                 )
         except Exception:
-            self.SQLITE_ENABLE_UPDATE_DELETE_LIMIT = False
+            return False
 
 
 sqlite3_feature_flags = _Sqlite3FeatureFlags()
