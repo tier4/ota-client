@@ -54,6 +54,8 @@ class Consts:
     # this path should not be included in the mounted rootfs
     DYNAMIC_CLIENT_SQUASHFS_FILE = "/.otaclient.squashfs"
 
+    OTAPROXY_CACHE_DIR = "/ota-cache"
+
     OTA_TMP_STORE = "/.ota-tmp"
     """For backward-compatibility"""
     OTA_RESOURCES_STORE = "/.ota-resources"
@@ -91,7 +93,7 @@ class Consts:
     #
     # ------ env vars ------ #
     #
-    PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
+    RUNNING_AS_APP_IMAGE = "RUNNING_AS_APP_IMAGE"
     RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT = "RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT"
 
     def __init__(self) -> None:

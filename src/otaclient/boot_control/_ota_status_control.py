@@ -82,7 +82,10 @@ class OTAStatusFilesControl:
             self._ota_status = OTAStatus.INITIALIZED
             return
 
-        if _env.is_dynamic_client_running():
+        # NOTE(20251017): as we separate the downloaded dynamic loading app and
+        #                 systemd managed otaclient app image, change to check
+        #                 is_running_as_downloaded_dynamic_app here.
+        if _env.is_running_as_downloaded_dynamic_app():
             # TODO(airkei) [2025-06-17]: Currently, there is no way to know the "ClientUpdate" result status.
             # When the last "Update" is "Failure", Next OTA might show "Failure" on FMS Console in the middle of OTA.
             # This is because ota-client reports "Failure" after the "ClientUpdate" is done.
@@ -93,7 +96,7 @@ class OTAStatusFilesControl:
             # 3. Edge migrate Status handling from v1 to v2
             # 4. Edge handle its ClientUpdate status correctly.
             logger.info(
-                f"dynamic client is running, setting status to {OTAStatus.SUCCESS.name}"
+                f"downloaded dynamic client is running, setting status to {OTAStatus.SUCCESS.name}"
             )
             self._ota_status = OTAStatus.SUCCESS
             return

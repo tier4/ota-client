@@ -208,8 +208,11 @@ class OTAClient:
         self.started = True
         logger.info("otaclient started")
 
-        # NOTE: not doing fstrim at startup when running as dynamic otaclient
-        if not _env.is_dynamic_client_running() and cfg.FSTRIM_AT_OTACLIENT_STARTUP:
+        # NOTE: not doing fstrim at startup when running as downloaded dynamic otaclient
+        if (
+            not _env.is_running_as_downloaded_dynamic_app()
+            and cfg.FSTRIM_AT_OTACLIENT_STARTUP
+        ):
             logger.info(
                 "spawn a subprocess to do fstrim on active slot"
                 f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
@@ -386,9 +389,12 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if _env.is_dynamic_client_running():
+        if _env.is_running_as_downloaded_dynamic_app():
             # Duplicates client update should not be allowed.
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
+            logger.warning(
+                "duplicated dynamic otaclient update is not allowed, ignored"
+            )
             return
 
         request_id = request.request_id
