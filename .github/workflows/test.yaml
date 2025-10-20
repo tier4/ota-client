@@ -62,7 +62,7 @@ jobs:
       - name: Execute pytest with coverage trace under ota-py313-app container
         run: |
           mkdir -p test_result
-          docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester
+          docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         continue-on-error: true

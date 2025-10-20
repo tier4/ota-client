@@ -1,0 +1,16 @@
+x-common: &_common
+  network_mode: bridge
+  environment:
+    OUTPUT_DIR: /test_result
+    CERTS_DIR: /certs
+  volumes:
+    - ../..:/otaclient_src:ro
+    - ../../test_result:/test_result:rw
+    - ./entry_point_py313.sh:/entry_point.sh:ro
+
+services:
+  tester-ubuntu-22.04:
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
+    container_name: ota-test_ubuntu2204
+    <<: *_common
+
