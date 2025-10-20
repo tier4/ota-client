@@ -409,6 +409,10 @@ def main() -> None:  # pragma: no cover
                     chroot=_env.get_dynamic_client_chroot_path(),
                     raise_exception=True,
                 )
+
+                logger.info("dynamic otaclient finishes the OTA successfully, waiting for system reboot ...")
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+                sys.exit(0)
             # fmt: on
             except subprocess.CalledProcessError as e:
                 logger.exception(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
