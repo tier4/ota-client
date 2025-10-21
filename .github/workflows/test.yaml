@@ -30,7 +30,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  pytest_with_coverage:
+  pytest_directly_on_supported_os:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -43,16 +43,28 @@ jobs:
     steps:
       - name: Checkout commit
         uses: actions/checkout@v5
-        # sonarcloud needs full git histories
-        with:
-          fetch-depth: 0
       - name: Execute pytest with coverage trace under ota-test_base container
         run: |
           mkdir -p test_result
           docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-${{ matrix.test_base }}
+
+  # NOTE: we only intend to test otaclient with python3.13 on
+  #       ubuntu 22.04, as this is the setup for the otaclient app image build.
+  pytest_with_py313_on_ubuntu_2204:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v5
+        # sonarcloud needs full git histories
+        with:
+          fetch-depth: 0
+      - name: Execute pytest with coverage trace under ota-py313-app container
+        run: |
+          mkdir -p test_result
+          docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v6.0.0
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        if: ${{ matrix.test_base == 'ubuntu-22.04' }}
