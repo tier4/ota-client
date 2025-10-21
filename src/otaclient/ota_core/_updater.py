@@ -330,7 +330,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 self._metrics.shm_merge(_shm_metrics)
         except Exception as e:
             logger.error(f"failed to merge metrics: {e!r}")
-        self._ota_status = OTAStatus.UPDATING.name
+        self._metrics.ota_status = OTAStatus.UPDATING.name
         self._boot_controller.store_metrics(self._metrics)
         self._metrics.publish()
 
