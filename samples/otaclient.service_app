@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 Environment=RUNNING_AS_APP_IMAGE=yes
 RootImage=/opt/ota/client/otaclient.squashfs
-ExecStart=/otaclient/venv/bin/python3 -m otaclient
+ExecStart=/otaclient/otaclient
 
 PrivateMounts=true
 TemporaryFileSystem=/tmp:nodev,size=700M
