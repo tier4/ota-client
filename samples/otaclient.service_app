@@ -10,7 +10,6 @@ RootImage=/opt/ota/client/otaclient.squashfs
 ExecStart=/otaclient/otaclient
 
 PrivateMounts=true
-TemporaryFileSystem=/tmp:nodev,size=700M
 BindPaths=/boot:/boot:rbind
 BindPaths=/dev:/dev
 BindPaths=/dev/shm:/dev/shm

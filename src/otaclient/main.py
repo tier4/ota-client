@@ -51,6 +51,7 @@ from otaclient_common.cmdhelper import (
     bind_mount_rw,
     ensure_mount,
     ensure_umount,
+    mount_tmpfs,
     subprocess_call,
 )
 
@@ -117,6 +118,7 @@ def _dynamic_otaclient_init():
     1. setting up the /ota-cache folder from host mount.
     2. setting up the /run/otaclient/mnt/active_slot mount point
         from /host_root.
+    3. setting up a tmpfs mount on /tmp.
     """
     _host_root = Path(cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT)
     _host_root_ota_cache = Path(
@@ -143,6 +145,19 @@ def _dynamic_otaclient_init():
         target=_host_root,
         mnt_point=_active_slot_mp,
         mount_func=bind_mount_ro,
+        raise_exception=True,
+    )
+
+    # NOTE: although the /tmp mostly will not be used, but for fallback, still
+    #       prepare a tmpfs mount on the /tmp.
+    _tmp_mp = "/tmp"
+    ensure_mount(
+        "tmpfs",
+        _tmp_mp,
+        mount_func=partial(
+            mount_tmpfs,
+            size_in_mb=cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB,
+        ),
         raise_exception=True,
     )
 
