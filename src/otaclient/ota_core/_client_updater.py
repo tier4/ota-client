@@ -28,6 +28,7 @@ from otaclient._types import ClientUpdateControlFlags, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info
+from otaclient_common._env import get_otaclient_squashfs_download_dst
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
@@ -63,7 +64,7 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
             ota_metadata=self._ota_metadata,
             session_dir=self._session_workdir,
             package_install_dir=cfg.OTACLIENT_INSTALLATION_RELEASE,
-            squashfs_file=cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
+            squashfs_file=get_otaclient_squashfs_download_dst(),
         )
 
     def _execute_client_update(self):

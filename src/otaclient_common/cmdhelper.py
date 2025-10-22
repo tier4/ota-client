@@ -706,9 +706,10 @@ def ensure_umount(
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
+        if not is_target_mounted(mnt_point, raise_exception=False):
+            return
+
         try:
-            if not is_target_mounted(mnt_point, raise_exception=False):
-                break
             umount(mnt_point, raise_exception=True)
         except CalledProcessError as e:
             logger.info(
