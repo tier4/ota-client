@@ -739,7 +739,8 @@ class GrubController(BootControllerProtocol):
     def _update_fstab(self, *, active_slot_fstab: Path, standby_slot_fstab: Path):
         """Update standby fstab based on active slot's fstab and just installed new stanby fstab.
 
-        Override existed entries in standby fstab, merge new entries from active fstab.
+        Preserve standby fstab entries, only merge /boot and /boot/efi from active fstab when
+        they doesn't exist in standby fstab.
         """
         try:
             standby_uuid = cmdhelper.get_attrs_by_dev(
@@ -767,6 +768,12 @@ class GrubController(BootControllerProtocol):
         fstab_standby = read_str_from_file(standby_slot_fstab)
         fstab_standby_dict: Dict[str, re.Match] = {}
 
+        # base mount points should be merged when they doesn't exist in standby fstab
+        # These base mount points are created by USB Installer and not in project settings,
+        # so we need to preserve them from active slot's fstab if they are missing in standby fstab.
+        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
+        base_mount_points = {cfg.BOOT_DPATH, cfg.EFI_DPATH}
+
         for line in fstab_standby.splitlines():
             ma = fstab_entry_pa.match(line)
             if ma and ma.group("mount_point") != "/":
@@ -783,9 +790,11 @@ class GrubController(BootControllerProtocol):
                     _list[0] = standby_uuid_str
                     merged.append("\t".join(_list))
                 elif mp in fstab_standby_dict:
+                    # preserve existing standby mount points
                     merged.append("\t".join(fstab_standby_dict[mp].groups()))
                     del fstab_standby_dict[mp]
-                else:
+                elif mp in base_mount_points:
+                    # Add missing base mount points from active fstab
                     merged.append("\t".join(ma.groups()))
             elif line.strip().startswith("#"):
                 merged.append(line)  # re-add comments to merged
