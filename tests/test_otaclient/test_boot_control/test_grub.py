@@ -478,7 +478,7 @@ def test_update_grub_default(
     "active_fstab_content, standby_fstab_content, expected_in_result",
     [
         (
-            # Test case 0: Full fstab merge with /boot and /boot/efi override
+            # Test case 0: Full entries in both active and standby fstabs
             [
                 "# Active slot fstab",
                 "UUID=active-root-uuid / ext4 defaults 0 1",
@@ -504,7 +504,24 @@ def test_update_grub_default(
             ],
         ),
         (
-            # Test case 1: Missing /boot and /boot/efi in standby fstab
+            # Test case 1: Missing / in standby fstab
+            [
+                "UUID=active-root-uuid / ext4 defaults 0 1",
+                "UUID=boot-uuid /boot ext4 defaults 0 2",
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",
+                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",  # /boot from standby
+                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from standby
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
+            ],
+        ),
+        (
+            # Test case 2: Missing /boot and /boot/efi in standby fstab
             [
                 "UUID=active-root-uuid / ext4 defaults 0 1",
                 "UUID=boot-uuid /boot ext4 defaults 0 2",
@@ -522,7 +539,7 @@ def test_update_grub_default(
             ],
         ),
         (
-            # Test case 2: Not add unnecessary entries from active fstab
+            # Test case 3: Not add unnecessary entries from active fstab
             [
                 "# Active slot fstab",
                 "UUID=active-root-uuid / ext4 defaults 0 1",
