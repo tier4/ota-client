@@ -764,44 +764,39 @@ class GrubController(BootControllerProtocol):
             re.MULTILINE,
         )
 
-        # standby partition fstab (to be merged)
-        fstab_standby = read_str_from_file(standby_slot_fstab)
-        fstab_standby_dict: Dict[str, re.Match] = {}
+        def read_fstab_dict(fstab_path: Path) -> Dict[str, re.Match]:
+            """Create a dictionary mapping mount points to regex match objects from fstab"""
+            content = read_str_from_file(fstab_path)
+            return {
+                m.group("mount_point"): m
+                for m in (fstab_entry_pa.match(line) for line in content.splitlines())
+                if m
+            }
 
-        # base mount points should be merged when they doesn't exist in standby fstab
-        # These base mount points are created by USB Installer and not in project settings,
-        # so we need to preserve them from active slot's fstab if they are missing in standby fstab.
-        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
-        base_mount_points = {cfg.BOOT_DPATH, cfg.EFI_DPATH}
+        standby_dict = read_fstab_dict(standby_slot_fstab)
+        active_dict = read_fstab_dict(active_slot_fstab)
 
-        for line in fstab_standby.splitlines():
-            ma = fstab_entry_pa.match(line)
-            if ma and ma.group("mount_point") != "/":
-                fstab_standby_dict[ma.group("mount_point")] = ma
-
-        # merge entries
         merged: List[str] = []
-        fstab_active = read_str_from_file(active_slot_fstab)
-        for line in fstab_active.splitlines():
+
+        # Merge using standby as the base
+        for line in read_str_from_file(standby_slot_fstab).splitlines():
             if ma := fstab_entry_pa.match(line):
                 mp = ma.group("mount_point")
-                if mp == "/":  # rootfs mp, unconditionally replace uuid
-                    _list = list(ma.groups())
-                    _list[0] = standby_uuid_str
-                    merged.append("\t".join(_list))
-                elif mp in fstab_standby_dict:
-                    # preserve existing standby mount points
-                    merged.append("\t".join(fstab_standby_dict[mp].groups()))
-                    del fstab_standby_dict[mp]
-                elif mp in base_mount_points:
-                    # Add missing base mount points from active fstab
+                if mp == cfg.CANONICAL_ROOT:
+                    # Use active "/" entry as base, but replace UUID with standby_uuid
+                    active_ma = active_dict[mp]
+                    merged.append(
+                        "\t".join([standby_uuid_str] + list(active_ma.groups())[1:])
+                    )
+                else:
                     merged.append("\t".join(ma.groups()))
-            elif line.strip().startswith("#"):
-                merged.append(line)  # re-add comments to merged
+            else:
+                merged.append(line)  # Keep comments and blank lines
 
-        # merge standby_fstab's left-over lines
-        for _, ma in fstab_standby_dict.items():
-            merged.append("\t".join(ma.groups()))
+        # If /boot or /boot/efi does not exist in standby, add from active
+        for mp in (cfg.BOOT_DPATH, cfg.EFI_DPATH):
+            if mp not in standby_dict and mp in active_dict:
+                merged.append("\t".join(active_dict[mp].groups()))
         merged.append("")  # add a new line at the end of file
 
         # write to standby fstab
