@@ -739,8 +739,7 @@ class GrubController(BootControllerProtocol):
     def _update_fstab(self, *, active_slot_fstab: Path, standby_slot_fstab: Path):
         """Update standby fstab based on active slot's fstab and just installed new stanby fstab.
 
-        Preserve standby fstab entries, only merge /boot and /boot/efi from active fstab when
-        they doesn't exist in standby fstab.
+        Preserve standby fstab entries, only merge /boot and /boot/efi from active fstab.
         """
         try:
             standby_uuid = cmdhelper.get_attrs_by_dev(
@@ -781,24 +780,26 @@ class GrubController(BootControllerProtocol):
 
         # Merge using standby as the base
         for line in read_str_from_file(standby_slot_fstab).splitlines():
-            if ma := fstab_entry_pa.match(line):
-                mp = ma.group("mount_point")
-                if mp == cfg.CANONICAL_ROOT:
+            if standby_entry_match := fstab_entry_pa.match(line):
+                mount_point = standby_entry_match.group("mount_point")
+                if mount_point == cfg.CANONICAL_ROOT:
                     # Use active "/" entry as base, but replace UUID with standby_uuid
-                    active_ma = active_dict[mp]
+                    active_ma = active_dict[mount_point]
                     merged.append(
                         "\t".join([standby_uuid_str] + list(active_ma.groups())[1:])
                     )
                     found_root = True
+                elif mount_point in (cfg.BOOT_DPATH, cfg.EFI_DPATH):
+                    # base mount points(/boot, /boot/efi) should be merged from active fstab
+                    # These base mount points are created by USB Installer and not in project settings,
+                    # so we need to preserve them from active slot's fstab.
+                    # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
+                    entry = active_dict.get(mount_point, standby_entry_match)
+                    merged.append("\t".join(entry.groups()))
                 else:
-                    merged.append("\t".join(ma.groups()))
+                    merged.append("\t".join(standby_entry_match.groups()))
             else:
                 merged.append(line)  # Keep comments and blank lines
-
-        # base mount points(/, /boot, /boot/efi) should be merged when they doesn't exist in standby fstab
-        # These base mount points are created by USB Installer and not in project settings,
-        # so we need to preserve them from active slot's fstab if they are missing in standby fstab.
-        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
 
         # Ensure "/" always exists: use the active entry with standby UUID
         if cfg.CANONICAL_ROOT in active_dict and not found_root:

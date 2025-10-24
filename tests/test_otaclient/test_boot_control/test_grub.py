@@ -497,8 +497,8 @@ def test_update_grub_default(
             [
                 "# Standby slot fstab",  # Comment from standby
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
-                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",  # /boot from standby
-                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from standby
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
                 "UUID=standby-data-uuid /data ext4 defaults 0 2",  # /data preserved from standby
                 "UUID=standby-home-uuid /home ext4 defaults 0 2",  # /home preserved from standby
             ],
@@ -515,8 +515,8 @@ def test_update_grub_default(
                 "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
             ],
             [
-                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",  # /boot from standby
-                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from standby
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
             ],
         ),
@@ -556,8 +556,8 @@ def test_update_grub_default(
             [
                 "# Standby slot fstab",  # Comment from standby
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
-                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",  # /boot from standby
-                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from standby
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
             ],
         ),
     ],
