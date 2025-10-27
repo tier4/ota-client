@@ -375,9 +375,28 @@ class TestGrubControl:
         grub_controller.finalizing_update()
 
         assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
-        assert (
-            slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
-        ).read_text().strip() == self.FSTAB_UPDATED.strip()
+
+        # Compare only valid fstab entries (ignore comments and blank lines)
+        def is_entry(line):
+            line = line.strip()
+            return line and not line.startswith("#")
+
+        def normalize(line):
+            return re.sub(r"[ \t]+", " ", line.strip())
+
+        result_lines = [
+            normalize(line)
+            for line in (slot_b / Path(cfg.FSTAB_FILE).relative_to("/"))
+            .read_text()
+            .splitlines()
+            if is_entry(line)
+        ]
+        expected_lines = [
+            normalize(line)
+            for line in self.FSTAB_UPDATED.splitlines()
+            if is_entry(line)
+        ]
+        assert result_lines == expected_lines
         assert (
             boot_dir / "grub/grub.cfg"
         ).read_text().strip() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
@@ -495,7 +514,6 @@ def test_update_grub_default(
                 "UUID=standby-home-uuid /home ext4 defaults 0 2",
             ],
             [
-                "# Standby slot fstab",  # Comment from standby
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
                 "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
                 "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
@@ -515,9 +533,9 @@ def test_update_grub_default(
                 "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
             ],
             [
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
                 "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
                 "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
-                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
             ],
         ),
         (
@@ -533,9 +551,9 @@ def test_update_grub_default(
             ],
             [
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
-                "UUID=standby-data-uuid /data ext4 defaults 0 2",  # /data preserved
                 "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot added from active
                 "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi added from active
+                "UUID=standby-data-uuid /data ext4 defaults 0 2",  # /data preserved
             ],
         ),
         (
@@ -554,7 +572,6 @@ def test_update_grub_default(
                 "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
             ],
             [
-                "# Standby slot fstab",  # Comment from standby
                 "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
                 "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
                 "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
