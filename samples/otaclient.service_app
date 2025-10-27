@@ -9,7 +9,6 @@ Environment=RUNNING_AS_APP_IMAGE=yes
 RootImage=/opt/ota/client/otaclient.squashfs
 ExecStart=/otaclient/otaclient
 
-PrivateMounts=true
 BindPaths=/boot:/boot:rbind
 BindPaths=/dev:/dev
 BindPaths=/dev/shm:/dev/shm

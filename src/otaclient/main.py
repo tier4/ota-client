@@ -394,8 +394,6 @@ def main() -> None:  # pragma: no cover
                         "-p", "Type=simple",
                         # NOTE: subprocess_call here will do a chroot back to host_root.
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
-                        "-p", "PrivateMounts=yes",
-                        "-p", "TemporaryFileSystem=/tmp:nodev,size=700M",
                         "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
                         "-p", "ExecStartPre=/bin/mkdir -p /host_root/ota-cache",
                         "-p", "BindPaths=/boot:/boot:rbind",
