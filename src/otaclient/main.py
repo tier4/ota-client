@@ -148,6 +148,8 @@ def _dynamic_otaclient_init():
         raise_exception=True,
     )
 
+    # NOTE: for ubuntu 18.04 backward compat, we don't use systemd's TemporaryFileSystem
+    #       directory to configure tmpfs within otaclient app.
     # NOTE: although the /tmp mostly will not be used, but for fallback, still
     #       prepare a tmpfs mount on the /tmp.
     _tmp_mp = "/tmp"
@@ -416,8 +418,12 @@ def main() -> None:  # pragma: no cover
                         # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
                         #       with old otaclient APP image, we still setup the mount points here.
                         "/bin/bash", "-c",
-                        "mount -o bind /host_root/ota-cache /ota-cache && mount -o bind,ro /host_root /run/otaclient/mnt/active_slot "
-                        "&& /otaclient/venv/bin/python3 -m otaclient",
+                        (
+                            "mount -o bind /host_root/ota-cache /ota-cache && "
+                            "mount -o bind,ro /host_root /run/otaclient/mnt/active_slot && "
+                            "mount -t tmpfs -o size=700M tmpfs /tmp && "
+                            "/otaclient/venv/bin/python3 -m otaclient"
+                        ),
                     ],
                     chroot=_env.get_dynamic_client_chroot_path(),
                     raise_exception=True,
