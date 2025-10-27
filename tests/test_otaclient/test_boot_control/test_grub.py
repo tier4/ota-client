@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import typing
 from pathlib import Path
@@ -27,6 +28,7 @@ import pytest_mock
 
 from otaclient._types import OTAStatus
 from otaclient.boot_control import _grub
+from otaclient.boot_control._grub import GrubController
 from otaclient.boot_control.configs import GrubControlConfig
 from otaclient.configs import DefaultOTAClientConfigs
 from tests.conftest import TestConfiguration as cfg
@@ -373,9 +375,28 @@ class TestGrubControl:
         grub_controller.finalizing_update()
 
         assert (slot_b_ota_partition_dir / "status").read_text() == OTAStatus.UPDATING
-        assert (
-            slot_b / Path(cfg.FSTAB_FILE).relative_to("/")
-        ).read_text().strip() == self.FSTAB_UPDATED.strip()
+
+        # Compare only valid fstab entries (ignore comments and blank lines)
+        def is_entry(line):
+            line = line.strip()
+            return line and not line.startswith("#")
+
+        def normalize(line):
+            return re.sub(r"[ \t]+", " ", line.strip())
+
+        result_lines = [
+            normalize(line)
+            for line in (slot_b / Path(cfg.FSTAB_FILE).relative_to("/"))
+            .read_text()
+            .splitlines()
+            if is_entry(line)
+        ]
+        expected_lines = [
+            normalize(line)
+            for line in self.FSTAB_UPDATED.splitlines()
+            if is_entry(line)
+        ]
+        assert result_lines == expected_lines
         assert (
             boot_dir / "grub/grub.cfg"
         ).read_text().strip() == GrubMkConfigFSM.GRUB_CFG_SLOT_A_UPDATED.strip()
@@ -470,3 +491,161 @@ def test_update_grub_default(
 
     updated = GrubHelper.update_grub_default(_input, default_entry_idx=default_entry)
     assert updated == expected
+
+
+@pytest.mark.parametrize(
+    "active_fstab_content, standby_fstab_content, expected_in_result",
+    [
+        (
+            # Test case 0: Full entries in both active and standby fstabs
+            [
+                "# Active slot fstab",
+                "UUID=active-root-uuid / ext4 defaults 0 1",
+                "UUID=boot-uuid /boot ext4 defaults 0 2",
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",
+                "UUID=active-data-uuid /data ext4 defaults 0 2",
+            ],
+            [
+                "# Standby slot fstab",
+                "UUID=standby-root-uuid / ext4 defaults 0 1",
+                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",
+                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
+                "UUID=standby-data-uuid /data ext4 defaults 0 2",
+                "UUID=standby-home-uuid /home ext4 defaults 0 2",
+            ],
+            [
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
+                "UUID=standby-data-uuid /data ext4 defaults 0 2",  # /data preserved from standby
+                "UUID=standby-home-uuid /home ext4 defaults 0 2",  # /home preserved from standby
+            ],
+        ),
+        (
+            # Test case 1: Missing / in standby fstab
+            [
+                "UUID=active-root-uuid / ext4 defaults 0 1",
+                "UUID=boot-uuid /boot ext4 defaults 0 2",
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",
+                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
+            ],
+        ),
+        (
+            # Test case 2: Missing /boot and /boot/efi in standby fstab
+            [
+                "UUID=active-root-uuid / ext4 defaults 0 1",
+                "UUID=boot-uuid /boot ext4 defaults 0 2",
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=standby-root-uuid / ext4 defaults 0 1",
+                "UUID=standby-data-uuid /data ext4 defaults 0 2",
+            ],
+            [
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot added from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi added from active
+                "UUID=standby-data-uuid /data ext4 defaults 0 2",  # /data preserved
+            ],
+        ),
+        (
+            # Test case 3: Not add unnecessary entries from active fstab
+            [
+                "# Active slot fstab",
+                "UUID=active-root-uuid / ext4 defaults 0 1",
+                "UUID=boot-uuid /boot ext4 defaults 0 2",
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",
+                "UUID=active-data-uuid /data ext4 defaults 0 2",
+            ],
+            [
+                "# Standby slot fstab",
+                "UUID=standby-root-uuid / ext4 defaults 0 1",
+                "UUID=standby-boot-uuid /boot ext4 defaults 0 2",
+                "UUID=standby-efi-uuid /boot/efi vfat defaults 0 2",
+            ],
+            [
+                "UUID=new-standby-uuid / ext4 defaults 0 1",  # Root UUID updated
+                "UUID=boot-uuid /boot ext4 defaults 0 2",  # /boot from active
+                "UUID=efi-uuid /boot/efi vfat defaults 0 2",  # /boot/efi from active
+            ],
+        ),
+    ],
+)
+def test_update_fstab(
+    tmp_path: Path,
+    mocker: pytest_mock.MockerFixture,
+    active_fstab_content: list[str],
+    standby_fstab_content: list[str],
+    expected_in_result: list[str],
+):
+    """Test _update_fstab method of GrubController."""
+
+    # Setup test directories
+    active_slot_mp = tmp_path / "slot_a"
+    standby_slot_mp = tmp_path / "slot_b"
+    boot_dir = tmp_path / "boot"
+
+    active_slot_mp.mkdir()
+    standby_slot_mp.mkdir()
+    boot_dir.mkdir()
+
+    # Create active slot fstab
+    active_fstab = active_slot_mp / "etc" / "fstab"
+    active_fstab.parent.mkdir(parents=True)
+    active_fstab.write_text("\n".join(active_fstab_content) + "\n")
+
+    # Create standby slot fstab
+    standby_fstab = standby_slot_mp / "etc" / "fstab"
+    standby_fstab.parent.mkdir(parents=True)
+    standby_fstab.write_text("\n".join(standby_fstab_content) + "\n")
+
+    # Mock dependencies
+    mock_grub_control = mocker.MagicMock()
+    mock_grub_control.standby_root_dev = "/dev/sda3"
+    mock_grub_control.active_slot = "sda2"
+    mock_grub_control.standby_slot = "sda3"
+    mock_grub_control.active_ota_partition_folder = boot_dir / "ota-partition.sda2"
+    mock_grub_control.standby_ota_partition_folder = boot_dir / "ota-partition.sda3"
+    mock_grub_control.active_ota_partition_folder.mkdir()
+    mock_grub_control.standby_ota_partition_folder.mkdir()
+
+    mocker.patch(
+        "otaclient.boot_control._grub._GrubControl", return_value=mock_grub_control
+    )
+    mocker.patch("otaclient.boot_control._grub.SlotMountHelper")
+    mocker.patch("otaclient.boot_control._grub.OTAStatusFilesControl")
+    mocker.patch(
+        "otaclient.boot_control._grub.cmdhelper.get_attrs_by_dev",
+        return_value="new-standby-uuid",
+    )
+
+    # Create controller instance
+    controller = GrubController()
+
+    # Execute _update_fstab
+    controller._update_fstab(
+        active_slot_fstab=active_fstab, standby_slot_fstab=standby_fstab
+    )
+
+    # Read result
+    result = standby_fstab.read_text()
+
+    # Assertions: check expected strings are in result (allow tab or space as separator)
+    def normalize(line):
+        return re.sub(r"[ \t]+", " ", line.strip())
+
+    normalized_result_lines = [
+        normalize(line) for line in result.splitlines() if normalize(line)
+    ]
+    normalized_expected_lines = [
+        normalize(line) for line in expected_in_result if normalize(line)
+    ]
+    assert normalized_result_lines == normalized_expected_lines
