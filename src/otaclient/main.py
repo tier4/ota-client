@@ -196,7 +196,9 @@ def main() -> None:  # pragma: no cover
         f"env.running_downloaded_dynamic_ota_client: {_env.is_running_as_downloaded_dynamic_app()}"
     )
 
-    if _env.is_dynamic_client_running():
+    # NOTE: if we are running as dynamic client by OTACLIENTUPDATE, we don't need the init,
+    #       as the launcher otaclient has setup the environment for us.
+    if _env.is_running_as_app_image():
         logger.info("initializing for running as dynamic otaclient ...")
         _dynamic_otaclient_init()
 
