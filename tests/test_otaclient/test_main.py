@@ -276,12 +276,14 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     @patch.dict("os.environ", {cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT: "yes"})
-    def test_main_dynamic_client_flags(
+    def test_main_dynamic_client_flags_otaclientupdate_app(
         self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test main function with different dynamic client flag combinations."""
+        from otaclient_common import _env
+
         mocker.patch(
-            "otaclient_common._env.is_dynamic_client_running",
+            "otaclient_common._env.is_running_as_downloaded_dynamic_app",
             return_value=True,
         )
 
@@ -299,5 +301,37 @@ class TestMain:
         main.main()
 
         # Verify behavior based on flag values
+        assert _env.is_dynamic_client_running()
+        mock_dynamic_otaclient_init.assert_not_called()
+        mock_check_other_otaclient.assert_not_called()
+
+    @patch("otaclient._logging.configure_logging")
+    @patch.dict("os.environ", {cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT: "yes"})
+    def test_main_dynamic_client_flags_running_as_app_image(
+        self, mock_logging, mocker: pytest_mock.MockerFixture
+    ):
+        """Test main function with different dynamic client flag combinations."""
+        from otaclient_common import _env
+
+        mocker.patch(
+            "otaclient_common._env.is_running_as_app_image",
+            return_value=True,
+        )
+
+        # Mock _on_shutdown to prevent SystemExit
+        mocker.patch(f"{MAIN_MODULE}._on_shutdown")
+        # Patch check_other_otaclient at the module level where it's imported
+        mock_check_other_otaclient = mocker.patch(
+            "otaclient._utils.check_other_otaclient"
+        )
+        mock_dynamic_otaclient_init = mocker.patch(
+            "otaclient.main._dynamic_otaclient_init"
+        )
+
+        # Execute main()
+        main.main()
+
+        # Verify behavior based on flag values
+        assert _env.is_dynamic_client_running()
         mock_dynamic_otaclient_init.assert_called_once()
         mock_check_other_otaclient.assert_not_called()
