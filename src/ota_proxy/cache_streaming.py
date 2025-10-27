@@ -92,11 +92,6 @@ class CacheTrackerEvents:
     def set_writer_finished(self) -> None:  # pragma: no cover
         self._writer_finished.set()
 
-    def on_deadline_set_failed(self, _) -> None:  # pragma: no cover
-        if not self._writer_started.is_set():
-            self._writer_failed.set()
-            self._writer_finished.set()
-
 
 class CacheTracker:
     """A tracker for an ongoing cache entry.
@@ -196,10 +191,6 @@ class CacheTracker:
             burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
 
     # exposed API
-
-    def gen_deadline_checker(self):
-        """Return a callable for deadline checker to set tracker failed if provider not enaged."""
-        return self._tracker_events.on_deadline_set_failed
 
     def provider_write_file_in_thread(
         self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
