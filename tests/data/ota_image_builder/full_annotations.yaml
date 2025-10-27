@@ -1,0 +1,29 @@
+# Example annotations for build a full OTA image targetting one ECU.
+vnd.tier4.ota.ota-image-builder.version: "1.0.0"
+
+vnd.tier4.pilot-auto.platform: "example-platform"
+vnd.tier4.pilot-auto.project.source-repo: "https://github.com/tier4/ota-image-libs"
+vnd.tier4.pilot-auto.project.version: "1.0.0"
+vnd.tier4.pilot-auto.project.release-commit: "abcdef1234567890"
+vnd.tier4.pilot-auto.project.release-branch: "main"
+
+vnd.tier4.ota.release-key: "dev"
+vnd.tier4.web-auto.project: "some-project"
+vnd.tier4.web-auto.project.id: "some-project-id"
+vnd.tier4.web-auto.catalog: "some-catalog"
+vnd.tier4.web-auto.catalog.id: "some-catalog-id"
+vnd.tier4.web-auto.env: "dev"
+vnd.tier4.web-auto.cicd.release-id: "693ac51b-5c23-4d07-b0de-6fcf896b15b9"
+vnd.tier4.web-auto.cicd.release-name: "20250926123456-beta/ota"
+
+# for image-manifest
+vnd.tier4.pilot-auto.platform.ecu.hardware-model: "example-hardware-model"
+vnd.tier4.pilot-auto.platform.ecu.hardware-series: "example-hardware-series"
+vnd.tier4.pilot-auto.platform.ecu.architecture: "x86_64"
+
+# for image-config
+vnd.tier4.image.base-image: "ubuntu:22.04"
+vnd.tier4.image.os: "Ubuntu"
+vnd.tier4.image.os.version: "22.04"
+description: "Example OTA image with annotations for add-image cmd"
+created: "2025-07-15T15:43:32Z"
