@@ -82,7 +82,14 @@ jobs:
             runs-on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - name: checkout
+      - name: checkout (release)
+        if: ${{ github.event_name == 'release' }}
+        uses: actions/checkout@v5
+        # NOTE: when doing release, the tag will be created
+        #       at checkout, no need to fetch old tags
+
+      - name: checkout (non-release)
+        if: ${{ github.event_name != 'release' }}
         uses: actions/checkout@v5
         with:
           # NOTE: this should be enough to let hatch-vcs determines the
