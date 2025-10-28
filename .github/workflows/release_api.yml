@@ -39,7 +39,7 @@ jobs:
           cp proto/dist/*.whl dist
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: artifacts-python-packages
           path: dist/*.whl
@@ -54,7 +54,7 @@ jobs:
       uses: actions/checkout@v5
 
     - name: download python packages artifact
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
       with:
         name: artifacts-python-packages
         path: dist

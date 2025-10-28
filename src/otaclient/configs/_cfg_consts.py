@@ -71,6 +71,7 @@ class Consts:
     IMAGE_META_DPATH = "/opt/ota/image-meta"
 
     BOOT_DPATH = "/boot"
+    EFI_DPATH = "/boot/efi"
     OTA_DPATH = "/boot/ota"
     ECU_INFO_FPATH = "/boot/ota/ecu_info.yaml"
     PROXY_INFO_FPATH = "/boot/ota/proxy_info.yaml"
