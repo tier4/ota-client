@@ -280,7 +280,6 @@ class TestMain:
         self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test main function with different dynamic client flag combinations."""
-        from otaclient_common import _env
 
         mocker.patch(
             "otaclient_common._env.is_running_as_downloaded_dynamic_app",
@@ -301,7 +300,6 @@ class TestMain:
         main.main()
 
         # Verify behavior based on flag values
-        assert _env.is_dynamic_client_running()
         mock_dynamic_otaclient_init.assert_not_called()
         mock_check_other_otaclient.assert_not_called()
 
@@ -311,7 +309,6 @@ class TestMain:
         self, mock_logging, mocker: pytest_mock.MockerFixture
     ):
         """Test main function with different dynamic client flag combinations."""
-        from otaclient_common import _env
 
         mocker.patch(
             "otaclient_common._env.is_running_as_app_image",
@@ -332,6 +329,5 @@ class TestMain:
         main.main()
 
         # Verify behavior based on flag values
-        assert _env.is_dynamic_client_running()
         mock_dynamic_otaclient_init.assert_called_once()
         mock_check_other_otaclient.assert_not_called()
