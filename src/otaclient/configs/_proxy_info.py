@@ -13,6 +13,10 @@
 # limitations under the License.
 """proxy_info.yaml definition and parsing logic."""
 
+# TODO(20250924): once we clear out all the hardcoded logics of preserving
+#                 proxy_info.yaml across OTA, we should switch to let the OTA
+#                 update the proxy_info.yaml instead of implementing the logic
+#                 in proxy_info module to hardcoded disabling the otaproxy on child ECU.
 
 from __future__ import annotations
 
@@ -87,13 +91,36 @@ class ProxyInfo(BaseFixedConfig):
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
-        if self.enable_local_ota_proxy:
+        if self.should_enable_local_otaproxy:
             # if local otaproxy is enabled, local otaclient also uses it
             return f"http://{self.local_ota_proxy_listen_addr}:{self.local_ota_proxy_listen_port}"
         elif self.upper_ota_proxy:
             # else we directly use the upper proxy
             return str(self.upper_ota_proxy)
         # default not using proxy
+
+    @cached_property
+    def should_enable_local_otaproxy(self) -> bool:
+        """
+        NOTE(20250918): further disable otaproxy if is child ECU as if cache is not enabled on
+                        child ECU, enabling the otaproxy itself on child ECU is meaningless.
+                        let child ECU just directly using upper proxy.
+        """
+        return self.enable_local_ota_proxy and self.upper_ota_proxy is None
+
+    @cached_property
+    def should_enable_cache(self) -> bool:
+        """
+        NOTE(20250801): Starting from otaclient v3.9.1, we have inplace update mode with OTA resume,
+                          on child ECU, we don't need to rely on OTA cache to speed up OTA retry anymore.
+        NOTE(20250801): Due to proxy_info.yaml is forced preserved across each OTA(multiple methods are used
+                          to ensure that, unfortunately), currently there is no way to update the proxy_info.yaml
+                          file on the ECU via OTA.
+                          For now, hardcoded to disable OTA cache on the child ECU.
+                          To be noticed that, otaproxy OTA cache on main ECU is still needed for streaming
+                          the same requests from multiple child ECUs to reduce duplicate downloads.
+        """
+        return self.enable_local_ota_proxy_cache and self.upper_ota_proxy is None
 
     @cached_property
     def gateway_otaproxy(self) -> bool:
