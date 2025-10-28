@@ -18,7 +18,14 @@ jobs:
     outputs:
       OTACLIENT_VERSION: ${{ steps.set_env.outputs.OTACLIENT_VERSION }}
     steps:
-      - name: checkout
+      - name: checkout (release)
+        if: ${{ github.event_name == 'release' }}
+        uses: actions/checkout@v5
+        # NOTE: when doing release, the tag will be created
+        #       at checkout, no need to fetch old tags
+
+      - name: checkout (non-release)
+        if: ${{ github.event_name != 'release' }}
         uses: actions/checkout@v5
         with:
           # NOTE: this should be enough to let hatch-vcs determines the
@@ -144,8 +151,8 @@ jobs:
       - name: calculate checksum
         uses: ./.github/actions/calculate_checksum
         with:
-          file_patterns: '*.{whl,squashfs,patch,json}'
-          directory: 'dist'
+          file_patterns: "*.{whl,squashfs,patch,json}"
+          directory: "dist"
 
       - name: upload artifacts
         uses: actions/upload-artifact@v5
