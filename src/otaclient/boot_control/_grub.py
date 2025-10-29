@@ -939,4 +939,9 @@ class GrubController(BootControllerProtocol):
                 _err_msg, module=__name__
             ) from e
 
+    def check_bsp_version_compatibility(
+        self, download_bsp_version_file_content: str
+    ) -> bool:  # pragma: no cover
+        return True
+
     finalizing_rollback = finalizing_update

@@ -93,6 +93,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
     def _process_metadata(self) -> None: ...
 
     @abstractmethod
+    def _image_compatibility_verifications(
+        self, boot_controller: BootControllerProtocol
+    ) -> None:
+        """Perform image compatibility verifications before proceeding with the update."""
+
+    @abstractmethod
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
 
@@ -356,7 +362,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                     raise ota_errors.OTAStopRequested(module=__name__)
 
                 logger.info("Entering critical zone for OTA update: pre-update phase")
-
+                self._image_compatibility_verifications(self._boot_controller)
                 self._pre_update()
 
             self._in_update()

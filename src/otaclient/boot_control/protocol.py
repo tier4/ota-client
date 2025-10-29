@@ -59,6 +59,12 @@ class BootControllerProtocol(Protocol):
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
 
+    @abstractmethod
+    def check_bsp_version_compatibility(
+        self, download_bsp_version_file_content: str
+    ) -> bool:
+        """Check BSP version compatibility between current system and target OTA image"""
+
     #
     # ------ update ------ #
     #

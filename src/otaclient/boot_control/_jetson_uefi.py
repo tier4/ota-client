@@ -58,6 +58,7 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
+    parse_nv_tegra_release,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -71,6 +72,8 @@ MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(34, 0, 0)
 """Only after R34, UEFI is introduced."""
 FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
 """Only after R35.2, UEFI Capsule firmware update is introduced."""
+CROSS_GENERATION_BSP_VERSION_BOUNDARY = 36
+"""BSP version R36 introduces significant changes that require matching firmware and rootfs versions."""
 
 L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
     "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718": BSPVersion(
@@ -746,13 +749,13 @@ class _UEFIBootControl:
 
         # check current slot rootfs BSP version
         try:
-            self.rootfs_bsp_verion = rootfs_bsp_version = detect_rootfs_bsp_version(
+            self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
                 rootfs=cfg.ACTIVE_ROOT
             )
             logger.info(f"current slot rootfs BSP version: {rootfs_bsp_version}")
         except Exception as e:
             logger.warning(f"failed to detect rootfs BSP version: {e!r}")
-            self.rootfs_bsp_verion = rootfs_bsp_version = None
+            self.rootfs_bsp_version = rootfs_bsp_version = None
 
         if rootfs_bsp_version and rootfs_bsp_version > fw_bsp_version:
             logger.warning(
@@ -1134,3 +1137,26 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
+
+    def check_bsp_version_compatibility(
+        self, download_bsp_version_file_content: str
+    ) -> bool:  # pragma: no cover
+        rootfs_bsp_ver = self._uefi_control.rootfs_bsp_version
+        if rootfs_bsp_ver is None:
+            logger.warning(
+                "cannot detect current rootfs BSP version, skip BSP version compatibility check"
+            )
+            return True
+        download_bsp_ver = parse_nv_tegra_release(download_bsp_version_file_content)
+
+        # ------ check for cross-generation BSP version mismatch (R36 boundary) ------ #
+        download_bsp_ver_is_r36_or_later = (
+            download_bsp_ver.major_ver >= CROSS_GENERATION_BSP_VERSION_BOUNDARY
+        )
+        rootfs_bsp_ver_is_r36_or_later = (
+            rootfs_bsp_ver.major_ver >= CROSS_GENERATION_BSP_VERSION_BOUNDARY
+        )
+
+        if download_bsp_ver_is_r36_or_later != rootfs_bsp_ver_is_r36_or_later:
+            return False
+        return True
