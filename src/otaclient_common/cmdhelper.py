@@ -759,7 +759,7 @@ def ensure_umount_from_host(
         subprocess_run_wrapper(
             ["umount", str(mnt_point)],
             check=True,
-            check_output=True,
+            check_output=False,
             set_host_mnt_ns=True,
         )
 
