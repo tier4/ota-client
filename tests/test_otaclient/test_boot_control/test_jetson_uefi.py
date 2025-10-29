@@ -27,12 +27,14 @@ from otaclient.boot_control._jetson_common import (
     SlotID,
 )
 from otaclient.boot_control._jetson_uefi import (
+    JetsonUEFIBootControl,
     JetsonUEFIBootControlError,
     L4TLauncherBSPVersionControl,
     NVBootctrlJetsonUEFI,
     _detect_esp_dev,
     _detect_ota_bootdev_is_qspi,
     _l4tlauncher_version_control,
+    _UEFIBootControl,
 )
 
 MODULE = _jetson_uefi.__name__
@@ -305,3 +307,109 @@ def test__l4tlauncher_version_control(
     )
     # ensure the version control file is expected
     assert ver_control_f.read_text() == expected_ver_ctrl
+
+
+class TestJetsonUEFIBootControlBSPVersionCheck:
+    """Test BSP version compatibility check for JetsonUEFIBootControl."""
+
+    @pytest.mark.parametrize(
+        "current_bsp_version, download_bsp_version, expected_result",
+        (
+            # Same generation compatibility: R35 -> R35.x (should succeed)
+            (
+                "R35.1.0",
+                "# R35 (release), REVISION: 1.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            (
+                "R35.4.1",
+                "# R35 (release), REVISION: 1.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            (
+                "R35.3.0",
+                "# R35 (release), REVISION: 3.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            # Same generation compatibility: R36 -> R36.x (should succeed)
+            (
+                "R36.1.0",
+                "# R36 (release), REVISION: 3.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            (
+                "R36.3.0",
+                "# R36 (release), REVISION: 1.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            (
+                "R36.3.0",
+                "# R36 (release), REVISION: 3.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                True,
+            ),
+            # Cross-generation incompatibility: R35 -> R36 (should fail)
+            (
+                "R35.4.1",
+                "# R36 (release), REVISION: 3.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                False,
+            ),
+            (
+                "R35.1.0",
+                "# R36 (release), REVISION: 1.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                False,
+            ),
+            # Cross-generation incompatibility: R36 -> R35 (should fail)
+            (
+                "R36.3.0",
+                "# R35 (release), REVISION: 4.1, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                False,
+            ),
+            (
+                "R36.1.0",
+                "# R35 (release), REVISION: 1.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+                False,
+            ),
+        ),
+    )
+    def test_check_bsp_version_compatibility(
+        self,
+        current_bsp_version: str,
+        download_bsp_version: str,
+        expected_result: bool,
+        mocker: MockerFixture,
+    ):
+        """Test BSP version compatibility checking logic."""
+        # Create a mock JetsonUEFIBootControl instance
+        boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
+
+        # Mock the _uefi_control with rootfs_bsp_version
+        mock_uefi_control = mocker.MagicMock(spec=_UEFIBootControl)
+        mock_uefi_control.rootfs_bsp_version = BSPVersion.parse(current_bsp_version)
+        boot_control._uefi_control = mock_uefi_control
+
+        # Call the real method
+        result = JetsonUEFIBootControl.check_bsp_version_compatibility(
+            boot_control, download_bsp_version
+        )
+
+        assert result == expected_result
+
+    def test_check_bsp_version_compatibility_with_none_rootfs_version(
+        self, mocker: MockerFixture
+    ):
+        """Test that compatibility check is skipped when rootfs BSP version is None."""
+        # Create a mock JetsonUEFIBootControl instance
+        boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
+
+        # Mock the _uefi_control with None rootfs_bsp_version
+        mock_uefi_control = mocker.MagicMock(spec=_UEFIBootControl)
+        mock_uefi_control.rootfs_bsp_version = None
+        boot_control._uefi_control = mock_uefi_control
+
+        # Call the real method - should return True (skip check)
+        result = JetsonUEFIBootControl.check_bsp_version_compatibility(
+            boot_control,
+            "# R36 (release), REVISION: 3.0, GCID: 12345678, BOARD: t186ref, EABI: aarch64",
+        )
+
+        assert result is True
