@@ -86,10 +86,13 @@ def grpc_server_process(
         _address_info = f"{ecu_info.ip_addr}:{cfg.OTA_API_SERVER_PORT}"
         server.add_insecure_port(_address_info)
 
-        logger.info(f"launch grpc API server at {_address_info}")
-        await server.start()
         try:
+            logger.info(f"launch grpc API server at {_address_info}")
+            await server.start()
+            logger.info("gRPC API server started successfully")
             await server.wait_for_termination()
+        except Exception as e:
+            logger.exception(f"gRPC server terminated with exception: {e}")
         finally:
             await server.stop(1)
             thread_pool.shutdown(wait=True)
