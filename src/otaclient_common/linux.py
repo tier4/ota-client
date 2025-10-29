@@ -37,7 +37,13 @@ except ImportError:
 try:
     from os import setns as _setns  # type: ignore
 except ImportError:  # for python < 3.12
-    # will implement the setns by ourselves
+    # NOTE(20251029): actually the below code will not be used basically,
+    #                   when otaclient(v3.12+) distributed as app image,
+    #                   it will be distributed under python3.13.
+    #
+    #                 if somehow otaclient(v3.12+) is installed with venv,
+    #                   we are not in app image environment, the below code
+    #                   will also not be used.
     _libc_path = ctypes.util.find_library("c")
     _libc = ctypes.CDLL(_libc_path, use_errno=True)
     _libc_setns = _libc.setns
