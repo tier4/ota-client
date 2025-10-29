@@ -28,7 +28,6 @@ from pathlib import Path
 from subprocess import CalledProcessError
 from typing import Any, Literal, NoReturn, Protocol
 
-from otaclient_common import _env
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call, subprocess_check_output
 from otaclient_common.linux import subprocess_run_wrapper
@@ -743,7 +742,6 @@ def ensure_umount_from_host(
     Raises:
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
-    _host_root = _env.get_dynamic_client_chroot_path()
 
     def _is_mounted() -> bool:
         try:
@@ -751,7 +749,6 @@ def ensure_umount_from_host(
                 ["findmnt", str(mnt_point)],
                 check=True,
                 check_output=False,
-                chroot=_host_root,
                 set_host_mnt_ns=True,
             )
             return True
@@ -760,10 +757,9 @@ def ensure_umount_from_host(
 
     def _umount():
         subprocess_run_wrapper(
-            ["umount", "-R", str(mnt_point)],
+            ["umount", str(mnt_point)],
             check=True,
             check_output=True,
-            chroot=_host_root,
             set_host_mnt_ns=True,
         )
 
