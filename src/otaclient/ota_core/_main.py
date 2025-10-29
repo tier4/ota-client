@@ -438,6 +438,7 @@ class OTAClient:
                 version=request.version,
                 raw_url_base=request.url_base,
                 session_wd=session_wd,
+                standby_slot_dev=self.boot_controller.standby_slot_dev,
                 ca_chains_store=self.ca_chains_store,
                 ecu_status_flags=self.ecu_status_flags,
                 status_report_queue=self._status_report_queue,
