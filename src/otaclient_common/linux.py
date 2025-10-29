@@ -35,14 +35,14 @@ except ImportError:
     _fastcopy_sendfile = None
 
 try:
-    from os import setns  # type: ignore
+    from os import setns as _setns  # type: ignore
 except ImportError:  # for python < 3.12
     # will implement the setns by ourselves
     _libc_path = ctypes.util.find_library("c")
     _libc = ctypes.CDLL(_libc_path, use_errno=True)
     _libc_setns = _libc.setns
 
-    def setns(_fd: int, _nstype=0) -> None:
+    def _setns(_fd: int, _nstype=0) -> None:
         if _libc_setns(_fd, _nstype) != 0:
             _last_e = ctypes.get_errno()
             raise OSError(f"setns failed: {os.strerror(_last_e)}")
@@ -50,11 +50,11 @@ except ImportError:  # for python < 3.12
 
 def setns_wrapper(_fd: str | int, _nstype: int = 0) -> None:
     if isinstance(_fd, int):
-        return setns(_fd, _nstype)
+        return _setns(_fd, _nstype)
 
     _opened_fd = os.open(_fd, os.O_RDONLY)
     try:
-        setns(_opened_fd, _nstype)
+        _setns(_opened_fd, _nstype)
     finally:
         os.close(_opened_fd)
 
@@ -232,7 +232,8 @@ def subprocess_run_wrapper(
     *,
     check: bool,
     check_output: bool,
-    chroot: Optional[StrOrPath] = None,
+    chroot: StrOrPath | None = None,
+    setns: bool = False,
     env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
@@ -256,13 +257,18 @@ def subprocess_run_wrapper(
         cmd = shlex.split(cmd)
 
     preexec_fn: Optional[Callable[..., Any]] = None
-    if chroot:
+    if chroot or setns:
 
-        def _chroot():
-            os.chroot(chroot)
-            os.chdir("/")
+        def _preexec():
+            if chroot:
+                os.chroot(chroot)
+                os.chdir("/")
 
-        preexec_fn = _chroot
+            # NOTE(20251029): only support sent back to host mnt ns
+            if setns:
+                setns_wrapper(_root_mnt_ns)
+
+        preexec_fn = _preexec
 
     _run_func = subprocess.run
     if RUN_AS_PYINSTALLER_BUNDLE:
