@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import logging
 import os
 import shlex
@@ -31,6 +33,33 @@ try:
     from shutil import _fastcopy_sendfile  # type: ignore
 except ImportError:
     _fastcopy_sendfile = None
+
+try:
+    from os import setns  # type: ignore
+except ImportError:  # for python < 3.12
+    # will implement the setns by ourselves
+    _libc_path = ctypes.util.find_library("c")
+    _libc = ctypes.CDLL(_libc_path, use_errno=True)
+    _libc_setns = _libc.setns
+
+    def setns(_fd: int, _nstype=0) -> None:
+        if _libc_setns(_fd, _nstype) != 0:
+            _last_e = ctypes.get_errno()
+            raise OSError(f"setns failed: {os.strerror(_last_e)}")
+
+
+def setns_wrapper(_fd: str | int, _nstype: int = 0) -> None:
+    if isinstance(_fd, int):
+        return setns(_fd, _nstype)
+
+    _opened_fd = os.open(_fd, os.O_RDONLY)
+    try:
+        setns(_opened_fd, _nstype)
+    finally:
+        os.close(_opened_fd)
+
+
+_root_mnt_ns = "/proc/1/ns/mnt"
 
 logger = logging.getLogger(__name__)
 
