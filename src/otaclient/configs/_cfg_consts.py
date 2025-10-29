@@ -80,6 +80,7 @@ class Consts:
     # ------ consts ------ #
     #
     # ota status files
+    METRICS_FNAME = "metrics"
     OTA_STATUS_FNAME = "status"
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
