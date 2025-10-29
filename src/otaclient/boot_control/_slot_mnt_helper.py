@@ -74,6 +74,12 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_mointpoint(self.standby_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=False)
 
+        if _env.is_dynamic_client_running():
+            logger.info(
+                "running as dynamic app, also umount standby from host mnt ns ..."
+            )
+            cmdhelper.ensure_umount_from_host(self.standby_slot_dev, ignore_error=False)
+
         cmdhelper.ensure_mount(
             target=self.standby_slot_dev,
             mnt_point=self.standby_slot_mount_point,

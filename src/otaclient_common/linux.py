@@ -233,7 +233,7 @@ def subprocess_run_wrapper(
     check: bool,
     check_output: bool,
     chroot: StrOrPath | None = None,
-    setns: bool = False,
+    set_host_mnt_ns: bool = False,
     env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
@@ -257,7 +257,7 @@ def subprocess_run_wrapper(
         cmd = shlex.split(cmd)
 
     preexec_fn: Optional[Callable[..., Any]] = None
-    if chroot or setns:
+    if chroot or set_host_mnt_ns:
 
         def _preexec():
             if chroot:
@@ -265,7 +265,7 @@ def subprocess_run_wrapper(
                 os.chdir("/")
 
             # NOTE(20251029): only support sent back to host mnt ns
-            if setns:
+            if set_host_mnt_ns:
                 setns_wrapper(_root_mnt_ns)
 
         preexec_fn = _preexec
