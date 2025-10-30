@@ -30,6 +30,7 @@ from typing import Any, Literal, NoReturn, Protocol
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call, subprocess_check_output
+from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -706,10 +707,68 @@ def ensure_umount(
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
+        if not is_target_mounted(mnt_point, raise_exception=False):
+            return
+
         try:
-            if not is_target_mounted(mnt_point, raise_exception=False):
-                break
             umount(mnt_point, raise_exception=True)
+        except CalledProcessError as e:
+            logger.info(
+                (
+                    f"retry#{_retry} failed to umount {mnt_point}: {e!r}\n"
+                    f"{e.stderr=}\n{e.stdout=}"
+                )
+            )
+
+            if _retry >= max_retry:
+                logger.error(f"reached max retry on umounting {mnt_point}, abort")
+                if not ignore_error:
+                    raise
+                return
+
+            time.sleep(retry_interval)
+            continue
+
+
+def ensure_umount_from_host(
+    mnt_point: StrOrPath,
+    *,
+    ignore_error: bool,
+    max_retry: int = MAX_RETRY_COUNT,
+    retry_interval: int = RETRY_INTERVAL,
+) -> None:  # pragma: no cover
+    """Same as ensure_umount, but use chroot+setns to execute from host mnt ns.
+
+    Raises:
+        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+    """
+
+    def _is_mounted() -> bool:
+        try:
+            subprocess_run_wrapper(
+                ["findmnt", str(mnt_point)],
+                check=True,
+                check_output=False,
+                set_host_mnt_ns=True,
+            )
+            return True
+        except CalledProcessError:
+            return False
+
+    def _umount():
+        subprocess_run_wrapper(
+            ["umount", str(mnt_point)],
+            check=True,
+            check_output=False,
+            set_host_mnt_ns=True,
+        )
+
+    for _retry in range(max_retry + 1):
+        if not _is_mounted():
+            return
+
+        try:
+            _umount()
         except CalledProcessError as e:
             logger.info(
                 (

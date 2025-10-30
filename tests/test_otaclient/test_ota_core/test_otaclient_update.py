@@ -99,6 +99,7 @@ class TestOTAClientUpdater:
             session_id=self.SESSION_ID,
             client_update_control_flags=self.client_update_control_flags,
             metrics=OTAMetricsData(),
+            standby_slot_dev="dummy_dev",
             shm_metrics_reader=None,  # type: ignore
         )
 

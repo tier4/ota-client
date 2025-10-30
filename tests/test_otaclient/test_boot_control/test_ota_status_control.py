@@ -278,6 +278,9 @@ class TestOTAStatusFilesControl:
         # slot_b's status is read
         assert status_control.booted_ota_status == OTAStatus.FAILURE
 
+    # NOTE(20251017): as we separate the downloaded dynamic loading app and
+    #                 systemd managed otaclient app image, change to check
+    #                 is_running_as_downloaded_dynamic_app here.
     @pytest.mark.parametrize(
         "initial_status",
         [
@@ -286,7 +289,7 @@ class TestOTAStatusFilesControl:
         ],
     )
     @patch(
-        "otaclient.boot_control._ota_status_control._env.is_dynamic_client_running",
+        "otaclient.boot_control._ota_status_control._env.is_running_as_downloaded_dynamic_app",
         return_value=True,
     )
     def test_dynamic_client_running_status_handling(

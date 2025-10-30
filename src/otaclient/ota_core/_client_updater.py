@@ -28,6 +28,9 @@ from otaclient._types import ClientUpdateControlFlags, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info
+from otaclient_common import _env, cmdhelper
+from otaclient_common._env import get_otaclient_squashfs_download_dst
+from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import ensure_umount
 
 from ._common import download_exception_handler
@@ -46,12 +49,14 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
     def __init__(
         self,
         *,
+        standby_slot_dev: StrOrPath,
         ca_chains_store: CAChainStore,
         client_update_control_flags: ClientUpdateControlFlags,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         # ------ init base class ------ #
         OTAUpdateInitializer.__init__(self, **kwargs)
+        self._standby_slot_dev = standby_slot_dev
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
 
         # --- Event flag to control client update ---- #
@@ -63,7 +68,7 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
             ota_metadata=self._ota_metadata,
             session_dir=self._session_workdir,
             package_install_dir=cfg.OTACLIENT_INSTALLATION_RELEASE,
-            squashfs_file=cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
+            squashfs_file=get_otaclient_squashfs_download_dst(),
         )
 
     def _execute_client_update(self):
@@ -144,6 +149,15 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
     def _notify_data_ready(self):
         """Notify the main process that the client package is ready."""
         logger.info("notify main process that the client package is ready..")
+        cmdhelper.ensure_umount(self._standby_slot_dev, ignore_error=False)
+        if _env.is_dynamic_client_running():
+            logger.info(
+                "ensure standby_slot dev is umounted before launching dynamic otaclient app ..."
+            )
+            cmdhelper.ensure_umount_from_host(
+                self._standby_slot_dev, ignore_error=False
+            )
+
         self.client_update_control_flags.notify_data_ready_event.set()
 
     # API

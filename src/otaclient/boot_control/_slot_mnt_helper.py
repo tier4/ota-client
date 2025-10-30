@@ -125,6 +125,12 @@ class SlotMountHelper:  # pragma: no cover
     ) -> None:
         _target_dev = self.standby_slot_dev
         cmdhelper.ensure_umount(_target_dev, ignore_error=True)
+        if _env.is_dynamic_client_running():
+            logger.info(
+                "running as dynamic app, also umount standby from host mnt ns ..."
+            )
+            cmdhelper.ensure_umount_from_host(_target_dev, ignore_error=False)
+
         if erase_standby:
             return cmdhelper.mkfs_ext4(_target_dev, fslabel=fslabel)
         if fslabel:
