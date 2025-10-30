@@ -423,7 +423,7 @@ def main() -> None:  # pragma: no cover
                         (
                             "mount -o bind /host_root/ota-cache /ota-cache && "
                             "mount -o bind,ro /host_root /run/otaclient/mnt/active_slot && "
-                            "mount -t tmpfs -o size=700M tmpfs /tmp && "
+                            f"mount -t tmpfs -o size={cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB}M tmpfs /tmp && "
                             "/otaclient/venv/bin/python3 -m otaclient"
                         ),
                     ],
