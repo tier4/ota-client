@@ -395,7 +395,7 @@ def main() -> None:  # pragma: no cover
                         f"--unit={_dynamic_service_unit}", "-G", "--wait",
                         # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
                         #       exits, this is for handling user manually `systemctl stop otaclient`.
-                        "--BindsTo=otaclient.service",
+                        "--PartOf=otaclient.service",
                         "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
                         "--setenv=RUNNING_AS_APP_IMAGE=",
                         "-p", "Type=simple",
