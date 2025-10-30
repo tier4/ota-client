@@ -393,11 +393,11 @@ def main() -> None:  # pragma: no cover
                     cmd = [
                         "systemd-run",
                         f"--unit={_dynamic_service_unit}", "-G", "--wait",
-                        # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
-                        #       exits, this is for handling user manually `systemctl stop otaclient`.
-                        "--PartOf=otaclient.service",
                         "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
                         "--setenv=RUNNING_AS_APP_IMAGE=",
+                        # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
+                        #       exits, this is for handling user manually `systemctl stop otaclient`.
+                        "-p", "PartOf=otaclient.service",
                         "-p", "Type=simple",
                         # NOTE: subprocess_call here will do a chroot back to host_root.
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
