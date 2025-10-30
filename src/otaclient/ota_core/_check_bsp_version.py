@@ -21,8 +21,8 @@ from http import HTTPStatus
 from typing import Optional
 from urllib.parse import urlsplit
 
+from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
 from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.configs._ecu_info import BootloaderType
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ def check_bsp_version_legacy(
     """Check BSP version compatibility for legacy OTA image."""
 
     # check if the boot controler is Jetson UEFI
-    if boot_controller.bootloader_type != BootloaderType.JETSON_UEFI:
+    if not isinstance(boot_controller, JetsonUEFIBootControl):
         logger.info("BSP version check is skipped for non-Jetson UEFI bootloader.")
         return True
 

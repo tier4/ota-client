@@ -21,8 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_mock import MockerFixture
 
-from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.configs._ecu_info import BootloaderType
+from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
 from otaclient.ota_core import _check_bsp_version
 from otaclient.ota_core._check_bsp_version import (
     check_bsp_version_legacy,
@@ -51,17 +50,21 @@ class TestDownloadBSPVersionFile:
         """Test successful download of BSP version file."""
         pool, downloader = mock_downloader_pool
 
-        # Mock successful HTTP response
+        # Mock successful HTTP response with real file format
         mock_response = mocker.MagicMock()
         mock_response.status_code = HTTPStatus.OK
-        mock_response.text = "# R36 (release), REVISION: 3.0"
+        mock_response.text = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         downloader._session.get.return_value = mock_response
 
         result = _check_bsp_version._download_bsp_version_file(
             "https://example.com/ota", downloader_pool=pool
         )
 
-        assert result == "# R36 (release), REVISION: 3.0"
+        # The strip() is applied in the function, so verify it matches
+        assert result == mock_response.text.strip()
         downloader._session.get.assert_called_once()
         pool.release_instance.assert_called_once()
 
@@ -113,7 +116,10 @@ class TestDownloadBSPVersionFile:
 
         mock_response_success = mocker.MagicMock()
         mock_response_success.status_code = HTTPStatus.OK
-        mock_response_success.text = "# R36 (release), REVISION: 3.0"
+        mock_response_success.text = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
 
         downloader._session.get.side_effect = [
             mock_response_fail,
@@ -128,7 +134,7 @@ class TestDownloadBSPVersionFile:
             "https://example.com/ota", downloader_pool=pool
         )
 
-        assert result == "# R36 (release), REVISION: 3.0"
+        assert result == mock_response_success.text.strip()
         assert downloader._session.get.call_count == 3
         pool.release_instance.assert_called_once()
 
@@ -142,14 +148,17 @@ class TestDownloadBSPVersionFile:
         # Mock successful HTTP response
         mock_response = mocker.MagicMock()
         mock_response.status_code = HTTPStatus.OK
-        mock_response.text = "# R35 (release), REVISION: 4.1"
+        mock_response.text = """# R35 (release), REVISION: 4.1, GCID: 33958178, BOARD: t186ref, EABI: aarch64, DATE: Tue Aug  1 19:57:35 UTC 2023
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         downloader._session.get.return_value = mock_response
 
         result = _check_bsp_version._download_bsp_version_file(
             "https://example.com/ota", downloader_pool=pool
         )
 
-        assert result == "# R35 (release), REVISION: 4.1"
+        assert result == mock_response.text.strip()
         # Verify the URL was converted to http
         called_url = downloader._session.get.call_args[0][0]
         assert called_url.startswith("http://")
@@ -181,9 +190,11 @@ class TestCheckBSPVersionLegacy:
 
     @pytest.fixture
     def mock_boot_controller(self, mocker: MockerFixture):
-        """Create a mock boot controller."""
-        controller = mocker.MagicMock(spec=BootControllerProtocol)
-        controller.bootloader_type = BootloaderType.JETSON_UEFI
+        """Create a mock boot controller for Jetson UEFI tests.
+
+        Uses spec_set to ensure isinstance check works correctly.
+        """
+        controller = mocker.MagicMock(spec_set=JetsonUEFIBootControl)
         controller.check_bsp_version_compatibility.return_value = True
         return controller
 
@@ -199,10 +210,14 @@ class TestCheckBSPVersionLegacy:
         mocker: MockerFixture,
     ):
         """Test BSP version check for Jetson UEFI with compatible versions."""
-        # Mock download to return BSP version content
+        # Mock download to return BSP version content (real file format)
+        bsp_version_content = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         mocker.patch(
             f"{MODULE}._download_bsp_version_file",
-            return_value="# R36 (release), REVISION: 3.0",
+            return_value=bsp_version_content,
         )
 
         result = check_bsp_version_legacy(
@@ -213,7 +228,7 @@ class TestCheckBSPVersionLegacy:
 
         assert result is True
         mock_boot_controller.check_bsp_version_compatibility.assert_called_once_with(
-            "# R36 (release), REVISION: 3.0"
+            bsp_version_content
         )
 
     def test_check_bsp_version_legacy_jetson_uefi_incompatible(
@@ -223,10 +238,14 @@ class TestCheckBSPVersionLegacy:
         mocker: MockerFixture,
     ):
         """Test BSP version check for Jetson UEFI with incompatible versions."""
-        # Mock download to return BSP version content
+        # Mock download to return BSP version content (real file format)
+        bsp_version_content = """# R36 (release), REVISION: 3.0, GCID: 36851668, BOARD: t186ref, EABI: aarch64, DATE: Wed Jul 31 00:50:19 UTC 2024
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         mocker.patch(
             f"{MODULE}._download_bsp_version_file",
-            return_value="# R36 (release), REVISION: 3.0",
+            return_value=bsp_version_content,
         )
         # Mock incompatibility
         mock_boot_controller.check_bsp_version_compatibility.return_value = False
@@ -263,29 +282,21 @@ class TestCheckBSPVersionLegacy:
         assert result is True
         mock_boot_controller.check_bsp_version_compatibility.assert_not_called()
 
-    @pytest.mark.parametrize(
-        "bootloader_type",
-        [
-            BootloaderType.GRUB,
-            BootloaderType.RPI_BOOT,
-            BootloaderType.JETSON_CBOOT,
-        ],
-    )
-    def test_check_bsp_version_legacy_skipped_for_other_bootloaders(
+    def test_check_bsp_version_legacy_non_jetson_uefi(
         self,
-        bootloader_type: BootloaderType,
         mock_downloader_pool: MagicMock,
         mocker: MockerFixture,
     ):
-        """Test that BSP version check is skipped for other bootloader types."""
-        controller = mocker.MagicMock(spec=BootControllerProtocol)
-        controller.bootloader_type = bootloader_type
+        """Test that BSP version check is skipped for non-Jetson UEFI bootloaders."""
+        # Create a mock that is NOT a JetsonUEFIBootControl instance
+        non_jetson_controller = mocker.MagicMock()
 
         result = check_bsp_version_legacy(
             "https://example.com/ota",
             downloader_pool=mock_downloader_pool,
-            boot_controller=controller,
+            boot_controller=non_jetson_controller,
         )
 
+        # Should skip check and return True
         assert result is True
-        controller.check_bsp_version_compatibility.assert_not_called()
+        non_jetson_controller.check_bsp_version_compatibility.assert_not_called()
