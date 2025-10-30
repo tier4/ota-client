@@ -1140,7 +1140,11 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     def check_bsp_version_compatibility(
         self, download_bsp_version_file_content: str
-    ) -> bool:  # pragma: no cover
+    ) -> bool:
+        """
+        This function is dedicated jetson-uefi to check BSP version compatibility.
+        Check BSP version compatibility between current rootfs and download image.
+        """
         rootfs_bsp_ver = self._uefi_control.rootfs_bsp_version
         if rootfs_bsp_ver is None:
             logger.warning(

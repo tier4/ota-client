@@ -762,8 +762,3 @@ class JetsonCBootControl(BootControllerProtocol):
 
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
-
-    def check_bsp_version_compatibility(
-        self, download_bsp_version_file_content: str
-    ) -> bool:  # pragma: no cover
-        return True
