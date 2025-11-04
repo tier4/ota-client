@@ -510,9 +510,9 @@ class UEFIFirmwareUpdater:
 
             try:
                 _digest = cal_file_digest(capsule_fpath, algorithm=capsule_digest_alg)
-                assert (
-                    _digest == capsule_digest_value
-                ), f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                assert _digest == capsule_digest_value, (
+                    f"{capsule_digest_alg} validation failed, expect {capsule_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(
                     src=capsule_fpath,
@@ -564,9 +564,9 @@ class UEFIFirmwareUpdater:
                 _digest = cal_file_digest(
                     ota_image_bootaa64, algorithm=payload_digest_alg
                 )
-                assert (
-                    _digest == payload_digest_value
-                ), f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                assert _digest == payload_digest_value, (
+                    f"{payload_digest_alg} validation failed, expect {payload_digest_value}, get {_digest}"
+                )
 
                 shutil.copy(self.bootaa64_at_esp, self.bootaa64_at_esp_bak)
                 shutil.copy(ota_image_bootaa64, self.bootaa64_at_esp)
@@ -979,6 +979,34 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     @property
     def standby_slot_dev(self) -> Path:
         return Path(self._mp_control.standby_slot_dev)
+
+    def standby_slot_bsp_ver_check(self, bsp_ver_str: str) -> bool:
+        """Check if the input BSP version matches the firmware BSP version of standby slot.
+
+        If the BSP version is mismatched, we should reject the OTA.
+        """
+        try:
+            _bsp_ver = BSPVersion.parse(bsp_ver_str)
+        except Exception as e:
+            logger.warning(f"input BSP version string({bsp_ver_str}) is invalid: {e!r}")
+            return False
+
+        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        if standby_fw_bsp_ver:
+            if standby_fw_bsp_ver == _bsp_ver:
+                return True
+            logger.error(f"{standby_fw_bsp_ver} != {_bsp_ver}")
+            return False
+
+        logger.warning(
+            "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
+        )
+        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
+        if active_fw_bsp_ver == _bsp_ver:
+            return True
+
+        logger.error(f"{active_fw_bsp_ver} != {_bsp_ver}")
+        return False
 
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
         return self._mp_control.standby_slot_dev
