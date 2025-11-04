@@ -75,7 +75,7 @@ def check_bsp_version_legacy(
 ) -> bool:
     """Check BSP version compatibility for legacy OTA image."""
 
-    # check if the boot controler is Jetson UEFI
+    # check if the boot controller is Jetson UEFI
     if not isinstance(boot_controller, JetsonUEFIBootControl):
         logger.info("BSP version check is skipped for non-Jetson UEFI bootloader.")
         return True
