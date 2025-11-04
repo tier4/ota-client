@@ -993,13 +993,13 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         """
         standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
         active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
-        if not standby_fw_bsp_ver:
-            fw_bsp_ver = active_fw_bsp_ver
-        else:
+
+        fw_bsp_ver = standby_fw_bsp_ver
+        if not fw_bsp_ver:
             logger.warning(
                 "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
             )
-            fw_bsp_ver = standby_fw_bsp_ver
+            fw_bsp_ver = active_fw_bsp_ver
 
         try:
             _bsp_ver = BSPVersion.parse(bsp_ver_str)
