@@ -289,7 +289,9 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
             downloader_pool=self._downloader_pool,
             boot_controller=boot_controller,
         )
-        if not is_compatible:
+        if is_compatible:
+            logger.info("BSP version compatibility check passed.")
+        else:
             _err_msg = "BSP version compatibility check failed, abort OTA"
             logger.error(_err_msg)
             raise ota_errors.IncompatibleImageError(_err_msg, module=__name__)
