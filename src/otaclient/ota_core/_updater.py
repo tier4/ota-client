@@ -38,6 +38,9 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import CriticalZoneFlag, UpdatePhase
 from otaclient._utils import wait_and_log
+from otaclient.boot_control._jetson_uefi import (
+    JetsonUEFIBootControl,
+)
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
@@ -440,11 +443,42 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
             ca_store=ca_store, image_identifier=image_identifier
         )
 
+    def _nvidia_jetson_check_bsp(self):
+        _bootloader = self._boot_controller
+        assert isinstance(_bootloader, JetsonUEFIBootControl)
+
+        image_manifest = self._ota_image_helper.image_manifest
+        image_config = self._ota_image_helper.image_config
+        assert image_config and image_manifest
+
+        _ota_image_bsp_ver_str = (
+            image_config.labels.nvidia_jetson_bsp_version
+            or image_manifest.annotations.nvidia_jetson_bsp_version
+        )
+        if not _ota_image_bsp_ver_str:
+            return  # not BSP version is annotated for the image payload
+
+        _check_res, _bsp_vers = _bootloader.standby_slot_bsp_ver_check(
+            _ota_image_bsp_ver_str
+        )
+        if _check_res:
+            return
+
+        _err_msg = (
+            f"OTA image's BSP version doesn't match(input_bsp: fw_bsp={_bsp_vers}) "
+            "ECU standby slot's firmware BSP version, reject OTA!"
+        )
+        raise ota_errors.BootControlPreUpdateFailed(_err_msg, module=__name__)
+
     def _process_metadata(self, only_metadata_verification: bool = False):
         super()._process_metadata(only_metadata_verification)
 
         image_config = self._ota_image_helper.image_config
         assert image_config
+
+        # apply BSP check, and interrupt OTA if needed
+        if isinstance(self._boot_controller, JetsonUEFIBootControl):
+            self._nvidia_jetson_check_bsp()
 
         self.total_regulars_size = image_config.sys_image_size
         self._fst_db_helper = self._ota_image_helper.file_table_helper

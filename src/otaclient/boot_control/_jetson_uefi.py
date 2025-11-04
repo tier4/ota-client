@@ -980,33 +980,38 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def standby_slot_dev(self) -> Path:
         return Path(self._mp_control.standby_slot_dev)
 
-    def standby_slot_bsp_ver_check(self, bsp_ver_str: str) -> bool:
+    def standby_slot_bsp_ver_check(
+        self, bsp_ver_str: str
+    ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
         """Check if the input BSP version matches the firmware BSP version of standby slot.
 
         If the BSP version is mismatched, we should reject the OTA.
+
+        Returns:
+            Return a tuple indicates the check result. If the first element is True, BSP version
+                matches, otherwise return False with a tuple of input BSPVersion, expected BSPVersion.
         """
+        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
+        if not standby_fw_bsp_ver:
+            fw_bsp_ver = active_fw_bsp_ver
+        else:
+            logger.warning(
+                "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
+            )
+            fw_bsp_ver = standby_fw_bsp_ver
+
         try:
             _bsp_ver = BSPVersion.parse(bsp_ver_str)
         except Exception as e:
             logger.warning(f"input BSP version string({bsp_ver_str}) is invalid: {e!r}")
-            return False
+            return False, (None, fw_bsp_ver)
 
-        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
-        if standby_fw_bsp_ver:
-            if standby_fw_bsp_ver == _bsp_ver:
-                return True
-            logger.error(f"{standby_fw_bsp_ver} != {_bsp_ver}")
-            return False
-
-        logger.warning(
-            "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
-        )
-        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
-        if active_fw_bsp_ver == _bsp_ver:
-            return True
+        if fw_bsp_ver == _bsp_ver:
+            return True, None
 
         logger.error(f"{active_fw_bsp_ver} != {_bsp_ver}")
-        return False
+        return False, (_bsp_ver, fw_bsp_ver)
 
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
         return self._mp_control.standby_slot_dev
