@@ -22,12 +22,13 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
+from otaclient.boot_control.configs import JetsonBootCommon
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
 
-BSP_VERSION_PATH = "/data/etc/nv_tegra_release"
+BSP_VERSION_PATH = "data" + JetsonBootCommon.NV_TEGRA_RELEASE_FPATH
 DOWNLOAD_TIMEOUT = 2
 RETRY_TIMES = 12
 RETRY_INTERVAL = 1  # second
