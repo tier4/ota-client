@@ -52,13 +52,16 @@ def _download_bsp_version_file(
                 )
                 _status_code = resp.status_code
                 if _status_code == HTTPStatus.OK:
+                    logger.info("BSP version file downloaded successfully.")
                     return resp.text.strip()
                 if _status_code in [HTTPStatus.UNAUTHORIZED, HTTPStatus.NOT_FOUND]:
+                    logger.info("BSP version file is unauthorized or not found.")
                     return None
             except Exception:
                 pass
 
             time.sleep(RETRY_INTERVAL)
+        logger.info("BSP version file could not be downloaded within retry limit.")
         return None
     except Exception as e:
         logger.warning(f"unexpected failure during probing image version: {e}")
