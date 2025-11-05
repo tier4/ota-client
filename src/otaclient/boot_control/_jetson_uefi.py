@@ -1161,6 +1161,4 @@ class JetsonUEFIBootControl(BootControllerProtocol):
             rootfs_bsp_ver.major_ver >= CROSS_GENERATION_BSP_VERSION_BOUNDARY
         )
 
-        if download_bsp_ver_is_r36_or_later != rootfs_bsp_ver_is_r36_or_later:
-            return False
-        return True
+        return download_bsp_ver_is_r36_or_later == rootfs_bsp_ver_is_r36_or_later
