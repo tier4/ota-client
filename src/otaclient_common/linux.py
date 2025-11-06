@@ -254,6 +254,8 @@ def subprocess_run_wrapper(
         cmd (str | list[str]): command to be executed.
         check (bool): if True, raise CalledProcessError on non 0 return code.
         check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        chroot (StrOrPath | None): if set, will do a chroot to <chroot> before subprocess exec.
+        set_host_mnt_ns (bool): if set to True, will do a setns to host mount ns before subprocess exec.
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
 
     Returns:
