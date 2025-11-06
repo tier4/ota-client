@@ -34,6 +34,7 @@ def is_running_as_app_image() -> bool:
     return bool(os.getenv(cfg.RUNNING_AS_APP_IMAGE))
 
 
+@cache
 def is_running_as_downloaded_dynamic_app() -> bool:
     """Check if is the downloaded dynamic client running."""
     return bool(os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT))
