@@ -400,6 +400,10 @@ def main() -> None:  # pragma: no cover
                         #       exits, this is for handling user manually `systemctl stop otaclient`.
                         "-p", "PartOf=otaclient.service",
                         "-p", "Type=simple",
+                        # NOTE: prevent the dynamic otaclient APP being start/stop manually, the stop should
+                        #       be done by stop the main otaclient.service instead. Restart is also prohibited.
+                        "-p", "RefuseManualStart=true",
+                        "-p", "RefuseManualStop=true",
                         # NOTE: subprocess_call here will do a chroot back to host_root.
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
                         "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
