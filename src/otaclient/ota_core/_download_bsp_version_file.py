@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Check BSP version compatibility."""
+"""Download BSP version file."""
 
 from __future__ import annotations
 
@@ -21,9 +21,7 @@ from http import HTTPStatus
 from typing import Optional
 from urllib.parse import urlsplit
 
-from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
 from otaclient.boot_control.configs import JetsonBootCommon
-from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
@@ -34,9 +32,8 @@ RETRY_TIMES = 12
 RETRY_INTERVAL = 1  # second
 
 
-def _download_bsp_version_file(
-    base_url: str, *, downloader_pool: DownloaderPool
-) -> Optional[str]:
+# API function
+def download(base_url: str, *, downloader_pool: DownloaderPool) -> Optional[str]:
     """Download BSP version file content."""
     logger.info("perform BSP version compatibility check ...")
     _downloader = downloader_pool.get_instance()
@@ -68,31 +65,3 @@ def _download_bsp_version_file(
         return None
     finally:
         downloader_pool.release_instance()
-
-
-# API function
-def check_bsp_version_legacy(
-    base_url: str,
-    *,
-    downloader_pool: DownloaderPool,
-    boot_controller: BootControllerProtocol,
-) -> bool:
-    """Check BSP version compatibility for legacy OTA image."""
-
-    # check if the boot controller is Jetson UEFI
-    if not isinstance(boot_controller, JetsonUEFIBootControl):
-        logger.info("BSP version check is skipped for non-Jetson UEFI bootloader.")
-        return True
-
-    # downloaded BSP version file content
-    _download_bsp_version_file_content = _download_bsp_version_file(
-        base_url, downloader_pool=downloader_pool
-    )
-    if _download_bsp_version_file_content is None:
-        logger.info("BSP version file not found; skipping compatibility check.")
-        return True  # Skip check if file not found
-
-    # perform compatibility check
-    return boot_controller.check_bsp_version_compatibility(
-        _download_bsp_version_file_content
-    )

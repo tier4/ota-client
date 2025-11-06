@@ -38,11 +38,9 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
 from otaclient._utils import SharedOTAClientMetricsReader
-from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.metrics import OTAMetricsData
-from otaclient.ota_core._check_bsp_version import check_bsp_version_legacy
 from otaclient.ota_core._common import download_exception_handler
 from otaclient.ota_core._download_resources import (
     DownloadHelperForLegacyOTAImage,
@@ -278,24 +276,6 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
             self._ota_metadata.total_symlinks_num
         )
 
-    def _image_compatibility_verifications(
-        self, boot_controller: BootControllerProtocol
-    ) -> None:
-        """Perform image compatibility verifications before proceeding with the update."""
-
-        # BSP version check
-        is_compatible = check_bsp_version_legacy(
-            self.url_base,
-            downloader_pool=self._downloader_pool,
-            boot_controller=boot_controller,
-        )
-        if is_compatible:
-            logger.info("BSP version compatibility check passed.")
-        else:
-            _err_msg = "BSP version compatibility check failed, abort OTA"
-            logger.error(_err_msg)
-            raise ota_errors.IncompatibleImageError(_err_msg, module=__name__)
-
 
 class OTAImageV1SupportMixin(OTAUpdateInitializer):
     def setup_ota_image_support(
@@ -440,10 +420,3 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
         self._metrics.ota_image_total_symlinks_num = (
             image_config.sys_image_non_regular_files_count
         )
-
-    def _image_compatibility_verifications(
-        self, boot_controller: BootControllerProtocol
-    ) -> None:
-        """Perform image compatibility verifications before proceeding with the update."""
-        # TODO(20251029): should be implemented by referring to annotations.
-        pass

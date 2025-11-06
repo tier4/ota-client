@@ -11,24 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for BSP version compatibility check functionality."""
+"""Tests for BSP version file download functionality."""
 
 from __future__ import annotations
 
 from http import HTTPStatus
-from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
 
-from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
-from otaclient.ota_core import _check_bsp_version
-from otaclient.ota_core._check_bsp_version import (
-    check_bsp_version_legacy,
-)
+from otaclient.ota_core import _download_bsp_version_file
 from otaclient_common.downloader import DownloaderPool
 
-MODULE = _check_bsp_version.__name__
+MODULE = _download_bsp_version_file.__name__
 
 
 class TestDownloadBSPVersionFile:
@@ -59,7 +54,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia
 TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         downloader._session.get.return_value = mock_response
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
@@ -79,7 +74,7 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         mock_response.status_code = HTTPStatus.NOT_FOUND
         downloader._session.get.return_value = mock_response
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
@@ -97,7 +92,7 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         mock_response.status_code = HTTPStatus.UNAUTHORIZED
         downloader._session.get.return_value = mock_response
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
@@ -130,7 +125,7 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         # Mock time.sleep to avoid actual delays
         mocker.patch(f"{MODULE}.time.sleep")
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
@@ -154,7 +149,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia
 TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         downloader._session.get.return_value = mock_response
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
@@ -176,127 +171,10 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         # Mock time.sleep
         mocker.patch(f"{MODULE}.time.sleep")
 
-        result = _check_bsp_version._download_bsp_version_file(
+        result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
         # Should return None after retries exhausted
         assert result is None
         pool.release_instance.assert_called_once()
-
-
-class TestCheckBSPVersionLegacy:
-    """Test check_bsp_version_legacy function."""
-
-    @pytest.fixture
-    def mock_boot_controller(self, mocker: MockerFixture):
-        """Create a mock boot controller for Jetson UEFI tests.
-
-        Uses spec_set to ensure isinstance check works correctly.
-        """
-        controller = mocker.MagicMock(spec_set=JetsonUEFIBootControl)
-        controller.check_bsp_version_compatibility.return_value = True
-        return controller
-
-    @pytest.fixture
-    def mock_downloader_pool(self, mocker: MockerFixture):
-        """Create a mock downloader pool."""
-        return mocker.MagicMock(spec=DownloaderPool)
-
-    def test_check_bsp_version_legacy_jetson_uefi_compatible(
-        self,
-        mock_boot_controller: MagicMock,
-        mock_downloader_pool: MagicMock,
-        mocker: MockerFixture,
-    ):
-        """Test BSP version check for Jetson UEFI with compatible versions."""
-        # Mock download to return BSP version content (real file format)
-        bsp_version_content = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
-# KERNEL_VARIANT: oot
-TARGET_USERSPACE_LIB_DIR=nvidia
-TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
-        mocker.patch(
-            f"{MODULE}._download_bsp_version_file",
-            return_value=bsp_version_content,
-        )
-
-        result = check_bsp_version_legacy(
-            "https://example.com/ota",
-            downloader_pool=mock_downloader_pool,
-            boot_controller=mock_boot_controller,
-        )
-
-        assert result is True
-        mock_boot_controller.check_bsp_version_compatibility.assert_called_once_with(
-            bsp_version_content
-        )
-
-    def test_check_bsp_version_legacy_jetson_uefi_incompatible(
-        self,
-        mock_boot_controller: MagicMock,
-        mock_downloader_pool: MagicMock,
-        mocker: MockerFixture,
-    ):
-        """Test BSP version check for Jetson UEFI with incompatible versions."""
-        # Mock download to return BSP version content (real file format)
-        bsp_version_content = """# R36 (release), REVISION: 3.0, GCID: 36851668, BOARD: t186ref, EABI: aarch64, DATE: Wed Jul 31 00:50:19 UTC 2024
-# KERNEL_VARIANT: oot
-TARGET_USERSPACE_LIB_DIR=nvidia
-TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
-        mocker.patch(
-            f"{MODULE}._download_bsp_version_file",
-            return_value=bsp_version_content,
-        )
-        # Mock incompatibility
-        mock_boot_controller.check_bsp_version_compatibility.return_value = False
-
-        result = check_bsp_version_legacy(
-            "https://example.com/ota",
-            downloader_pool=mock_downloader_pool,
-            boot_controller=mock_boot_controller,
-        )
-
-        assert result is False
-        mock_boot_controller.check_bsp_version_compatibility.assert_called_once()
-
-    def test_check_bsp_version_legacy_file_not_found(
-        self,
-        mock_boot_controller: MagicMock,
-        mock_downloader_pool: MagicMock,
-        mocker: MockerFixture,
-    ):
-        """Test when BSP version file is not found in OTA image."""
-        # Mock download to return None (file not found)
-        mocker.patch(
-            f"{MODULE}._download_bsp_version_file",
-            return_value=None,
-        )
-
-        result = check_bsp_version_legacy(
-            "https://example.com/ota",
-            downloader_pool=mock_downloader_pool,
-            boot_controller=mock_boot_controller,
-        )
-
-        # Should skip check and return True
-        assert result is True
-        mock_boot_controller.check_bsp_version_compatibility.assert_not_called()
-
-    def test_check_bsp_version_legacy_non_jetson_uefi(
-        self,
-        mock_downloader_pool: MagicMock,
-        mocker: MockerFixture,
-    ):
-        """Test that BSP version check is skipped for non-Jetson UEFI bootloaders."""
-        # Create a mock that is NOT a JetsonUEFIBootControl instance
-        non_jetson_controller = mocker.MagicMock()
-
-        result = check_bsp_version_legacy(
-            "https://example.com/ota",
-            downloader_pool=mock_downloader_pool,
-            boot_controller=non_jetson_controller,
-        )
-
-        # Should skip check and return True
-        assert result is True
-        non_jetson_controller.check_bsp_version_compatibility.assert_not_called()

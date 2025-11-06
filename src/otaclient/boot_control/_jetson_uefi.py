@@ -58,7 +58,6 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
-    parse_nv_tegra_release,
     preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
 )
@@ -72,8 +71,6 @@ MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(34, 0, 0)
 """Only after R34, UEFI is introduced."""
 FIRMWARE_UPDATE_MINIMUM_SUPPORTED_BSP_VERSION = BSPVersion(35, 2, 0)
 """Only after R35.2, UEFI Capsule firmware update is introduced."""
-CROSS_GENERATION_BSP_VERSION_BOUNDARY = 36
-"""BSP version R36 introduces significant changes that require matching firmware and rootfs versions."""
 
 L4TLAUNCHER_BSP_VER_SHA256_MAP: dict[str, BSPVersion] = {
     "b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718": BSPVersion(
@@ -983,6 +980,39 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def standby_slot_dev(self) -> Path:
         return Path(self._mp_control.standby_slot_dev)
 
+    def standby_slot_bsp_ver_check(
+        self, bsp_ver_str: str | BSPVersion
+    ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
+        """Check if the input BSP version matches the firmware BSP version of standby slot.
+
+        If the BSP version is mismatched, we should reject the OTA.
+
+        Returns:
+            Return a tuple indicates the check result. If the first element is True, BSP version
+                matches, otherwise return False with a tuple of input BSPVersion, expected BSPVersion.
+        """
+        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
+
+        fw_bsp_ver = standby_fw_bsp_ver
+        if not fw_bsp_ver:
+            logger.warning(
+                "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
+            )
+            fw_bsp_ver = active_fw_bsp_ver
+
+        try:
+            _bsp_ver = BSPVersion.parse(bsp_ver_str)
+        except Exception as e:
+            logger.warning(f"input BSP version string({bsp_ver_str}) is invalid: {e!r}")
+            return False, (None, fw_bsp_ver)
+
+        if fw_bsp_ver == _bsp_ver:
+            return True, None
+
+        logger.error(f"{active_fw_bsp_ver} != {_bsp_ver}")
+        return False, (_bsp_ver, fw_bsp_ver)
+
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
         return self._mp_control.standby_slot_dev
 
@@ -1137,28 +1167,3 @@ class JetsonUEFIBootControl(BootControllerProtocol):
 
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
-
-    def check_bsp_version_compatibility(
-        self, download_bsp_version_file_content: str
-    ) -> bool:
-        """
-        This function is dedicated jetson-uefi to check BSP version compatibility.
-        Check BSP version compatibility between current rootfs and download image.
-        """
-        rootfs_bsp_ver = self._uefi_control.rootfs_bsp_version
-        if rootfs_bsp_ver is None:
-            logger.warning(
-                "cannot detect current rootfs BSP version, skip BSP version compatibility check"
-            )
-            return True
-        download_bsp_ver = parse_nv_tegra_release(download_bsp_version_file_content)
-
-        # ------ check for cross-generation BSP version mismatch (R36 boundary) ------ #
-        download_bsp_ver_is_r36_or_later = (
-            download_bsp_ver.major_ver >= CROSS_GENERATION_BSP_VERSION_BOUNDARY
-        )
-        rootfs_bsp_ver_is_r36_or_later = (
-            rootfs_bsp_ver.major_ver >= CROSS_GENERATION_BSP_VERSION_BOUNDARY
-        )
-
-        return download_bsp_ver_is_r36_or_later == rootfs_bsp_ver_is_r36_or_later

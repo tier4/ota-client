@@ -63,7 +63,6 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 312
     E_APPLY_OTAUPDATE_FAILED = 313
     E_OTACLIENT_STARTUP_FAILED = 314
-    E_OTA_INCOMPATIBLE_IMAGE = 315
 
     def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
@@ -307,11 +306,4 @@ class OTAClientStartupFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTACLIENT_STARTUP_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to start otaclient instance"
-    )
-
-
-class IncompatibleImageError(OTAErrorUnrecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_INCOMPATIBLE_IMAGE
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: the OTA image is incompatible with the current system"
     )
