@@ -1010,7 +1010,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         if fw_bsp_ver == _bsp_ver:
             return True, None
 
-        logger.error(f"{active_fw_bsp_ver} != {_bsp_ver}")
+        logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
         return False, (_bsp_ver, fw_bsp_ver)
 
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
