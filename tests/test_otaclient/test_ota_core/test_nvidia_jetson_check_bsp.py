@@ -57,7 +57,7 @@ class TestNvidiaJetsonCheckBSPLegacy:
 
         # Mock download to return None (file not found)
         mocker.patch(
-            "otaclient.ota_core._updater._download_bsp_version_file.download",
+            "otaclient.ota_core._download_bsp_version_file.download",
             return_value=None,
         )
 
@@ -78,14 +78,14 @@ class TestNvidiaJetsonCheckBSPLegacy:
 # KERNEL_VARIANT: oot
 TARGET_USERSPACE_LIB_DIR=nvidia"""
         mocker.patch(
-            "otaclient.ota_core._updater._download_bsp_version_file.download",
+            "otaclient.ota_core._download_bsp_version_file.download",
             return_value=raw_bsp_content,
         )
 
         # Mock parse_nv_tegra_release
         parsed_version = BSPVersion(36, 4, 0)
         mocker.patch(
-            "otaclient.ota_core._updater.parse_nv_tegra_release",
+            "otaclient.boot_control._jetson_common.parse_nv_tegra_release",
             return_value=parsed_version,
         )
 
@@ -111,14 +111,14 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
 # KERNEL_VARIANT: oot
 TARGET_USERSPACE_LIB_DIR=nvidia"""
         mocker.patch(
-            "otaclient.ota_core._updater._download_bsp_version_file.download",
+            "otaclient.ota_core._download_bsp_version_file.download",
             return_value=raw_bsp_content,
         )
 
         # Mock parse_nv_tegra_release
         parsed_version = BSPVersion(36, 4, 0)
         mocker.patch(
-            "otaclient.ota_core._updater.parse_nv_tegra_release",
+            "otaclient.boot_control._jetson_common.parse_nv_tegra_release",
             return_value=parsed_version,
         )
 
@@ -144,7 +144,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
 
         # Mock download to return empty string
         mocker.patch(
-            "otaclient.ota_core._updater._download_bsp_version_file.download",
+            "otaclient.ota_core._download_bsp_version_file.download",
             return_value="",
         )
 
@@ -166,7 +166,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
 TARGET_USERSPACE_LIB_DIR=nvidia
 TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         mocker.patch(
-            "otaclient.ota_core._updater._download_bsp_version_file.download",
+            "otaclient.ota_core._download_bsp_version_file.download",
             return_value=raw_bsp_content,
         )
 
