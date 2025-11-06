@@ -103,7 +103,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
     def test_bsp_version_check_failure_raises_error(
         self, mock_ota_updater: tuple, mocker: MockerFixture
     ):
-        """Test that incompatible BSP versions raise BootControlPreUpdateFailed."""
+        """Test that incompatible BSP versions raise BootControlBSPVersionCompatibilityFailed."""
         updater, mock_boot_controller = mock_ota_updater
 
         # Mock successful download
@@ -128,8 +128,10 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
             "R35.4.1",
         )
 
-        # Should raise BootControlPreUpdateFailed
-        with pytest.raises(ota_errors.BootControlPreUpdateFailed) as exc_info:
+        # Should raise BootControlBSPVersionCompatibilityFailed
+        with pytest.raises(
+            ota_errors.BootControlBSPVersionCompatibilityFailed
+        ) as exc_info:
             updater._nvidia_jetson_check_bsp_legacy()
 
         # Verify error message contains BSP version info
