@@ -24,10 +24,12 @@ import multiprocessing.shared_memory as mp_shm
 import os
 import secrets
 import signal
+import subprocess
 import sys
 import threading
 import time
 from functools import partial
+from pathlib import Path
 
 from otaclient import __version__
 from otaclient._types import (
@@ -43,7 +45,15 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
 )
 from otaclient.configs.cfg import cfg
-from otaclient_common.cmdhelper import ensure_umount
+from otaclient_common import replace_root
+from otaclient_common.cmdhelper import (
+    bind_mount_ro,
+    bind_mount_rw,
+    ensure_mount,
+    ensure_umount,
+    mount_tmpfs,
+    subprocess_call,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +64,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
+SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
 METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
@@ -66,7 +77,7 @@ _shm: mp_shm.SharedMemory | None = None
 _shm_metrics: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
+def _on_shutdown(sys_exit: bool | int = False):  # pragma: no cover
     global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -88,7 +99,9 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
         _shm_metrics.unlink()
         _shm_metrics = None
 
-    if sys_exit:
+    _should_sys_exit = sys_exit is not False
+    if _should_sys_exit:
+        _exit_code = sys_exit if isinstance(sys_exit, int) else 1
         try:
             logger.warning(
                 "otaclient will exit now, unconditionally umount all mount points ..."
@@ -97,7 +110,60 @@ def _on_shutdown(sys_exit: bool = False) -> None:  # pragma: no cover
             ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
             ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
         finally:
-            sys.exit(1)
+            sys.exit(_exit_code)
+
+
+def _dynamic_otaclient_init():
+    """Some special treatments for dynamic otaclient starting.
+
+    This includes:
+    1. setting up the /ota-cache folder from host mount.
+    2. setting up the /run/otaclient/mnt/active_slot mount point
+        from /host_root.
+    3. setting up a tmpfs mount on /tmp.
+    """
+    _host_root = Path(cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT)
+    _host_root_ota_cache = Path(
+        replace_root(
+            cfg.OTAPROXY_CACHE_DIR,
+            cfg.CANONICAL_ROOT,
+            _host_root,
+        )
+    )
+    _host_root_ota_cache.mkdir(exist_ok=True, parents=True)
+
+    # NOTE: otaclient mount space is located in /run/otaclient/mnt,
+    #       which is bind mounted(the whole /run) into the APP image from host.
+    _active_slot_mp = Path(cfg.ACTIVE_SLOT_MNT)
+    _active_slot_mp.mkdir(exist_ok=True, parents=True)
+
+    ensure_mount(
+        target=_host_root_ota_cache,
+        mnt_point=cfg.OTAPROXY_CACHE_DIR,
+        mount_func=bind_mount_rw,
+        raise_exception=True,
+    )
+    ensure_mount(
+        target=_host_root,
+        mnt_point=_active_slot_mp,
+        mount_func=bind_mount_ro,
+        raise_exception=True,
+    )
+
+    # NOTE: for ubuntu 18.04 backward compat, we don't use systemd's TemporaryFileSystem
+    #       directory to configure tmpfs within otaclient app.
+    # NOTE: although the /tmp mostly will not be used, but for fallback, still
+    #       prepare a tmpfs mount on the /tmp.
+    _tmp_mp = "/tmp"
+    ensure_mount(
+        "tmpfs",
+        _tmp_mp,
+        mount_func=partial(
+            mount_tmpfs,
+            size_in_mb=cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB,
+        ),
+        raise_exception=True,
+    )
 
 
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
@@ -113,7 +179,6 @@ def main() -> None:  # pragma: no cover
         otaproxy_on_global_shutdown,
     )
     from otaclient._utils import check_other_otaclient
-    from otaclient.client_package import OTAClientPackagePreparer
     from otaclient.configs.cfg import cfg, ecu_info, proxy_info
     from otaclient.grpc.api_v2.main import grpc_server_process
     from otaclient.ota_core import ota_core_process
@@ -128,12 +193,17 @@ def main() -> None:  # pragma: no cover
     logger.info(f"otaclient version: {__version__}")
     logger.info(f"ecu_info.yaml: \n{ecu_info}")
     logger.info(f"proxy_info.yaml: \n{proxy_info}")
+    logger.info(f"running as app image: {_env.is_dynamic_client_running()}")
     logger.info(
-        f"env.preparing_downloaded_dynamic_ota_client: {os.getenv(cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
+        f"env.running_downloaded_dynamic_ota_client: {_env.is_running_as_downloaded_dynamic_app()}"
     )
-    logger.info(
-        f"env.running_downloaded_dynamic_ota_client: {os.getenv(cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT)}"
-    )
+
+    # NOTE: if we are running as dynamic client by OTACLIENTUPDATE, we don't need the init,
+    #       as the launcher otaclient has setup the environment for us.
+    if _env.is_running_as_app_image():
+        logger.info("initializing for running as dynamic otaclient ...")
+        _dynamic_otaclient_init()
+
     # Log system uptime (time since OS boot)
     try:
         uptime_seconds = time.clock_gettime(time.CLOCK_BOOTTIME)
@@ -146,42 +216,8 @@ def main() -> None:  # pragma: no cover
     except Exception as e:
         logger.warning(f"failed to read system uptime: {e}")
 
-    if _env.is_dynamic_client_preparing():
-        logger.info("preparing downloaded dynamic ota client ...")
-        try:
-            logger.info("mounting dynamic client squashfs ...")
-            client_package_prepareter = OTAClientPackagePreparer(
-                squashfs_file=cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
-                mount_base=cfg.DYNAMIC_CLIENT_MNT,
-                active_root=cfg.ACTIVE_ROOT,
-                active_slot_mnt_point=cfg.ACTIVE_SLOT_MNT,
-                host_root_mnt_point=cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
-                bootloader=ecu_info.bootloader,
-            )
-            client_package_prepareter.mount_client_package()
-
-            _mount_base = cfg.DYNAMIC_CLIENT_MNT
-            logger.info(f"changing root to {_mount_base}")
-            os.chroot(_mount_base)
-            os.chdir("/")
-
-            logger.info("execve for dynamic client runnning ...")
-            running_env = os.environ.copy()
-            del running_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT]
-            running_env[cfg.RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
-            # the process should finish after this execve call
-            DYNAMIC_CLIENT_PYTHON_PATH = "/otaclient/venv/bin/python3"
-            os.execve(
-                path=DYNAMIC_CLIENT_PYTHON_PATH,
-                argv=[DYNAMIC_CLIENT_PYTHON_PATH, "-m", "otaclient"],
-                env=running_env,
-            )
-        except Exception as e:
-            logger.exception(f"Failed during dynamic client preparation: {e}")
-        return sys.exit(1)
-
-    if not _env.is_dynamic_client_running():
-        # in dynamic client, the pid file has already been created
+    # for dynamic loaded otaclient, skip other otaclient check
+    if not _env.is_running_as_downloaded_dynamic_app():
         check_other_otaclient(cfg.OTACLIENT_PID_FILE)
 
     #
@@ -303,6 +339,11 @@ def main() -> None:  # pragma: no cover
 
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
+            _dynamic_service_unit = f"otaclient_dynamic_app_{os.urandom(4).hex()}"
+            logger.info(
+                f"will launch dynamic otaclient app with systemd(service_unit: {_dynamic_service_unit}) ..."
+            )
+
             try:
                 # exit ota proxy thread if it is running
                 if _otaproxy_control_t and _otaproxy_control_t.is_alive():
@@ -343,19 +384,79 @@ def main() -> None:  # pragma: no cover
                         except Exception as e:
                             logger.error(f"failed to stop the resource tracker: {e!r}")
 
-                logger.info("execve for dynamic client preparation ...")
-                # Create a copy of the current environment and modify it
-                preparing_env = os.environ.copy()
-                preparing_env[cfg.PREPARING_DOWNLOADED_DYNAMIC_OTA_CLIENT] = "yes"
-                # Execute with the modified environment
-                os.execve(
-                    path=sys.executable,
-                    argv=[sys.executable, "-m", "otaclient"],
-                    env=preparing_env,
+                Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
+                # NOTE: the old otaclient's main process will just wait for the dynamic otaclient
+                #       finishes up running as we don't want the old otaclient restart.
+                # NOTE(20251010): we cannot use os.execve as if we are running as systemd managed
+                #                 APP image, os.execve will be executed from within the APP image.
+                # fmt: off
+                logger.info(f"launch dynamic otaclient with {_dynamic_service_unit}")
+                subprocess_call(
+                    cmd = [
+                        "systemd-run",
+                        f"--unit={_dynamic_service_unit}", "-G", "--wait",
+                        "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
+                        "--setenv=RUNNING_AS_APP_IMAGE=",
+                        "-p", f"Description={_dynamic_service_unit}",
+                        # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
+                        #       exits, this is for handling user manually `systemctl stop otaclient`.
+                        "-p", "PartOf=otaclient.service",
+                        "-p", "Type=simple",
+                        # NOTE: prevent the dynamic otaclient APP being start/stop manually, the stop should
+                        #       be done by stop the main otaclient.service instead. Restart is also prohibited.
+                        "-p", "RefuseManualStart=true",
+                        "-p", "RefuseManualStop=true",
+                        # NOTE: subprocess_call here will do a chroot back to host_root.
+                        "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
+                        "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
+                        "-p", "ExecStartPre=/bin/mkdir -p /host_root/ota-cache",
+                        "-p", "BindPaths=/boot:/boot:rbind",
+                        "-p", "BindPaths=/dev:/dev",
+                        "-p", "BindPaths=/dev/shm:/dev/shm",
+                        "-p", "BindPaths=/etc:/etc",
+                        "-p", "BindPaths=/opt:/opt",
+                        "-p", "BindPaths=/proc:/proc",
+                        "-p", "BindPaths=/root:/root",
+                        "-p", "BindPaths=/sys:/sys:rbind",
+                        "-p", "BindPaths=/run:/run",
+                        "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
+                        "-p", "BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates",
+                        "-p", "BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo",
+                        "-p", "BindPaths=/:/host_root:rbind",
+                        # NOTE: although new systemd compatible APP image runs from /otaclient/otaclient, for backward compatibility
+                        #       concern, we still start the otaclient from /otaclient/venv/bin/python3.
+                        #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
+                        #       /otaclient/otaclient.
+                        # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
+                        #       with old otaclient APP image, we still setup the mount points here.
+                        "/bin/bash", "-c",
+                        (
+                            "mount -o bind /host_root/ota-cache /ota-cache && "
+                            "mount -o bind,ro /host_root /run/otaclient/mnt/active_slot && "
+                            f"mount -t tmpfs -o size={cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB}M tmpfs /tmp && "
+                            "/otaclient/venv/bin/python3 -m otaclient"
+                        ),
+                    ],
+                    chroot=_env.get_dynamic_client_chroot_path(),
+                    raise_exception=True,
                 )
+
+                logger.info("dynamic otaclient finishes the OTA successfully, waiting for system reboot ...")
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+                _on_shutdown(sys_exit=0)
+            # fmt: on
             except Exception as e:
-                logger.exception(f"Failed during dynamic client preparation: {e}")
-                return _on_shutdown(sys_exit=True)
+                logger.exception(f"failed to launch dynamic client with systemd: {e}")
+                if isinstance(e, subprocess.CalledProcessError):
+                    logger.error(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
+
+                logger.warning(
+                    f"otaclient will exit in {SHUTDOWN_ON_DYNAMIC_APP_FAILED}!"
+                )
+                time.sleep(SHUTDOWN_ON_DYNAMIC_APP_FAILED)
+                _on_shutdown(sys_exit=1)
+            finally:
+                sys.exit(1)  # just for typing
 
         # shutdown request
         if client_update_control_flags.request_shutdown_event.is_set():

@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import logging
 import os
 import shlex
@@ -31,6 +33,39 @@ try:
     from shutil import _fastcopy_sendfile  # type: ignore
 except ImportError:
     _fastcopy_sendfile = None
+
+try:
+    from os import setns as _setns  # type: ignore
+except ImportError:  # for python < 3.12
+    # NOTE(20251029): actually the below code will not be used basically,
+    #                   when otaclient(v3.12+) distributed as app image,
+    #                   it will be distributed under python3.13.
+    #
+    #                 if somehow otaclient(v3.12+) is installed with venv,
+    #                   we are not in app image environment, the below code
+    #                   will also not be used.
+    _libc_path = ctypes.util.find_library("c")
+    _libc = ctypes.CDLL(_libc_path, use_errno=True)
+    _libc_setns = _libc.setns
+
+    def _setns(_fd: int, _nstype=0) -> None:
+        if _libc_setns(_fd, _nstype) != 0:
+            _last_e = ctypes.get_errno()
+            raise OSError(f"setns failed: {os.strerror(_last_e)}")
+
+
+def setns_wrapper(_fd: str | int, _nstype: int = 0) -> None:
+    if isinstance(_fd, int):
+        return _setns(_fd, _nstype)
+
+    _opened_fd = os.open(_fd, os.O_RDONLY)
+    try:
+        _setns(_opened_fd, _nstype)
+    finally:
+        os.close(_opened_fd)
+
+
+_root_mnt_ns = "/proc/1/ns/mnt"
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +238,8 @@ def subprocess_run_wrapper(
     *,
     check: bool,
     check_output: bool,
-    chroot: Optional[StrOrPath] = None,
+    chroot: StrOrPath | None = None,
+    set_host_mnt_ns: bool = False,
     env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
@@ -218,6 +254,8 @@ def subprocess_run_wrapper(
         cmd (str | list[str]): command to be executed.
         check (bool): if True, raise CalledProcessError on non 0 return code.
         check_output (bool): if True, the UTF-8 decoded stdout will be returned.
+        chroot (StrOrPath | None): if set, will do a chroot to <chroot> before subprocess exec.
+        set_host_mnt_ns (bool): if set to True, will do a setns to host mount ns before subprocess exec.
         timeout (Optional[float], optional): timeout for execution. Defaults to None.
 
     Returns:
@@ -227,13 +265,18 @@ def subprocess_run_wrapper(
         cmd = shlex.split(cmd)
 
     preexec_fn: Optional[Callable[..., Any]] = None
-    if chroot:
+    if chroot or set_host_mnt_ns:
 
-        def _chroot():
-            os.chroot(chroot)
-            os.chdir("/")
+        def _preexec():
+            if chroot:
+                os.chroot(chroot)
+                os.chdir("/")
 
-        preexec_fn = _chroot
+            # NOTE(20251029): only support sent back to host mnt ns
+            if set_host_mnt_ns:
+                setns_wrapper(_root_mnt_ns)
+
+        preexec_fn = _preexec
 
     _run_func = subprocess.run
     if RUN_AS_PYINSTALLER_BUNDLE:
