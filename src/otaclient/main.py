@@ -77,7 +77,7 @@ _shm: mp_shm.SharedMemory | None = None
 _shm_metrics: mp_shm.SharedMemory | None = None
 
 
-def _on_shutdown(sys_exit: bool = False):  # pragma: no cover
+def _on_shutdown(sys_exit: bool | int = False):  # pragma: no cover
     global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
     if _ota_core_p:
         _ota_core_p.terminate()
@@ -99,7 +99,10 @@ def _on_shutdown(sys_exit: bool = False):  # pragma: no cover
         _shm_metrics.unlink()
         _shm_metrics = None
 
-    if sys_exit:
+    _should_sys_exit = sys_exit is not False
+    _exit_code = sys_exit if isinstance(sys_exit, int) else 1
+
+    if _should_sys_exit:
         try:
             logger.warning(
                 "otaclient will exit now, unconditionally umount all mount points ..."
@@ -108,7 +111,7 @@ def _on_shutdown(sys_exit: bool = False):  # pragma: no cover
             ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
             ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
         finally:
-            sys.exit(1)
+            sys.exit(_exit_code)
 
 
 def _dynamic_otaclient_init():
@@ -441,18 +444,16 @@ def main() -> None:  # pragma: no cover
 
                 logger.info("dynamic otaclient finishes the OTA successfully, waiting for system reboot ...")
                 time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
-                sys.exit(0)
+                _on_shutdown(sys_exit=0)
             # fmt: on
-            except subprocess.CalledProcessError as e:
-                logger.exception(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
             except Exception as e:
                 logger.exception(f"failed to launch dynamic client with systemd: {e}")
+                if isinstance(e, subprocess.CalledProcessError):
+                    logger.error(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
+
+                logger.warning("otaclient will exit now!")
+                _on_shutdown(sys_exit=1)
             finally:
-                logger.warning(
-                    f"otaclient will exit in {SHUTDOWN_ON_DYNAMIC_APP_EXIT=}s ..."
-                )
-                time.sleep(SHUTDOWN_ON_DYNAMIC_APP_EXIT)
-                _on_shutdown(sys_exit=True)
                 sys.exit(1)  # just for typing
 
         # shutdown request
