@@ -746,13 +746,13 @@ class _UEFIBootControl:
 
         # check current slot rootfs BSP version
         try:
-            self.rootfs_bsp_verion = rootfs_bsp_version = detect_rootfs_bsp_version(
+            self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
                 rootfs=cfg.ACTIVE_ROOT
             )
             logger.info(f"current slot rootfs BSP version: {rootfs_bsp_version}")
         except Exception as e:
             logger.warning(f"failed to detect rootfs BSP version: {e!r}")
-            self.rootfs_bsp_verion = rootfs_bsp_version = None
+            self.rootfs_bsp_version = rootfs_bsp_version = None
 
         if rootfs_bsp_version and rootfs_bsp_version > fw_bsp_version:
             logger.warning(
@@ -979,6 +979,39 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     @property
     def standby_slot_dev(self) -> Path:
         return Path(self._mp_control.standby_slot_dev)
+
+    def standby_slot_bsp_ver_check(
+        self, bsp_ver_str: str | BSPVersion
+    ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
+        """Check if the input BSP version matches the firmware BSP version of standby slot.
+
+        If the BSP version is mismatched, we should reject the OTA.
+
+        Returns:
+            Return a tuple indicates the check result. If the first element is True, BSP version
+                matches, otherwise return False with a tuple of input BSPVersion, expected BSPVersion.
+        """
+        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
+        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
+
+        fw_bsp_ver = standby_fw_bsp_ver
+        if not fw_bsp_ver:
+            logger.warning(
+                "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
+            )
+            fw_bsp_ver = active_fw_bsp_ver
+
+        try:
+            _bsp_ver = BSPVersion.parse(bsp_ver_str)
+        except Exception as e:
+            logger.warning(f"input BSP version string({bsp_ver_str}) is invalid: {e!r}")
+            return False, (None, fw_bsp_ver)
+
+        if fw_bsp_ver == _bsp_ver:
+            return True, None
+
+        logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
+        return False, (_bsp_ver, fw_bsp_ver)
 
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
         return self._mp_control.standby_slot_dev
