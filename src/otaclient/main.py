@@ -100,9 +100,8 @@ def _on_shutdown(sys_exit: bool | int = False):  # pragma: no cover
         _shm_metrics = None
 
     _should_sys_exit = sys_exit is not False
-    _exit_code = sys_exit if isinstance(sys_exit, int) else 1
-
     if _should_sys_exit:
+        _exit_code = sys_exit if isinstance(sys_exit, int) else 1
         try:
             logger.warning(
                 "otaclient will exit now, unconditionally umount all mount points ..."
