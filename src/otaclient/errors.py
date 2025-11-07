@@ -63,6 +63,7 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 312
     E_APPLY_OTAUPDATE_FAILED = 313
     E_OTACLIENT_STARTUP_FAILED = 314
+    E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 315
 
     def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
@@ -250,6 +251,15 @@ class BootControlPostRollbackFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_POSTROLLBACK_FAILED
     failure_description: str = (
         f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control post_rollback process failed"
+    )
+
+
+class BootControlBSPVersionCompatibilityFailed(OTAErrorUnrecoverable):
+    failure_errcode: OTAErrorCode = (
+        OTAErrorCode.E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED
+    )
+    failure_description: str = (
+        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control BSP version compatibility check failed"
     )
 
 

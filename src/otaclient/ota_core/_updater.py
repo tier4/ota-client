@@ -38,14 +38,14 @@ from otaclient._status_monitor import (
 )
 from otaclient._types import CriticalZoneFlag, UpdatePhase
 from otaclient._utils import wait_and_log
-from otaclient.boot_control._jetson_uefi import (
-    JetsonUEFIBootControl,
-)
+from otaclient.boot_control._jetson_common import parse_nv_tegra_release
+from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
+from otaclient.ota_core import _download_bsp_version_file
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -105,7 +105,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         # NOTE(20250905): if ota_resources dir on active slot presented,
         #                 no need to use rebuild mode.
         _ota_resources_dir_presented = self._resource_dir_on_active.is_dir()
-        with TemporaryDirectory() as _tmp_dir:
+        with TemporaryDirectory(dir=self._session_workdir) as _tmp_dir:
             self._can_use_in_place_mode = use_inplace_mode = can_use_in_place_mode(
                 dev=self._boot_controller.standby_slot_dev,
                 mnt_point=_tmp_dir,
@@ -414,9 +414,39 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
 
     def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         super()._process_metadata(only_metadata_verification)
+        # for Jetson UEFI device, apply BSP check, and interrupt OTA if needed
+        if isinstance(self._boot_controller, JetsonUEFIBootControl):
+            self._nvidia_jetson_check_bsp_legacy()
+
         self.total_regulars_size = self._ota_metadata.total_regulars_size
         self._fst_db_helper = self._ota_metadata.file_table_helper
         self._iter_persists_func = self._ota_metadata.iter_persist_entries
+
+    def _nvidia_jetson_check_bsp_legacy(self):
+        _bootloader = self._boot_controller
+        assert isinstance(_bootloader, JetsonUEFIBootControl)
+
+        # downloaded BSP version file content
+        _raw_download_bsp_ver_str = _download_bsp_version_file.download(
+            self.url_base, downloader_pool=self._downloader_pool
+        )
+        if not _raw_download_bsp_ver_str:
+            logger.info("BSP version file not found; skipping compatibility check.")
+            return
+
+        _download_bsp_ver = parse_nv_tegra_release(_raw_download_bsp_ver_str)
+        # perform compatibility check
+        _check_res, _bsp_vers = _bootloader.standby_slot_bsp_ver_check(
+            _download_bsp_ver
+        )
+        if not _check_res:
+            _err_msg = (
+                f"OTA image's BSP version doesn't match(input_bsp: fw_bsp={_bsp_vers}) "
+                "ECU standby slot's firmware BSP version, reject OTA!"
+            )
+            raise ota_errors.BootControlBSPVersionCompatibilityFailed(
+                _err_msg, module=__name__
+            )
 
 
 class OTAUpdateOperatorInitOTAImageV1(OTAUpdateInterfaceArgs):

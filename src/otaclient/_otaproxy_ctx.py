@@ -29,9 +29,7 @@ from functools import partial
 from pathlib import Path
 from typing import Callable
 
-from ota_proxy import config as local_otaproxy_cfg
 from ota_proxy import run_otaproxy
-from ota_proxy.config import config as otaproxy_cfg
 from otaclient._types import MultipleECUStatusFlags
 from otaclient._utils import SharedOTAClientMetricsWriter
 from otaclient.configs.cfg import cfg, proxy_info
@@ -99,8 +97,8 @@ def otaproxy_process(
         host=host,
         port=port,
         init_cache=init_cache,
-        cache_dir=local_otaproxy_cfg.BASE_DIR,
-        cache_db_f=local_otaproxy_cfg.DB_FILE,
+        cache_dir=cfg.OTAPROXY_CACHE_DIR,
+        cache_db_f=f"{cfg.OTAPROXY_CACHE_DIR}/cache_db",
         upper_proxy=upper_proxy,
         # NOTE(20250801): Starting from otaclient v3.9.1, we have inplace update mode with OTA resume,
         #                   on child ECU, we don't need to rely on OTA cache to speed up OTA retry anymore.
@@ -126,7 +124,7 @@ def otaproxy_control_thread(
 
     _mp_ctx = mp.get_context("spawn")
 
-    ota_cache_dir = Path(otaproxy_cfg.BASE_DIR)
+    ota_cache_dir = Path(cfg.OTAPROXY_CACHE_DIR)
     next_ota_cache_dir_checkpoint = 0
     otaproxy_min_alive_until = 0
 

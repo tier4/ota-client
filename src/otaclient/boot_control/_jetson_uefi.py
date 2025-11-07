@@ -746,13 +746,13 @@ class _UEFIBootControl:
 
         # check current slot rootfs BSP version
         try:
-            self.rootfs_bsp_verion = rootfs_bsp_version = detect_rootfs_bsp_version(
+            self.rootfs_bsp_version = rootfs_bsp_version = detect_rootfs_bsp_version(
                 rootfs=cfg.ACTIVE_ROOT
             )
             logger.info(f"current slot rootfs BSP version: {rootfs_bsp_version}")
         except Exception as e:
             logger.warning(f"failed to detect rootfs BSP version: {e!r}")
-            self.rootfs_bsp_verion = rootfs_bsp_version = None
+            self.rootfs_bsp_version = rootfs_bsp_version = None
 
         if rootfs_bsp_version and rootfs_bsp_version > fw_bsp_version:
             logger.warning(
@@ -981,7 +981,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         return Path(self._mp_control.standby_slot_dev)
 
     def standby_slot_bsp_ver_check(
-        self, bsp_ver_str: str
+        self, bsp_ver_str: str | BSPVersion
     ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
         """Check if the input BSP version matches the firmware BSP version of standby slot.
 
@@ -1010,7 +1010,7 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         if fw_bsp_ver == _bsp_ver:
             return True, None
 
-        logger.error(f"{active_fw_bsp_ver} != {_bsp_ver}")
+        logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
         return False, (_bsp_ver, fw_bsp_ver)
 
     def get_standby_slot_dev(self) -> str:  # pragma: no cover
