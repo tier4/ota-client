@@ -64,7 +64,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
-SHUTDOWN_ON_DYNAMIC_APP_EXIT = 6  # seconds
+SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
 METRICS_SHM_SIZE = 512  # bytes, the pickle size of OTAMetricsSharedMemoryData
@@ -450,7 +450,10 @@ def main() -> None:  # pragma: no cover
                 if isinstance(e, subprocess.CalledProcessError):
                     logger.error(f"systemd-run failed: \n{e.stderr=}\n{e.stdout=}")
 
-                logger.warning("otaclient will exit now!")
+                logger.warning(
+                    f"otaclient will exit in {SHUTDOWN_ON_DYNAMIC_APP_FAILED}!"
+                )
+                time.sleep(SHUTDOWN_ON_DYNAMIC_APP_FAILED)
                 _on_shutdown(sys_exit=1)
             finally:
                 sys.exit(1)  # just for typing
