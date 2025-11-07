@@ -314,6 +314,10 @@ class TestMain:
             "otaclient_common._env.is_running_as_app_image",
             return_value=True,
         )
+        mocker.patch(
+            "otaclient_common._env.is_running_as_downloaded_dynamic_app",
+            return_value=False,
+        )
 
         # Mock _on_shutdown to prevent SystemExit
         mocker.patch(f"{MAIN_MODULE}._on_shutdown")
