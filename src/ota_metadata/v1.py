@@ -98,6 +98,23 @@ class OTAImageHelper:
     def resource_table_helper(self) -> ResourceTableDBHelper:
         return ResourceTableDBHelper(self._resource_table_dbf)
 
+    @property
+    def bsp_version_str(self) -> str | None:
+        """Return the BSP version of this image payload if available.
+
+        Only image for NVIDIA Jetson device will have this information.
+        Will first try to look at image_config, and then image_manifest.
+        """
+        image_manifest = self.image_manifest
+        image_config = self.image_config
+        if not (image_manifest and image_config):
+            return
+
+        return (
+            image_config.labels.nvidia_jetson_bsp_version
+            or image_manifest.annotations.nvidia_jetson_bsp_version
+        )
+
     def get_persistents_list(self) -> list[str] | None:
         if self.sys_config and self.sys_config.persist_files:
             return copy(self.sys_config.persist_files)

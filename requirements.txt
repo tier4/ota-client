@@ -7,7 +7,7 @@ grpcio==1.70.0
 multidict<7.0,>=4.5
 msgpack>=1,<1.2
 otaclient_iot_logging_server_pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl#sha256:e5a2e6474a8b6f5656679877a5df40891e6a65c29830a31faed3d47d9973be60
-ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.2.4/ota_image_libs-0.2.4-py3-none-any.whl#sha256:dca5ef75bc9cdd9d418529503eb59db98d9b87c58200ffcf1a6b144e192b27ed
+ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.2.6/ota_image_libs-0.2.6-py3-none-any.whl#sha256:ecbe997a5aa08c2e001ce69e9e9837fc6906f75543a1b88a09d7775894d2ac4b
 protobuf>=4.25.8,<6.34
 pydantic<3,>=2.10
 pydantic-settings<3,>=2.3

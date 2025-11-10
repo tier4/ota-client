@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.8"
 resolution-markers = [
     "python_full_version >= '3.10'",
@@ -1745,8 +1745,8 @@ wheels = [
 
 [[package]]
 name = "ota-image-libs"
-version = "0.2.4"
-source = { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.4/ota_image_libs-0.2.4-py3-none-any.whl" }
+version = "0.2.6"
+source = { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.6/ota_image_libs-0.2.6-py3-none-any.whl" }
 dependencies = [
     { name = "cryptography" },
     { name = "msgpack" },
@@ -1761,7 +1761,7 @@ dependencies = [
     { name = "zstandard" },
 ]
 wheels = [
-    { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.4/ota_image_libs-0.2.4-py3-none-any.whl", hash = "sha256:dca5ef75bc9cdd9d418529503eb59db98d9b87c58200ffcf1a6b144e192b27ed" },
+    { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.6/ota_image_libs-0.2.6-py3-none-any.whl", hash = "sha256:ecbe997a5aa08c2e001ce69e9e9837fc6906f75543a1b88a09d7775894d2ac4b" },
 ]
 
 [package.metadata]
@@ -1835,7 +1835,7 @@ requires-dist = [
     { name = "grpcio", specifier = "==1.70.0" },
     { name = "msgpack", specifier = ">=1,<1.2" },
     { name = "multidict", specifier = ">=4.5,<7.0" },
-    { name = "ota-image-libs", url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.4/ota_image_libs-0.2.4-py3-none-any.whl" },
+    { name = "ota-image-libs", url = "https://github.com/tier4/ota-image-libs/releases/download/v0.2.6/ota_image_libs-0.2.6-py3-none-any.whl" },
     { name = "otaclient-iot-logging-server-pb2", url = "https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl" },
     { name = "protobuf", specifier = ">=4.25.8,<6.34" },
     { name = "pydantic", specifier = ">=2.10,<3" },
