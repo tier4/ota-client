@@ -189,7 +189,23 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     return ca_chains
 
 
-def load_ca_store(cert_dir: StrOrPath) -> dict[str, CACertStore]:
+class CAStoreMap(Dict[str, CACertStore]):
+    """A dict of CACertStore with name."""
+
+    def add_ca_store(self, name: str, store: CACertStore) -> None:
+        self[name] = store
+
+    def verify(
+        self, cert: Certificate, interm_cas: list[Certificate] | None = None
+    ) -> CACertStore | None:
+        for _name, _store in self.items():
+            _store.verify(cert, interm_cas=interm_cas or [])
+            logger.info(f"verfication succeeded against CA store: {_name}")
+            return _store
+        logger.error(f"failed to verify {cert=} against all CA stores: {list(self)}")
+
+
+def load_ca_store(cert_dir: StrOrPath) -> CAStoreMap:
     """Load root CA certs from the cert store, each root CA will be one CAStore
     for separating the environment.
 
@@ -201,7 +217,7 @@ def load_ca_store(cert_dir: StrOrPath) -> dict[str, CACertStore]:
     """
     cert_dir = Path(cert_dir)
 
-    ca_stores = {}
+    ca_stores = CAStoreMap()
     for _cert in cert_dir.glob("*"):
         if _cert.suffix not in ["pem", "crt"]:
             continue  # not a cert
@@ -221,8 +237,7 @@ def load_ca_store(cert_dir: StrOrPath) -> dict[str, CACertStore]:
         except Exception as e:
             logger.warning(f"{_cert} is not a valid x509 cert: {e}")
             continue
-
-        ca_stores[_cert.name] = _ca_store
+        ca_stores.add_ca_store(_cert.name, _ca_store)
 
     if not ca_stores:
         _err_msg = "all found CA chains are invalid, no CA chain is imported!!!"
