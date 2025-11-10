@@ -219,7 +219,7 @@ def load_ca_store(cert_dir: StrOrPath) -> CAStoreMap:
 
     ca_stores = CAStoreMap()
     for _cert in cert_dir.glob("*"):
-        if _cert.suffix not in ["pem", "crt"]:
+        if _cert.suffix not in [".pem", ".crt"]:
             continue  # not a cert
 
         try:
@@ -244,5 +244,5 @@ def load_ca_store(cert_dir: StrOrPath) -> CAStoreMap:
         logger.error(_err_msg)
         raise CACertStoreInvalid(_err_msg)
 
-    logger.info(f"finish up loading CA store from {cert_dir}")
+    logger.info(f"loaded CA stores: {list(ca_stores)}")
     return ca_stores
