@@ -199,9 +199,12 @@ class CAStoreMap(Dict[str, CACertStore]):
         self, cert: Certificate, interm_cas: list[Certificate] | None = None
     ) -> CACertStore | None:
         for _name, _store in self.items():
-            _store.verify(cert, interm_cas=interm_cas or [])
-            logger.info(f"verfication succeeded against CA store: {_name}")
-            return _store
+            try:
+                _store.verify(cert, interm_cas=interm_cas or [])
+                logger.info(f"verfication succeeded against CA store: {_name}")
+                return _store
+            except Exception as e:
+                logger.info(f"failed to verify against CA store {_name}: {e!r}")
         logger.error(f"failed to verify {cert=} against all CA stores: {list(self)}")
 
 
