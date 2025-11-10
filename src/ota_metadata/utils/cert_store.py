@@ -189,25 +189,45 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     return ca_chains
 
 
-def load_ca_store(cert_dir: StrOrPath) -> CACertStore:
-    """Load all CA certs from <cert_dir> into a single CA store.
+def load_ca_store(cert_dir: StrOrPath) -> dict[str, CACertStore]:
+    """Load root CA certs from the cert store, each root CA will be one CAStore
+    for separating the environment.
+
+    For example, if we have `dev.root.pem`, `stg.root.pem` and `prd.root.pem`, each
+        for `dev`, `stg`, `prd` environment, we will get three separated CACertStore.
 
     Raises:
         CACertStoreInvalid on failed import.
     """
     cert_dir = Path(cert_dir)
 
-    ca_store = CACertStore()
+    ca_stores = {}
     for _cert in cert_dir.glob("*"):
+        if _cert.suffix not in ["pem", "crt"]:
+            continue  # not a cert
+
         try:
             _loaded_ca_cert = load_pem_x509_certificate(_cert.read_bytes())
-            ca_store.add_cert(_loaded_ca_cert)
+        except Exception as e:
+            logger.warning(f"{_cert} is not a cert, skip: {e}")
+            continue
+
+        if _loaded_ca_cert.issuer != _loaded_ca_cert.subject:
+            continue  # not a root CA cert
+
+        try:
+            _ca_store = CACertStore()
+            _ca_store.add_cert(_loaded_ca_cert)
         except Exception as e:
             logger.warning(f"{_cert} is not a valid x509 cert: {e}")
+            continue
 
-    if not ca_store:
+        ca_stores[_cert.name] = _ca_store
+
+    if not ca_stores:
         _err_msg = "all found CA chains are invalid, no CA chain is imported!!!"
         logger.error(_err_msg)
         raise CACertStoreInvalid(_err_msg)
+
     logger.info(f"finish up loading CA store from {cert_dir}")
-    return ca_store
+    return ca_stores
