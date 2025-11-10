@@ -339,7 +339,7 @@ def main() -> None:  # pragma: no cover
 
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
-            _dynamic_service_unit = f"otaclient_dynamic_app_{os.urandom(4).hex()}"
+            _dynamic_service_unit = f"otaclient_dynamic_app_{os.urandom(6).hex()}"
             logger.info(
                 f"will launch dynamic otaclient app with systemd(service_unit: {_dynamic_service_unit}) ..."
             )
@@ -402,9 +402,8 @@ def main() -> None:  # pragma: no cover
                         #       exits, this is for handling user manually `systemctl stop otaclient`.
                         "-p", "PartOf=otaclient.service",
                         "-p", "Type=simple",
-                        # NOTE: prevent the dynamic otaclient APP being start/stop manually, the stop should
+                        # NOTE: prevent the dynamic otaclient APP being stop manually, the stop should
                         #       be done by stop the main otaclient.service instead. Restart is also prohibited.
-                        "-p", "RefuseManualStart=true",
                         "-p", "RefuseManualStop=true",
                         # NOTE: subprocess_call here will do a chroot back to host_root.
                         "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
