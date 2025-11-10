@@ -483,7 +483,9 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
                 f"OTA image's BSP version doesn't match(input_bsp: fw_bsp={_bsp_vers}) "
                 "ECU standby slot's firmware BSP version, reject OTA!"
             )
-            raise ota_errors.BootControlPreUpdateFailed(_err_msg, module=__name__)
+            raise ota_errors.BootControlBSPVersionCompatibilityFailed(
+                _err_msg, module=__name__
+            )
 
     def _process_metadata(self, only_metadata_verification: bool = False):
         super()._process_metadata(only_metadata_verification)
