@@ -23,13 +23,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Iterable
 
-from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 from typing_extensions import Unpack
 
 from ota_metadata.file_table.utils import save_fstable
-from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -450,14 +449,14 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
 
 
 class OTAUpdateOperatorInitOTAImageV1(OTAUpdateInterfaceArgs):
-    ca_store: CACertStore
+    ca_store: CAStoreMap
 
 
 class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
     def __init__(
         self,
         *,
-        ca_store: CACertStore,
+        ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
         image_identifier: ImageIdentifier,
