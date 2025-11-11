@@ -189,25 +189,64 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     return ca_chains
 
 
-def load_ca_store(cert_dir: StrOrPath) -> CACertStore:
-    """Load all CA certs from <cert_dir> into a single CA store.
+class CAStoreMap(Dict[str, CACertStore]):
+    """A dict of CACertStore with name."""
+
+    def add_ca_store(self, name: str, store: CACertStore) -> None:
+        self[name] = store
+
+    def verify(
+        self, cert: Certificate, interm_cas: list[Certificate] | None = None
+    ) -> CACertStore | None:
+        for _name, _store in self.items():
+            try:
+                _store.verify(cert, interm_cas=interm_cas or [])
+                logger.info(f"verification succeeded against CA store: {_name}")
+                return _store
+            except Exception as e:
+                logger.info(f"failed to verify against CA store {_name}: {e!r}")
+        logger.error(f"failed to verify {cert=} against all CA stores: {list(self)}")
+
+
+def load_ca_store(cert_dir: StrOrPath) -> CAStoreMap:
+    """Load root CA certs from the cert store, each root CA will be one CAStore
+    for separating the environment.
+
+    For example, if we have `dev.root.pem`, `stg.root.pem` and `prd.root.pem`, each
+        for `dev`, `stg`, `prd` environment, we will get three separated CACertStore.
 
     Raises:
         CACertStoreInvalid on failed import.
     """
     cert_dir = Path(cert_dir)
 
-    ca_store = CACertStore()
+    ca_stores = CAStoreMap()
     for _cert in cert_dir.glob("*"):
+        if _cert.suffix not in [".pem", ".crt"]:
+            logger.info(f"found unrelated files under certs dir: {_cert}")
+            continue  # not a cert
+
         try:
             _loaded_ca_cert = load_pem_x509_certificate(_cert.read_bytes())
-            ca_store.add_cert(_loaded_ca_cert)
+        except Exception as e:
+            logger.warning(f"{_cert} is not a cert, skip: {e}")
+            continue
+
+        if _loaded_ca_cert.issuer != _loaded_ca_cert.subject:
+            continue  # not a root CA cert
+
+        try:
+            _ca_store = CACertStore()
+            _ca_store.add_cert(_loaded_ca_cert)
         except Exception as e:
             logger.warning(f"{_cert} is not a valid x509 cert: {e}")
+            continue
+        ca_stores.add_ca_store(_cert.name, _ca_store)
 
-    if not ca_store:
+    if not ca_stores:
         _err_msg = "all found CA chains are invalid, no CA chain is imported!!!"
         logger.error(_err_msg)
         raise CACertStoreInvalid(_err_msg)
-    logger.info(f"finish up loading CA store from {cert_dir}")
-    return ca_store
+
+    logger.info(f"loaded CA stores: {list(ca_stores)}")
+    return ca_stores

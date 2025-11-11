@@ -23,12 +23,11 @@ from queue import Queue
 from typing import TypedDict
 from urllib.parse import urlparse
 
-from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 from ota_image_libs.v1.resource_table.utils import ResumeOTADownloadHelper
 
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
-from ota_metadata.utils.cert_store import CAChainStore
+from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
 from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
@@ -281,7 +280,7 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
     def setup_ota_image_support(
         self,
         *,
-        ca_store: CACertStore,
+        ca_store: CAStoreMap,
         image_identifier: ImageIdentifier,
     ) -> None:
         self._image_id = image_identifier

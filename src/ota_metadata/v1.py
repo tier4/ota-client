@@ -23,7 +23,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Generator, Literal
 
-from ota_image_libs._crypto.x509_utils import CACertStore
 from ota_image_libs.common import OCIDescriptor
 from ota_image_libs.v1.consts import (
     IMAGE_INDEX_FNAME,
@@ -45,6 +44,7 @@ from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
 from ota_image_libs.v1.resource_table import RESOURCE_TABLE_FNAME
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
 
+from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
 
@@ -67,7 +67,7 @@ def _get_arch() -> Literal["x86_64", "arm64"] | None:
 
 class OTAImageHelper:
     def __init__(
-        self, *, session_dir: Path, base_url: str, ca_store: CACertStore
+        self, *, session_dir: Path, base_url: str, ca_store: CAStoreMap
     ) -> None:
         self._session_dir = session_dir
         self.base_url = base_url
