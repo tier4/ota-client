@@ -59,15 +59,20 @@ def gen_ca_chains(tmp_path: Path) -> tuple[Path, Path, Path]:
     return _ca_dir, _interm_dir, _certs_dir
 
 
-def test_ca_store_map(gen_ca_chains: tuple[Path, Path, Path]):
+@pytest.mark.parametrize(
+    "chain",
+    (
+        ("dev"),
+        ("stg"),
+        ("prd"),
+    ),
+)
+def test_ca_store_map(chain, gen_ca_chains: tuple[Path, Path, Path]):
     _ca_dir, _interm_dir, _certs_dir = gen_ca_chains
     ca_stores = load_ca_store(_ca_dir)
 
-    for chain in CHAINS:
-        _cert = load_pem_x509_certificate(
-            (_certs_dir / f"{chain}.sign.pem").read_bytes()
-        )
-        _interm = load_pem_x509_certificate(
-            (_interm_dir / f"{chain}.interm.pem").read_bytes()
-        )
-        ca_stores.verify(_cert, interm_cas=[_interm])
+    _cert = load_pem_x509_certificate((_certs_dir / f"{chain}.sign.pem").read_bytes())
+    _interm = load_pem_x509_certificate(
+        (_interm_dir / f"{chain}.interm.pem").read_bytes()
+    )
+    ca_stores.verify(_cert, interm_cas=[_interm])
