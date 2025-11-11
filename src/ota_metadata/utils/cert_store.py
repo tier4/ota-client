@@ -223,6 +223,7 @@ def load_ca_store(cert_dir: StrOrPath) -> CAStoreMap:
     ca_stores = CAStoreMap()
     for _cert in cert_dir.glob("*"):
         if _cert.suffix not in [".pem", ".crt"]:
+            logger.info(f"found unrelated files under certs dir: {_cert}")
             continue  # not a cert
 
         try:
