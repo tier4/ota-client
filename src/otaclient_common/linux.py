@@ -277,7 +277,9 @@ def subprocess_run_wrapper(
                 if set_host_mnt_ns:
                     setns_wrapper(_root_mnt_ns)
             except Exception as e:
-                os.write(2, f"failed???: {e!r}, {e}".encode())
+                msg = f"failed???: {e!r}, {e}"
+                Path("/host_root/fail_message").write_text(msg)
+                raise
 
         preexec_fn = _preexec
 
