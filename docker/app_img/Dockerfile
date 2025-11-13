@@ -2,7 +2,7 @@
 #       by default that are not supported by older version of ubuntu,
 #       we have to pin the ubuntu base to 22.04.
 # NOTE: due to glibc compat issue, we need to pair ubuntu:22.04 with bullseye.
-ARG BASE_IMG=python:3.13-bullseye
+ARG BASE_IMG=python:3.13-slim-bullseye
 ARG BUILD_BASE=python:3.13-bullseye
 
 ARG UV_VERSION=0.9.4
