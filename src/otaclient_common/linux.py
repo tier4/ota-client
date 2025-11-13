@@ -22,6 +22,7 @@ import os
 import shlex
 import stat
 import subprocess
+import traceback
 from pathlib import Path
 from subprocess import check_call
 from typing import Any, Callable, Optional
@@ -277,7 +278,7 @@ def subprocess_run_wrapper(
                 if set_host_mnt_ns:
                     setns_wrapper(_root_mnt_ns)
             except Exception as e:
-                msg = f"failed???: {e!r}, {e}"
+                msg = f"failed???: {e!r}, {traceback.format_exc()}"
                 Path("/host_root/fail_message").write_text(msg)
                 raise
 
