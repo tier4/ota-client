@@ -2,7 +2,7 @@
 #       by default that are not supported by older version of ubuntu,
 #       we have to pin the ubuntu base to 22.04.
 # NOTE: due to glibc compat issue, we need to pair ubuntu:22.04 with bullseye.
-ARG UBUNTU_BASE=ubuntu:22.04
+ARG BASE_IMG=debian:bullseye-slim
 ARG BUILD_BASE=python:3.13-bullseye
 
 ARG UV_VERSION=0.9.4
@@ -31,7 +31,7 @@ RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
     uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
         pyinstaller -D -s --name otaclient src/otaclient/__main__.py
 
-FROM ${UBUNTU_BASE}
+FROM ${BASE_IMG}
 
 ARG OTACLIENT_INSTALLATION="/otaclient"
 ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
