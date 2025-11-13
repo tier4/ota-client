@@ -266,6 +266,7 @@ def subprocess_run_wrapper(
         cmd = shlex.split(cmd)
 
     preexec_fn: Optional[Callable[..., Any]] = None
+    logger.warning(f"{os.readlink(_root_mnt_ns)}=")
     if chroot or set_host_mnt_ns:
 
         def _preexec():
