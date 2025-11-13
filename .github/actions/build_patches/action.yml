@@ -31,6 +31,8 @@ runs:
 
     - name: get released versions
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         RELEASED_VERSIONS=$(gh release list --repo tier4/ota-client \
           --exclude-pre-releases --json tagName \
