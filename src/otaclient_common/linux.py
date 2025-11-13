@@ -268,13 +268,16 @@ def subprocess_run_wrapper(
     if chroot or set_host_mnt_ns:
 
         def _preexec():
-            if chroot:
-                os.chroot(chroot)
-                os.chdir("/")
+            try:
+                if chroot:
+                    os.chroot(chroot)
+                    os.chdir("/")
 
-            # NOTE(20251029): only support sent back to host mnt ns
-            if set_host_mnt_ns:
-                setns_wrapper(_root_mnt_ns)
+                # NOTE(20251029): only support sent back to host mnt ns
+                if set_host_mnt_ns:
+                    setns_wrapper(_root_mnt_ns)
+            except Exception as e:
+                os.write(2, f"failed???: {e!r}, {e}".encode())
 
         preexec_fn = _preexec
 
