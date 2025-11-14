@@ -15,8 +15,6 @@
 
 from __future__ import annotations
 
-import ctypes
-import ctypes.util
 import logging
 import os
 import shlex
@@ -24,7 +22,7 @@ import stat
 import subprocess
 from pathlib import Path
 from subprocess import check_call
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from otaclient_common._env import RUN_AS_PYINSTALLER_BUNDLE
 from otaclient_common._typing import StrOrPath, copy_callable_typehint
@@ -34,38 +32,8 @@ try:
 except ImportError:
     _fastcopy_sendfile = None
 
-try:
-    from os import setns as _setns  # type: ignore
-except ImportError:  # for python < 3.12
-    # NOTE(20251029): actually the below code will not be used basically,
-    #                   when otaclient(v3.12+) distributed as app image,
-    #                   it will be distributed under python3.13.
-    #
-    #                 if somehow otaclient(v3.12+) is installed with venv,
-    #                   we are not in app image environment, the below code
-    #                   will also not be used.
-    _libc_path = ctypes.util.find_library("c")
-    _libc = ctypes.CDLL(_libc_path, use_errno=True)
-    _libc_setns = _libc.setns
 
-    def _setns(_fd: int, _nstype=0) -> None:
-        if _libc_setns(_fd, _nstype) != 0:
-            _last_e = ctypes.get_errno()
-            raise OSError(f"setns failed: {os.strerror(_last_e)}")
-
-
-def setns_wrapper(_fd: str | int, _nstype: int = 0) -> None:
-    if isinstance(_fd, int):
-        return _setns(_fd, _nstype)
-
-    _opened_fd = os.open(_fd, os.O_RDONLY)
-    try:
-        _setns(_opened_fd, _nstype)
-    finally:
-        os.close(_opened_fd)
-
-
-_root_mnt_ns = "/proc/1/ns/mnt"
+init_pid = "1"
 
 logger = logging.getLogger(__name__)
 
@@ -264,31 +232,27 @@ def subprocess_run_wrapper(
     if isinstance(cmd, str):
         cmd = shlex.split(cmd)
 
-    preexec_fn: Optional[Callable[..., Any]] = None
-    if chroot or set_host_mnt_ns:
-
-        def _preexec():
-            if chroot:
-                os.chroot(chroot)
-                os.chdir("/")
-
-            # NOTE(20251029): only support sent back to host mnt ns
-            if set_host_mnt_ns:
-                setns_wrapper(_root_mnt_ns)
-
-        preexec_fn = _preexec
-
     _run_func = subprocess.run
     if RUN_AS_PYINSTALLER_BUNDLE:
         _run_func = pyinstaller_aware_subprocess_run
 
+    base = []
+    # fmt: off
+    if chroot and set_host_mnt_ns:
+        base = [
+            "nsenter", "-t", init_pid, "-m",
+            f"--root={chroot}", "--",
+        ]
+    elif chroot:
+        base = ["chroot", "--",]
+    # fmt: on
+
     return _run_func(
-        cmd,
+        [*base, *cmd],
         check=check,
         stderr=subprocess.PIPE,
         stdout=subprocess.PIPE if check_output else None,
         timeout=timeout,
-        preexec_fn=preexec_fn,
         env=env,
     )  # type: ignore
 
