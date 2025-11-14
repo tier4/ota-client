@@ -240,13 +240,10 @@ def subprocess_run_wrapper(
 
     base = []
     # fmt: off
-    if chroot and set_host_mnt_ns:
-        base = [
-            "nsenter", "-t", init_pid, "-m",
-            f"--root={chroot}", "--",
-        ]
-    elif chroot:
-        base = ["chroot", chroot, "--",]
+    if chroot:
+        base = ["chroot", chroot]
+    if set_host_mnt_ns:
+        base = [*base, "nsenter", "-t", init_pid, "-m"]
     # fmt: on
 
     return _run_func(
