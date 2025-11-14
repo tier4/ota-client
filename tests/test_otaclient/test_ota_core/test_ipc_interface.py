@@ -95,8 +95,6 @@ class TestOTAClient:
         )
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
-        mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
-
         # --- execution --- #
         self.ota_client.update(
             request=UpdateRequestV2(
@@ -111,8 +109,6 @@ class TestOTAClient:
         # --- assert on update finished(before reboot) --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
-
-        mock_publish.assert_called_once()
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         mock_exit_from_dynamic_client = mocker.patch.object(

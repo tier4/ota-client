@@ -249,7 +249,7 @@ class OTAClient:
             )
             self._metrics.failure_type = failure_type
             self._metrics.failure_reason = failure_reason
-            self._metrics.failed_status = ota_status
+            self._metrics.ota_status = ota_status.name
         finally:
             del exc  # prevent ref cycle
 
@@ -372,8 +372,6 @@ class OTAClient:
                 failure_reason=e.get_failure_reason(),
                 failure_type=e.failure_type,
             )
-        finally:
-            shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()
@@ -381,7 +379,8 @@ class OTAClient:
             except Exception as e:
                 logger.error(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
-
+        finally:
+            shutil.rmtree(session_wd, ignore_errors=True)
             self._exit_from_dynamic_client()
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
