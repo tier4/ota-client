@@ -246,7 +246,7 @@ def subprocess_run_wrapper(
             f"--root={chroot}", "--",
         ]
     elif chroot:
-        base = ["chroot", "--",]
+        base = ["chroot", chroot, "--",]
     # fmt: on
 
     return _run_func(
