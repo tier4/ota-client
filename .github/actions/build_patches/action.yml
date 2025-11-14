@@ -31,10 +31,12 @@ runs:
 
     - name: get released versions
       shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        RELEASES=$(curl -s https://api.github.com/repos/tier4/ota-client/releases)
-        RELEASED_VERSIONS=$(echo "${RELEASES}" | \
-          jq -r '.[] | select(.prerelease == false) | .tag_name' | \
+        RELEASED_VERSIONS=$(gh release list --repo tier4/ota-client \
+          --exclude-pre-releases --json tagName \
+          --jq '.[].tagName' | \
           sed 's/^v//' | \
           tr '\n' ' ')
         echo "RELEASED_VERSIONS=${RELEASED_VERSIONS}" >> $GITHUB_ENV
