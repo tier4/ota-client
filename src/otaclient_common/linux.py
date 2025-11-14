@@ -217,6 +217,8 @@ def subprocess_run_wrapper(
         in the future, like chroot or nsenter before execution.
 
     NOTE(20250916): now subprocess_run_wrapper is pyinstaller aware.
+    NOTE(20251114): use nsenter and chroot commands instead of preexec_fn
+                    for better compatibility and robustness.
 
     Args:
         cmd (str | list[str]): command to be executed.
