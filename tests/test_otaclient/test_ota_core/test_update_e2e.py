@@ -71,10 +71,6 @@ class TestOTAUpdater:
             otaclient_cfg.OTA_RESOURCES_STORE
         ).relative_to("/")
 
-        yield
-        # cleanup slot_b after test
-        shutil.rmtree(self.slot_b, ignore_errors=True)
-
     @pytest.fixture(autouse=True)
     def mock_setup(self, mocker: pytest_mock.MockerFixture, prepare_ab_slots):
         # ------ mock boot_controller ------ #
