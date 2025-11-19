@@ -114,7 +114,7 @@ class TestEnsureMountpoint:
                     "otaclient_common.cmdhelper.ensure_umount"
                 ) as mock_umount:
                     mock_exists.return_value = False
-                    cmdhelper.ensure_mointpoint("/test/mount", ignore_error=False)
+                    cmdhelper.ensure_mount_point("/test/mount", ignore_error=False)
                     mock_mkdir.assert_called_once_with(exist_ok=True, parents=True)
                     mock_umount.assert_not_called()
 
@@ -128,7 +128,7 @@ class TestEnsureMountpoint:
                         mock_exists.return_value = True
                         mock_is_symlink.return_value = False
                         mock_is_dir.return_value = True
-                        cmdhelper.ensure_mointpoint("/test/mount", ignore_error=False)
+                        cmdhelper.ensure_mount_point("/test/mount", ignore_error=False)
                         mock_umount.assert_called_once()
 
     def test_ensure_mountpoint_remove_symlink(self):
@@ -138,6 +138,6 @@ class TestEnsureMountpoint:
                     with mock.patch("pathlib.Path.mkdir") as mock_mkdir:
                         mock_is_symlink.return_value = True
                         mock_exists.return_value = False
-                        cmdhelper.ensure_mointpoint("/test/mount", ignore_error=False)
+                        cmdhelper.ensure_mount_point("/test/mount", ignore_error=False)
                         mock_unlink.assert_called_once_with(missing_ok=True)
                         mock_mkdir.assert_called_once_with(exist_ok=True, parents=True)

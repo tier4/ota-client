@@ -71,7 +71,7 @@ class SlotMountHelper:  # pragma: no cover
             CalledProcessedError on the last failed attemp.
         """
         logger.debug("mount standby slot rootfs dev...")
-        cmdhelper.ensure_mointpoint(self.standby_slot_mount_point, ignore_error=True)
+        cmdhelper.ensure_mount_point(self.standby_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_umount(self.standby_slot_dev, ignore_error=False)
 
         cmdhelper.ensure_mount(
@@ -93,7 +93,7 @@ class SlotMountHelper:  # pragma: no cover
         if _env.is_dynamic_client_running():
             return
 
-        cmdhelper.ensure_mointpoint(self.active_slot_mount_point, ignore_error=True)
+        cmdhelper.ensure_mount_point(self.active_slot_mount_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=self.active_rootfs,
             mnt_point=self.active_slot_mount_point,

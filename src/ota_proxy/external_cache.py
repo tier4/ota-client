@@ -48,7 +48,7 @@ def mount_external_cache(
     logger.info(f"external cache dev detected at {_cache_dev}")
 
     try:
-        cmdhelper.ensure_mointpoint(mnt_point, ignore_error=True)
+        cmdhelper.ensure_mount_point(mnt_point, ignore_error=True)
         cmdhelper.ensure_mount(
             target=_cache_dev,
             mnt_point=mnt_point,
