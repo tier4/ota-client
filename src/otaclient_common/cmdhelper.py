@@ -789,7 +789,7 @@ def ensure_umount_from_host(
             continue
 
 
-def ensure_mointpoint(
+def ensure_mount_point(
     mnt_point: StrOrPath, *, ignore_error: bool
 ) -> None:  # pragma: no cover
     """Ensure the <mnt_point> exists, has no mount on it and ready for mount.
