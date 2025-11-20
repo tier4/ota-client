@@ -42,7 +42,6 @@ from subprocess import CalledProcessError
 from typing import ClassVar, Dict, List, NoReturn, Optional, Tuple
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper
@@ -53,9 +52,9 @@ from otaclient_common._io import (
 )
 from otaclient_common.common import subprocess_call, subprocess_check_output
 
+from ._base import BootControllerBase
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import grub_cfg as boot_cfg
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -711,7 +710,7 @@ class _GrubControl:
             raise _GrubBootControllerError(_err_msg) from e
 
 
-class GrubController(BootControllerProtocol):
+class GrubController(BootControllerBase):
     def __init__(self) -> None:
         try:
             self._boot_control = _GrubControl()
@@ -838,108 +837,32 @@ class GrubController(BootControllerProtocol):
     def bootloader_type(self) -> str:
         return boot_cfg.BOOTLOADER
 
-    @property
-    def standby_slot_dev(self) -> Path:
-        return Path(self._mp_control.standby_slot_dev)
+    def _pre_update_platform_specific(
+        self, *, standby_as_ref: bool, erase_standby: bool
+    ) -> None:
+        """GRUB-specific pre-update: cleanup standby ota_partition folder."""
+        # remove old files under standby ota_partition folder
+        self._cleanup_standby_ota_partition_folder()
 
-    def get_standby_slot_path(self) -> Path:  # pragma: no cover
-        return self._mp_control.standby_slot_mount_point
+    def _post_update_platform_specific(self, *, update_version: str) -> None:
+        """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
+        # ------ update fstab ------ #
+        active_fstab = self._mp_control.active_slot_mount_point / Path(
+            boot_cfg.FSTAB_FILE_PATH
+        ).relative_to("/")
+        standby_fstab = self._mp_control.standby_slot_mount_point / Path(
+            boot_cfg.FSTAB_FILE_PATH
+        ).relative_to("/")
+        self._update_fstab(
+            standby_slot_fstab=standby_fstab,
+            active_slot_fstab=active_fstab,
+        )
 
-    def get_standby_slot_dev(self) -> str:  # pragma: no cover
-        return self._mp_control.standby_slot_dev
+        # ------ prepare boot files ------ #
+        self._copy_boot_files_from_standby_slot()
 
-    def load_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_active_slot_version()
-
-    def load_standby_slot_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_standby_slot_version()
-
-    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
-        return self._ota_status_control.booted_ota_status
-
-    def on_operation_failure(self):
-        """Failure registering and cleanup at failure."""
-        logger.warning("on failure try to unmounting standby slot...")
-        self._ota_status_control.on_failure()
-        self._mp_control.umount_all(ignore_error=True)
-
-    def pre_update(self, *, standby_as_ref: bool, erase_standby=False):
-        try:
-            logger.info("grub_boot: pre-update setup...")
-            ### udpate active slot's ota_status ###
-            self._ota_status_control.pre_update_current()
-
-            ### mount slots ###
-            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
-
-            # remove old files under standby ota_partition folder
-            self._cleanup_standby_ota_partition_folder()
-        except Exception as e:
-            _err_msg = f"failed on pre_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_update(self, update_version: str) -> None:
-        try:
-            logger.info("grub_boot: post-update setup...")
-            # ------ update standby slot's ota_status files ------ #
-            self._ota_status_control.post_update_standby(version=update_version)
-
-            # ------ update fstab ------ #
-            active_fstab = self._mp_control.active_slot_mount_point / Path(
-                boot_cfg.FSTAB_FILE_PATH
-            ).relative_to("/")
-            standby_fstab = self._mp_control.standby_slot_mount_point / Path(
-                boot_cfg.FSTAB_FILE_PATH
-            ).relative_to("/")
-            self._update_fstab(
-                standby_slot_fstab=standby_fstab,
-                active_slot_fstab=active_fstab,
-            )
-
-            # ------ prepare boot files ------ #
-            self._copy_boot_files_from_standby_slot()
-
-            # ------ pre-reboot ------ #
-            self._mp_control.umount_all(ignore_error=True)
-            self._boot_control.grub_reboot_to_standby()
-        except Exception as e:
-            _err_msg = f"failed on post_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+        # ------ configure boot to standby ------ #
+        self._boot_control.grub_reboot_to_standby()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)
-
-    def pre_rollback(self):
-        try:
-            logger.info("grub_boot: pre-rollback setup...")
-            self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby()
-        except Exception as e:
-            _err_msg = f"failed on pre_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_rollback(self):
-        try:
-            logger.info("grub_boot: post-rollback setup...")
-            self._ota_status_control.post_rollback_standby()
-            self._boot_control.grub_reboot_to_standby()
-            self._mp_control.umount_all(ignore_error=True)
-        except Exception as e:
-            _err_msg = f"failed on pre_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    finalizing_rollback = finalizing_update

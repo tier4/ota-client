@@ -32,7 +32,6 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
@@ -46,6 +45,7 @@ from otaclient_common._io import cal_file_digest, file_sha256, write_str_to_file
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_call
 
+from ._base import BootControllerBase
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -63,7 +63,6 @@ from ._jetson_common import (
 )
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import jetson_uefi_cfg as boot_cfg
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -864,7 +863,7 @@ class _UEFIBootControl:
         )
 
 
-class JetsonUEFIBootControl(BootControllerProtocol):
+class JetsonUEFIBootControl(BootControllerBase):
     """BootControllerProtocol implementation for jetson-uefi."""
 
     def __init__(self) -> None:
@@ -976,10 +975,6 @@ class JetsonUEFIBootControl(BootControllerProtocol):
     def bootloader_type(self) -> str:
         return boot_cfg.BOOTLOADER
 
-    @property
-    def standby_slot_dev(self) -> Path:
-        return Path(self._mp_control.standby_slot_dev)
-
     def standby_slot_bsp_ver_check(
         self, bsp_ver_str: str | BSPVersion
     ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
@@ -1013,160 +1008,83 @@ class JetsonUEFIBootControl(BootControllerProtocol):
         logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
         return False, (_bsp_ver, fw_bsp_ver)
 
-    def get_standby_slot_dev(self) -> str:  # pragma: no cover
-        return self._mp_control.standby_slot_dev
+    def _post_update_platform_specific(self, *, update_version: str) -> None:
+        """Jetson UEFI-specific post-update operations."""
+        # ------ update extlinux.conf ------ #
+        update_standby_slot_extlinux_cfg(
+            active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
+            standby_slot_extlinux_fpath=Path(
+                replace_root(
+                    boot_cfg.EXTLINUX_FILE,
+                    "/",
+                    self._mp_control.standby_slot_mount_point,
+                )
+            ),
+            standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
+        )
 
-    def get_standby_slot_path(self) -> Path:  # pragma: no cover
-        return self._mp_control.standby_slot_mount_point
+        # ------ preserve BSP version file to standby slot ------ #
+        standby_fw_bsp_ver_fpath = (
+            self._ota_status_control.standby_ota_status_dir
+            / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+        )
+        self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
-    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
-        try:
-            logger.info("jetson-uefi: pre-update ...")
-            self._ota_status_control.pre_update_current()
+        # ------ preserve /boot/ota folder to standby rootfs ------ #
+        preserve_ota_config_files_to_standby(
+            active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+            / "boot"
+            / "ota",
+            standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
+            / "boot"
+            / "ota",
+        )
 
-            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
-        except Exception as e:
-            _err_msg = f"failed on pre_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_update(self, update_version: str) -> None:
-        try:
-            logger.info("jetson-uefi: post-update ...")
-            # ------ update standby slot's ota-status ------ #
-            self._ota_status_control.post_update_standby(version=update_version)
-
-            # ------ update extlinux.conf ------ #
-            update_standby_slot_extlinux_cfg(
-                active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
-                standby_slot_extlinux_fpath=Path(
-                    replace_root(
-                        boot_cfg.EXTLINUX_FILE,
-                        "/",
-                        self._mp_control.standby_slot_mount_point,
-                    )
-                ),
-                standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
+        # ------ firmware update & switch boot to standby ------ #
+        if (
+            self._uefi_control.active_bootloader_slot
+            and self._uefi_control.current_slot
+            != self._uefi_control.active_bootloader_slot
+        ):
+            _err_msg = (
+                "warning, active bootloader slot is mismatched with current slot: "
+                f"current_slot={self._uefi_control.current_slot}, "
+                f"active_bootloader_slot={self._uefi_control.active_bootloader_slot}. "
+                "this migth indicate an previous interrupted OTA, and this mismatch "
+                "will cancel the firmware update if configured, "
+                "correct this mismatch ..."
+            )
+            logger.warning(_err_msg)
+            NVBootctrlJetsonUEFI.set_active_boot_slot(
+                self._uefi_control.current_slot,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+            self._uefi_control.active_bootloader_slot = (
+                NVBootctrlJetsonUEFI.get_active_bootloader_slot()
             )
 
-            # ------ preserve BSP version file to standby slot ------ #
-            standby_fw_bsp_ver_fpath = (
-                self._ota_status_control.standby_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-            )
-            self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
-
-            # ------ preserve /boot/ota folder to standby rootfs ------ #
-            preserve_ota_config_files_to_standby(
-                active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-                / "boot"
-                / "ota",
-                standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot"
-                / "ota",
+        firmware_update_triggered = self._firmware_update()
+        # NOTE: manual switch boot will cancel the scheduled firmware update!
+        if not firmware_update_triggered:
+            self._uefi_control.switch_boot_to_standby()
+            logger.info(
+                f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
             )
 
-            # ------ firmware update & switch boot to standby ------ #
-            if (
-                self._uefi_control.active_bootloader_slot
-                and self._uefi_control.current_slot
-                != self._uefi_control.active_bootloader_slot
-            ):
-                _err_msg = (
-                    "warning, active bootloader slot is mismatched with current slot: "
-                    f"current_slot={self._uefi_control.current_slot}, "
-                    f"active_bootloader_slot={self._uefi_control.active_bootloader_slot}. "
-                    "this migth indicate an previous interrupted OTA, and this mismatch "
-                    "will cancel the firmware update if configured, "
-                    "correct this mismatch ..."
-                )
-                logger.warning(_err_msg)
-                NVBootctrlJetsonUEFI.set_active_boot_slot(
-                    self._uefi_control.current_slot,
-                    chroot=_env.get_dynamic_client_chroot_path(),
-                )
-                self._uefi_control.active_bootloader_slot = (
-                    NVBootctrlJetsonUEFI.get_active_bootloader_slot()
-                )
-
-            firmware_update_triggered = self._firmware_update()
-            # NOTE: manual switch boot will cancel the scheduled firmware update!
-            if not firmware_update_triggered:
-                self._uefi_control.switch_boot_to_standby()
-                logger.info(
-                    f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
-                )
-
-            # ------ for external rootfs, preserve /boot folder to internal ------ #
-            # NOTE: the copy should happen AFTER the changes to /boot folder at active slot.
-            if self._uefi_control.external_rootfs:
-                logger.info(
-                    "rootfs on external storage enabled: "
-                    "copy standby slot rootfs' /boot folder "
-                    "to corresponding internal emmc dev ..."
-                )
-                copy_standby_slot_boot_to_internal_emmc(
-                    internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
-                    internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
-                    standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
-                    / "boot",
-                )
-
-            # ------ prepare to reboot ------ #
-            self._mp_control.umount_all(ignore_error=True)
-            logger.info("post update finished, wait for reboot ...")
-        except Exception as e:
-            _err_msg = f"jetson-uefi: failed on post_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+        # ------ for external rootfs, preserve /boot folder to internal ------ #
+        # NOTE: the copy should happen AFTER the changes to /boot folder at active slot.
+        if self._uefi_control.external_rootfs:
+            logger.info(
+                "rootfs on external storage enabled: "
+                "copy standby slot rootfs' /boot folder "
+                "to corresponding internal emmc dev ..."
+            )
+            copy_standby_slot_boot_to_internal_emmc(
+                internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
+                internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
+                standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
+                / "boot",
+            )
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)
-
-    def pre_rollback(self):
-        try:
-            logger.info("jetson-uefi: pre-rollback setup ...")
-            self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby()
-        except Exception as e:
-            _err_msg = f"jetson-uefi: failed on pre_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_rollback(self):
-        try:
-            logger.info("jetson-uefi: post-rollback setup...")
-            self._ota_status_control.post_rollback_standby()
-            self._mp_control.umount_all(ignore_error=True)
-            self._uefi_control.switch_boot_to_standby()
-        except Exception as e:
-            _err_msg = f"jetson-uefi: failed on post_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    finalizing_rollback = finalizing_update
-
-    def on_operation_failure(self):
-        """Failure registering and cleanup at failure."""
-        logger.warning("on failure try to unmounting standby slot...")
-        self._ota_status_control.on_failure()
-        self._mp_control.umount_all(ignore_error=True)
-
-    def load_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_active_slot_version()
-
-    def load_standby_slot_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_standby_slot_version()
-
-    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
-        return self._ota_status_control.booted_ota_status
