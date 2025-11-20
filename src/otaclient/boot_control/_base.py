@@ -34,19 +34,6 @@ class BootControllerBase(ABC):
 
     This class implements the Template Method pattern to reduce code duplication
     across different boot controller implementations (GRUB, Jetson UEFI, Jetson cboot, RPI).
-
-    Subclasses must:
-    1. Initialize self._mp_control (SlotMountHelper) in __init__
-    2. Initialize self._ota_status_control (OTAStatusFilesControl) in __init__
-    3. Implement platform-specific abstract methods
-    4. Implement bootloader_type property
-
-    Common functionality provided:
-    - Standard property implementations (get_standby_slot_path, load_version, etc.)
-    - Template methods for pre/post update with common flow
-    - Unified error handling
-    - Common on_operation_failure implementation
-
     Note: This class provides concrete implementations of BootControllerProtocol methods.
     """
 
@@ -91,7 +78,7 @@ class BootControllerBase(ABC):
 
     # ====== Common error handling ======
 
-    def on_operation_failure(self) -> None:
+    def on_operation_failure(self):
         """Cleanup by boot_control implementation when OTA failed."""
         logger.warning("on failure try to unmounting standby slot...")
         self._ota_status_control.on_failure()
@@ -99,7 +86,7 @@ class BootControllerBase(ABC):
 
     # ====== Template Method pattern for update flow ======
 
-    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
+    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
         """Template method for pre-update setup.
 
         Common flow:
@@ -133,7 +120,7 @@ class BootControllerBase(ABC):
                 _err_msg, module=self.__class__.__module__
             ) from e
 
-    def post_update(self, update_version: str) -> None:
+    def post_update(self, update_version: str):
         """Template method for post-update setup.
 
         Common flow:
@@ -161,9 +148,9 @@ class BootControllerBase(ABC):
                 _err_msg, module=self.__class__.__module__
             ) from e
 
-    # ====== Abstract methods for platform-specific operations ======
+    # ====== Platform-specific hook methods ======
 
-    def _pre_update_prepare_standby(self, *, erase_standby: bool) -> None:
+    def _pre_update_prepare_standby(self, *, erase_standby: bool):
         """Prepare standby device before mounting.
 
         Default implementation uses SlotMountHelper.prepare_standby_dev.
@@ -173,7 +160,7 @@ class BootControllerBase(ABC):
 
     def _pre_update_platform_specific(  # noqa: B027
         self, *, standby_as_ref: bool, erase_standby: bool
-    ) -> None:
+    ):
         """Platform-specific operations during pre_update (optional hook).
 
         This hook is called after mounting slots.
@@ -187,7 +174,7 @@ class BootControllerBase(ABC):
         pass  # Default: no additional operations (intentionally empty for optional hook)
 
     @abstractmethod
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(self, *, update_version: str):
         """Platform-specific operations during post_update.
 
         This is where platforms should:
