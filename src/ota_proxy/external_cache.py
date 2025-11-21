@@ -25,11 +25,19 @@ logger = logging.getLogger(__name__)
 
 
 def mount_external_cache(
-    mnt_point: StrOrPath, *, cache_dev_fslabel: str = config.EXTERNAL_CACHE_DEV_FSLABEL
+    mnt_point: StrOrPath, is_nfs_cache: bool = False, *, cache_dev_fslabel: str = config.EXTERNAL_CACHE_DEV_FSLABEL
 ) -> StrOrPath | None:
     logger.info(
         f"otaproxy will try to detect external cache dev and mount to {mnt_point}"
     )
+
+    if is_nfs_cache:
+        # NFS is pre-mounted externally, just verify it's ready
+        if not cmdhelper.is_target_mounted(mnt_point, raise_exception=False):
+            logger.warning(f"NFS cache not mounted at {mnt_point}")
+            return None
+        logger.info(f"NFS cache detected at {mnt_point}")
+        return mnt_point
 
     _cache_dev = cmdhelper.get_dev_by_token(
         "LABEL",
