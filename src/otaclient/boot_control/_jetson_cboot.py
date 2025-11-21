@@ -33,6 +33,7 @@ from otaclient.boot_control._firmware_package import (
 )
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env, cmdhelper, replace_root
 from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
@@ -765,3 +766,6 @@ class JetsonCBootControl(BootControllerProtocol):
 
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
+
+    def store_metrics(self, metrics: OTAMetricsData):
+        self._ota_status_control._store_current_metrics(metrics)

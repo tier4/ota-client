@@ -56,6 +56,10 @@ class OTAMetricsData:
     post_update_start_timestamp: int = 0
     finalizing_update_start_timestamp: int = 0
     reboot_start_timestamp: int = 0
+    reboot_complete_timestamp: int = 0
+
+    # Duration
+    system_uptime_seconds: int = 0
 
     # ECU and Firmware
     ecu_id: str = ecu_info.ecu_id
@@ -71,7 +75,7 @@ class OTAMetricsData:
     # Status
     failure_type: str = ""
     failure_reason: str = ""
-    failed_status: str = ""
+    ota_status: str = ""
 
     # Mode
     use_inplace_mode: bool = False
@@ -102,6 +106,24 @@ class OTAMetricsData:
         # this variable will not be included in data fields
         self._already_published = False
 
+    def to_json(self) -> str:
+        """
+        Converts the metrics data to a JSON string.
+        """
+        return json.dumps(asdict(self))
+
+    def from_json(self, json_str: str) -> None:
+        """
+        Loads the metrics data from a JSON string.
+        """
+        try:
+            data = json.loads(json_str)
+            for field in asdict(self):
+                if field in data:
+                    setattr(self, field, data[field])
+        except Exception as e:
+            logger.warning(f"Failed to load metrics from JSON: {e}")
+
     def shm_merge(self, shm_data: OTAMetricsSharedMemoryData | None) -> None:
         """
         Merges OTAMetricsSharedMemoryData instance into this one.
@@ -118,11 +140,11 @@ class OTAMetricsData:
         except Exception as e:
             logger.warning(f"Failed to read from shared memory: {e}")
 
-    def publish(self):
+    def publish(self, *, force: bool = False):
         """
         Publishes the metrics data to the metrics server.
         """
-        if self._already_published:
+        if self._already_published and not force:
             # metrics data has already been published.
             return
 

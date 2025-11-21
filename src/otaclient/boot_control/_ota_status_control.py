@@ -17,11 +17,13 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional, Union
 
 from otaclient._types import OTAStatus
 from otaclient.configs.cfg import cfg
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 
@@ -146,6 +148,26 @@ class OTAStatusFilesControl:
             )
             self._store_current_status(self._ota_status)
 
+        # publish metrics only when the previous status is UPDATING or ROLLBACKING
+        self._publish_metrics()
+
+    def _publish_metrics(self):
+        """load and publish metrics."""
+        try:
+            _metrics = self._load_current_metrics()
+            if not _metrics:
+                logger.info("no metrics data to publish")
+                return
+
+            _metrics.system_uptime_seconds = int(
+                time.clock_gettime(time.CLOCK_BOOTTIME)
+            )
+            _metrics.reboot_complete_timestamp = int(time.time())
+            _metrics.ota_status = self._ota_status.name
+            _metrics.publish(force=True)
+        except Exception as e:
+            logger.warning(f"Failed to publish metrics: {e}")
+
     def _load_slot_in_use_file(self):
         _loaded_slot_in_use = self._load_current_slot_in_use()
         if self._force_initialize:
@@ -212,6 +234,21 @@ class OTAStatusFilesControl:
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _version,
         )
+
+    # metrics control
+
+    def _store_current_metrics(self, _metrics: OTAMetricsData):
+        write_str_to_file_atomic(
+            self.current_ota_status_dir / cfg.METRICS_FNAME, _metrics.to_json()
+        )
+
+    def _load_current_metrics(self) -> Optional[OTAMetricsData]:
+        if _metrics_json := read_str_from_file(
+            self.current_ota_status_dir / cfg.METRICS_FNAME, _default=""
+        ):
+            _metrics = OTAMetricsData()
+            _metrics.from_json(_metrics_json)
+            return _metrics
 
     # helper methods
 

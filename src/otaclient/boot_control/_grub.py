@@ -45,6 +45,7 @@ from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
+from otaclient.metrics import OTAMetricsData
 from otaclient_common import _env, cmdhelper
 from otaclient_common._io import (
     read_str_from_file,
@@ -941,5 +942,8 @@ class GrubController(BootControllerProtocol):
             raise ota_errors.BootControlPostRollbackFailed(
                 _err_msg, module=__name__
             ) from e
+
+    def store_metrics(self, metrics: OTAMetricsData):
+        self._ota_status_control._store_current_metrics(metrics)
 
     finalizing_rollback = finalizing_update
