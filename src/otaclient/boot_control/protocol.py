@@ -76,17 +76,3 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def finalizing_update(self, *, chroot: str | None = None) -> None:
         """Normally this method only reboots the device."""
-
-    #
-    # ------ rollback ------ #
-    #
-
-    @abstractmethod
-    def pre_rollback(self) -> None: ...
-
-    @abstractmethod
-    def post_rollback(self): ...
-
-    @abstractmethod
-    def finalizing_rollback(self, *, chroot: str | None = None) -> None:
-        """Normally this method only reboots the device."""

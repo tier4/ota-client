@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import NoReturn, Optional
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus
 from otaclient.boot_control._firmware_package import (
     FirmwareManifest,
     FirmwareUpdateRequest,
@@ -38,6 +37,7 @@ from otaclient_common._io import cal_file_digest
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import subprocess_run_wrapper
 
+from ._base import BootControllerBase
 from ._jetson_common import (
     SLOT_PAR_MAP,
     BSPVersion,
@@ -56,7 +56,6 @@ from ._jetson_common import (
 )
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import cboot_cfg as boot_cfg
-from .protocol import BootControllerProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -469,7 +468,7 @@ class _CBootControl:
         NVBootctrlJetsonCBOOT.set_active_boot_slot(target_slot, chroot=_chroot)
 
 
-class JetsonCBootControl(BootControllerProtocol):
+class JetsonCBootControl(BootControllerBase):
     """BootControllerProtocol implementation for jetson-cboot."""
 
     def __init__(self) -> None:
@@ -612,156 +611,77 @@ class JetsonCBootControl(BootControllerProtocol):
     def bootloader_type(self) -> str:
         return boot_cfg.BOOTLOADER
 
-    @property
-    def standby_slot_dev(self) -> Path:
-        return Path(self._mp_control.standby_slot_dev)
-
-    def get_standby_slot_dev(self) -> str:  # pragma: no cover
-        return self._mp_control.standby_slot_dev
-
-    def get_standby_slot_path(self) -> Path:  # pragma: no cover
-        return self._mp_control.standby_slot_mount_point
-
-    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
-        try:
-            logger.info("jetson-cboot: pre-update ...")
-            # udpate active slot's ota_status
-            self._ota_status_control.pre_update_current()
-
-            if not self._cboot_control.unified_ab_enabled:
-                # set standby rootfs as unbootable as we are going to update it
-                # this operation not applicable when unified A/B is enabled.
-                logger.info(
-                    "unified AB slot is not enabled, set standby rootfs slot as unbootable"
-                )
-                self._cboot_control.set_standby_rootfs_unbootable()
-
-            # prepare standby slot dev
-            self._mp_control.prepare_standby_dev(erase_standby=erase_standby)
-            # mount slots
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
-        except Exception as e:
-            _err_msg = f"failed on pre_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_update(self, update_version: str) -> None:
-        try:
-            logger.info("jetson-cboot: post-update ...")
-            # ------ update standby slot's ota_status files ------ #
-            self._ota_status_control.post_update_standby(version=update_version)
-
-            # ------ update extlinux.conf ------ #
-            update_standby_slot_extlinux_cfg(
-                active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
-                standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
-                / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
-                standby_slot_partuuid=self._cboot_control.standby_rootfs_dev_partuuid,
-            )
-
-            # ------ firmware update ------ #
-            firmware_update_result = self._firmware_update()
-            if firmware_update_result is None:
-                logger.info("no firmware update occurs")
-            elif firmware_update_result is False:
-                raise JetsonCBootContrlError("firmware update failed")
-            else:
-                logger.info("new firmware is written to the standby slot")
-
-            # ------ preserve BSP version files to standby slot ------ #
-            standby_fw_bsp_ver_fpath = (
-                self._ota_status_control.standby_ota_status_dir
-                / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-            )
-            self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
-
-            # ------ preserve /boot/ota folder to standby rootfs ------ #
-            preserve_ota_config_files_to_standby(
-                active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-                / "boot"
-                / "ota",
-                standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot"
-                / "ota",
-            )
-
-            # ------ for external rootfs, preserve /boot folder to internal ------ #
-            # NOTE: the copy must happen AFTER all the changes to active slot's /boot done.
-            if self._cboot_control._external_rootfs:
-                logger.info(
-                    "rootfs on external storage enabled: "
-                    "copy standby slot rootfs' /boot folder "
-                    "to corresponding internal emmc dev ..."
-                )
-                copy_standby_slot_boot_to_internal_emmc(
-                    internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
-                    internal_emmc_devpath=Path(
-                        self._cboot_control.standby_internal_emmc_devpath
-                    ),
-                    standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
-                    / "boot",
-                )
-
-            # ------ switch boot to standby ------ #
-            self._cboot_control.switch_boot_to_standby()
-
-            # ------ prepare to reboot ------ #
-            self._mp_control.umount_all(ignore_error=True)
+    def _pre_update_platform_specific(
+        self, *, standby_as_ref: bool, erase_standby: bool
+    ) -> None:
+        """Jetson cboot-specific pre-update: set standby rootfs as unbootable if needed."""
+        if not self._cboot_control.unified_ab_enabled:
+            # set standby rootfs as unbootable as we are going to update it
+            # this operation not applicable when unified A/B is enabled.
             logger.info(
-                f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
+                "unified AB slot is not enabled, set standby rootfs slot as unbootable"
             )
-            logger.info("post update finished, wait for reboot ...")
-        except Exception as e:
-            _err_msg = f"failed on post_update: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostUpdateFailed(
-                _err_msg, module=__name__
-            ) from e
+            self._cboot_control.set_standby_rootfs_unbootable()
+
+    def _post_update_platform_specific(self, *, update_version: str) -> None:
+        """Jetson cboot-specific post-update operations."""
+        # ------ update extlinux.conf ------ #
+        update_standby_slot_extlinux_cfg(
+            active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
+            standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
+            / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
+            standby_slot_partuuid=self._cboot_control.standby_rootfs_dev_partuuid,
+        )
+
+        # ------ firmware update ------ #
+        firmware_update_result = self._firmware_update()
+        if firmware_update_result is None:
+            logger.info("no firmware update occurs")
+        elif firmware_update_result is False:
+            raise JetsonCBootContrlError("firmware update failed")
+        else:
+            logger.info("new firmware is written to the standby slot")
+
+        # ------ preserve BSP version files to standby slot ------ #
+        standby_fw_bsp_ver_fpath = (
+            self._ota_status_control.standby_ota_status_dir
+            / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
+        )
+        self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
+
+        # ------ preserve /boot/ota folder to standby rootfs ------ #
+        preserve_ota_config_files_to_standby(
+            active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
+            / "boot"
+            / "ota",
+            standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
+            / "boot"
+            / "ota",
+        )
+
+        # ------ for external rootfs, preserve /boot folder to internal ------ #
+        # NOTE: the copy must happen AFTER all the changes to active slot's /boot done.
+        if self._cboot_control._external_rootfs:
+            logger.info(
+                "rootfs on external storage enabled: "
+                "copy standby slot rootfs' /boot folder "
+                "to corresponding internal emmc dev ..."
+            )
+            copy_standby_slot_boot_to_internal_emmc(
+                internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
+                internal_emmc_devpath=Path(
+                    self._cboot_control.standby_internal_emmc_devpath
+                ),
+                standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
+                / "boot",
+            )
+
+        # ------ switch boot to standby ------ #
+        self._cboot_control.switch_boot_to_standby()
+
+        logger.info(
+            f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
+        )
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)
-
-    def pre_rollback(self):
-        try:
-            logger.info("jetson-cboot: pre-rollback setup ...")
-            self._ota_status_control.pre_rollback_current()
-            self._mp_control.mount_standby()
-        except Exception as e:
-            _err_msg = f"failed on pre_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPreRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    def post_rollback(self):
-        try:
-            logger.info("jetson-cboot: post-rollback setup...")
-            self._ota_status_control.post_rollback_standby()
-            self._mp_control.umount_all(ignore_error=True)
-            self._cboot_control.switch_boot_to_standby()
-        except Exception as e:
-            _err_msg = f"failed on post_rollback: {e!r}"
-            logger.error(_err_msg)
-            raise ota_errors.BootControlPostRollbackFailed(
-                _err_msg, module=__name__
-            ) from e
-
-    finalizing_rollback = finalizing_update
-
-    def on_operation_failure(self):
-        """Failure registering and cleanup at failure."""
-        logger.warning("on failure try to unmounting standby slot...")
-        self._ota_status_control.on_failure()
-        self._mp_control.umount_all(ignore_error=True)
-
-    def load_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_active_slot_version()
-
-    def load_standby_slot_version(self) -> str:  # pragma: no cover
-        return self._ota_status_control.load_standby_slot_version()
-
-    def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
-        return self._ota_status_control.booted_ota_status
