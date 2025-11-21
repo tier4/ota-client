@@ -46,6 +46,7 @@ def run_otaproxy(
     enable_cache: bool,
     enable_https: bool,
     external_cache_mnt_point: str | None = None,
+    is_nfs_cache: bool = False,
     shm_metrics_writer: SharedOTAClientMetricsWriter | None = None,
 ):
     import asyncio
@@ -64,6 +65,7 @@ def run_otaproxy(
         enable_https=enable_https,
         init_cache=init_cache,
         external_cache_mnt_point=external_cache_mnt_point,
+        is_nfs_cache=is_nfs_cache,
         shm_metrics_writer=shm_metrics_writer,
     )
     _config = uvicorn.Config(
