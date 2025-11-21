@@ -739,6 +739,8 @@ def ensure_umount_from_host(
 ) -> None:  # pragma: no cover
     """Same as ensure_umount, but use chroot+setns to execute from host mnt ns.
 
+    NOTE: no need to chroot for setns to host mnt ns.
+
     Raises:
         If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
     """
