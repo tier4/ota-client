@@ -62,6 +62,7 @@ class OTAMetricsData:
     request_id: str = ""
     session_id: str = ""
     current_firmware_version: str = ""
+    standby_firmware_version: str = ""
     target_firmware_version: str = ""
 
     # OTA Client

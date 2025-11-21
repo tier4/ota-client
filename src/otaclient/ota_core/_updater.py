@@ -151,6 +151,16 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 f"failed to save OTA image file_table to {self._ota_meta_store_on_standby=}: {e!r}"
             )
 
+        # NOTE: standby slot is now mounted and accessible. Load the standby slot version.
+        #       This is especially important for platforms without shared boot partition
+        #       (Jetson, RPi) where version info can only be read after mounting.
+        try:
+            standby_firmware_version = self._boot_controller.load_standby_slot_version()
+        except Exception:
+            standby_firmware_version = ""
+        self._metrics.standby_firmware_version = standby_firmware_version
+        logger.info(f"standby_firmware_version: {standby_firmware_version}")
+
     def _in_update(self):
         """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
         logger.info("start to calculate delta ...")

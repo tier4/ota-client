@@ -273,6 +273,12 @@ class OTAStatusFilesControl:
             _default=cfg.DEFAULT_VERSION_STR,
         )
 
+    def load_standby_slot_version(self) -> str:
+        return read_str_from_file(
+            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
+            _default=cfg.DEFAULT_VERSION_STR,
+        )
+
     def on_failure(self):
         """Store FAILURE to status file on failure."""
         self._store_current_status(OTAStatus.FAILURE)

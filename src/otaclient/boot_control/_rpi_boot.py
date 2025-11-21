@@ -574,5 +574,8 @@ class RPIBootController(BootControllerProtocol):
     def load_version(self) -> str:  # pragma: no cover
         return self._ota_status_control.load_active_slot_version()
 
+    def load_standby_slot_version(self) -> str:  # pragma: no cover
+        return self._ota_status_control.load_standby_slot_version()
+
     def get_booted_ota_status(self) -> OTAStatus:  # pragma: no cover
         return self._ota_status_control.booted_ota_status
