@@ -20,13 +20,13 @@ jobs:
     steps:
       - name: checkout (release)
         if: ${{ github.event_name == 'release' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         # NOTE: when doing release, the tag will be created
         #       at checkout, no need to fetch old tags
 
       - name: checkout (non-release)
         if: ${{ github.event_name != 'release' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           # NOTE: this should be enough to let hatch-vcs determines the
           #       version from git tags.
@@ -84,13 +84,13 @@ jobs:
     steps:
       - name: checkout (release)
         if: ${{ github.event_name == 'release' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         # NOTE: when doing release, the tag will be created
         #       at checkout, no need to fetch old tags
 
       - name: checkout (non-release)
         if: ${{ github.event_name != 'release' }}
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           # NOTE: this should be enough to let hatch-vcs determines the
           #       version from git tags.
@@ -129,7 +129,7 @@ jobs:
       contents: write
     steps:
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: download python packages artifact
         uses: actions/download-artifact@v6
