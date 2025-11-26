@@ -171,7 +171,7 @@ def run_ota_image_v1_server():
 
 
 @pytest.fixture
-def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
+def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> Generator[SlotMeta]:
     """Prepare AB slots for the whole test session.
 
     The slot_a will be the active slot, it will be populated
@@ -224,12 +224,17 @@ def ab_slots(tmp_path_factory: pytest.TempPathFactory) -> SlotMeta:
     slot_b_boot_dir.mkdir()
     (slot_b_boot_dir / "grub").mkdir()
 
-    return SlotMeta(
-        slot_a=str(slot_a),
-        slot_b=str(slot_b),
-        slot_a_boot_dev=str(slot_a_boot_dev),
-        slot_b_boot_dev=str(slot_b_boot_dev),
-    )
+    try:
+        yield SlotMeta(
+            slot_a=str(slot_a),
+            slot_b=str(slot_b),
+            slot_a_boot_dev=str(slot_a_boot_dev),
+            slot_b_boot_dev=str(slot_b_boot_dev),
+        )
+    finally:
+        # do explicit cleanup after the use
+        shutil.rmtree(slot_a, ignore_errors=True)
+        shutil.rmtree(slot_b, ignore_errors=True)
 
 
 class ThreadpoolExecutorFixtureMixin:
