@@ -704,7 +704,7 @@ def ensure_umount(
     """Try to umount the <mnt_point> at our best.
 
     Raises:
-        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+        If <ignore_error> is False, raises the last failed attempt's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
         if not is_target_mounted(mnt_point, raise_exception=False):
@@ -742,7 +742,7 @@ def ensure_umount_from_host(
     NOTE: no need to chroot for setns to host mnt ns.
 
     Raises:
-        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+        If <ignore_error> is False, raises the last failed attempt's CalledProcessError.
     """
 
     def _is_mounted() -> bool:
