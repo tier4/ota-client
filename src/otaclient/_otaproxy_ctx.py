@@ -82,9 +82,7 @@ def otaproxy_process(
 
     external_nfs_cache_mnt_point = None
     if proxy_info.external_nfs_cache_mnt_point:
-        external_nfs_cache_mnt_point = str(
-            proxy_info.external_nfs_cache_mnt_point
-        )
+        external_nfs_cache_mnt_point = str(proxy_info.external_nfs_cache_mnt_point)
 
     host, port = (
         str(proxy_info.local_ota_proxy_listen_addr),
