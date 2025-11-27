@@ -112,6 +112,7 @@ class OTACache:
         enable_https: whether the ota_cache should send out the requests with HTTPS,
             default is False. NOTE: scheme change is applied unconditionally.
         external_cache_mnt_point: the mount point of external cache, if any.
+        is_nfs_cache: whether the external cache storage device is NFS.
         shm_metrics_writer: SharedOTAClientMetricsWriter instance to write metrics to shared memory.
     """
 
@@ -128,6 +129,7 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
+        external_nfs_cache_mnt_point: str | None = None,
         shm_metrics_writer: SharedOTAClientMetricsWriter | None = None,
     ):
         """Init ota_cache instance with configurations."""
@@ -163,6 +165,17 @@ class OTACache:
             self._external_cache_mp = external_cache_mnt_point
             self._external_cache_data_dir = (
                 anyio.Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
+            )
+
+        self._external_nfs_cache_data_dir = None
+        self._external_nfs_cache_mp = None
+        if external_nfs_cache_mnt_point:
+            logger.info(
+                f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
+            )
+            self._external_nfs_cache_mp = external_nfs_cache_mnt_point
+            self._external_nfs_cache_data_dir = (
+                anyio.Path(external_nfs_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
             )
 
         self._storage_below_hard_limit_event = threading.Event()

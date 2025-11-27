@@ -80,6 +80,10 @@ def otaproxy_process(
     if cfg.OTAPROXY_ENABLE_EXTERNAL_CACHE:
         external_cache_mnt_point = cfg.EXTERNAL_CACHE_DEV_MOUNTPOINT
 
+    external_nfs_cache_mnt_point = None
+    if proxy_info.external_nfs_cache_mnt_point:
+        external_nfs_cache_mnt_point = str(proxy_info.external_nfs_cache_mnt_point)
+
     host, port = (
         str(proxy_info.local_ota_proxy_listen_addr),
         proxy_info.local_ota_proxy_listen_port,
@@ -112,6 +116,7 @@ def otaproxy_process(
         and proxy_info.upper_ota_proxy is None,
         enable_https=proxy_info.gateway_otaproxy,
         external_cache_mnt_point=external_cache_mnt_point,
+        external_nfs_cache_mnt_point=external_nfs_cache_mnt_point,
         shm_metrics_writer=shm_metrics_writer,
     )
 
