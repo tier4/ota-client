@@ -90,8 +90,10 @@ class ProxyInfo(BaseFixedConfig):
     If None, no external cache device is used.
     """
 
-    is_nfs_cache: bool = False
-    """Whether the external cache storage device is NFS."""
+    external_nfs_cache_mnt_point: Optional[StrOrPath] = None
+    """The mount point of external NFS cache storage.
+    If None, no external NFS cache is used.
+    """
 
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
