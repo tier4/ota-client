@@ -169,7 +169,7 @@ class OTACache:
 
         self._external_nfs_cache_data_dir = None
         self._external_nfs_cache_mp = None
-        if external_nfs_cache_mnt_point and mount_external_cache:
+        if external_nfs_cache_mnt_point:
             logger.info(
                 f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
             )
