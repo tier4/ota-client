@@ -76,6 +76,7 @@ def mount_external_nfs_cache(mnt_point: StrOrPath) -> StrOrPath | None:
     logger.info(f"External NFS cache detected at {mnt_point}")
     return mnt_point
 
+
 def umount_external_cache(mnt_point: StrOrPath) -> None:
     try:
         cmdhelper.ensure_umount(mnt_point, ignore_error=False)
