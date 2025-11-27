@@ -74,10 +74,11 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--is-nfs-cache",
-        help="specify if the external cache storage device is NFS",
-        action="store_true",
-        default=False,
+        "--external-nfs-cache-mnt-point",
+        help=(
+            "if specified, otaproxy will try to use external NFS cache at this mount point."
+        ),
+        default=None,
     )
 
     args = parser.parse_args()
@@ -96,5 +97,5 @@ if __name__ == "__main__":
         enable_https=args.enable_https,
         init_cache=args.init_cache,
         external_cache_mnt_point=args.external_cache_mnt_point,
-        is_nfs_cache=args.is_nfs_cache,
+        external_nfs_cache_mnt_point=args.external_nfs_cache_mnt_point,
     )
