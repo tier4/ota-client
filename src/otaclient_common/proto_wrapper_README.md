@@ -17,7 +17,7 @@ A list of helper types/utils are provided to generate wrapper types from compile
 
 - Core utils/types
 
-    | **name** | **description** | **usage**|
+    | **name** | **description** | **usage** |
     | --- | --- | --- |
     | `MessageWrapper` | the base class for all custom defined wrapper types | define wrapper for compiled proto msg type `_pb2.Msg` by defining `Msg(MessageWrapper[_pb2.Msg])` |
     | `calculate_slots` | helper method to create `__slots__` for defined wrapper types | for compiled proto msg type `_pb2.Msg`, the `__slots__` can be defined by `__slots__ = calculate_slots(_pb2.Msg)` |
