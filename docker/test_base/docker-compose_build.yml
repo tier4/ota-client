@@ -1,15 +1,6 @@
 # compose file for building the test base images
 
 services:
-  tester-ubuntu-18.04:
-    build:
-      context: .
-      dockerfile: ubuntu-18.04.Dockerfile
-      args:
-        UBUNTU_BASE: ubuntu:18.04
-    pull_policy: never
-    image: ghcr.io/tier4/ota-client/test_base:ubuntu_18.04
-
   tester-ubuntu-20.04:
     build:
       context: .
@@ -25,3 +16,11 @@ services:
         UBUNTU_BASE: ubuntu:22.04
     pull_policy: never
     image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
+
+  tester-ubuntu-24.04:
+    build:
+      context: .
+      args:
+        UBUNTU_BASE: ubuntu:24.04
+    pull_policy: never
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_24.04

@@ -9,7 +9,7 @@ x-common: &_common
     - ./entry_point_py313.sh:/entry_point.sh:ro
 
 services:
-  tester-ubuntu-22.04:
-    image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
-    container_name: ota-test_ubuntu2204
+  tester-ubuntu-24.04:
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_24.04
+    container_name: ota-test_ubuntu2404
     <<: *_common

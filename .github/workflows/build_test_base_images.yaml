@@ -10,15 +10,9 @@ on:
       - main
     paths:
       - "docker/test_base/Dockerfile"
-      - "docker/test_base/ubuntu-*.Dockerfile"
       - "docker/test_base/entry_point.sh"
       - ".github/workflows/build_test_base_images.yaml"
   workflow_dispatch:
-    inputs:
-      ubuntu_version:
-        description: 'Ubuntu version to build (e.g., 18.04, 20.04, 22.04)'
-        required: false
-        default: ''
 
 jobs:
   build-and-push:
@@ -30,9 +24,9 @@ jobs:
     strategy:
       matrix:
         ubuntu_version:
-          - "18.04"
           - "20.04"
           - "22.04"
+          - "24.04"
     steps:
       - name: Checkout commit
         uses: actions/checkout@v6
@@ -48,16 +42,12 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Determine Dockerfile
         id: dockerfile
         run: |
-          if [ -f "./docker/test_base/ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" ]; then
-            echo "file=ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" >> "$GITHUB_OUTPUT"
-          else
-            echo "file=Dockerfile" >> "$GITHUB_OUTPUT"
-          fi
+          echo "file=Dockerfile" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v5

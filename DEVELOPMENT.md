@@ -39,7 +39,7 @@ uv build --wheel
 ### Use docker compose to run tests in a container
 
 The test containers are defined in `docker/test_base/docker-compose_tests.yml`,
-Test containers for ubuntu 18.04, 20.04 and 22.04 are defined.
+Test containers for ubuntu 20.04, 22.04 and 24.04 are defined.
 
 The `./docker/test_base/entry_point.sh` will be mounted into the test container as entrypoint,
 you can adjust the script as needed.
