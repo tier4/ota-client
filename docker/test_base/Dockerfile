@@ -22,7 +22,7 @@ RUN set -eux; \
     export UV_INSTALL_DIR=/usr/bin; \
     wget -qO- "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh; \
     apt-get clean; \
-    rm -rf; \
+    rm -rf \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/*

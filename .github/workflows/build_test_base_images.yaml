@@ -1,0 +1,73 @@
+name: build and push test base images CI
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/test_base/Dockerfile"
+      - "docker/test_base/ubuntu-*.Dockerfile"
+      - "docker/test_base/entry_point.sh"
+      - ".github/workflows/build_test_base_images.yaml"
+  workflow_dispatch:
+    inputs:
+      ubuntu_version:
+        description: 'Ubuntu version to build (e.g., 18.04, 20.04, 22.04)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        ubuntu_version:
+          - "18.04"
+          - "20.04"
+          - "22.04"
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Use buildkit master for zstd compression support
+          driver-opts: image=moby/buildkit:master
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine Dockerfile
+        id: dockerfile
+        run: |
+          if [ -f "./docker/test_base/ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" ]; then
+            echo "file=ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" >> "$GITHUB_OUTPUT"
+          else
+            echo "file=Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker/test_base
+          file: ./docker/test_base/${{ steps.dockerfile.outputs.file }}
+          push: true
+          tags: ghcr.io/tier4/ota-client/test_base:ubuntu_${{ matrix.ubuntu_version }}
+          build-args: |
+            UBUNTU_BASE=ubuntu:${{ matrix.ubuntu_version }}
+          outputs: type=image,name=ghcr.io/tier4/ota-client/test_base:ubuntu_${{ matrix.ubuntu_version }},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
