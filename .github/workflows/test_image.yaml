@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - main
+      - ci/automate-test-build  # TODO: remove this line after testing
     paths:
       - "docker/test_base/Dockerfile"
       - "docker/test_base/ubuntu-*.Dockerfile"
@@ -51,9 +52,9 @@ jobs:
         id: dockerfile
         run: |
           if [ -f "./docker/test_base/ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" ]; then
-            echo "file=ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" >> $GITHUB_OUTPUT
+            echo "file=ubuntu-${{ matrix.ubuntu_version }}.Dockerfile" >> "$GITHUB_OUTPUT"
           else
-            echo "file=Dockerfile" >> $GITHUB_OUTPUT
+            echo "file=Dockerfile" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push
