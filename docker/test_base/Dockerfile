@@ -1,11 +1,12 @@
 ARG UBUNTU_BASE
-ARG UV_VERSION=0.8.22
 
 FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04 AS ota_image
 
 FROM ghcr.io/tier4/ota-client/ota_img_for_test:ubuntu_22.04-ota_image_v1 AS ota_image_v1
 
 FROM ${UBUNTU_BASE}
+
+ARG UV_VERSION=0.8.22
 
 # NOTE: for fallback when no entry_point.sh is specified in compose file
 COPY --chmod=755 ./entry_point.sh /entry_point.sh
