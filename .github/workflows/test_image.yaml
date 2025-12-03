@@ -62,7 +62,6 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v5
-        if: github.ref == 'refs/heads/main'
         with:
           context: ./docker/test_base
           file: ./docker/test_base/${{ steps.dockerfile.outputs.file }}
@@ -71,19 +70,5 @@ jobs:
           build-args: |
             UBUNTU_BASE=ubuntu:${{ matrix.ubuntu_version }}
           outputs: type=image,name=ghcr.io/tier4/ota-client/test_base:ubuntu_${{ matrix.ubuntu_version }},compression=zstd,compression-level=19,oci-mediatypes=true,force-compression=true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build only (for testing)
-        uses: docker/build-push-action@v5
-        if: github.ref != 'refs/heads/main'
-        with:
-          context: ./docker/test_base
-          file: ./docker/test_base/${{ steps.dockerfile.outputs.file }}
-          push: false
-          load: true
-          tags: ghcr.io/tier4/ota-client/test_base:ubuntu_${{ matrix.ubuntu_version }}
-          build-args: |
-            UBUNTU_BASE=ubuntu:${{ matrix.ubuntu_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
