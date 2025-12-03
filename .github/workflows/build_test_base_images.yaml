@@ -44,16 +44,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine Dockerfile
-        id: dockerfile
-        run: |
-          echo "file=Dockerfile" >> "$GITHUB_OUTPUT"
-
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: ./docker/test_base
-          file: ./docker/test_base/${{ steps.dockerfile.outputs.file }}
+          file: ./docker/test_base/Dockerfile
           push: true
           tags: ghcr.io/tier4/ota-client/test_base:ubuntu_${{ matrix.ubuntu_version }}
           build-args: |
