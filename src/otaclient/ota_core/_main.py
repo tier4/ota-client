@@ -62,7 +62,7 @@ from otaclient._utils import (
 from otaclient.boot_control import get_boot_controller
 from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.metrics import OTAMetricsData
+from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
@@ -332,6 +332,7 @@ class OTAClient:
             _no_ca_err = "no CA chains are installed, reject any OTA update"
             if check_if_ota_image_v1(url_base, downloader_pool=download_pool):
                 logger.info(f"{url_base} hosts new OTA image version1")
+                self._metrics.ota_image_format = OTAImageFormat.V1
                 if not self.ca_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
                         _no_ca_err, module=__name__
@@ -354,6 +355,7 @@ class OTAClient:
                 ).execute()
             else:
                 logger.info(f"{url_base} hosts legacy OTA image")
+                self._metrics.ota_image_format = OTAImageFormat.LEGACY
                 if not self.ca_chains_store:
                     raise ota_errors.MetadataJWTVerficationFailed(
                         _no_ca_err, module=__name__
