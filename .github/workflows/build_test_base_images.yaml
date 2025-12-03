@@ -1,4 +1,4 @@
-name: Build and Push Test Base Images
+name: build and push test base images CI
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ on:
       - "docker/test_base/Dockerfile"
       - "docker/test_base/ubuntu-*.Dockerfile"
       - "docker/test_base/entry_point.sh"
-      - ".github/workflows/test_image.yaml"
+      - ".github/workflows/build_test_base_images.yaml"
   workflow_dispatch:
     inputs:
       ubuntu_version:
