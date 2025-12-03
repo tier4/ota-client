@@ -391,6 +391,8 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
+        return
+
         if _env.is_running_as_downloaded_dynamic_app():
             # Duplicates client update should not be allowed.
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
