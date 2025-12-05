@@ -517,7 +517,7 @@ class OTACache:
 
         cache_identifier = client_cache_policy.file_sha256
         cache_file = self._external_cache_data_dir / cache_identifier
-        logger.info(f"try to lookup external cache at {cache_file=}")
+        logger.debug(f"try to lookup external cache at {cache_file=}")
         cache_file_zst = anyio.Path(
             cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
@@ -552,7 +552,7 @@ class OTACache:
 
         nfs_cache_identifier = client_cache_policy.file_sha256
         nfs_cache_file = self._external_nfs_cache_data_dir / nfs_cache_identifier
-        logger.info(f"try to lookup external NFS cache at {nfs_cache_file=}")
+        logger.debug(f"try to lookup external NFS cache at {nfs_cache_file=}")
         nfs_cache_file_zst = anyio.Path(
             nfs_cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
