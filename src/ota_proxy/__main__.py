@@ -72,6 +72,15 @@ if __name__ == "__main__":
         ),
         default=None,
     )
+
+    parser.add_argument(
+        "--external-nfs-cache-mnt-point",
+        help=(
+            "if specified, otaproxy will try to use external NFS cache at this mount point."
+        ),
+        default=None,
+    )
+
     args = parser.parse_args()
 
     # suppress logging from third-party deps
@@ -88,4 +97,5 @@ if __name__ == "__main__":
         enable_https=args.enable_https,
         init_cache=args.init_cache,
         external_cache_mnt_point=args.external_cache_mnt_point,
+        external_nfs_cache_mnt_point=args.external_nfs_cache_mnt_point,
     )

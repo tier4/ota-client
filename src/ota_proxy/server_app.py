@@ -316,7 +316,7 @@ class App:
 
         if retrieved_ota_cache is None:
             # retrieve_file executed successfully, but return nothing
-            _msg = f"failed to retrieve fd for {url} from otacache"
+            _msg = f"failed to retrieve fd for {url} from ota cache"
             burst_suppressed_logger.warning(_msg)
             await self._respond_with_error(HTTPStatus.INTERNAL_SERVER_ERROR, _msg, send)
             return

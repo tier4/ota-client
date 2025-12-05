@@ -44,6 +44,7 @@ class OTAMetricsSharedMemoryData:
     cache_total_requests: int = 0
     cache_cdn_hits: int = 0
     cache_external_hits: int = 0
+    cache_external_nfs_hits: int = 0
     cache_local_hits: int = 0
 
 
@@ -107,6 +108,7 @@ class OTAMetricsData:
     cache_total_requests: int = 0
     cache_cdn_hits: int = 0
     cache_external_hits: int = 0
+    cache_external_nfs_hits: int = 0
     cache_local_hits: int = 0
 
     def __post_init__(self):

@@ -85,6 +85,16 @@ class ProxyInfo(BaseFixedConfig):
         f"http://127.0.0.1:{LOGGING_SERVER_GRPC_PORT}"
     )
 
+    external_cache_mnt_point: Optional[StrOrPath] = None
+    """The mount point of external cache storage device.
+    If None, no external cache device is used.
+    """
+
+    external_nfs_cache_mnt_point: Optional[StrOrPath] = None
+    """The mount point of external NFS cache storage.
+    If None, no external NFS cache is used.
+    """
+
     def get_proxy_for_local_ota(self) -> str | None:
         """Tell local otaclient which proxy to use(or not use any)."""
         if self.enable_local_ota_proxy:
