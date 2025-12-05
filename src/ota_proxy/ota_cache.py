@@ -112,7 +112,7 @@ class OTACache:
         enable_https: whether the ota_cache should send out the requests with HTTPS,
             default is False. NOTE: scheme change is applied unconditionally.
         external_cache_mnt_point: the mount point of external cache, if any.
-        is_nfs_cache: whether the external cache storage device is NFS.
+        external_nfs_cache_mnt_point: the mount point of the external NFS cache, if any.
         shm_metrics_writer: SharedOTAClientMetricsWriter instance to write metrics to shared memory.
     """
 
