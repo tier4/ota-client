@@ -19,10 +19,10 @@ import json
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info
+from otaclient.metrics import OTAMetricsType
 
 MODULE = metrics.__name__
 
@@ -35,7 +35,8 @@ class TestOTAMetricsData:
         ota_metrics = metrics.OTAMetricsData()
         assert ota_metrics.otaclient_version == __version__
         assert ota_metrics.ecu_id == ecu_info.ecu_id
-        assert ota_metrics._already_published is False
+        assert ota_metrics._already_published == {}
+        assert ota_metrics.metrics_type == ""
 
     @patch("otaclient.metrics.logger")
     def test_shm_merge_success(self, mock_logger):
@@ -106,7 +107,7 @@ class TestOTAMetricsData:
         test_session_id = "test_session_id"
         ota_metrics.session_id = test_session_id
 
-        ota_metrics.publish()
+        ota_metrics.publish(OTAMetricsType.UPDATE)
 
         # Verify logger was called with JSON representation of data
         mock_logger.info.assert_called_once()
@@ -122,24 +123,24 @@ class TestOTAMetricsData:
         # Verify log type is correct
         assert log_extra["log_type"] == LogType.METRICS
 
-        # Verify already_published flag is set
-        assert ota_metrics._already_published is True
+        # Verify already_published flag is set for UPDATE type
+        assert ota_metrics._already_published[OTAMetricsType.UPDATE] is True
 
-        # Reset the mock and call publish again
+        # Reset the mock and call publish again with same type
         mock_logger.reset_mock()
-        ota_metrics.publish()
+        ota_metrics.publish(OTAMetricsType.UPDATE)
 
         # Verify logger was not called again
         mock_logger.info.assert_not_called()
 
     def test_publish_multiple_times(self):
-        """Test that publishing only happens once."""
+        """Test that publishing only happens once per metrics type."""
         ota_metrics = metrics.OTAMetricsData()
 
         with patch("otaclient.metrics.logger") as mock_logger:
-            ota_metrics.publish()
+            ota_metrics.publish(OTAMetricsType.UPDATE)
             assert mock_logger.info.call_count == 1
 
-            # Second publish should not call logger again
-            ota_metrics.publish()
+            # Second publish with same type should not call logger again
+            ota_metrics.publish(OTAMetricsType.UPDATE)
             assert mock_logger.info.call_count == 1
