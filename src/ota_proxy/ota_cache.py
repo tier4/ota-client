@@ -541,7 +541,7 @@ class OTACache:
     async def _retrieve_file_by_external_nfs_cache(
         self, client_cache_policy: OTAFileCacheControl
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
-        # skip if not external cache or otaclient doesn't send valid file_sha256
+        # skip if not external NFS cache or otaclient doesn't send valid file_sha256
         if (
             not self._external_nfs_cache_data_dir
             or client_cache_policy.no_cache
