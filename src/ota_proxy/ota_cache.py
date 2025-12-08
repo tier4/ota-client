@@ -170,7 +170,9 @@ class OTACache:
             )
 
         self._external_nfs_cache_data_dir = None
-        if external_nfs_cache_mnt_point and cmdhelper.is_target_mounted(external_nfs_cache_mnt_point, raise_exception=False):
+        if external_nfs_cache_mnt_point and cmdhelper.is_target_mounted(
+            external_nfs_cache_mnt_point, raise_exception=False
+        ):
             logger.info(
                 f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
             )
@@ -526,8 +528,11 @@ class OTACache:
             return None
 
         cache_identifier = client_cache_policy.file_sha256
-        cache_file = (self._external_cache_data_dir if cache_type == CacheType.EXTERNAL
-                      else self._external_nfs_cache_data_dir) / cache_identifier
+        cache_file = (
+            self._external_cache_data_dir
+            if cache_type == CacheType.EXTERNAL
+            else self._external_nfs_cache_data_dir
+        ) / cache_identifier
         logger.debug(f"try to lookup {cache_type.value} cache at {cache_file=}")
         cache_file_zst = anyio.Path(
             cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
@@ -548,7 +553,6 @@ class OTACache:
             )
             return read_file(cache_file), _header
         return None
-
 
     async def _retrieve_file_by_new_caching(
         self,
@@ -678,13 +682,17 @@ class OTACache:
         # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
         #   and loaded, still try to use external cache source.
         if self._external_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(cache_policy, CacheType.EXTERNAL)
+            _res := await self._retrieve_file_by_external_cache(
+                cache_policy, CacheType.EXTERNAL
+            )
         ):
             self._metrics_data.cache_external_hits += 1
             return _res
 
         if self._external_nfs_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(cache_policy, CacheType.EXTERNAL_NFS)
+            _res := await self._retrieve_file_by_external_cache(
+                cache_policy, CacheType.EXTERNAL_NFS
+            )
         ):
             self._metrics_data.cache_external_nfs_hits += 1
             return _res

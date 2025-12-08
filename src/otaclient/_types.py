@@ -75,8 +75,10 @@ class FailureType(StrEnum):
 
 class CacheType(StrEnum):
     """Types of external cache sources."""
+
     EXTERNAL = "external"
     EXTERNAL_NFS = "external NFS"
+
 
 #
 # ------ otaclient STOP OTA update related flags ------ #
