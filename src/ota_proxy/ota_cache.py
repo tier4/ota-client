@@ -571,7 +571,7 @@ class OTACache:
             or cache_policy.no_cache
             or not self._storage_below_hard_limit_event.is_set()
         ):
-            return
+            return None
 
         cache_identifier = cache_policy.file_sha256
         compression_alg = cache_policy.file_compression_alg
