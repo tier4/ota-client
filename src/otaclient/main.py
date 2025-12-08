@@ -168,7 +168,15 @@ def _dynamic_otaclient_init():
 
 
 def _bind_external_nfs_cache(external_nfs_cache_mnt_point: StrOrPath | None):
-    """Bind mount the external NFS cache from host root"""
+    """
+    Bind mount the external NFS cache from host root.
+
+    Args:
+        external_nfs_cache_mnt_point (StrOrPath | None): The mount point of the external NFS cache to bind mount, or None to skip binding.
+
+    Returns:
+        None
+    """
     if not external_nfs_cache_mnt_point:
         return
 
