@@ -28,7 +28,6 @@ import anyio
 from anyio.to_thread import run_sync
 from multidict import CIMultiDict, CIMultiDictProxy
 
-from otaclient._types import CacheType
 from otaclient._utils import SharedOTAClientMetricsWriter
 from otaclient.metrics import OTAMetricsSharedMemoryData
 from otaclient_common import cmdhelper
@@ -171,8 +170,8 @@ class OTACache:
             )
 
         self._external_nfs_cache_data_dir = None
-        _is_external_nfs_cache_mounted = (
-            cmdhelper.is_target_mounted(external_nfs_cache_mnt_point, raise_exception=False)
+        _is_external_nfs_cache_mounted = cmdhelper.is_target_mounted(
+            external_nfs_cache_mnt_point, raise_exception=False
         )
 
         if external_nfs_cache_mnt_point and _is_external_nfs_cache_mounted:
