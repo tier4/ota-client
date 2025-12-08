@@ -85,12 +85,6 @@ class ProxyInfo(BaseFixedConfig):
         f"http://127.0.0.1:{LOGGING_SERVER_GRPC_PORT}"
     )
 
-    external_cache_mnt_point: Optional[StrOrPath] = None
-    """The mount point of an external USB cache storage device.
-    This should be set to the mount point of a connected USB drive to be used as cache.
-    If None, no external USB cache device is used.
-    """
-
     external_nfs_cache_mnt_point: Optional[StrOrPath] = None
     """The mount point of a pre-mounted external NFS cache storage.
     This should be set to the mount point of a pre-mounted NFS drive to be used as cache.
