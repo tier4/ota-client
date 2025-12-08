@@ -86,12 +86,14 @@ class ProxyInfo(BaseFixedConfig):
     )
 
     external_cache_mnt_point: Optional[StrOrPath] = None
-    """The mount point of external cache storage device.
-    If None, no external cache device is used.
+    """The mount point of an external USB cache storage device.
+    This should be set to the mount point of a connected USB drive to be used as cache.
+    If None, no external USB cache device is used.
     """
 
     external_nfs_cache_mnt_point: Optional[StrOrPath] = None
-    """The mount point of external NFS cache storage.
+    """The mount point of a pre-mounted external NFS cache storage.
+    This should be set to the mount point of a pre-mounted NFS drive to be used as cache.
     If None, no external NFS cache is used.
     """
 
