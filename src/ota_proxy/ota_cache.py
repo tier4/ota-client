@@ -513,7 +513,7 @@ class OTACache:
     async def _retrieve_file_by_external_cache(
         self,
         client_cache_policy: OTAFileCacheControl,
-        cache_data_dir = Optional[StrOrPath],
+        cache_data_dir: StrOrPath | None = None,
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         """Common implementation for external cache lookup.
 
