@@ -331,3 +331,59 @@ class TestMain:
         # Verify behavior based on flag values
         mock_dynamic_otaclient_init.assert_called_once()
         mock_check_other_otaclient.assert_called_once()
+
+
+class TestBindExternalNFSCache:
+    """Tests for the _bind_external_nfs_cache function."""
+
+    def test_bind_external_nfs_cache_success(
+        self, mocker: pytest_mock.MockerFixture, tmp_path
+    ):
+        """Test successful binding of external NFS cache."""
+        from pathlib import Path
+
+        # Setup
+        nfs_cache_mount_point = "/mnt/nfs_cache"
+        host_root = Path(cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT)
+        host_root_nfs_cache = tmp_path / "host_nfs_cache"
+        host_root_nfs_cache.mkdir(parents=True)
+
+        # Mock replace_root to return our test path
+        mock_replace_root = mocker.patch(
+            "otaclient.main.replace_root",
+            return_value=str(host_root_nfs_cache),
+        )
+
+        # Mock Path.is_dir to return True
+        mocker.patch("pathlib.Path.is_dir", return_value=True)
+
+        # Mock ensure_mount
+        mock_ensure_mount = mocker.patch("otaclient.main.ensure_mount")
+
+        # Execute
+        main._bind_external_nfs_cache(nfs_cache_mount_point)
+
+        # Verify
+        mock_replace_root.assert_called_once_with(
+            nfs_cache_mount_point,
+            cfg.CANONICAL_ROOT,
+            host_root,
+        )
+        mock_ensure_mount.assert_called_once()
+
+        # Verify the call arguments
+        call_args = mock_ensure_mount.call_args
+        assert call_args.kwargs["target"] == host_root_nfs_cache
+        assert call_args.kwargs["mnt_point"] == nfs_cache_mount_point
+        assert call_args.kwargs["raise_exception"] is False
+
+    def test_bind_external_nfs_cache_none(self, mocker: pytest_mock.MockerFixture):
+        """Test when external_nfs_cache_mnt_point is None."""
+        # Mock ensure_mount to verify it's not called
+        mock_ensure_mount = mocker.patch("otaclient.main.ensure_mount")
+
+        # Execute
+        main._bind_external_nfs_cache(None)
+
+        # Verify
+        mock_ensure_mount.assert_not_called()
