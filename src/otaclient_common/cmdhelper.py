@@ -169,6 +169,9 @@ def is_target_mounted(
         Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
             <target> is not a mount point or not mounted.
     """
+    if not target:
+        return False
+
     cmd = ["findmnt", target]
     try:
         subprocess_call(cmd, raise_exception=True)
