@@ -520,8 +520,11 @@ class OTACache:
         """
         # skip if not external cache or otaclient doesn't send valid file_sha256
         if (
-            not (self._external_cache_data_dir and self._external_nfs_cache_data_dir)
-            or client_cache_policy.no_cache
+            (
+                cache_type == CacheType.EXTERNAL and not self._external_cache_data_dir
+            ) or (
+                cache_type == CacheType.EXTERNAL_NFS and not self._external_nfs_cache_data_dir
+            ) or client_cache_policy.no_cache
             or client_cache_policy.retry_caching
             or not client_cache_policy.file_sha256
         ):
