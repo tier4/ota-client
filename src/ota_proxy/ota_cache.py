@@ -160,6 +160,7 @@ class OTACache:
 
         self._external_cache_data_dir = None
         self._external_cache_mp = None
+
         if external_cache_mnt_point and mount_external_cache(external_cache_mnt_point):
             logger.info(
                 f"external cache source is enabled at: {external_cache_mnt_point}"
@@ -170,9 +171,11 @@ class OTACache:
             )
 
         self._external_nfs_cache_data_dir = None
-        if external_nfs_cache_mnt_point and cmdhelper.is_target_mounted(
-            external_nfs_cache_mnt_point, raise_exception=False
-        ):
+        _is_external_nfs_cache_mounted = (
+            cmdhelper.is_target_mounted(external_nfs_cache_mnt_point, raise_exception=False)
+        )
+
+        if external_nfs_cache_mnt_point and _is_external_nfs_cache_mounted:
             logger.info(
                 f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
             )
@@ -456,7 +459,7 @@ class OTACache:
             or cache_policy.no_cache
             or cache_policy.retry_caching
         ):
-            return None
+            return
 
         cache_identifier = cache_policy.file_sha256
         if not cache_identifier:
@@ -465,7 +468,7 @@ class OTACache:
 
         meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
         if not meta_db_entry:
-            return None
+            return
 
         # NOTE: handle empty file entry, for empty file entry, we will not actually
         #       create empty file in cache folder.
@@ -491,7 +494,7 @@ class OTACache:
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
             await self._lru_helper.remove_entry(cache_identifier)
-            return None
+            return
 
         # fast path for small file, read one and directly return bytes
         if meta_db_entry.cache_size <= self._chunk_size:
@@ -510,34 +513,26 @@ class OTACache:
     async def _retrieve_file_by_external_cache(
         self,
         client_cache_policy: OTAFileCacheControl,
-        cache_type: CacheType = CacheType.EXTERNAL,
+        cache_data_dir = Optional[StrOrPath],
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         """Common implementation for external cache lookup.
 
         Args:
             client_cache_policy: Cache policy from client
-            cache_type: Type of cache for logging
+            cache_data_dir: external cache data dir to lookup
         """
         # skip if not external cache or otaclient doesn't send valid file_sha256
         if (
-            (cache_type == CacheType.EXTERNAL and not self._external_cache_data_dir)
-            or (
-                cache_type == CacheType.EXTERNAL_NFS
-                and not self._external_nfs_cache_data_dir
-            )
+            not cache_data_dir
             or client_cache_policy.no_cache
             or client_cache_policy.retry_caching
             or not client_cache_policy.file_sha256
         ):
-            return None
+            return
 
         cache_identifier = client_cache_policy.file_sha256
-        cache_file = (
-            self._external_cache_data_dir
-            if cache_type == CacheType.EXTERNAL
-            else self._external_nfs_cache_data_dir
-        ) / cache_identifier
-        logger.debug(f"try to lookup {cache_type.value} cache at {cache_file=}")
+        cache_file = cache_data_dir / cache_identifier
+        logger.debug(f"try to lookup cache at {cache_file=}")
         cache_file_zst = anyio.Path(
             cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
@@ -556,7 +551,7 @@ class OTACache:
                 file_sha256=cache_identifier
             )
             return read_file(cache_file), _header
-        return None
+        return
 
     async def _retrieve_file_by_new_caching(
         self,
@@ -579,7 +574,7 @@ class OTACache:
             or cache_policy.no_cache
             or not self._storage_below_hard_limit_event.is_set()
         ):
-            return None
+            return
 
         cache_identifier = cache_policy.file_sha256
         compression_alg = cache_policy.file_compression_alg
@@ -687,7 +682,7 @@ class OTACache:
         #   and loaded, still try to use external cache source.
         if self._external_cache_data_dir and (
             _res := await self._retrieve_file_by_external_cache(
-                cache_policy, CacheType.EXTERNAL
+                cache_policy, self._external_cache_data_dir
             )
         ):
             self._metrics_data.cache_external_hits += 1
@@ -695,7 +690,7 @@ class OTACache:
 
         if self._external_nfs_cache_data_dir and (
             _res := await self._retrieve_file_by_external_cache(
-                cache_policy, CacheType.EXTERNAL_NFS
+                cache_policy, self._external_nfs_cache_data_dir
             )
         ):
             self._metrics_data.cache_external_nfs_hits += 1
