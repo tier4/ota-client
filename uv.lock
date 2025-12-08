@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.8"
 resolution-markers = [
     "python_full_version >= '3.10'",
@@ -1844,7 +1844,7 @@ requires-dist = [
     { name = "requests", specifier = "~=2.32" },
     { name = "simple-sqlite3-orm", specifier = "~=0.12" },
     { name = "typing-extensions", specifier = ">=4.6.3" },
-    { name = "urllib3", specifier = ">=2.2.2,<2.6" },
+    { name = "urllib3", specifier = ">=2.2.2,<2.7" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30,<0.38" },
     { name = "zstandard", specifier = ">=0.22,<0.24" },
 ]
