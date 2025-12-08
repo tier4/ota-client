@@ -66,17 +66,6 @@ def mount_external_cache(
         logger.warning(f"failed to mount external cache: {e!r}")
 
 
-def mount_external_nfs_cache(mnt_point: StrOrPath) -> StrOrPath | None:
-    logger.info(f"otaproxy will try to use external NFS cache at {mnt_point}")
-
-    if not cmdhelper.is_target_mounted(mnt_point, raise_exception=False):
-        logger.warning(f"External NFS cache not mounted at {mnt_point}")
-        return None
-
-    logger.info(f"External NFS cache detected at {mnt_point}")
-    return mnt_point
-
-
 def umount_external_cache(mnt_point: StrOrPath) -> None:
     try:
         cmdhelper.ensure_umount(mnt_point, ignore_error=False)
