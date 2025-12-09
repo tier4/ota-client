@@ -549,7 +549,6 @@ class OTACache:
                 file_sha256=cache_identifier
             )
             return read_file(cache_file), _header
-        return
 
     async def _retrieve_file_by_new_caching(
         self,
