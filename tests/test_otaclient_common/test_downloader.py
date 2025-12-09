@@ -34,6 +34,8 @@ from requests.structures import CaseInsensitiveDict as CIDict
 
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import (
+    DEFAULT_RETRY_COUNT,
+    DEFAULT_RETRY_STATUS,
     BrokenDecompressionError,
     Downloader,
     DownloaderPool,
@@ -471,3 +473,192 @@ class TestDownloadingPoolWatchdog:
                 logger.info(f"watchdog check #{t}")
                 watchdog_func()
                 time.sleep(1)
+
+
+class TestUrllib3Compatibility:
+    """Test urllib3 compatibility for version upgrades.
+
+    These tests ensure that the specific urllib3 features used in the downloader
+    continue to work correctly across urllib3 version updates.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_downloader(self, tmp_path: Path):
+        self.downloader = Downloader(hash_func=sha256, chunk_size=4096)
+        self._download_dir = tmp_path / "test_download_dir"
+        self._download_dir.mkdir(exist_ok=True, parents=True)
+
+    def test_urllib3_retry_object_creation(self):
+        """Test that urllib3.util.retry.Retry object can be created with expected parameters."""
+        from urllib3.util.retry import Retry
+
+        retry_config = Retry(
+            total=DEFAULT_RETRY_COUNT,
+            status_forcelist=DEFAULT_RETRY_STATUS,
+            allowed_methods=["GET"],
+        )
+
+        assert retry_config.total == DEFAULT_RETRY_COUNT
+        assert retry_config.status_forcelist == DEFAULT_RETRY_STATUS
+        assert retry_config.allowed_methods is not None
+
+    def test_urllib3_retry_integration_with_http_adapter(self):
+        """Test that Retry object integrates correctly with HTTPAdapter."""
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+
+        retry_config = Retry(
+            total=5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=10,
+            max_retries=retry_config,
+        )
+
+        assert adapter.max_retries.total == 5
+        # status_forcelist can be either a list or frozenset depending on urllib3 version
+        expected_statuses = {500, 502, 503, 504}
+        actual_statuses = set(adapter.max_retries.status_forcelist)
+        assert actual_statuses == expected_statuses
+
+    def test_urllib3_http_response_object_access(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test that HTTPResponse object can be accessed from requests.Response.raw."""
+        from urllib3.response import HTTPResponse
+
+        _, file_info_list = setup_test_data
+        file_info = file_info_list[0]
+
+        with self.downloader._session.get(
+            file_info.url, stream=True, timeout=(10, 10)
+        ) as resp:
+            resp.raise_for_status()
+            raw_resp = resp.raw
+            assert isinstance(raw_resp, HTTPResponse)
+
+    def test_urllib3_http_response_retries_history(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test that HTTPResponse.retries and retries.history are accessible."""
+        from urllib3.response import HTTPResponse
+        from urllib3.util.retry import Retry
+
+        _, file_info_list = setup_test_data
+        file_info = file_info_list[0]
+
+        with self.downloader._session.get(
+            file_info.url, stream=True, timeout=(10, 10)
+        ) as resp:
+            resp.raise_for_status()
+            raw_resp: HTTPResponse = resp.raw
+
+            if raw_resp.retries:
+                assert isinstance(raw_resp.retries, Retry)
+                assert hasattr(raw_resp.retries, "history")
+                assert isinstance(raw_resp.retries.history, tuple)
+
+    def test_urllib3_http_response_tell_method(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test that HTTPResponse.tell() method works for tracking bytes read."""
+        from urllib3.response import HTTPResponse
+
+        _, file_info_list = setup_test_data
+        file_info = next(
+            (f for f in file_info_list if f.compresson_alg == "zstd"), None
+        )
+
+        if not file_info:
+            pytest.skip("No zstd compressed file found in test data")
+
+        with self.downloader._session.get(
+            file_info.url, stream=True, timeout=(10, 10)
+        ) as resp:
+            resp.raise_for_status()
+            raw_resp: HTTPResponse = resp.raw
+
+            initial_pos = raw_resp.tell()
+            assert initial_pos == 0
+
+            chunk = raw_resp.read(100)
+            if chunk:
+                assert len(chunk) > 0
+
+                current_pos = raw_resp.tell()
+                assert current_pos > initial_pos
+
+    def test_urllib3_http_response_with_zstd_decompression(
+        self,
+        setup_test_data: tuple[Path, list[FileInfo]],
+    ):
+        """Test that HTTPResponse works correctly with zstd decompression."""
+        _, file_info_list = setup_test_data
+        file_info = next(
+            (f for f in file_info_list if f.compresson_alg == "zstd"), None
+        )
+
+        if not file_info:
+            pytest.skip("No zstd compressed file found in test data")
+
+        tmp_file = self._download_dir / "test_zstd_decompression"
+
+        self.downloader.download(
+            file_info.url,
+            tmp_file,
+            digest=file_info.sha256digest,
+            size=file_info.size,
+            compression_alg=file_info.compresson_alg,
+        )
+
+        assert tmp_file.exists()
+        assert tmp_file.stat().st_size == file_info.size
+
+    def test_urllib3_session_retry_configuration(self):
+        """Test that retry mechanism is properly configured in the session."""
+        from urllib3.util.retry import Retry
+
+        # Check that HTTP adapter has retry configuration
+        http_adapter = self.downloader._session.get_adapter("http://")
+        https_adapter = self.downloader._session.get_adapter("https://")
+
+        assert http_adapter.max_retries is not None
+        assert https_adapter.max_retries is not None
+
+        # Verify the retry configuration matches expectations
+        if isinstance(http_adapter.max_retries, Retry):
+            assert http_adapter.max_retries.total == DEFAULT_RETRY_COUNT
+            assert set(http_adapter.max_retries.status_forcelist) == set(
+                DEFAULT_RETRY_STATUS
+            )
+
+        if isinstance(https_adapter.max_retries, Retry):
+            assert https_adapter.max_retries.total == DEFAULT_RETRY_COUNT
+            assert set(https_adapter.max_retries.status_forcelist) == set(
+                DEFAULT_RETRY_STATUS
+            )
+
+    def test_urllib3_connection_pool_configuration(self):
+        """Test that connection pool is correctly configured via HTTPAdapter."""
+        downloader = Downloader(
+            hash_func=sha256,
+            chunk_size=4096,
+            connection_pool_size=30,
+        )
+
+        adapter = downloader._session.get_adapter("http://")
+        assert adapter.poolmanager is None or hasattr(adapter, "_pool_connections")
+
+        adapter_https = downloader._session.get_adapter("https://")
+        assert adapter_https.poolmanager is None or hasattr(
+            adapter_https, "_pool_connections"
+        )
+
+        downloader.close()

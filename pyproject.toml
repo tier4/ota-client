@@ -43,7 +43,7 @@ dependencies = [
   "requests~=2.32",
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
-  "urllib3>=2.2.2,<2.6",
+  "urllib3>=2.2.2,<2.7",
   "uvicorn[standard]>=0.30,<0.38",
   "zstandard<0.24,>=0.22",
 ]
