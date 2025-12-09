@@ -30,6 +30,7 @@ from multidict import CIMultiDict, CIMultiDictProxy
 
 from otaclient._utils import SharedOTAClientMetricsWriter
 from otaclient.metrics import OTAMetricsSharedMemoryData
+from otaclient_common import cmdhelper
 from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
@@ -112,6 +113,7 @@ class OTACache:
         enable_https: whether the ota_cache should send out the requests with HTTPS,
             default is False. NOTE: scheme change is applied unconditionally.
         external_cache_mnt_point: the mount point of external cache, if any.
+        external_nfs_cache_mnt_point: the mount point of the external NFS cache, if any.
         shm_metrics_writer: SharedOTAClientMetricsWriter instance to write metrics to shared memory.
     """
 
@@ -128,6 +130,7 @@ class OTACache:
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,
+        external_nfs_cache_mnt_point: str | None = None,
         shm_metrics_writer: SharedOTAClientMetricsWriter | None = None,
     ):
         """Init ota_cache instance with configurations."""
@@ -163,6 +166,19 @@ class OTACache:
             self._external_cache_mp = external_cache_mnt_point
             self._external_cache_data_dir = (
                 anyio.Path(external_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
+            )
+
+        self._external_nfs_cache_data_dir = None
+        _is_external_nfs_cache_mounted = cmdhelper.is_target_mounted(
+            external_nfs_cache_mnt_point, raise_exception=False
+        )
+
+        if external_nfs_cache_mnt_point and _is_external_nfs_cache_mounted:
+            logger.info(
+                f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
+            )
+            self._external_nfs_cache_data_dir = (
+                anyio.Path(external_nfs_cache_mnt_point) / cfg.EXTERNAL_CACHE_DATA_DNAME
             )
 
         self._storage_below_hard_limit_event = threading.Event()
@@ -493,11 +509,19 @@ class OTACache:
         return local_fd, meta_db_entry.export_headers_to_client()
 
     async def _retrieve_file_by_external_cache(
-        self, client_cache_policy: OTAFileCacheControl
+        self,
+        client_cache_policy: OTAFileCacheControl,
+        cache_data_dir: StrOrPath | None = None,
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
-        # skip if not external cache or otaclient doesn't sent valid file_sha256
+        """Common implementation for external cache lookup.
+
+        Args:
+            client_cache_policy: Cache policy from client
+            cache_data_dir: external cache data dir to lookup
+        """
+        # skip if not external cache or otaclient doesn't send valid file_sha256
         if (
-            not self._external_cache_data_dir
+            not cache_data_dir
             or client_cache_policy.no_cache
             or client_cache_policy.retry_caching
             or not client_cache_policy.file_sha256
@@ -505,7 +529,8 @@ class OTACache:
             return
 
         cache_identifier = client_cache_policy.file_sha256
-        cache_file = self._external_cache_data_dir / cache_identifier
+        cache_file = cache_data_dir / cache_identifier
+        logger.debug(f"try to lookup cache at {cache_file=}")
         cache_file_zst = anyio.Path(
             cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
@@ -653,9 +678,19 @@ class OTACache:
         # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
         #   and loaded, still try to use external cache source.
         if self._external_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(cache_policy)
+            _res := await self._retrieve_file_by_external_cache(
+                cache_policy, self._external_cache_data_dir
+            )
         ):
             self._metrics_data.cache_external_hits += 1
+            return _res
+
+        if self._external_nfs_cache_data_dir and (
+            _res := await self._retrieve_file_by_external_cache(
+                cache_policy, self._external_nfs_cache_data_dir
+            )
+        ):
+            self._metrics_data.cache_external_nfs_hits += 1
             return _res
 
         if not cache_policy.retry_caching and (

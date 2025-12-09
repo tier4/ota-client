@@ -169,6 +169,9 @@ def is_target_mounted(
         Return True if the target has at least one mount_point. Return False if <raise_exception> is False and
             <target> is not a mount point or not mounted.
     """
+    if not target:
+        return False
+
     cmd = ["findmnt", target]
     try:
         subprocess_call(cmd, raise_exception=True)
@@ -664,7 +667,7 @@ def ensure_mount(
     """Ensure the <target> mounted on <mnt_point> by our best.
 
     Raises:
-        If <raise_exception> is True, raises the last failed attemp's CalledProcessError.
+        If <raise_exception> is True, raises the last failed attempt's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
         try:
@@ -704,7 +707,7 @@ def ensure_umount(
     """Try to umount the <mnt_point> at our best.
 
     Raises:
-        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+        If <ignore_error> is False, raises the last failed attempt's CalledProcessError.
     """
     for _retry in range(max_retry + 1):
         if not is_target_mounted(mnt_point, raise_exception=False):
@@ -742,7 +745,7 @@ def ensure_umount_from_host(
     NOTE: no need to chroot for setns to host mnt ns.
 
     Raises:
-        If <ignore_error> is False, raises the last failed attemp's CalledProcessError.
+        If <ignore_error> is False, raises the last failed attempt's CalledProcessError.
     """
 
     def _is_mounted() -> bool:
@@ -789,7 +792,7 @@ def ensure_umount_from_host(
             continue
 
 
-def ensure_mointpoint(
+def ensure_mount_point(
     mnt_point: StrOrPath, *, ignore_error: bool
 ) -> None:  # pragma: no cover
     """Ensure the <mnt_point> exists, has no mount on it and ready for mount.

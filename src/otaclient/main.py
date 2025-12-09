@@ -46,6 +46,7 @@ from otaclient._utils import (
 )
 from otaclient.configs.cfg import cfg
 from otaclient_common import replace_root
+from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import (
     bind_mount_ro,
     bind_mount_rw,
@@ -166,6 +167,41 @@ def _dynamic_otaclient_init():
     )
 
 
+def _bind_external_nfs_cache(external_nfs_cache_mnt_point: StrOrPath | None):
+    """
+    Bind mount the external NFS cache from host root.
+
+    Args:
+        external_nfs_cache_mnt_point (StrOrPath | None): The mount point of the external NFS cache to bind mount, or None to skip binding.
+
+    Returns:
+        None
+    """
+    if not external_nfs_cache_mnt_point:
+        return
+
+    _host_root = Path(cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT)
+    _host_root_external_nfs_cache = Path(
+        replace_root(
+            external_nfs_cache_mnt_point,
+            cfg.CANONICAL_ROOT,
+            _host_root,
+        )
+    )
+    if not _host_root_external_nfs_cache.is_dir():
+        logger.warning(
+            f"external NFS cache mount point {_host_root_external_nfs_cache} does not exist on host root"
+        )
+        return
+
+    ensure_mount(
+        target=_host_root_external_nfs_cache,
+        mnt_point=external_nfs_cache_mnt_point,
+        mount_func=bind_mount_ro,
+        raise_exception=False,
+    )
+
+
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
     # NOTE: the daemon_process needs to exit also.
@@ -203,6 +239,11 @@ def main() -> None:  # pragma: no cover
     if _env.is_running_as_app_image():
         logger.info("initializing for running as dynamic otaclient ...")
         _dynamic_otaclient_init()
+
+    # NOTE: external NFS cache mount is not setup by dynamic client launcher,
+    #       so we need to setup the bind mount here for both app image and dynamic client.
+    if _env.is_dynamic_client_running():
+        _bind_external_nfs_cache(proxy_info.external_nfs_cache_mnt_point)
 
     # Log system uptime (time since OS boot)
     try:
