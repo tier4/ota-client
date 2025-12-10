@@ -46,7 +46,7 @@ jobs:
       - name: Sync uv.lock with pyproject.toml
         run: uv lock
       - name: Export requirements.txt from uv.lock
-        run: uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.lock
+        run: uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.txt
       - name: Commit change if needed
         run: |
           git config --global user.name "github-actions[bot]"
