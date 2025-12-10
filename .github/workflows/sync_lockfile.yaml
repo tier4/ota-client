@@ -9,9 +9,11 @@ on:
   pull_request:
     branches:
       - main
+      - v.*
     paths:
       - 'uv.lock'
       - 'pyproject.toml'
+      - .github/workflows/sync_lockfile.yaml
   # allow manual dispatch of this workflow
   workflow_dispatch:
 
