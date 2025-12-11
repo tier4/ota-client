@@ -1,4 +1,4 @@
-name: on pyproject.toml change, update lock files
+name: Sync uv.lock on pyproject.toml and exporting requirements.txt.
 
 permissions:
   contents: read
@@ -9,21 +9,22 @@ on:
   pull_request:
     branches:
       - main
-      - v*
+      - v.*
     paths:
+      - 'uv.lock'
       - 'pyproject.toml'
+      - .github/workflows/sync_lockfile.yaml
   # allow manual dispatch of this workflow
   workflow_dispatch:
 
 jobs:
-  gen-requirements-txt:
+  sync-lockfile:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     timeout-minutes: 1
-
     steps:
-      - name: checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.ref }}
@@ -34,33 +35,28 @@ jobs:
           #   https://github.com/peter-evans/create-pull-request/blob/main/docs/concepts-guidelines.md#triggering-further-workflow-runs
           ssh-key: ${{ secrets.DEPLOY_KEY }}
           persist-credentials: true
-
-      # see https://docs.astral.sh/uv/guides/integration/github/#setting-up-python for more details.
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: "0.7.15"
-
-      - name: "Set up Python"
+          version: "0.8.24"
+      - name: Setup python
         uses: actions/setup-python@v6
         with:
           python-version-file: ".python-version"
-
-      - name: update lock files with latest pyproject.toml
-        run: |
-          uv sync
-          uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.lock
-
-      - name: commit change if needed
+      - name: Sync uv.lock with pyproject.toml
+        run: uv lock
+      - name: Export requirements.txt from uv.lock
+        run: uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.txt
+      - name: Commit change if needed
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git diff --exit-code uv.lock; then
-            echo "skip commit as lock files are not changed"
+          if git diff --exit-code uv.lock requirements.txt; then
+            echo "Skip commit as no changes are made"
           else
-            echo "lock files are updated, commit change ..."
-            git add requirements.lock uv.lock
-            git commit -m "[GHA] Update lock files on pyproject.toml changed"
+            echo "Commit changes on update ..."
+            git add uv.lock requirements.txt
+            git commit -m "[GHA] Update uv.lock and/or requirements.txt"
             git push
           fi
