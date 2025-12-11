@@ -57,6 +57,6 @@ jobs:
           else
             echo "Commit changes on update ..."
             git add uv.lock requirements.txt
-            git commit -m "[GHA] Update uv.lock and/or requirement.txt"
+            git commit -m "[GHA] Update uv.lock and/or requirements.txt"
             git push
           fi
