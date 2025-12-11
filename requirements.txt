@@ -183,7 +183,7 @@ urllib3==2.2.3 ; python_full_version < '3.9'
     # via
     #   otaclient
     #   requests
-urllib3==2.5.0 ; python_full_version >= '3.9'
+urllib3==2.6.1 ; python_full_version >= '3.9'
     # via
     #   otaclient
     #   requests
