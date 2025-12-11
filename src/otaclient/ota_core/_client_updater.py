@@ -167,7 +167,7 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
         try:
             self._execute_client_update()
         except Exception as e:
-            logger.error(f"client update failed: {e!r}")
+            logger.warning(f"client update failed: {e!r}")
             raise
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)

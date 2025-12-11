@@ -230,7 +230,7 @@ class App:
                 )
             elif isinstance(exc, aiohttp.ClientResponseError):
                 _err_msg = f"{_common_err_msg} due to HTTP error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
+                burst_suppressed_logger.warning(_err_msg)
                 # passthrough 4xx(currently 403 and 404) to otaclient
                 await self._respond_with_error(
                     exc.status, f"HTTP status from remote: {exc.status}", send
