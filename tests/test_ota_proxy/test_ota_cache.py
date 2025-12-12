@@ -172,12 +172,15 @@ class TestOtaNfsCache:
     ):
         """Test that local cache lookup is attempted before NFS cache."""
         from unittest.mock import AsyncMock, patch
+        from pathlib import Path
+
+        nfs_mount = tmp_path_factory.mktemp("nfs_cache")
 
         cache = OTACache(
             cache_enabled=True,
             init_cache=False,
             base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
-            external_nfs_cache_mnt_point="/mnt/nfs_cache",
+            external_nfs_cache_mnt_point=str(nfs_mount),  # Use actual temp path
         )
 
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
@@ -186,14 +189,11 @@ class TestOtaNfsCache:
             cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
         ) as mock_local, patch.object(
             cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
-        ) as mock_nfs, patch.object(
-            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
-        ) as mock_download:
+        ) as mock_nfs:
 
-            # Setup: only NFS cache has the file
+            # Setup: local cache miss, NFS cache hit
             mock_local.return_value = None
             mock_nfs.return_value = nfs_result
-            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
