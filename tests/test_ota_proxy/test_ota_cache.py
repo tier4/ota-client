@@ -175,7 +175,9 @@ class TestOtaNfsCache:
 
         nfs_mount = tmp_path_factory.mktemp("nfs_cache")
 
-        with patch("ota_proxy.ota_cache.cmdhelper.is_target_mounted", return_value=True):
+        with patch(
+            "ota_proxy.ota_cache.cmdhelper.is_target_mounted", return_value=True
+        ):
             cache = OTACache(
                 cache_enabled=True,
                 init_cache=False,
