@@ -172,7 +172,6 @@ class TestOtaNfsCache:
     ):
         """Test that local cache lookup is attempted before NFS cache."""
         from unittest.mock import AsyncMock, patch
-        from pathlib import Path
 
         nfs_mount = tmp_path_factory.mktemp("nfs_cache")
 
