@@ -3,6 +3,10 @@
   "extends": [
     "config:best-practices"
   ],
+  // allow sync_lockfile workflow to run without blocking renovate
+  "gitIgnoredAuthors": [
+    "github-actions[bot]+sync-lockfile@users.noreply.github.com"
+  ],
   "timezone": "Asia/Tokyo",
   // allow to run on non-office hours every day.
   // note that it is NOT the schedule of renovate task dispatching,
