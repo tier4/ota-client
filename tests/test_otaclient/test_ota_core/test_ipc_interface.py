@@ -112,7 +112,8 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
 
-        mock_publish.assert_called_once()
+        # publish should be called twice: once for REQUEST and once for UPDATE
+        assert mock_publish.call_count == 2
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         mock_exit_from_dynamic_client = mocker.patch.object(
@@ -139,7 +140,8 @@ class TestOTAClient:
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
 
-        mock_publish.assert_called_once()
+        # publish should be called twice: once for REQUEST and once for UPDATE
+        assert mock_publish.call_count == 2
         mock_exit_from_dynamic_client.assert_called_once()
 
     def test_client_update_normal_finished(self):
