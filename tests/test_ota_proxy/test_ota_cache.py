@@ -167,7 +167,9 @@ class TestLRUCacheHelper:
 
 @pytest.mark.asyncio(scope="class")
 class TestOtaNfsCache:
-    async def test_retrieve_file_local_cache_before_nfs(self, tmp_path_factory: pytest.TempPathFactory):
+    async def test_retrieve_file_local_cache_before_nfs(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
         """Test that local cache lookup is attempted before NFS cache."""
         from unittest.mock import AsyncMock, patch
 
@@ -175,14 +177,18 @@ class TestOtaNfsCache:
             cache_enabled=True,
             init_cache=False,
             base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
-            external_nfs_cache_mnt_point="/mnt/nfs_cache"
+            external_nfs_cache_mnt_point="/mnt/nfs_cache",
         )
 
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-        with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
-                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
+        with patch.object(
+            cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+        ) as mock_local, patch.object(
+            cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+        ) as mock_nfs, patch.object(
+            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+        ) as mock_download:
 
             # Setup: only NFS cache has the file
             mock_local.return_value = None
@@ -191,7 +197,9 @@ class TestOtaNfsCache:
 
             await cache.start()
             try:
-                result = await cache.retrieve_file("http://example.com/file", CIMultiDict())
+                result = await cache.retrieve_file(
+                    "http://example.com/file", CIMultiDict()
+                )
 
                 # Verify local cache was checked first
                 mock_local.assert_called_once()
@@ -202,8 +210,9 @@ class TestOtaNfsCache:
             finally:
                 await cache.close()
 
-
-    async def test_retrieve_file_local_cache_preferred_over_nfs(self, tmp_path_factory: pytest.TempPathFactory):
+    async def test_retrieve_file_local_cache_preferred_over_nfs(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
         """Test that local cache is used when both local and NFS cache are present."""
         from unittest.mock import AsyncMock, patch
 
@@ -211,15 +220,19 @@ class TestOtaNfsCache:
             cache_enabled=True,
             init_cache=False,
             base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
-            external_nfs_cache_mnt_point="/mnt/nfs_cache"
+            external_nfs_cache_mnt_point="/mnt/nfs_cache",
         )
 
         local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-        with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
-                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
+        with patch.object(
+            cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+        ) as mock_local, patch.object(
+            cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+        ) as mock_nfs, patch.object(
+            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+        ) as mock_download:
 
             # Setup: both local and NFS cache have the file
             mock_local.return_value = local_result
@@ -228,7 +241,9 @@ class TestOtaNfsCache:
 
             await cache.start()
             try:
-                result = await cache.retrieve_file("http://example.com/file", CIMultiDict())
+                result = await cache.retrieve_file(
+                    "http://example.com/file", CIMultiDict()
+                )
 
                 # Verify local cache was called
                 mock_local.assert_called_once()
@@ -239,8 +254,9 @@ class TestOtaNfsCache:
             finally:
                 await cache.close()
 
-
-    async def test_retrieve_file_local_cache_only(self, tmp_path_factory: pytest.TempPathFactory):
+    async def test_retrieve_file_local_cache_only(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
         """Test that local cache is used when NFS cache is not present."""
         from unittest.mock import AsyncMock, patch
 
@@ -248,14 +264,18 @@ class TestOtaNfsCache:
             cache_enabled=True,
             init_cache=False,
             base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
-            external_nfs_cache_mnt_point="/mnt/nfs_cache"
+            external_nfs_cache_mnt_point="/mnt/nfs_cache",
         )
 
         local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
 
-        with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
-                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
+        with patch.object(
+            cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+        ) as mock_local, patch.object(
+            cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+        ) as mock_nfs, patch.object(
+            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+        ) as mock_download:
 
             # Setup: only local cache has the file
             mock_local.return_value = local_result
@@ -264,7 +284,9 @@ class TestOtaNfsCache:
 
             await cache.start()
             try:
-                result = await cache.retrieve_file("http://example.com/file", CIMultiDict())
+                result = await cache.retrieve_file(
+                    "http://example.com/file", CIMultiDict()
+                )
 
                 # Verify local cache was called
                 mock_local.assert_called_once()
