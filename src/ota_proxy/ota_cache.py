@@ -685,20 +685,21 @@ class OTACache:
             self._metrics_data.cache_external_hits += 1
             return _res
 
-        if self._external_nfs_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(
-                cache_policy, self._external_nfs_cache_data_dir
-            )
-        ):
-            self._metrics_data.cache_external_nfs_hits += 1
-            return _res
-
+        # NOTE(20251212): use local cache first before going to NFS cache
         if not cache_policy.retry_caching and (
             _res := await self._retrieve_file_by_cache_lookup(
                 raw_url=raw_url, cache_policy=cache_policy
             )
         ):
             self._metrics_data.cache_local_hits += 1
+            return _res
+
+        if self._external_nfs_cache_data_dir and (
+            _res := await self._retrieve_file_by_external_cache(
+                cache_policy, self._external_nfs_cache_data_dir
+            )
+        ):
+            self._metrics_data.cache_external_nfs_hits += 1
             return _res
 
         if _res := await self._retrieve_file_by_new_caching(
