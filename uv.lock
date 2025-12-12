@@ -2420,7 +2420,7 @@ dev = [
     { name = "black", specifier = ">=24,<26" },
     { name = "coverage", specifier = ">=7,<8" },
     { name = "pre-commit", specifier = ">=3,<5" },
-    { name = "pytest", specifier = "~=8.3" },
+    { name = "pytest", specifier = ">=8.3,<10" },
     { name = "pytest-asyncio", specifier = "==0.23.8" },
     { name = "pytest-mock", specifier = "~=3.14" },
     { name = "requests-mock", specifier = "~=1.12" },
