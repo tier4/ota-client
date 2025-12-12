@@ -164,6 +164,7 @@ class TestLRUCacheHelper:
         [chunk async for chunk in remote_fd]  # consume
         assert cache._metrics_data.cache_cdn_hits == expected_hits
 
+
 @pytest.mark.asyncio
 async def test_retrieve_file_local_cache_preferred_over_nfs(tmp_path):
     """Test that local cache is used when both local and NFS cache are present."""
@@ -173,14 +174,17 @@ async def test_retrieve_file_local_cache_preferred_over_nfs(tmp_path):
         cache_enabled=True,
         init_cache=False,
         base_dir=str(tmp_path / "local_cache"),
-        external_nfs_cache_mnt_point="/mnt/nfs_cache"
+        external_nfs_cache_mnt_point="/mnt/nfs_cache",
     )
 
     local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
     nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-    with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-         patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs:
+    with patch.object(
+        cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+    ) as mock_local, patch.object(
+        cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+    ) as mock_nfs:
 
         mock_local.return_value = local_result
         mock_nfs.return_value = nfs_result
@@ -205,13 +209,16 @@ async def test_retrieve_file_local_cache_only(tmp_path):
         cache_enabled=True,
         init_cache=False,
         base_dir=str(tmp_path / "local_cache"),
-        external_nfs_cache_mnt_point="/mnt/nfs_cache"
+        external_nfs_cache_mnt_point="/mnt/nfs_cache",
     )
 
     local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
 
-    with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-         patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs:
+    with patch.object(
+        cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+    ) as mock_local, patch.object(
+        cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+    ) as mock_nfs:
 
         mock_local.return_value = local_result
         mock_nfs.return_value = None
