@@ -45,7 +45,7 @@ dependencies = [
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.7",
   "uvicorn[standard]>=0.30,<0.38",
-  "zstandard<0.24,>=0.22",
+  "zstandard<0.26,>=0.22",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
