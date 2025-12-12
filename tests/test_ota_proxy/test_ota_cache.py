@@ -180,13 +180,14 @@ class TestOtaNfsCache:
 
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-        # Mock both lookup methods
         with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs:
+                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
+                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
 
             # Setup: only NFS cache has the file
             mock_local.return_value = None
             mock_nfs.return_value = nfs_result
+            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
@@ -200,6 +201,7 @@ class TestOtaNfsCache:
                 assert result == nfs_result
             finally:
                 await cache.close()
+
 
     async def test_retrieve_file_local_cache_preferred_over_nfs(self, tmp_path_factory: pytest.TempPathFactory):
         """Test that local cache is used when both local and NFS cache are present."""
@@ -216,11 +218,13 @@ class TestOtaNfsCache:
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
         with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs:
+                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
+                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
 
-            # Setup: both caches have the file
+            # Setup: both local and NFS cache have the file
             mock_local.return_value = local_result
             mock_nfs.return_value = nfs_result
+            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
@@ -234,6 +238,7 @@ class TestOtaNfsCache:
                 assert result == local_result
             finally:
                 await cache.close()
+
 
     async def test_retrieve_file_local_cache_only(self, tmp_path_factory: pytest.TempPathFactory):
         """Test that local cache is used when NFS cache is not present."""
@@ -249,11 +254,13 @@ class TestOtaNfsCache:
         local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
 
         with patch.object(cache, '_retrieve_file_by_cache_lookup', new_callable=AsyncMock) as mock_local, \
-                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs:
+                patch.object(cache, '_retrieve_file_by_external_cache', new_callable=AsyncMock) as mock_nfs, \
+                patch.object(cache, '_retrieve_file_by_downloading', new_callable=AsyncMock) as mock_download:
 
             # Setup: only local cache has the file
             mock_local.return_value = local_result
             mock_nfs.return_value = None
+            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
