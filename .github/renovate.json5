@@ -4,8 +4,11 @@
     "config:best-practices"
   ],
   "timezone": "Asia/Tokyo",
-  // allow to run on 0~9a.m every day
-  "schedule": ["* 0-9 * * *"],
+  // allow to run on non-office hours every day.
+  // note that it is NOT the schedule of renovate task dispatching,
+  //  but the time window of allowing renovate to create PRs, 
+  //  see https://docs.renovatebot.com/configuration-options/#schedule
+  "schedule": ["* 20-23,0-9 * * *"],
   "lockFileMaintenance": {
     "enabled": true
   },
