@@ -61,7 +61,7 @@ jobs:
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: artifacts-python-packages
           path: dist/*.whl
@@ -115,7 +115,7 @@ jobs:
           output_dir: dist
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: artifacts-squashfs_${{ matrix.platform }}
           path: |
@@ -162,7 +162,7 @@ jobs:
           directory: "dist"
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: artifacts-manifest
           path: |
