@@ -100,6 +100,9 @@ log_cli_level = "INFO"
 testpaths = [
   "./tests",
 ]
+markers = [
+  "performance: marks tests as performance E2E tests",
+]
 
 [tool.black]
 line-length = 88
