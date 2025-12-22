@@ -44,7 +44,7 @@ dependencies = [
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.7",
-  "uvicorn[standard]>=0.30,<0.38",
+  "uvicorn[standard]>=0.30,<0.41",
   "zstandard<0.26,>=0.22",
 ]
 urls.Source = "https://github.com/tier4/ota-client"

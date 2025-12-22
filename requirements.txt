@@ -197,7 +197,9 @@ urllib3==2.6.2 ; python_full_version >= '3.9'
     #   requests
 uvicorn==0.33.0 ; python_full_version < '3.9'
     # via otaclient
-uvicorn==0.37.0 ; python_full_version >= '3.9'
+uvicorn==0.39.0 ; python_full_version == '3.9.*'
+    # via otaclient
+uvicorn==0.40.0 ; python_full_version >= '3.10'
     # via otaclient
 uvloop==0.21.0 ; python_full_version < '3.8.1' and platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
