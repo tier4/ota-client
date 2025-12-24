@@ -51,7 +51,7 @@ def download(base_url: str, *, downloader_pool: DownloaderPool) -> Optional[str]
                 if _status_code == HTTPStatus.OK:
                     logger.info("BSP version file downloaded successfully.")
                     return resp.text.strip()
-                if _status_code in [HTTPStatus.UNAUTHORIZED, HTTPStatus.NOT_FOUND]:
+                if _status_code in [HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND]:
                     logger.info("BSP version file is unauthorized or not found.")
                     return None
             except Exception:
