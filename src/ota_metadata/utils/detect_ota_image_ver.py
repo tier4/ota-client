@@ -32,7 +32,11 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
                 if _status_code == HTTPStatus.OK:
                     return True
                 # NOTE(20251010): note that cloudfront endpoint will return 403 on non-existed path.
-                if _status_code in [HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND]:
+                if _status_code in [
+                    HTTPStatus.UNAUTHORIZED,
+                    HTTPStatus.FORBIDDEN,
+                    HTTPStatus.NOT_FOUND,
+                ]:
                     return False
             except Exception:
                 pass
