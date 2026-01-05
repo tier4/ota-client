@@ -60,7 +60,9 @@ frozenlist==1.8.0 ; python_full_version >= '3.9'
     # via
     #   aiohttp
     #   aiosignal
-grpcio==1.70.0
+grpcio==1.70.0 ; python_full_version < '3.9'
+    # via otaclient
+grpcio==1.75.1 ; python_full_version >= '3.9'
     # via otaclient
 h11==0.16.0
     # via uvicorn
@@ -175,6 +177,7 @@ typing-extensions==4.15.0 ; python_full_version >= '3.9'
     #   anyio
     #   cryptography
     #   exceptiongroup
+    #   grpcio
     #   multidict
     #   ota-image-libs
     #   otaclient
