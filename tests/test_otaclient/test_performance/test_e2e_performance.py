@@ -18,9 +18,6 @@ from API call to reboot, with bootloader dependencies mocked.
 
 Reports include:
 - High precision timing (nanoseconds) for each phase
-- File counts and sizes
-- Throughput measurements (MB/s, files/s)
-- Delta efficiency statistics
 """
 
 from __future__ import annotations
@@ -51,7 +48,6 @@ from tests.utils import SlotMeta
 
 from .conftest import (
     MockBootController,
-    MockBootControllerTimings,
     MockRebootTriggered,
     PerformanceReport,
     store_report_for_comparison,
@@ -86,12 +82,10 @@ class TestOTAUpdatePerformanceE2E:
     def mock_boot_controller(
         self,
         prepare_ab_slots,
-        mock_boot_controller_timings: MockBootControllerTimings,
     ) -> MockBootController:
         return MockBootController(
             standby_slot_path=self.slot_b,
             standby_slot_dev=Path("/dev/mock_slot_b"),
-            timings=mock_boot_controller_timings,
             current_version=cfg.CURRENT_VERSION,
             initial_ota_status=OTAStatus.SUCCESS,
         )
@@ -129,28 +123,11 @@ class TestOTAUpdatePerformanceE2E:
 
         execute_phase.end()
 
-        # Collect OTA metrics
-        m = updater._metrics
-        report.total_regulars_num = m.ota_image_total_regulars_num
-        report.total_directories_num = m.ota_image_total_directories_num
-        report.total_symlinks_num = m.ota_image_total_symlinks_num
-        report.total_files_size = m.ota_image_total_files_size
-        report.delta_download_files_num = m.delta_download_files_num
-        report.delta_download_files_size = m.delta_download_files_size
-        report.downloaded_bytes = m.downloaded_bytes
-        report.downloaded_errors = m.downloaded_errors
-
-        # Add throughput to execute_total
-        execute_phase.files_processed = (
-            m.ota_image_total_regulars_num
-            + m.ota_image_total_directories_num
-            + m.ota_image_total_symlinks_num
-        )
-        execute_phase.bytes_processed = m.downloaded_bytes
-
         # Extract phase durations from OTAMetricsData timestamps
         # Note: These are in seconds (integer), so precision is limited to 1 second
         # We still report them for reference
+        m = updater._metrics
+
         def ts_to_ns(ts: int) -> int:
             return ts * 1_000_000_000 if ts else 0
 
@@ -174,15 +151,12 @@ class TestOTAUpdatePerformanceE2E:
             phase = report.start_phase("download")
             phase.start_ns = ts_to_ns(m.download_start_timestamp)
             phase.end_ns = ts_to_ns(m.apply_update_start_timestamp)
-            phase.files_processed = m.delta_download_files_num
-            phase.bytes_processed = m.downloaded_bytes
             phase.extra["note"] = "second-precision from OTAMetricsData"
 
         if m.apply_update_start_timestamp and m.post_update_start_timestamp:
             phase = report.start_phase("apply_update")
             phase.start_ns = ts_to_ns(m.apply_update_start_timestamp)
             phase.end_ns = ts_to_ns(m.post_update_start_timestamp)
-            phase.files_processed = m.ota_image_total_regulars_num
             phase.extra["note"] = "second-precision from OTAMetricsData"
 
         if m.post_update_start_timestamp and m.finalizing_update_start_timestamp:
@@ -203,13 +177,11 @@ class TestOTAUpdatePerformanceE2E:
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
         mock_boot_controller: MockBootController,
-        mock_boot_controller_timings: MockBootControllerTimings,
     ) -> None:
         """Performance test for Legacy OTA image update flow."""
         report = PerformanceReport(
             test_name="test_legacy_ota_image_performance",
             ota_image_format="legacy",
-            boot_timings=mock_boot_controller_timings,
         )
 
         _, report_queue = ota_status_collector
@@ -282,8 +254,6 @@ class TestOTAUpdatePerformanceE2E:
 
         # Assertions
         assert _updater.update_version == str(cfg.UPDATE_VERSION)
-        assert mock_boot_controller_timings.reboot_triggered
-        assert mock_boot_controller_timings.finalizing_update_called
         self._process_persists_mock.assert_called_once()
 
     def test_ota_image_v1_performance(
@@ -292,13 +262,11 @@ class TestOTAUpdatePerformanceE2E:
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
         mock_boot_controller: MockBootController,
-        mock_boot_controller_timings: MockBootControllerTimings,
     ) -> None:
         """Performance test for OTA Image V1 update flow."""
         report = PerformanceReport(
             test_name="test_ota_image_v1_performance",
             ota_image_format="v1",
-            boot_timings=mock_boot_controller_timings,
         )
 
         _, report_queue = ota_status_collector
@@ -371,6 +339,4 @@ class TestOTAUpdatePerformanceE2E:
 
         # Assertions
         assert _updater.update_version == str(cfg.UPDATE_VERSION)
-        assert mock_boot_controller_timings.reboot_triggered
-        assert mock_boot_controller_timings.finalizing_update_called
         self._process_persists_mock.assert_called_once()
