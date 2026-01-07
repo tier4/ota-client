@@ -31,34 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MockBootControllerTimings:
-    """Track timings for mock boot controller operations with nanosecond precision."""
-
-    pre_update_start_ns: int = 0
-    pre_update_end_ns: int = 0
-    post_update_start_ns: int = 0
-    post_update_end_ns: int = 0
-    finalizing_update_start_ns: int = 0
-    finalizing_update_end_ns: int = 0
-    finalizing_update_called: bool = False
-    reboot_triggered: bool = False
-
-    @property
-    def pre_update_duration_ms(self) -> float:
-        return (self.pre_update_end_ns - self.pre_update_start_ns) / 1_000_000
-
-    @property
-    def post_update_duration_ms(self) -> float:
-        return (self.post_update_end_ns - self.post_update_start_ns) / 1_000_000
-
-    @property
-    def finalizing_update_duration_ms(self) -> float:
-        return (
-            self.finalizing_update_end_ns - self.finalizing_update_start_ns
-        ) / 1_000_000
-
-
-@dataclass
 class PhaseMetrics:
     """High-precision metrics for a single phase."""
 
@@ -67,8 +39,6 @@ class PhaseMetrics:
     end_ns: int = 0
 
     # Optional detailed metrics
-    files_processed: int = 0
-    bytes_processed: int = 0
     errors: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -94,18 +64,6 @@ class PhaseMetrics:
     def duration_s(self) -> float:
         return self.duration_ns / 1_000_000_000
 
-    @property
-    def throughput_mb_s(self) -> float:
-        if self.bytes_processed > 0 and self.duration_s > 0:
-            return (self.bytes_processed / (1024 * 1024)) / self.duration_s
-        return 0.0
-
-    @property
-    def files_per_s(self) -> float:
-        if self.files_processed > 0 and self.duration_s > 0:
-            return self.files_processed / self.duration_s
-        return 0.0
-
 
 @dataclass
 class PerformanceReport:
@@ -121,21 +79,6 @@ class PerformanceReport:
 
     # Phases
     phases: dict[str, PhaseMetrics] = field(default_factory=dict)
-
-    # Boot controller timings
-    boot_timings: MockBootControllerTimings = field(
-        default_factory=MockBootControllerTimings
-    )
-
-    # OTA Image stats from OTAMetricsData
-    total_regulars_num: int = 0
-    total_directories_num: int = 0
-    total_symlinks_num: int = 0
-    total_files_size: int = 0
-    delta_download_files_num: int = 0
-    delta_download_files_size: int = 0
-    downloaded_bytes: int = 0
-    downloaded_errors: int = 0
 
     # Status transitions
     status_transitions: list[tuple[int, str]] = field(default_factory=list)
@@ -206,15 +149,6 @@ class PerformanceReport:
                 p = self.phases[phase_name]
                 total_tracked += p.duration_ns
                 lines.append(f"  {phase_name:25s}: {p.duration_ms:>12,.3f} ms")
-                if p.files_processed > 0:
-                    lines.append(
-                        f"    {'files':23s}: {p.files_processed:>12,} ({p.files_per_s:,.1f}/s)"
-                    )
-                if p.bytes_processed > 0:
-                    mb = p.bytes_processed / (1024 * 1024)
-                    lines.append(
-                        f"    {'bytes':23s}: {p.bytes_processed:>12,} ({mb:,.2f} MB, {p.throughput_mb_s:.2f} MB/s)"
-                    )
                 if p.errors > 0:
                     lines.append(f"    {'errors':23s}: {p.errors:>12,}")
                 for k, v in p.extra.items():
@@ -225,62 +159,6 @@ class PerformanceReport:
         overhead_ms = overhead_ns / 1_000_000
         lines.append(f"  {'(overhead/other)':25s}: {overhead_ms:>12,.3f} ms")
 
-        # OTA Image stats
-        lines.extend(
-            [
-                "",
-                "-" * 100,
-                "  OTA IMAGE STATISTICS",
-                "-" * 100,
-                f"  {'Total Regulars':30s}: {self.total_regulars_num:>15,}",
-                f"  {'Total Directories':30s}: {self.total_directories_num:>15,}",
-                f"  {'Total Symlinks':30s}: {self.total_symlinks_num:>15,}",
-                f"  {'Total Size':30s}: {self.total_files_size:>15,} bytes ({self.total_files_size / (1024*1024):,.2f} MB)",
-                "",
-                f"  {'Delta Download Files':30s}: {self.delta_download_files_num:>15,}",
-                f"  {'Delta Download Size':30s}: {self.delta_download_files_size:>15,} bytes ({self.delta_download_files_size / (1024*1024):,.2f} MB)",
-                f"  {'Actually Downloaded':30s}: {self.downloaded_bytes:>15,} bytes ({self.downloaded_bytes / (1024*1024):,.2f} MB)",
-                f"  {'Download Errors':30s}: {self.downloaded_errors:>15,}",
-            ]
-        )
-
-        # Delta efficiency
-        if self.total_files_size > 0:
-            saved = self.total_files_size - self.downloaded_bytes
-            efficiency = (saved / self.total_files_size) * 100
-            lines.append(
-                f"  {'Delta Efficiency':30s}: {efficiency:>14.2f}% ({saved / (1024*1024):,.2f} MB saved)"
-            )
-
-        # Boot controller timings
-        lines.extend(
-            [
-                "",
-                "-" * 100,
-                "  BOOT CONTROLLER TIMINGS (Mock)",
-                "-" * 100,
-                f"  {'pre_update':30s}: {self.boot_timings.pre_update_duration_ms:>15,.3f} ms",
-                f"  {'post_update':30s}: {self.boot_timings.post_update_duration_ms:>15,.3f} ms",
-                f"  {'finalizing_update':30s}: {self.boot_timings.finalizing_update_duration_ms:>15,.3f} ms",
-                f"  {'Reboot Triggered':30s}: {str(self.boot_timings.reboot_triggered):>15s}",
-            ]
-        )
-
-        # Status transitions
-        if self.status_transitions:
-            lines.extend(
-                [
-                    "",
-                    "-" * 100,
-                    "  STATUS TRANSITIONS",
-                    "-" * 100,
-                ]
-            )
-            for ts_ns, status in self.status_transitions:
-                relative_ms = (ts_ns - self.test_start_ns) / 1_000_000
-                lines.append(f"  +{relative_ms:>12,.3f} ms: {status}")
-
-        lines.extend(["", "=" * 100, ""])
         return "\n".join(lines)
 
     def to_json(self) -> str:
@@ -295,30 +173,10 @@ class PerformanceReport:
                 name: {
                     "duration_ms": p.duration_ms,
                     "duration_s": p.duration_s,
-                    "files_processed": p.files_processed,
-                    "bytes_processed": p.bytes_processed,
-                    "throughput_mb_s": p.throughput_mb_s,
-                    "files_per_s": p.files_per_s,
                     "errors": p.errors,
                     "extra": p.extra,
                 }
                 for name, p in self.phases.items()
-            },
-            "ota_image_stats": {
-                "total_regulars_num": self.total_regulars_num,
-                "total_directories_num": self.total_directories_num,
-                "total_symlinks_num": self.total_symlinks_num,
-                "total_files_size_bytes": self.total_files_size,
-                "delta_download_files_num": self.delta_download_files_num,
-                "delta_download_files_size_bytes": self.delta_download_files_size,
-                "downloaded_bytes": self.downloaded_bytes,
-                "downloaded_errors": self.downloaded_errors,
-            },
-            "boot_controller_timings_ms": {
-                "pre_update": self.boot_timings.pre_update_duration_ms,
-                "post_update": self.boot_timings.post_update_duration_ms,
-                "finalizing_update": self.boot_timings.finalizing_update_duration_ms,
-                "reboot_triggered": self.boot_timings.reboot_triggered,
             },
         }
         return json.dumps(data, indent=2)
@@ -381,142 +239,6 @@ class ComparisonReport:
             elif v1_phase:
                 lines.append(f"| {phase_name} | - | {v1_phase.duration_ms:,.1f} |")
 
-        # Boot controller timings
-        lines.extend(
-            [
-                "",
-                "### 🔧 Boot Controller Timings",
-                "",
-                "| Operation | Legacy (ms) | V1 (ms) |",
-                "|:----------|------------:|--------:|",
-            ]
-        )
-
-        boot_ops = [
-            (
-                "pre_update",
-                "Pre Update",
-                legacy.boot_timings.pre_update_duration_ms,
-                v1.boot_timings.pre_update_duration_ms,
-            ),
-            (
-                "post_update",
-                "Post Update",
-                legacy.boot_timings.post_update_duration_ms,
-                v1.boot_timings.post_update_duration_ms,
-            ),
-            (
-                "finalizing_update",
-                "Finalizing Update",
-                legacy.boot_timings.finalizing_update_duration_ms,
-                v1.boot_timings.finalizing_update_duration_ms,
-            ),
-        ]
-
-        for _, name, legacy_val, v1_val in boot_ops:
-            lines.append(f"| {name} | {legacy_val:,.3f} | {v1_val:,.3f} |")
-
-        # OTA Image stats
-        lines.extend(
-            [
-                "",
-                "### 📦 OTA Image Statistics",
-                "",
-                "| Metric | Legacy | V1 |",
-                "|:-------|-------:|---:|",
-            ]
-        )
-
-        stats = [
-            ("Total Regular Files", legacy.total_regulars_num, v1.total_regulars_num),
-            (
-                "Total Directories",
-                legacy.total_directories_num,
-                v1.total_directories_num,
-            ),
-            ("Total Symlinks", legacy.total_symlinks_num, v1.total_symlinks_num),
-            (
-                "Total Size (MB)",
-                legacy.total_files_size / (1024 * 1024),
-                v1.total_files_size / (1024 * 1024),
-            ),
-            (
-                "Delta Download Files",
-                legacy.delta_download_files_num,
-                v1.delta_download_files_num,
-            ),
-            (
-                "Delta Download Size (MB)",
-                legacy.delta_download_files_size / (1024 * 1024),
-                v1.delta_download_files_size / (1024 * 1024),
-            ),
-            (
-                "Actually Downloaded (MB)",
-                legacy.downloaded_bytes / (1024 * 1024),
-                v1.downloaded_bytes / (1024 * 1024),
-            ),
-        ]
-
-        for name, legacy_val, v1_val in stats:
-            if isinstance(legacy_val, int):
-                lines.append(f"| {name} | {legacy_val:,} | {v1_val:,} |")
-            else:
-                lines.append(f"| {name} | {legacy_val:,.2f} | {v1_val:,.2f} |")
-
-        # Delta efficiency
-        legacy_eff = (
-            (
-                (legacy.total_files_size - legacy.downloaded_bytes)
-                / legacy.total_files_size
-                * 100
-            )
-            if legacy.total_files_size > 0
-            else 0
-        )
-        v1_eff = (
-            ((v1.total_files_size - v1.downloaded_bytes) / v1.total_files_size * 100)
-            if v1.total_files_size > 0
-            else 0
-        )
-        lines.append(f"| **Delta Efficiency (%)** | {legacy_eff:.2f} | {v1_eff:.2f} |")
-
-        # Throughput section
-        lines.extend(
-            [
-                "",
-                "### 🚀 Throughput",
-                "",
-                "| Metric | Legacy | V1 |",
-                "|:-------|-------:|---:|",
-            ]
-        )
-
-        # Get execute_total phase for throughput
-        legacy_exec = legacy.phases.get("execute_total")
-        v1_exec = v1.phases.get("execute_total")
-
-        if legacy_exec and v1_exec:
-            lines.append(
-                f"| Files/second | {legacy_exec.files_per_s:,.1f} | {v1_exec.files_per_s:,.1f} |"
-            )
-            lines.append(
-                f"| MB/second | {legacy_exec.throughput_mb_s:.2f} | {v1_exec.throughput_mb_s:.2f} |"
-            )
-
-        # Download phase throughput
-        legacy_dl = legacy.phases.get("download")
-        v1_dl = v1.phases.get("download")
-
-        if legacy_dl and v1_dl:
-            lines.append(
-                f"| Download Files/second | {legacy_dl.files_per_s:,.1f} | {v1_dl.files_per_s:,.1f} |"
-            )
-            lines.append(
-                f"| Download MB/second | {legacy_dl.throughput_mb_s:.2f} | {v1_dl.throughput_mb_s:.2f} |"
-            )
-
-        lines.append("")
-
         return "\n".join(lines)
 
     def save_to_file(self, output_path: Path) -> None:
@@ -555,7 +277,6 @@ class MockBootController:
         self,
         standby_slot_path: Path,
         standby_slot_dev: Path,
-        timings: MockBootControllerTimings,
         *,
         current_version: str = "123.x",
         standby_version: str = "",
@@ -563,7 +284,6 @@ class MockBootController:
     ):
         self._standby_slot_path = standby_slot_path
         self._standby_slot_dev = standby_slot_dev
-        self._timings = timings
         self._current_version = current_version
         self._standby_version = standby_version
         self._initial_ota_status = initial_ota_status
@@ -596,25 +316,17 @@ class MockBootController:
         logger.info("MockBootController: on_operation_failure")
 
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
-        self._timings.pre_update_start_ns = time.time_ns()
         logger.info(
             f"MockBootController: pre_update(standby_as_ref={standby_as_ref}, erase_standby={erase_standby})"
         )
         self._standby_slot_path.mkdir(parents=True, exist_ok=True)
-        self._timings.pre_update_end_ns = time.time_ns()
 
     def post_update(self, update_version: str) -> None:
-        self._timings.post_update_start_ns = time.time_ns()
         logger.info(f"MockBootController: post_update(version={update_version})")
         self._standby_version = update_version
-        self._timings.post_update_end_ns = time.time_ns()
 
     def finalizing_update(self, *, chroot: str | None = None) -> None:
-        self._timings.finalizing_update_start_ns = time.time_ns()
         logger.info(f"MockBootController: finalizing_update(chroot={chroot})")
-        self._timings.finalizing_update_called = True
-        self._timings.reboot_triggered = True
-        self._timings.finalizing_update_end_ns = time.time_ns()
         raise MockRebootTriggered("Mock reboot triggered")
 
 
@@ -627,11 +339,6 @@ class MockRebootTriggered(Exception):
 @pytest.fixture
 def performance_report() -> PerformanceReport:
     return PerformanceReport()
-
-
-@pytest.fixture
-def mock_boot_controller_timings() -> MockBootControllerTimings:
-    return MockBootControllerTimings()
 
 
 @pytest.fixture(scope="module", autouse=True)
