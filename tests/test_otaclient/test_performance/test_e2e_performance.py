@@ -201,8 +201,6 @@ class TestOTAUpdatePerformanceE2E:
         report.start_test()
         report.record_status(OTAStatus.UPDATING)
 
-        # Phase: Setup
-        report.start_phase("updater_init")
         ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
         downloader_pool = create_downloader_pool(
             raw_cookies_json=cfg.COOKIES_JSON,
@@ -231,7 +229,6 @@ class TestOTAUpdatePerformanceE2E:
             metrics=OTAMetricsData(),
             shm_metrics_reader=None,  # type: ignore
         )
-        report.end_phase("updater_init")
 
         # Execute update
         self._execute_update_and_collect_metrics(_updater, report)
@@ -286,8 +283,6 @@ class TestOTAUpdatePerformanceE2E:
         report.start_test()
         report.record_status(OTAStatus.UPDATING)
 
-        # Phase: Setup
-        report.start_phase("updater_init")
         ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
         downloader_pool = create_downloader_pool(
             raw_cookies_json=cfg.COOKIES_JSON,
@@ -317,7 +312,6 @@ class TestOTAUpdatePerformanceE2E:
             image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
             shm_metrics_reader=None,  # type: ignore
         )
-        report.end_phase("updater_init")
 
         # Execute update
         self._execute_update_and_collect_metrics(_updater, report)

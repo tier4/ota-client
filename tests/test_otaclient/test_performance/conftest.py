@@ -125,16 +125,14 @@ class PerformanceReport:
             f"  OTA Image Format: {self.ota_image_format}",
             f"  Timestamp: {self.timestamp}",
             "",
-            f"  TOTAL DURATION: {self.total_duration_ms:,.3f} ms ({self.total_duration_s:.6f} s)",
+            f"  TOTAL DURATION: {self.total_duration_s:.1f} s",
             "",
             "-" * 100,
-            "  PHASE BREAKDOWN (High Precision)",
+            "  PHASE BREAKDOWN",
             "-" * 100,
         ]
 
         phase_order = [
-            "updater_init",
-            "execute_total",
             "metadata_processing",
             "delta_calculation",
             "download",
@@ -148,16 +146,16 @@ class PerformanceReport:
             if phase_name in self.phases:
                 p = self.phases[phase_name]
                 total_tracked += p.duration_ns
-                lines.append(f"  {phase_name:25s}: {p.duration_ms:>12,.3f} ms")
+                lines.append(f"  {phase_name:25s}: {p.duration_s:>10.1f} s")
                 if p.errors > 0:
-                    lines.append(f"    {'errors':23s}: {p.errors:>12,}")
+                    lines.append(f"    {'errors':23s}: {p.errors:>10,}")
                 for k, v in p.extra.items():
                     lines.append(f"    {k:23s}: {v}")
 
         # Untracked time
         overhead_ns = self.total_duration_ns - total_tracked
-        overhead_ms = overhead_ns / 1_000_000
-        lines.append(f"  {'(overhead/other)':25s}: {overhead_ms:>12,.3f} ms")
+        overhead_s = overhead_ns / 1_000_000_000
+        lines.append(f"  {'(overhead/other)':25s}: {overhead_s:>10.1f} s")
 
         return "\n".join(lines)
 
@@ -205,19 +203,17 @@ class ComparisonReport:
             "",
             "### ⏱️ Execution Time",
             "",
-            "| Phase | Legacy (ms) | V1 (ms) |",
-            "|:------|------------:|--------:|",
+            "| Phase | Legacy (s) | V1 (s) |",
+            "|:------|----------:|-------:|",
         ]
 
         # Total duration
         lines.append(
-            f"| **Total Duration** | {legacy.total_duration_ms:,.1f} | {v1.total_duration_ms:,.1f} |"
+            f"| **Total Duration** | {legacy.total_duration_s:.1f} | {v1.total_duration_s:.1f} |"
         )
 
         # Phase comparison
         phase_order = [
-            ("updater_init", "Updater Init"),
-            ("execute_total", "Execute Total"),
             ("metadata_processing", "Metadata Processing"),
             ("delta_calculation", "Delta Calculation"),
             ("download", "Download"),
@@ -232,12 +228,12 @@ class ComparisonReport:
 
             if legacy_phase and v1_phase:
                 lines.append(
-                    f"| {phase_name} | {legacy_phase.duration_ms:,.1f} | {v1_phase.duration_ms:,.1f} |"
+                    f"| {phase_name} | {legacy_phase.duration_s:.1f} | {v1_phase.duration_s:.1f} |"
                 )
             elif legacy_phase:
-                lines.append(f"| {phase_name} | {legacy_phase.duration_ms:,.1f} | - |")
+                lines.append(f"| {phase_name} | {legacy_phase.duration_s:.1f} | - |")
             elif v1_phase:
-                lines.append(f"| {phase_name} | - | {v1_phase.duration_ms:,.1f} |")
+                lines.append(f"| {phase_name} | - | {v1_phase.duration_s:.1f} |")
 
         return "\n".join(lines)
 
