@@ -1,137 +1,92 @@
-# OTA client development
+# Development Guide
 
-THIS DOCUMENT IS FOR INTERNAL DEVELOPER ONLY.
+This document describes how to set up the development environment, run tests, and maintain the OTAClient repository.
 
-This document describes how to run and test OTA client and how to maintain the repository.
-In this document, Ubuntu 20.04 is used for both running and development environment.
+## Requirements
 
-## Python version
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (for dependency management)
+- Docker and Docker Compose (for running tests)
 
-Python3.8 or higher is required. Please make sure the `python3` is appropriate version.
+For basic requirements (Python version, supported OS), see [README.md](README.md#requirements).
 
-```bash
-$ python3 --version
-Python 3.8.10
-```
+## Development Setup
 
-## How to build
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/)
 
-You can build the python wheel package as follow:
-
-1. install `uv`: <https://docs.astral.sh/uv/getting-started/installation/>
-
-2. setup a venv environment:
+2. Setup a venv environment:
 
 ```bash
 uv sync --locked
 ```
 
-3. build the package
+3. Build the package:
 
 ```bash
 uv build --wheel
 ```
 
-4. the built package will be placed under `./dist` folder
+The built package will be placed under `./dist` folder.
 
-## How to test OTA client on the development PC
+## Testing
 
-### Use docker compose to run tests in a container
+### Running Tests with Docker Compose
 
-The test containers are defined in `docker/test_base/docker-compose_tests.yml`,
-Test containers for ubuntu 20.04, 22.04 and 24.04 are defined.
+Test containers are defined in `docker/test_base/docker-compose_tests.yml`.
+Containers for Ubuntu 20.04, 22.04, and 24.04 are available.
 
-The `./docker/test_base/entry_point.sh` will be mounted into the test container as entrypoint,
-you can adjust the script as needed.
+The `./docker/test_base/entry_point.sh` script is mounted as the entrypoint and can be customized as needed.
 
-### Run all tests at once
-
-The following example will run all tests in the container for ubuntu 20.04:
+#### Run all tests
 
 ```bash
-# at project root directory
+# At project root directory
 docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04
 ```
 
-### Run specific tests manually by override the command
-
-Specify to only run specific tests is also possible as follow:
+#### Run specific tests
 
 ```bash
-# at project root directory
+# At project root directory
 docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04 \
-   tests/<specific_test_file>  [<test_file_2> [...]]
+   tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
-### Control the test container interactively
-
-Directly drop to bash shell in the test base container as follow:
+#### Interactive shell
 
 ```bash
-# at the project root directory
+# At project root directory
 docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-20.04
 ```
 
-## How to update protobuf
+## Protobuf Maintenance
 
-OTA client service is using protobuf interface.
-After updating the protobuf files under `proto/*.proto`, some operations are required.
+OTAClient uses protobuf for its gRPC interface. After updating protobuf files under `proto/*.proto`, follow these steps:
 
-## Updating otaclient/app/proto/otaclient_v2_pb2*py
+### Update Python protobuf files
 
-The protobuf definition for python implementation under `otaclient/app/proto` directory should be updated.
+Update the protobuf definitions under `otaclient/app/proto`:
 
 ```bash
 python3 -m grpc_tools.protoc -I./proto --python_out=app --grpc_python_out=app ./proto/otaclient_v2.proto
 ```
 
-### Updating protobuf whl
+### Build protobuf wheel package
 
-The whl package for the OTA client user implemented in python should be updated.
+1. Edit and update version in `proto/VERSION`
 
-#### How to build protobuf whl
-
-1. Edit and update version in proto/VERSION.
-2. Build whl as follows:
-
-   ```bash
-   cd proto
-   make
-   ```
-
-3. After build, whl file is generated in proto/whl directory.
-
-#### How to install protobuf whl
-
-You can install protobuf whl with pip command.
+2. Build the wheel:
 
 ```bash
-python3 -m pip install https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxxx-py3-none-any.whl
+cd proto
+make
 ```
 
-If you're using requirement.txt, add the following line into the requirements.txt.
+3. The wheel file will be generated in `proto/whl` directory
+
+### Update API documentation
+
+Generate `docs/SERVICES.md` using protoc-gen-doc:
 
 ```bash
-https://raw.githubusercontent.com/tier4/ota-client/main/proto/whl/otaclient_pb2-xxxxx-py3-none-any.whl
-```
-
-Note that `xxxxx` above should be replaced by the actual file name.
-
-#### How to import protobuf package
-
-```bash
-$ python3
-Python 3.8.10 (default, Nov 26 2021, 20:14:08)
-[GCC 9.3.0] on linux
-Type "help", "copyright", "credits" or "license" for more information.
->>> from otaclient_pb2.v2 import otaclient_pb2
->>> from otaclient_pb2.v2 import otaclient_pb2_grpc
-```
-
-### Creating docs/SERVICES.md
-
-The protobuf document docs/SERVICES.md should be updated by protoc-gen-doc tool.
-
-```bash
-docker run --rm -v $(pwd)/docs:/out -v $(pwd)/proto:/protos pseudomuto/protoc-gen-doc --doc_opt=markdown,SERVICES.md
+docker run --rm --user $(id -u):$(id -g) -v $(pwd)/docs:/out -v $(pwd)/proto:/protos pseudomuto/protoc-gen-doc --doc_opt=markdown,SERVICES.md
 ```
