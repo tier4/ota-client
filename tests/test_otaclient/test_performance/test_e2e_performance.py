@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 OTA_UPDATER_MODULE = ota_core._updater.__name__
 
 
+@pytest.mark.performance
 class TestOTAUpdatePerformanceE2E:
     """Performance E2E tests for OTA update flow with detailed reporting."""
 
