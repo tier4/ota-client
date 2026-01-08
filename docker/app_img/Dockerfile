@@ -32,6 +32,7 @@ ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
 COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
 
 RUN set -eux; \
+    chmod +x "${OTACLIENT_INSTALLATION}/otaclient"; \
     # add necessary runtime directories for OTA
     mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo; \
     # add compatible layer for otaclient launching the dynamic otaclient app,
@@ -51,3 +52,5 @@ RUN set -eux; \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/*
+
+ENTRYPOINT [ "/otaclient/otaclient" ]
