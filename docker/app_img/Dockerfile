@@ -13,11 +13,11 @@ FROM ${BUILD_BASE} AS app_build
 
 ARG PYINSTALLER_VER=6.16.0
 
-COPY . /build
 COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /build
-RUN set -eux; \
+RUN --mount=type=bind,source=.,target=/build,rw \
+    set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
         git python3 python3-setuptools; \
