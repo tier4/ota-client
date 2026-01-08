@@ -22,14 +22,15 @@ RUN --mount=type=bind,source=.,target=/build,rw \
     apt-get install -y -qq --no-install-recommends \
         git python3 python3-setuptools; \
     uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
-        pyinstaller -D -s --name otaclient src/otaclient/__main__.py
+        pyinstaller -D -s --name otaclient src/otaclient/__main__.py; \
+    cp -R /build/dist /dist
 
 FROM ${UBUNTU_BASE}
 
 ARG OTACLIENT_INSTALLATION="/otaclient"
 ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
 
-COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
+COPY --from=app_build /dist/otaclient ${OTACLIENT_INSTALLATION}
 
 RUN set -eux; \
     chmod +x "${OTACLIENT_INSTALLATION}/otaclient"; \
