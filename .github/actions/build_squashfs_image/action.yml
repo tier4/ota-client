@@ -43,6 +43,11 @@ runs:
           -t ${DOCKER_IMAGE} \
           .
 
+    - name: quick check the build
+      shell: bash
+      run: |
+        docker run --rm ${DOCKER_IMAGE} version
+
     - name: export squashfs image
       env:
         DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
