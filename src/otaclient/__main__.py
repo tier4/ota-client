@@ -16,6 +16,17 @@ from multiprocessing import freeze_support
 
 if __name__ == "__main__":
     freeze_support()
+    
+    import sys
+
+    from _otaclient_version import version
+
+
+    # NOTE that we currently don't configure otaclient to take any other args,
+    #   so no need to use argparser but just directly check the first arg.
+    if len(sys.argv) > 1 and sys.argv[1] == "version":
+        print(version)
+        sys.exit(0)
 
     from otaclient import main
 
