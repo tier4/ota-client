@@ -19,14 +19,13 @@ if __name__ == "__main__":
 
     import sys
 
-    from _otaclient_version import version
-
     # NOTE that we currently don't configure otaclient to take any other args,
     #   so no need to use argparser but just directly check the first arg.
     if len(sys.argv) > 1 and sys.argv[1] == "version":
+        from _otaclient_version import version
+
         print(version)
-        sys.exit(0)
+    else:
+        from otaclient import main
 
-    from otaclient import main
-
-    main.main()
+        main.main()
