@@ -17,7 +17,8 @@
     "enabled": true
   },
   "enabledManagers": [
-    "pep621"
+    "pep621",
+    "github-actions"
   ],
   "packageRules": [
     {
