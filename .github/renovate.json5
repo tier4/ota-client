@@ -17,7 +17,8 @@
     "enabled": true
   },
   "enabledManagers": [
-    "pep621"
+    "pep621",
+    "github-actions"
   ],
   "packageRules": [
     {
@@ -30,5 +31,11 @@
   "labels": [
     "dependencies"
   ],
+  "vulnerabilityAlerts": {
+    "labels": [
+      "security",
+      "dependencies"
+    ]
+  },
   "prHourlyLimit": 16
 }
