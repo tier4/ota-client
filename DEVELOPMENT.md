@@ -57,36 +57,3 @@ docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubun
 # At project root directory
 docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-20.04
 ```
-
-## Protobuf Maintenance
-
-OTAClient uses protobuf for its gRPC interface. After updating protobuf files under `proto/*.proto`, follow these steps:
-
-### Update Python protobuf files
-
-Update the protobuf definitions under `otaclient/app/proto`:
-
-```bash
-python3 -m grpc_tools.protoc -I./proto --python_out=app --grpc_python_out=app ./proto/otaclient_v2.proto
-```
-
-### Build protobuf wheel package
-
-1. Edit and update version in `proto/VERSION`
-
-2. Build the wheel:
-
-```bash
-cd proto
-make
-```
-
-3. The wheel file will be generated in `proto/whl` directory
-
-### Update API documentation
-
-Generate `docs/SERVICES.md` using protoc-gen-doc:
-
-```bash
-docker run --rm --user $(id -u):$(id -g) -v $(pwd)/docs:/out -v $(pwd)/proto:/protos pseudomuto/protoc-gen-doc --doc_opt=markdown,SERVICES.md
-```
