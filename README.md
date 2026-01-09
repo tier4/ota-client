@@ -25,13 +25,12 @@ It is designed to work with web.auto FMS OTA component.
 - Python 3.8 or higher
 - Linux (Ubuntu 20.04, 22.04, 24.04)
 
+Tested on ubuntu 20.04~24.04, and should work on modern linux distros that use systemd.
+
 ## Installation
 
-```bash
-pip install otaclient
-```
-
-For building from source, see [Development Guide](DEVELOPMENT.md#development-setup).
+- **For development**: Install from source code or use a released Python wheel package. See [Development Guide](DEVELOPMENT.md#development-setup).
+- **For deployment**: Using the OTAClient app image is recommended.
 
 ## Configuration
 
