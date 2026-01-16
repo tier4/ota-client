@@ -24,11 +24,11 @@ from multiprocessing.queues import Queue as mp_Queue
 from typing import Callable, NoReturn
 
 from otaclient._types import (
+    AbortOTAFlag,
     CriticalZoneFlag,
     IPCRequest,
     IPCResponse,
     MultipleECUStatusFlags,
-    StopOTAFlag,
 )
 from otaclient._utils import SharedOTAClientStatusReader
 
@@ -42,7 +42,7 @@ def grpc_server_process(
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
     critical_zone_flag: CriticalZoneFlag,
-    stop_ota_flag: StopOTAFlag,
+    abort_ota_flag: AbortOTAFlag,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -74,7 +74,7 @@ def grpc_server_process(
             op_queue=op_queue,
             resp_queue=resp_queue,
             critical_zone_flag=critical_zone_flag,
-            stop_ota_flag=stop_ota_flag,
+            abort_ota_flag=abort_ota_flag,
             executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)

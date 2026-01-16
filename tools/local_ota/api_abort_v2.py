@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A simple tool to stop an OTA locally, for API version 2."""
+"""A simple tool to abort an OTA locally, for API version 2."""
 
 
 from __future__ import annotations
@@ -32,18 +32,18 @@ async def main(
     host: str,
     port: int,
     *,
-    req: _types.StopRequest,
+    req: _types.AbortRequest,
     timeout: int = 3,
 ) -> None:
     try:
-        resp = await OTAClientCall.stop_call(
+        resp = await OTAClientCall.abort_call(
             "not_used",
             host,
             port,
             request=req,
             timeout=timeout,
         )
-        logger.info(f"stop response: {resp}")
+        logger.info(f"abort response: {resp}")
     except ECUNoResponse as e:
         _err_msg = f"ECU doesn't response to the request on-time({timeout=}): {e}"
         logger.error(_err_msg)
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Calling ECU's stop API, API version v2",
+        description="Calling ECU's abort API, API version v2",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -73,11 +73,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    stop_request = _types.StopRequest()
+    abort_request = _types.AbortRequest()
     asyncio.run(
         main(
             args.host,
             args.port,
-            req=stop_request,
+            req=abort_request,
         )
     )
