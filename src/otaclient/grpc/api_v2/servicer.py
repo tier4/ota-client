@@ -345,7 +345,9 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _handle_abort_request(self, request: AbortRequestV2) -> api_types.AbortResponseEcu:
+    def _handle_abort_request(
+        self, request: AbortRequestV2
+    ) -> api_types.AbortResponseEcu:
         """Dispatch abort request to main process."""
         logger.info(f"handling request: {request}")
         if not isinstance(request, AbortRequestV2):
