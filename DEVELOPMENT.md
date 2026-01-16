@@ -57,3 +57,18 @@ docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubun
 # At project root directory
 docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-20.04
 ```
+
+### Performance tests
+
+Performance tests are marked with `@pytest.mark.performance` and are excluded from regular test runs.
+They are executed separately in the `performance_test.yaml` workflow.
+
+To run performance tests locally:
+
+```bash
+# at project root directory
+docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04 \
+   tests/test_otaclient/test_performance/test_e2e_performance.py -v -s -m performance
+```
+
+The performance comparison report will be generated at `test_result/performance_comparison.md`.
