@@ -44,6 +44,7 @@ from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
+from otaclient.metrics import OTAMetricsType
 from otaclient.ota_core import _download_bsp_version_file
 from otaclient_common import (
     _env,
@@ -342,7 +343,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 self._metrics.shm_merge(_shm_metrics)
         except Exception as e:
             logger.error(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
+        self._metrics.publish(OTAMetricsType.UPDATE)
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)
