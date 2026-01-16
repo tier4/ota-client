@@ -23,14 +23,14 @@ from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
+    AbortOTAFlag,
+    AbortRequestV2,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
     RollbackRequestV2,
-    StopOTAFlag,
-    StopRequestV2,
     UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
@@ -58,7 +58,7 @@ class OTAClientAPIServicer:
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
         critical_zone_flag: CriticalZoneFlag,
-        stop_ota_flag: StopOTAFlag,
+        abort_ota_flag: AbortOTAFlag,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -72,7 +72,7 @@ class OTAClientAPIServicer:
 
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
-        self._stop_ota_flag = stop_ota_flag
+        self._abort_ota_flag = abort_ota_flag
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -144,7 +144,7 @@ class OTAClientAPIServicer:
         self,
         response: (
             api_types.UpdateResponse
-            | api_types.StopResponse
+            | api_types.AbortResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
@@ -158,8 +158,8 @@ class OTAClientAPIServicer:
                 result=failure_type,
             )
             response.add_ecu(ecu_response)
-        elif isinstance(response, api_types.StopResponse):
-            ecu_response = api_types.StopResponseEcu(
+        elif isinstance(response, api_types.AbortResponse):
+            ecu_response = api_types.AbortResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
             )
@@ -257,9 +257,9 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
-        if self._stop_ota_flag.shutdown_requested.is_set():
+        if self._abort_ota_flag.shutdown_requested.is_set():
             logger.error(
-                "otaclient is stopping due to OTA STOP requested. Rejecting all further incoming request"
+                "otaclient is stopping due to OTA ABORT requested. Rejecting all further incoming request"
             )
             for _req in request.iter_ecu():
                 self._add_ecu_into_response(
@@ -345,46 +345,46 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _handle_stop_request(self, request: StopRequestV2) -> api_types.StopResponseEcu:
-        """Dispatch stop request to main process."""
+    def _handle_abort_request(self, request: AbortRequestV2) -> api_types.AbortResponseEcu:
+        """Dispatch abort request to main process."""
         logger.info(f"handling request: {request}")
-        if not isinstance(request, StopRequestV2):
-            return api_types.StopResponseEcu(
+        if not isinstance(request, AbortRequestV2):
+            return api_types.AbortResponseEcu(
                 ecu_id="",
                 result=api_types.FailureType.RECOVERABLE,
-                message="invalid stop request",
+                message="invalid abort request",
             )
 
         try:
             # Check if critical zone lock is available
             with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
                 if not _lock_acquired:
-                    logger.warning("in critical zone, reject stop request ...")
-                    return api_types.StopResponseEcu(
+                    logger.warning("in critical zone, reject abort request ...")
+                    return api_types.AbortResponseEcu(
                         ecu_id=self.my_ecu_id,
                         result=api_types.FailureType.RECOVERABLE,
-                        message="In critical zone, stop request rejected",
+                        message="In critical zone, abort request rejected",
                     )
 
                 logger.warning(
-                    "stop function requested, interrupting OTA and exit now ..."
+                    "abort function requested, interrupting OTA and exit now ..."
                 )
-                # set the stop flag to notify main process to stop ongoing OTA
-                self._stop_ota_flag.shutdown_requested.set()
+                # set the abort flag to notify main process to abort ongoing OTA
+                self._abort_ota_flag.shutdown_requested.set()
 
-                logger.info("Stop OTA flag is set properly.")
+                logger.info("Abort OTA flag is set properly.")
 
-                return api_types.StopResponseEcu(
+                return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.NO_FAILURE,
                 )
 
         except Exception as e:
-            logger.error(f"failed to send stop request to main process: {e!r}")
-            return api_types.StopResponseEcu(
+            logger.error(f"failed to send abort request to main process: {e!r}")
+            return api_types.AbortResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
-                message="Failed to process stop request",
+                message="Failed to process abort request",
             )
 
     # API methods
@@ -401,15 +401,15 @@ class OTAClientAPIServicer:
             update_acked_ecus=set(),
         )
 
-    async def stop(self, request: api_types.StopRequest) -> api_types.StopResponse:
-        # TODO: after security measures are implemented, the below needs to be updated to actually handle stop request
-        logger.warning("stop API is not supported yet, rejecting all stop request")
-        return api_types.StopResponse(
+    async def abort(self, request: api_types.AbortRequest) -> api_types.AbortResponse:
+        # TODO: after security measures are implemented, the below needs to be updated to actually handle abort request
+        logger.warning("abort API is not supported yet, rejecting all abort request")
+        return api_types.AbortResponse(
             ecu=[
-                api_types.StopResponseEcu(
+                api_types.AbortResponseEcu(
                     ecu_id="",
                     result=api_types.FailureType.RECOVERABLE,
-                    message="stop API is not supported yet",
+                    message="abort API is not supported yet",
                 )
             ]
         )

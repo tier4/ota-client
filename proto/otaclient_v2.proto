@@ -39,12 +39,12 @@ service OtaClientService {
   rpc Update (UpdateRequest) returns (UpdateResponse) {}
 
   /*
-   * `Stop` service requests the OTA client to stop any currently running update operations.
+   * `Abort` service requests the OTA client to abort any currently running update operations.
    * Each ECU attempts to halt its update process safely.
-   * The response indicates whether the stop command was accepted.
-   * If the update is in a critical zone, the stop command will be ignored.
+   * The response indicates whether the abort command was accepted.
+   * If the update is in a critical zone, the abort command will be ignored.
    */
-  rpc Stop (StopRequest) returns (StopResponse) {}
+  rpc Abort (AbortRequest) returns (AbortResponse) {}
 
   /*
    * NOT YET
@@ -109,23 +109,23 @@ message UpdateResponse {
 }
 
 //
-// Stop
+// Abort
 //
 
 // Request
-message StopRequest {
+message AbortRequest {
   // empty for now
 }
 
-message StopResponseEcu {
+message AbortResponseEcu {
   string ecu_id = 1; // ECU id responded
   FailureType result = 2; // result
   string message = 3; // message
 }
 
 // Response
-message StopResponse {
-  repeated StopResponseEcu ecu = 1;
+message AbortResponse {
+  repeated AbortResponseEcu ecu = 1;
 }
 
 //
