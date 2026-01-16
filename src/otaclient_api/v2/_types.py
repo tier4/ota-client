@@ -717,7 +717,9 @@ class AbortResponse(ECUList[AbortResponseEcu], MessageWrapper[pb2.AbortResponse]
     __slots__ = calculate_slots(pb2.AbortResponse)
     ecu: RepeatedCompositeContainer[AbortResponseEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[AbortResponseEcu]] = ...) -> None: ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[AbortResponseEcu]] = ...
+    ) -> None: ...
 
     def merge_from(self, abort_response: _Union[Self, pb2.AbortResponse]):
         if isinstance(abort_response, pb2.AbortResponse):
