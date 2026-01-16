@@ -67,8 +67,8 @@ To run performance tests locally:
 
 ```bash
 # at project root directory
-docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-24.04 \
-   tests/test_otaclient/test_performance/test_e2e_performance.py -v -s
+docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04 \
+   tests/test_otaclient/test_performance/test_e2e_performance.py -v -s -m performance
 ```
 
 The performance comparison report will be generated at `test_result/performance_comparison.md`.
