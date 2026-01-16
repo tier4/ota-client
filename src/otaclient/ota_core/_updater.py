@@ -363,9 +363,9 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
                 if not _lock_acquired:
                     logger.error(
-                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already stopping"
+                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already aborting"
                     )
-                    raise ota_errors.OTAStopRequested(module=__name__)
+                    raise ota_errors.OTAAbortRequested(module=__name__)
 
                 logger.info("Entering critical zone for OTA update: pre-update phase")
 
@@ -376,9 +376,9 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
                 if not _lock_acquired:
                     logger.error(
-                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already stopping"
+                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already aborting"
                     )
-                    raise ota_errors.OTAStopRequested(module=__name__)
+                    raise ota_errors.OTAAbortRequested(module=__name__)
 
                 logger.info(
                     "Entering critical zone for OTA update: post-update and finalize-update phases"

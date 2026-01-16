@@ -43,7 +43,7 @@ class OTAErrorCode(int, Enum):
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
     E_CLIENT_UPDATE_SAME_VERSIONS = 205
     E_CLIENT_UPDATE_FAILED = 206
-    E_OTA_STOP_REQUESTED = 207
+    E_OTA_ABORT_REQUESTED = 207
 
     #
     # ------ unrecoverable errors ------
@@ -192,9 +192,9 @@ class ClientUpdateFailed(OTAErrorRecoverable):
     )
 
 
-class OTAStopRequested(OTAErrorRecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_STOP_REQUESTED
-    failure_description: str = "OTA interrupted by OTA STOP request"
+class OTAAbortRequested(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORT_REQUESTED
+    failure_description: str = "OTA interrupted by OTA ABORT request"
 
 
 #

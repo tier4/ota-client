@@ -689,17 +689,17 @@ class ClientUpdateResponse(
         self.ecu.extend(update_response.ecu)
 
 
-# stop API
+# abort API
 
 
-class StopRequest(MessageWrapper[pb2.StopRequest]):
-    __slots__ = calculate_slots(pb2.StopRequest)
+class AbortRequest(MessageWrapper[pb2.AbortRequest]):
+    __slots__ = calculate_slots(pb2.AbortRequest)
 
     def __init__(self) -> None: ...
 
 
-class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
-    __slots__ = calculate_slots(pb2.StopResponseEcu)
+class AbortResponseEcu(MessageWrapper[pb2.AbortResponseEcu]):
+    __slots__ = calculate_slots(pb2.AbortResponseEcu)
     ecu_id: str
     result: FailureType
     message: str
@@ -713,14 +713,14 @@ class StopResponseEcu(MessageWrapper[pb2.StopResponseEcu]):
     ) -> None: ...
 
 
-class StopResponse(ECUList[StopResponseEcu], MessageWrapper[pb2.StopResponse]):
-    __slots__ = calculate_slots(pb2.StopResponse)
-    ecu: RepeatedCompositeContainer[StopResponseEcu]
+class AbortResponse(ECUList[AbortResponseEcu], MessageWrapper[pb2.AbortResponse]):
+    __slots__ = calculate_slots(pb2.AbortResponse)
+    ecu: RepeatedCompositeContainer[AbortResponseEcu]
 
-    def __init__(self, *, ecu: _Optional[_Iterable[StopResponseEcu]] = ...) -> None: ...
+    def __init__(self, *, ecu: _Optional[_Iterable[AbortResponseEcu]] = ...) -> None: ...
 
-    def merge_from(self, stop_response: _Union[Self, pb2.StopResponse]):
-        if isinstance(stop_response, pb2.StopResponse):
-            stop_response = self.__class__.convert(stop_response)
+    def merge_from(self, abort_response: _Union[Self, pb2.AbortResponse]):
+        if isinstance(abort_response, pb2.AbortResponse):
+            abort_response = self.__class__.convert(abort_response)
         # NOTE, TODO: duplication check is not done
-        self.ecu.extend(stop_response.ecu)
+        self.ecu.extend(abort_response.ecu)
