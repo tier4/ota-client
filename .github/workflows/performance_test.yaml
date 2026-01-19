@@ -86,7 +86,7 @@ jobs:
 
       - name: Upload performance report artifact
         if: steps.check_report.outputs.report_exists == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: performance-report
           path: test_result/performance_comparison.md
