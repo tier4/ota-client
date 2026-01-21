@@ -272,6 +272,9 @@ def main() -> None:  # pragma: no cover
     atexit.register(_on_shutdown)
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
+    # NOTE(20260121): also handle SIGHUP, this is for dynamic launched otaclient
+    #                 to gracefully shutdown.
+    signal.signal(signal.SIGHUP, _signal_handler)
 
     mp_ctx = mp.get_context("spawn")
     _shm = mp_shm.SharedMemory(size=STATUS_SHM_SIZE, create=True)
