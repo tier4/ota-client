@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import otaclient_v2_pb2 as otaclient__v2__pb2
+from otaclient_api.v2 import otaclient_v2_pb2 as otaclient__v2__pb2
 
 GRPC_GENERATED_VERSION = '1.70.0'
 GRPC_VERSION = grpc.__version__
