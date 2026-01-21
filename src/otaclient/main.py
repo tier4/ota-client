@@ -53,7 +53,6 @@ from otaclient_common.cmdhelper import (
     ensure_mount,
     ensure_umount,
     mount_tmpfs,
-    subprocess_call,
 )
 
 logger = logging.getLogger(__name__)
@@ -430,12 +429,12 @@ def main() -> None:  # pragma: no cover
                 #       finishes up running as we don't want the old otaclient restart.
                 # NOTE(20251010): we cannot use os.execve as if we are running as systemd managed
                 #                 APP image, os.execve will be executed from within the APP image.
-                # fmt: off
                 logger.info(f"launch dynamic otaclient with {_dynamic_service_unit}")
-                subprocess_call(
-                    cmd = [
+                # fmt: off
+                _dynamic_otaclient_cmd = [
                         "systemd-run",
-                        f"--unit={_dynamic_service_unit}", "-G", "--wait",
+                        f"--unit={_dynamic_service_unit}", "-G",
+                        "--wait", "-t",
                         "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
                         "--setenv=RUNNING_AS_APP_IMAGE=",
                         "-p", f"Description={_dynamic_service_unit}",
@@ -476,15 +475,21 @@ def main() -> None:  # pragma: no cover
                             f"mount -t tmpfs -o size={cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB}M tmpfs /tmp && "
                             "/otaclient/venv/bin/python3 -m otaclient"
                         ),
-                    ],
-                    chroot=_env.get_dynamic_client_chroot_path(),
-                    raise_exception=True,
-                )
+                    ]
+                    # fmt: on
 
-                logger.info("dynamic otaclient finishes the OTA successfully, waiting for system reboot ...")
-                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
-                _on_shutdown(sys_exit=0)
-            # fmt: on
+                if _chroot_dir := _env.get_dynamic_client_chroot_path():
+                    os.execvpe(
+                        "chroot",
+                        ["chroot", _chroot_dir, *_dynamic_otaclient_cmd],
+                        os.environ,
+                    )
+                else:
+                    os.execvpe(
+                        "systemd-run",
+                        _dynamic_otaclient_cmd,
+                        os.environ,
+                    )
             except Exception as e:
                 logger.exception(f"failed to launch dynamic client with systemd: {e}")
                 if isinstance(e, subprocess.CalledProcessError):
