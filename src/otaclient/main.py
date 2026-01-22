@@ -229,7 +229,7 @@ def _dynamic_otaclient_launch(_dynamic_service_unit: str):
                 "/otaclient/venv/bin/python3 -m otaclient"
             ),
         ]
-        # fmt: on
+    # fmt: on
 
     if _chroot_dir := _env.get_dynamic_client_chroot_path():
         os.execvpe(
