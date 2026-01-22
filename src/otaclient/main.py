@@ -76,41 +76,45 @@ _grpc_server_p: mp_ctx.SpawnProcess | None = None
 _shm: mp_shm.SharedMemory | None = None
 _shm_metrics: mp_shm.SharedMemory | None = None
 
+_global_shutdown_lock = threading.Lock()
 
-def _on_shutdown(sys_exit: bool | int = False):  # pragma: no cover
-    global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
-    if _ota_core_p:
-        _ota_core_p.terminate()
-        _ota_core_p.join()
-        _ota_core_p = None
 
-    if _grpc_server_p:
-        _grpc_server_p.terminate()
-        _grpc_server_p.join()
-        _grpc_server_p = None
+def _on_shutdown(sys_exit: bool | int = 0):  # pragma: no cover
+    """
+    NOTE: this handler should only be actually executed once!
+    """
+    if _global_shutdown_lock.acquire(blocking=False):
+        global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
+        if _ota_core_p:
+            _ota_core_p.terminate()
+            _ota_core_p.join()
+            _ota_core_p = None
 
-    if _shm:
-        _shm.close()
-        _shm.unlink()
-        _shm = None
+        if _grpc_server_p:
+            _grpc_server_p.terminate()
+            _grpc_server_p.join()
+            _grpc_server_p = None
 
-    if _shm_metrics:
-        _shm_metrics.close()
-        _shm_metrics.unlink()
-        _shm_metrics = None
+        if _shm:
+            _shm.close()
+            _shm.unlink()
+            _shm = None
 
-    _should_sys_exit = sys_exit is not False
-    if _should_sys_exit:
-        _exit_code = sys_exit if isinstance(sys_exit, int) else 1
-        try:
+        if _shm_metrics:
+            _shm_metrics.close()
+            _shm_metrics.unlink()
+            _shm_metrics = None
+
+        if sys_exit is not False:
             logger.warning(
                 "otaclient will exit now, unconditionally umount all mount points ..."
             )
-            ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
-            ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
-            ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
-        finally:
-            sys.exit(_exit_code)
+            try:
+                ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
+                ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
+                ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
+            finally:
+                sys.exit(sys_exit if isinstance(sys_exit, int) else 1)
 
 
 def _dynamic_otaclient_init():
