@@ -731,6 +731,8 @@ def ensure_umount(
 
             time.sleep(retry_interval)
             continue
+        except Exception as e:
+            logger.exception(f"expected error during umounting: {e}")
 
 
 def ensure_umount_from_host(

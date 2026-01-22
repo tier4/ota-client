@@ -106,16 +106,13 @@ def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
             _shm_metrics.unlink()
             _shm_metrics = None
 
+        ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
+        ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
+        ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
+
         if sys_exit is not False:
-            logger.warning(
-                "otaclient will exit now, unconditionally umount all mount points ..."
-            )
-            try:
-                ensure_umount(cfg.RUNTIME_OTA_SESSION, ignore_error=True, max_retry=2)
-                ensure_umount(cfg.ACTIVE_SLOT_MNT, ignore_error=True, max_retry=2)
-                ensure_umount(cfg.STANDBY_SLOT_MNT, ignore_error=True, max_retry=2)
-            finally:
-                sys.exit(sys_exit if isinstance(sys_exit, int) else 1)
+            logger.warning("otaclient will exit now ...")
+            sys.exit(sys_exit if isinstance(sys_exit, int) else 1)
 
 
 def _dynamic_otaclient_init():
