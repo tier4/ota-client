@@ -190,10 +190,8 @@ def _dynamic_otaclient_launch(
             "--wait", "-t",
             "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
             "--setenv=RUNNING_AS_APP_IMAGE=",
+            "-p", "Restart=no",
             "-p", f"Description={_dynamic_service_unit}",
-            # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
-            #       exits, this is for handling user manually `systemctl stop otaclient`.
-            "-p", "PartOf=otaclient.service",
             "-p", "Type=simple",
             # NOTE: prevent the dynamic otaclient APP being stop manually, the stop should
             #       be done by stop the main otaclient.service instead. Restart is also prohibited.
