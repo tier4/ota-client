@@ -71,6 +71,10 @@ class TestMain:
         """Test the _on_shutdown function."""
         sys_exit_mock = mocker.patch(f"{MAIN_MODULE}.sys.exit")
 
+        _shutdown_lock_mock = mocker.MagicMock()
+        _shutdown_lock_mock.acquire.return_value = True
+        mocker.patch(f"{MAIN_MODULE}._global_shutdown_lock", _shutdown_lock_mock)
+
         # Set up global variables
         main._ota_core_p = self.mock_ota_core_p
         main._grpc_server_p = self.mock_grpc_server_p
@@ -129,8 +133,8 @@ class TestMain:
         # Call the signal handler with SIGTERM
         main._signal_handler(signal.SIGTERM, None)
 
-        # Verify _on_shutdown is called with sys_exit=True
-        on_shutdown_mock.assert_called_once_with(sys_exit=True)
+        # Verify _on_shutdown is called
+        on_shutdown_mock.assert_called_once_with()
 
     @patch("otaclient._logging.configure_logging")
     def test_main_process_setup_and_health_check(
