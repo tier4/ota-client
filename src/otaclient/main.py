@@ -30,6 +30,7 @@ import threading
 import time
 from functools import partial
 from pathlib import Path
+from typing import NoReturn
 
 from otaclient import __version__
 from otaclient._types import (
@@ -115,7 +116,7 @@ def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
             sys.exit(sys_exit if isinstance(sys_exit, int) else 1)
 
 
-def _dynamic_otaclient_init():
+def _dynamic_otaclient_init():  # pragma: no cover
     """Some special treatments for dynamic otaclient starting.
 
     This includes:
@@ -168,7 +169,9 @@ def _dynamic_otaclient_init():
     )
 
 
-def _dynamic_otaclient_launch(_dynamic_service_unit: str):
+def _dynamic_otaclient_launch(
+    _dynamic_service_unit: str,
+) -> NoReturn:  # pragma: no cover
     """execvpe to systemd-run to launch the dynamic otaclient."""
     from otaclient_common import _env
 
