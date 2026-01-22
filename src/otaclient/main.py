@@ -79,9 +79,10 @@ _shm_metrics: mp_shm.SharedMemory | None = None
 _global_shutdown_lock = threading.Lock()
 
 
-def _on_shutdown(sys_exit: bool | int = 0):  # pragma: no cover
+def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
     """
     NOTE: this handler should only be actually executed once!
+          i.e., the total shutdown should only happen once!
     """
     if _global_shutdown_lock.acquire(blocking=False):
         global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
@@ -170,6 +171,76 @@ def _dynamic_otaclient_init():
     )
 
 
+def _dynamic_otaclient_launch(_dynamic_service_unit: str):
+    """execvpe to systemd-run to launch the dynamic otaclient."""
+    from otaclient_common import _env
+
+    Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
+    # NOTE: the old otaclient's main process will just wait for the dynamic otaclient
+    #       finishes up running as we don't want the old otaclient restart.
+    # NOTE(20251010): we cannot use os.execve as if we are running as systemd managed
+    #                 APP image, os.execve will be executed from within the APP image.
+    logger.info(f"launch dynamic otaclient with {_dynamic_service_unit}")
+    # fmt: off
+    _dynamic_otaclient_cmd = [
+            "systemd-run",
+            f"--unit={_dynamic_service_unit}", "-G",
+            # NOTE: let otaclient directly attaches to the tty of the
+            #       dynamic launched otaclient to control its life-cycle.
+            "--wait", "-t",
+            "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
+            "--setenv=RUNNING_AS_APP_IMAGE=",
+            "-p", f"Description={_dynamic_service_unit}",
+            # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
+            #       exits, this is for handling user manually `systemctl stop otaclient`.
+            "-p", "PartOf=otaclient.service",
+            "-p", "Type=simple",
+            # NOTE: prevent the dynamic otaclient APP being stop manually, the stop should
+            #       be done by stop the main otaclient.service instead. Restart is also prohibited.
+            "-p", "RefuseManualStop=true",
+            # NOTE: subprocess_call here will do a chroot back to host_root.
+            "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
+            "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
+            "-p", "ExecStartPre=/bin/mkdir -p /host_root/ota-cache",
+            "-p", "BindPaths=/boot:/boot:rbind",
+            "-p", "BindPaths=/dev:/dev",
+            "-p", "BindPaths=/dev/shm:/dev/shm",
+            "-p", "BindPaths=/etc:/etc",
+            "-p", "BindPaths=/opt:/opt",
+            "-p", "BindPaths=/proc:/proc",
+            "-p", "BindPaths=/root:/root",
+            "-p", "BindPaths=/sys:/sys:rbind",
+            "-p", "BindPaths=/run:/run",
+            "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
+            "-p", "BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates",
+            "-p", "BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo",
+            "-p", "BindPaths=/:/host_root:rbind",
+            # NOTE: although new systemd compatible APP image runs from /otaclient/otaclient, for backward compatibility
+            #       concern, we still start the otaclient from /otaclient/venv/bin/python3.
+            #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
+            #       /otaclient/otaclient.
+            # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
+            #       with old otaclient APP image, we still setup the mount points here.
+            "/bin/bash", "-c",
+            (
+                "mount -o bind /host_root/ota-cache /ota-cache && "
+                "mount -o bind,ro /host_root /run/otaclient/mnt/active_slot && "
+                f"mount -t tmpfs -o size={cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB}M tmpfs /tmp && "
+                "/otaclient/venv/bin/python3 -m otaclient"
+            ),
+        ]
+        # fmt: on
+
+    if _chroot_dir := _env.get_dynamic_client_chroot_path():
+        os.execvpe(
+            "chroot",
+            ["chroot", _chroot_dir, *_dynamic_otaclient_cmd],
+            os.environ,
+        )
+    else:
+        os.execvpe("systemd-run", _dynamic_otaclient_cmd, os.environ)
+
+
 def _bind_external_nfs_cache(external_nfs_cache_mnt_point: StrOrPath | None):
     """
     Bind mount the external NFS cache from host root.
@@ -208,7 +279,7 @@ def _bind_external_nfs_cache(external_nfs_cache_mnt_point: StrOrPath | None):
 def _signal_handler(signal_value, _) -> None:  # pragma: no cover
     print(f"otaclient receives {signal_value=}, shutting down ...")
     # NOTE: the daemon_process needs to exit also.
-    _on_shutdown(sys_exit=True)
+    _on_shutdown()
 
 
 def main() -> None:  # pragma: no cover
@@ -269,11 +340,12 @@ def main() -> None:  # pragma: no cover
     #
     global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
 
+    # --- setup signal handlers and aexit hook --- #
     # NOTE: if the atexit hook is triggered by signal received,
     #   first the signal handler will be executed, and then atexit hook.
-    #   At the time atexit hook is executed, the _ota_core_p, _grpc_server_p
-    #   and _shm/_shm_metrics are set to None by signal handler.
-    atexit.register(_on_shutdown)
+    #   At the time atexit hook is executed, the global shutdown lock is
+    #   already acquired, no action will be taken by atexit register.
+    atexit.register(partial(_on_shutdown, sys_exit=0))
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
     # NOTE(20260121): also handle SIGHUP, this is for dynamic launched otaclient
@@ -367,7 +439,7 @@ def main() -> None:  # pragma: no cover
                 f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
             )
             time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
-            return _on_shutdown(sys_exit=True)
+            return _on_shutdown()
 
         if not _ota_core_p.is_alive():
             logger.error(
@@ -375,14 +447,14 @@ def main() -> None:  # pragma: no cover
                 f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
-            return _on_shutdown(sys_exit=True)
+            return _on_shutdown()
 
         if not _grpc_server_p.is_alive():
             logger.error(
                 f"ota API server is dead, whole otaclient will exit in {SHUTDOWN_AFTER_API_SERVER_EXIT} seconds ..."
             )
             time.sleep(SHUTDOWN_AFTER_API_SERVER_EXIT)
-            return _on_shutdown(sys_exit=True)
+            return _on_shutdown()
 
         # launch the dynamic client preparation process
         if client_update_control_flags.notify_data_ready_event.is_set():
@@ -431,72 +503,7 @@ def main() -> None:  # pragma: no cover
                         except Exception as e:
                             logger.error(f"failed to stop the resource tracker: {e!r}")
 
-                Path(cfg.OTACLIENT_PID_FILE).unlink(missing_ok=True)
-                # NOTE: the old otaclient's main process will just wait for the dynamic otaclient
-                #       finishes up running as we don't want the old otaclient restart.
-                # NOTE(20251010): we cannot use os.execve as if we are running as systemd managed
-                #                 APP image, os.execve will be executed from within the APP image.
-                logger.info(f"launch dynamic otaclient with {_dynamic_service_unit}")
-                # fmt: off
-                _dynamic_otaclient_cmd = [
-                        "systemd-run",
-                        f"--unit={_dynamic_service_unit}", "-G",
-                        "--wait", "-t",
-                        "--setenv=RUNNING_DOWNLOADED_DYNAMIC_OTA_CLIENT=yes",
-                        "--setenv=RUNNING_AS_APP_IMAGE=",
-                        "-p", f"Description={_dynamic_service_unit}",
-                        # NOTE: ensure that the dynamic launched otaclient will exit on otaclient.service
-                        #       exits, this is for handling user manually `systemctl stop otaclient`.
-                        "-p", "PartOf=otaclient.service",
-                        "-p", "Type=simple",
-                        # NOTE: prevent the dynamic otaclient APP being stop manually, the stop should
-                        #       be done by stop the main otaclient.service instead. Restart is also prohibited.
-                        "-p", "RefuseManualStop=true",
-                        # NOTE: subprocess_call here will do a chroot back to host_root.
-                        "-p", f"RootImage={cfg.DYNAMIC_CLIENT_SQUASHFS_FILE}",
-                        "-p", "ExecStartPre=/bin/mkdir -p /run/otaclient/mnt/active_slot",
-                        "-p", "ExecStartPre=/bin/mkdir -p /host_root/ota-cache",
-                        "-p", "BindPaths=/boot:/boot:rbind",
-                        "-p", "BindPaths=/dev:/dev",
-                        "-p", "BindPaths=/dev/shm:/dev/shm",
-                        "-p", "BindPaths=/etc:/etc",
-                        "-p", "BindPaths=/opt:/opt",
-                        "-p", "BindPaths=/proc:/proc",
-                        "-p", "BindPaths=/root:/root",
-                        "-p", "BindPaths=/sys:/sys:rbind",
-                        "-p", "BindPaths=/run:/run",
-                        "-p", "BindReadOnlyPaths=-/usr/share/ca-certificates:/usr/share/ca-certificates",
-                        "-p", "BindReadOnlyPaths=-/usr/local/share/ca-certificates:/usr/local/share/ca-certificates",
-                        "-p", "BindReadOnlyPaths=-/usr/share/zoneinfo:/usr/share/zoneinfo",
-                        "-p", "BindPaths=/:/host_root:rbind",
-                        # NOTE: although new systemd compatible APP image runs from /otaclient/otaclient, for backward compatibility
-                        #       concern, we still start the otaclient from /otaclient/venv/bin/python3.
-                        #       for new systemd compatible APP image, the /otaclient/venv/bin/python3 is just a wrapper script to call
-                        #       /otaclient/otaclient.
-                        # NOTE: although new APP image can configure the ota-cache and active_slot mount points by it self, for backward compatibility
-                        #       with old otaclient APP image, we still setup the mount points here.
-                        "/bin/bash", "-c",
-                        (
-                            "mount -o bind /host_root/ota-cache /ota-cache && "
-                            "mount -o bind,ro /host_root /run/otaclient/mnt/active_slot && "
-                            f"mount -t tmpfs -o size={cfg.OTACLIENT_APP_TMPFS_SIZE_IN_MB}M tmpfs /tmp && "
-                            "/otaclient/venv/bin/python3 -m otaclient"
-                        ),
-                    ]
-                    # fmt: on
-
-                if _chroot_dir := _env.get_dynamic_client_chroot_path():
-                    os.execvpe(
-                        "chroot",
-                        ["chroot", _chroot_dir, *_dynamic_otaclient_cmd],
-                        os.environ,
-                    )
-                else:
-                    os.execvpe(
-                        "systemd-run",
-                        _dynamic_otaclient_cmd,
-                        os.environ,
-                    )
+                _dynamic_otaclient_launch(_dynamic_service_unit)
             except Exception as e:
                 logger.exception(f"failed to launch dynamic client with systemd: {e}")
                 if isinstance(e, subprocess.CalledProcessError):
@@ -512,4 +519,4 @@ def main() -> None:  # pragma: no cover
 
         # shutdown request
         if client_update_control_flags.request_shutdown_event.is_set():
-            return _on_shutdown(sys_exit=True)
+            return _on_shutdown()
