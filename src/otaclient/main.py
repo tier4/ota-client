@@ -85,6 +85,10 @@ def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
     NOTE: this handler should only be actually executed once!
           i.e., the total shutdown should only happen once!
     """
+    # NOTE: _global_shutdown_lock is intentionally never released.
+    #       It acts as a one-time guard to ensure that the shutdown
+    #       sequence is executed at most once, even if _on_shutdown
+    #       is triggered multiple times (e.g., via signals).
     if _global_shutdown_lock.acquire(blocking=False):
         global _ota_core_p, _grpc_server_p, _shm, _shm_metrics
         if _ota_core_p:
