@@ -516,7 +516,7 @@ def main() -> None:  # pragma: no cover
                     f"otaclient will exit in {SHUTDOWN_ON_DYNAMIC_APP_FAILED}!"
                 )
                 time.sleep(SHUTDOWN_ON_DYNAMIC_APP_FAILED)
-                _on_shutdown(sys_exit=1)
+                _on_shutdown()
             finally:
                 sys.exit(1)  # just for typing
 
