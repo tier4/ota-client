@@ -11,21 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from multiprocessing import freeze_support
-
-if __name__ == "__main__":
-    freeze_support()
-
-    import sys
-
-    # NOTE that we currently don't configure otaclient to take any other args,
-    #   so no need to use argparser but just directly check the first arg.
-    if len(sys.argv) > 1 and sys.argv[1] == "version":
-        from _otaclient_version import version
-
-        print(version)
-    else:
-        from otaclient import main
-
-        main.main()
+"""Performance E2E tests for OTA Client."""

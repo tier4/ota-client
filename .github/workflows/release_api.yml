@@ -17,10 +17,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: setup python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           # use the minimum py ver we support to generate the wheel
           python-version: 3.8
@@ -39,7 +39,7 @@ jobs:
           cp proto/dist/*.whl dist
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: artifacts-python-packages
           path: dist/*.whl
@@ -51,10 +51,10 @@ jobs:
       contents: write
     steps:
     - name: checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
     - name: download python packages artifact
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
       with:
         name: artifacts-python-packages
         path: dist
@@ -67,7 +67,7 @@ jobs:
 
     - name: publish release artifacts
       if: ${{ github.event_name == 'release' }}
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
       with:
         files: |
           dist/*.whl

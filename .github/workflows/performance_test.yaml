@@ -1,0 +1,92 @@
+name: Performance Test
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+  pull-requests: write
+
+on:
+  pull_request:
+    branches:
+      - main
+      - v*
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+jobs:
+  performance_test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+
+      - name: Create test_result directory
+        run: mkdir -p test_result
+
+      - name: Run performance tests
+        run: |
+          docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04 \
+            tests/test_otaclient/test_performance/test_e2e_performance.py -v -s
+
+      - name: Check if performance report exists
+        id: check_report
+        run: |
+          if [ -f test_result/performance_comparison.md ]; then
+            echo "report_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "report_exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post performance report to PR
+        if: steps.check_report.outputs.report_exists == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'test_result/performance_comparison.md';
+            const reportContent = fs.readFileSync(reportPath, 'utf8');
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('📊 OTA Update Performance Comparison Report')
+            );
+
+            const commentBody = `<!-- performance-report -->\n${reportContent}`;
+
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: commentBody
+              });
+              console.log('Updated existing performance report comment');
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: commentBody
+              });
+              console.log('Created new performance report comment');
+            }
+
+      - name: Upload performance report artifact
+        if: steps.check_report.outputs.report_exists == 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: performance-report
+          path: test_result/performance_comparison.md

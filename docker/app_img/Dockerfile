@@ -13,32 +13,27 @@ FROM ${BUILD_BASE} AS app_build
 
 ARG PYINSTALLER_VER=6.16.0
 
-RUN mkdir /build
-# minimum required files for building app
-COPY ./src /build/src
-COPY ./scripts /build/scripts
-COPY ./pyproject.toml ./uv.lock ./README.md /build/
-
 COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /build
-# NOTE: mount .git for hatch-vcs to determine the version
-RUN --mount=type=bind,source=./.git,target=/build/.git,ro \
+RUN --mount=type=bind,source=.,target=/build,rw \
     set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
         git python3 python3-setuptools; \
     uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
-        pyinstaller -D -s --name otaclient src/otaclient/__main__.py
+        pyinstaller -D -s --name otaclient src/otaclient/__main__.py; \
+    cp -R /build/dist /dist
 
 FROM ${UBUNTU_BASE}
 
 ARG OTACLIENT_INSTALLATION="/otaclient"
 ARG COMPAT_VENV_PATH="/otaclient/venv/bin"
 
-COPY --from=app_build /build/dist/otaclient ${OTACLIENT_INSTALLATION}
+COPY --from=app_build /dist/otaclient ${OTACLIENT_INSTALLATION}
 
 RUN set -eux; \
+    chmod +x "${OTACLIENT_INSTALLATION}/otaclient"; \
     # add necessary runtime directories for OTA
     mkdir -p /mnt /ota-cache /host_root /usr/share/ca-certificates /usr/share/zoneinfo; \
     # add compatible layer for otaclient launching the dynamic otaclient app,
@@ -58,3 +53,5 @@ RUN set -eux; \
         /tmp/* \
         /var/lib/apt/lists/* \
         /var/tmp/*
+
+ENTRYPOINT [ "/otaclient/otaclient" ]
