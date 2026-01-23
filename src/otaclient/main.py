@@ -347,7 +347,8 @@ def main() -> None:  # pragma: no cover
     #   first the signal handler will be executed, and then atexit hook.
     #   At the time atexit hook is executed, the global shutdown lock is
     #   already acquired, no action will be taken by atexit register.
-    atexit.register(partial(_on_shutdown, sys_exit=0))
+    # NOTE: sys.exit at atexit hook will just be ignored by python.
+    atexit.register(partial(_on_shutdown, sys_exit=False))
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
     # NOTE(20260121): also handle SIGHUP, this is for dynamic launched otaclient
