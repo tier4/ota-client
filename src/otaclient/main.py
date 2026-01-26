@@ -441,7 +441,7 @@ def main() -> None:  # pragma: no cover
             logger.info(
                 f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
             )
-            time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
+            time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():
