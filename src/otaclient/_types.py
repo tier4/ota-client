@@ -69,7 +69,7 @@ class FailureType(StrEnum):
 
 
 #
-# ------ otaclient STOP OTA update related flags ------ #
+# ------ otaclient ABORT OTA update related flags ------ #
 #
 
 
@@ -92,7 +92,7 @@ class CriticalZoneFlag:
 
 
 @dataclass
-class StopOTAFlag:
+class AbortOTAFlag:
     shutdown_requested: mp_sync.Event
 
 
@@ -206,7 +206,7 @@ class UpdateRequestV2(IPCRequest):
 
 
 @dataclass
-class StopRequestV2(IPCRequest):
+class AbortRequestV2(IPCRequest):
     """Compatible with OTA API version 2."""
 
 

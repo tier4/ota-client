@@ -34,10 +34,10 @@ from typing import NoReturn
 
 from otaclient import __version__
 from otaclient._types import (
+    AbortOTAFlag,
     ClientUpdateControlFlags,
     CriticalZoneFlag,
     MultipleECUStatusFlags,
-    StopOTAFlag,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
@@ -64,7 +64,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 #   failure information from ota_core.
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
-SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
+SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED = 3  # seconds
 SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
@@ -375,7 +375,7 @@ def main() -> None:  # pragma: no cover
         request_shutdown_event=mp_ctx.Event(),
     )
     critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
-    stop_ota_flag = StopOTAFlag(shutdown_requested=mp_ctx.Event())
+    abort_ota_flag = AbortOTAFlag(shutdown_requested=mp_ctx.Event())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -407,7 +407,7 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
             critical_zone_flag=critical_zone_flag,
-            stop_ota_flag=stop_ota_flag,
+            abort_ota_flag=abort_ota_flag,
         ),
         name="otaclient_api_server",
     )
@@ -437,11 +437,11 @@ def main() -> None:  # pragma: no cover
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-        if stop_ota_flag.shutdown_requested.is_set():
+        if abort_ota_flag.shutdown_requested.is_set():
             logger.info(
-                f"Received stop request. Shutting down after {SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED} seconds..."
+                f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
             )
-            time.sleep(SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED)
+            time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():

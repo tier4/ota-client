@@ -14,9 +14,9 @@
     - [StatusResponse](#OtaClientV2-StatusResponse)
     - [StatusResponseEcu](#OtaClientV2-StatusResponseEcu)
     - [StatusResponseEcuV2](#OtaClientV2-StatusResponseEcuV2)
-    - [StopRequest](#OtaClientV2-StopRequest)
-    - [StopResponse](#OtaClientV2-StopResponse)
-    - [StopResponseEcu](#OtaClientV2-StopResponseEcu)
+    - [AbortRequest](#OtaClientV2-AbortRequest)
+    - [AbortResponse](#OtaClientV2-AbortResponse)
+    - [AbortResponseEcu](#OtaClientV2-AbortResponseEcu)
     - [UpdateRequest](#OtaClientV2-UpdateRequest)
     - [UpdateRequestEcu](#OtaClientV2-UpdateRequestEcu)
     - [UpdateResponse](#OtaClientV2-UpdateResponse)
@@ -221,9 +221,9 @@ Request
 
 
 
-<a name="OtaClientV2-StopRequest"></a>
+<a name="OtaClientV2-AbortRequest"></a>
 
-### StopRequest
+### AbortRequest
 Request
 
 empty for now
@@ -233,24 +233,24 @@ empty for now
 
 
 
-<a name="OtaClientV2-StopResponse"></a>
+<a name="OtaClientV2-AbortResponse"></a>
 
-### StopResponse
+### AbortResponse
 Response
 
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| ecu | [StopResponseEcu](#OtaClientV2-StopResponseEcu) | repeated |  |
+| ecu | [AbortResponseEcu](#OtaClientV2-AbortResponseEcu) | repeated |  |
 
 
 
 
 
 
-<a name="OtaClientV2-StopResponseEcu"></a>
+<a name="OtaClientV2-AbortResponseEcu"></a>
 
-### StopResponseEcu
+### AbortResponseEcu
 
 
 
@@ -452,7 +452,7 @@ Style Guide: https://developers.google.com/protocol-buffers/docs/style#message_a
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | Update | [UpdateRequest](#OtaClientV2-UpdateRequest) | [UpdateResponse](#OtaClientV2-UpdateResponse) | `Update` service requests OTA client to start updating. The OTA client of each ECU retrieves the request that matches its own ECU id and starts it. Requests to each ECU included in the `UpdateRequest` are handled by that respective ECU and returns the response to the parent ECU. Main ECU merges the responses as UpdateResponse. After requesting `Update` and if the OTA status is `UPDATING`, the request is successful. Note that if the child ECU doesn&#39;t respond, the grandchild response is not included by `UpdateResponse`. |
-| Stop | [StopRequest](#OtaClientV2-StopRequest) | [StopResponse](#OtaClientV2-StopResponse) | `Stop` service requests the OTA client to stop any currently running update operations. Each ECU attempts to halt its update process safely. The response indicates whether the stop command was accepted. If the update is in a critical zone, the stop command will be ignored. |
+| Abort | [AbortRequest](#OtaClientV2-AbortRequest) | [AbortResponse](#OtaClientV2-AbortResponse) | `Abort` service requests the OTA client to abort any currently running update operations. Each ECU attempts to halt its update process safely. The response indicates whether the abort command was accepted. If the update is in a critical zone, the abort command will be ignored. |
 | Rollback | [RollbackRequest](#OtaClientV2-RollbackRequest) | [RollbackResponse](#OtaClientV2-RollbackResponse) | NOT YET |
 | Status | [StatusRequest](#OtaClientV2-StatusRequest) | [StatusResponse](#OtaClientV2-StatusResponse) | `Status` service requests OTA client to retrieve OTA client status. Note that if the child ECU doesn&#39;t respond, the grandchild response is not contained by `StatusResponse`. |
 | ClientUpdate | [UpdateRequest](#OtaClientV2-UpdateRequest) | [UpdateResponse](#OtaClientV2-UpdateResponse) | `ClientUpdate` service requests OTA client to start client updating. The OTA client of each ECU retrieves the request that matches its own ECU id and starts it. Requests to each ECU included in the `UpdateRequest` are handled by that respective ECU and returns the response to the parent ECU. Main ECU merges the responses as UpdateResponse. After requesting `ClientUpdate` and if the OTA status is `CLIENT_UPDATING`, the request is successful. Note that if the child ECU doesn&#39;t respond, the grandchild response is not included by `UpdateResponse`. |
