@@ -83,19 +83,19 @@ class ECUTracker:
 
     async def _polling_local_ecu_status(self):
         """Task entry for loop polling local ECU status."""
-        my_ecu_id = ecu_info.ecu_id
+        local_ecu_id = ecu_info.ecu_id
         while True:
             try:
                 status_report = self._local_ecu_status_reader.sync_msg()
                 if status_report:
-                    self._startup_matrix[my_ecu_id] = False
+                    self._startup_matrix[local_ecu_id] = False
                 await self._ecu_status_storage.update_from_local_ecu(status_report)
             except Exception as e:
                 burst_suppressed_logger.debug(
                     f"failed to query local ECU's status: {e!r}"
                 )
 
-            if self._startup_matrix[my_ecu_id]:
+            if self._startup_matrix[local_ecu_id]:
                 await asyncio.sleep(_ACTIVE_POLL_LOCAL_ON_STARTUP)
             else:
                 await self._polling_waiter()
