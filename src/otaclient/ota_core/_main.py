@@ -482,8 +482,26 @@ class OTAClient:
     ) -> None:
         """Main loop of ota_core process."""
         _allow_request_after = 0
+        _abort_status_set = False
         while True:
             _now = int(time.time())
+
+            # Check if abort was requested and update status to ABORTING
+            if (
+                not _abort_status_set
+                and self._abort_ota_flag.shutdown_requested.is_set()
+            ):
+                logger.warning("abort requested, setting OTA status to ABORTING")
+                self._live_ota_status = OTAStatus.ABORTING
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTING,
+                        ),
+                    )
+                )
+                _abort_status_set = True
+
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
