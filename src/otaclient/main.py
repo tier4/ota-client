@@ -417,6 +417,8 @@ def main() -> None:  # pragma: no cover
     )
     _grpc_server_p.start()
 
+    del _key
+
     # ------ setup main process ------ #
 
     _otaproxy_control_t = None
