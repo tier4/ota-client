@@ -21,7 +21,7 @@ import logging
 from collections import defaultdict
 
 from otaclient._utils import SharedOTAClientStatusReader
-from otaclient.configs import ECUContact
+from otaclient.configs import ECUEndpoint
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
@@ -53,15 +53,15 @@ class ECUTracker:
 
         atexit.register(local_ecu_status_reader.atexit)
 
-    async def _polling_direct_subecu_status(self, ecu_contact: ECUContact):
+    async def _polling_direct_subecu_status(self, ecu_endpoint: ECUEndpoint):
         """Task entry for loop polling one subECU's status."""
-        this_ecu_id = ecu_contact.ecu_id
+        this_ecu_id = ecu_endpoint.ecu_id
         while True:
             try:
                 _ecu_resp = await OTAClientCall.status_call(
-                    ecu_contact.ecu_id,
-                    str(ecu_contact.ip_addr),
-                    ecu_contact.port,
+                    ecu_endpoint.ecu_id,
+                    str(ecu_endpoint.ip_addr),
+                    ecu_endpoint.port,
                     timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=api_types.StatusRequest(),
                 )
@@ -73,7 +73,7 @@ class ECUTracker:
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)
             except ECUNoResponse as e:
                 logger.debug(
-                    f"ecu@{ecu_contact} doesn't respond to status request: {e!r}"
+                    f"ecu@{ecu_endpoint} doesn't respond to status request: {e!r}"
                 )
 
             if self._startup_matrix[this_ecu_id]:
@@ -102,5 +102,5 @@ class ECUTracker:
 
     def start(self) -> None:
         asyncio.create_task(self._polling_local_ecu_status())
-        for ecu_contact in ecu_info.secondaries:
-            asyncio.create_task(self._polling_direct_subecu_status(ecu_contact))
+        for ecu_endpoint in ecu_info.secondaries:
+            asyncio.create_task(self._polling_direct_subecu_status(ecu_endpoint))
