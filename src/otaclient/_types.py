@@ -80,6 +80,11 @@ class CriticalZoneFlag:
 
     @contextmanager
     def acquire_lock_no_release(self):
+        """Acquire lock without releasing on exit.
+
+        Used for abort handling where the lock must stay held
+        until process termination (reboot).
+        """
         yield self._lock.acquire(block=False)
 
     @contextmanager
@@ -90,6 +95,10 @@ class CriticalZoneFlag:
         finally:
             if acquired:
                 self._lock.release()
+
+    def acquire_lock_blocking_no_release(self) -> bool:
+        """Acquire lock with blocking, without releasing."""
+        return self._lock.acquire(block=True)
 
 
 @dataclass
