@@ -83,7 +83,6 @@ HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
-WAIT_BEFORE_ABORT_EXIT = 1  # second, time between ABORTING and ABORTED status
 
 
 class OTAClient:
@@ -470,29 +469,9 @@ class OTAClient:
             _now = int(time.time())
 
             # Check if abort was requested
+            # NOTE: ABORTING/ABORTED statuses are set by the servicer via shared memory
             if self._abort_ota_flag.shutdown_requested.is_set():
-                logger.warning("abort requested, setting OTA status to ABORTING")
-                self._live_ota_status = OTAStatus.ABORTING
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=OTAStatusChangeReport(
-                            new_ota_status=OTAStatus.ABORTING,
-                        ),
-                    )
-                )
-
-                # Wait briefly to allow status to propagate
-                time.sleep(WAIT_BEFORE_ABORT_EXIT)
-
-                logger.warning("setting OTA status to ABORTED and exiting")
-                self._live_ota_status = OTAStatus.ABORTED
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=OTAStatusChangeReport(
-                            new_ota_status=OTAStatus.ABORTED,
-                        ),
-                    )
-                )
+                logger.warning("abort requested, ota_core exiting")
                 return
 
             try:
