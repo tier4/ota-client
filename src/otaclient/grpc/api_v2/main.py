@@ -30,7 +30,7 @@ from otaclient._types import (
     IPCResponse,
     MultipleECUStatusFlags,
 )
-from otaclient._utils import SharedOTAClientStatusReader
+from otaclient._utils import SharedOTAClientStatusReader, SharedOTAClientStatusWriter
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 def grpc_server_process(
     *,
     shm_reader_factory: Callable[[], SharedOTAClientStatusReader],
+    shm_writer_factory: Callable[[], SharedOTAClientStatusWriter],
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
@@ -51,6 +52,9 @@ def grpc_server_process(
 
     shm_reader = shm_reader_factory()
     atexit.register(shm_reader.atexit)
+
+    shm_writer = shm_writer_factory()
+    atexit.register(shm_writer.atexit)
 
     async def _grpc_server_launcher():
         import grpc.aio
@@ -75,6 +79,7 @@ def grpc_server_process(
             resp_queue=resp_queue,
             critical_zone_flag=critical_zone_flag,
             abort_ota_flag=abort_ota_flag,
+            shm_writer=shm_writer,
             executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)
