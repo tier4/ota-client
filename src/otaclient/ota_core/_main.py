@@ -25,7 +25,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Callable, NoReturn, Optional
+from typing import Callable, Optional
 
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
@@ -83,6 +83,7 @@ HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
+WAIT_BEFORE_ABORT_EXIT = 1  # second, time between ABORTING and ABORTED status
 
 
 class OTAClient:
@@ -462,18 +463,14 @@ class OTAClient:
         *,
         req_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-    ) -> NoReturn:
+    ) -> None:
         """Main loop of ota_core process."""
         _allow_request_after = 0
-        _abort_status_set = False
         while True:
             _now = int(time.time())
 
-            # Check if abort was requested and update status to ABORTING
-            if (
-                not _abort_status_set
-                and self._abort_ota_flag.shutdown_requested.is_set()
-            ):
+            # Check if abort was requested
+            if self._abort_ota_flag.shutdown_requested.is_set():
                 logger.warning("abort requested, setting OTA status to ABORTING")
                 self._live_ota_status = OTAStatus.ABORTING
                 self._status_report_queue.put_nowait(
@@ -483,7 +480,20 @@ class OTAClient:
                         ),
                     )
                 )
-                _abort_status_set = True
+
+                # Wait briefly to allow status to propagate
+                time.sleep(WAIT_BEFORE_ABORT_EXIT)
+
+                logger.warning("setting OTA status to ABORTED and exiting")
+                self._live_ota_status = OTAStatus.ABORTED
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTED,
+                        ),
+                    )
+                )
+                return
 
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)

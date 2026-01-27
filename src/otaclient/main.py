@@ -38,8 +38,6 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     CriticalZoneFlag,
     MultipleECUStatusFlags,
-    OTAClientStatus,
-    OTAStatus,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
@@ -416,8 +414,6 @@ def main() -> None:  # pragma: no cover
     )
     _grpc_server_p.start()
 
-    # NOTE: keep _key and _shm for writing ABORTED status before shutdown
-
     # ------ setup main process ------ #
 
     _otaproxy_control_t = None
@@ -445,18 +441,7 @@ def main() -> None:  # pragma: no cover
                 f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
             )
             time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
-
-            # Set ABORTED status before shutdown
-            try:
-                _abort_status_writer = SharedOTAClientStatusWriter(
-                    name=_shm.name, key=_key
-                )
-                _abort_status = OTAClientStatus(ota_status=OTAStatus.ABORTED)
-                _abort_status_writer.write_msg(_abort_status)
-                logger.info("OTA status set to ABORTED before shutdown")
-            except Exception as e:
-                logger.warning(f"failed to set ABORTED status: {e!r}")
-
+            # ABORTED status is set by ota_core process before it exits
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():
