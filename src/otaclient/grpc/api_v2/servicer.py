@@ -74,7 +74,7 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
-        self._abort_queued = threading.Event()
+        self._abort_thread_started = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -348,19 +348,10 @@ class OTAClientAPIServicer:
         return response
 
     def _process_queued_abort(self) -> None:
-        """Wait for critical zone to end, then set abort flag.
-
-        This method is meant to be run in a separate thread. It blocks until
-        the critical zone lock becomes available, then acquires it and sets
-        the abort flag to trigger OTA shutdown.
-        """
-        # Block until lock is available (critical zone ends)
-        self._critical_zone_flag._lock.acquire(block=True)
-        # Now set the abort flag
+        self._critical_zone_flag.acquire_lock_blocking_no_release()
         logger.warning("critical zone ended, processing queued abort request...")
         self._abort_ota_flag.shutdown_requested.set()
         logger.info("Abort OTA flag is set properly.")
-        # Note: lock stays acquired to prevent entering new critical zones
 
     def _handle_abort_request(
         self, request: AbortRequestV2
@@ -375,43 +366,36 @@ class OTAClientAPIServicer:
             )
 
         try:
-            # Check if critical zone lock is available
-            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
-                if not _lock_acquired:
-                    # Check if abort is already queued
-                    if self._abort_queued.is_set():
+            with self._critical_zone_flag.acquire_lock_no_release() as acquired:
+                if acquired:
+                    # Lock acquired = NOT in critical zone, process immediately
+                    logger.warning("abort function requested, interrupting OTA and exit now ...")
+                    self._abort_ota_flag.shutdown_requested.set()
+                    logger.info("Abort OTA flag is set properly.")
+                    return api_types.AbortResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.FailureType.NO_FAILURE,
+                    )
+                else:
+                    # Lock not acquired = IN critical zone, queue abort
+                    if self._abort_thread_started.acquire(blocking=False):
+                        logger.warning("in critical zone, queuing abort request...")
+                        threading.Thread(
+                            target=self._process_queued_abort,
+                            daemon=True,
+                        ).start()
+                        return api_types.AbortResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=api_types.FailureType.NO_FAILURE,
+                            message="Abort request queued, will process after critical zone",
+                        )
+                    else:
                         logger.info("abort request already queued, ignoring...")
                         return api_types.AbortResponseEcu(
                             ecu_id=self.my_ecu_id,
                             result=api_types.FailureType.NO_FAILURE,
                             message="Abort request already queued",
                         )
-
-                    # Queue the abort request to be processed after critical zone
-                    logger.warning("in critical zone, queuing abort request...")
-                    self._abort_queued.set()
-                    threading.Thread(
-                        target=self._process_queued_abort,
-                        daemon=True,
-                    ).start()
-                    return api_types.AbortResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.NO_FAILURE,
-                        message="Abort request queued, will process after critical zone",
-                    )
-
-                logger.warning(
-                    "abort function requested, interrupting OTA and exit now ..."
-                )
-                # set the abort flag to notify main process to abort ongoing OTA
-                self._abort_ota_flag.shutdown_requested.set()
-
-                logger.info("Abort OTA flag is set properly.")
-
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
-                )
 
         except Exception as e:
             logger.error(f"failed to send abort request to main process: {e!r}")
