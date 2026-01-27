@@ -97,7 +97,7 @@ class OTAClient:
         critical_zone_flag: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
-        self.my_ecu_id = ecu_info.ecu_id
+        self.local_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
         self.ecu_status_flags = ecu_status_flags
 
@@ -134,7 +134,7 @@ class OTAClient:
             logger.warning("will directly use /run tmpfs for OTA runtime!")
 
         self._metrics = OTAMetricsData()
-        self._metrics.ecu_id = self.my_ecu_id
+        self._metrics.ecu_id = self.local_ecu_id
         self._metrics.enable_local_ota_proxy_cache = (
             proxy_info.enable_local_ota_proxy_cache
         )

@@ -104,7 +104,7 @@ class ECUStatusStorage:
         *,
         ecu_status_flags: MultipleECUStatusFlags,
     ) -> None:
-        self.my_ecu_id = ecu_info.ecu_id
+        self.local_ecu_id = ecu_info.ecu_id
         self._writer_lock = asyncio.Lock()
 
         # The attribute that will be exported in status API response,
@@ -173,7 +173,7 @@ class ECUStatusStorage:
             and (status.is_in_update or status.is_in_client_update)
             and status.ecu_id not in lost_ecus
         }
-        self._state.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
+        self._state.in_update_child_ecus_id = in_update_ecus_id - {self.local_ecu_id}
         if _new_in_update_ecu := in_update_ecus_id.difference(_old_in_update_ecus_id):
             logger.info(
                 "new ECU(s) that acks update request and enters OTA update detected"
@@ -313,7 +313,7 @@ class ECUStatusStorage:
                 time.time()
             )
 
-            ecu_id = self.my_ecu_id
+            ecu_id = self.local_ecu_id
             self._state.all_ecus_status_v2[ecu_id] = convert_to_apiv2_status(
                 local_status
             )
@@ -342,7 +342,7 @@ class ECUStatusStorage:
 
             self._state.in_update_ecus_id.update(ecus_accept_update)
             self._state.in_update_child_ecus_id = self._state.in_update_ecus_id - {
-                self.my_ecu_id
+                self.local_ecu_id
             }
 
             ecu_status_flags.all_success.clear()
