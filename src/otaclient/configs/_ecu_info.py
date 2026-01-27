@@ -107,7 +107,7 @@ class ECUInfo(BaseFixedConfig):
               available_ecu_ids attrs for backward compatibility reason.
         """
         # onetime fix, if no availabe_ecu_id is specified,
-        # add my_ecu_id into the list
+        # add local_ecu_id into the list
         if len(self.available_ecu_ids) == 0:
             return [self.ecu_id]
         return self.available_ecu_ids.copy()
