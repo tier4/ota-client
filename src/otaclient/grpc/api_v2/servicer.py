@@ -369,7 +369,9 @@ class OTAClientAPIServicer:
             with self._critical_zone_flag.acquire_lock_no_release() as acquired:
                 if acquired:
                     # Lock acquired = NOT in critical zone, process immediately
-                    logger.warning("abort function requested, interrupting OTA and exit now ...")
+                    logger.warning(
+                        "abort function requested, interrupting OTA and exit now ..."
+                    )
                     self._abort_ota_flag.shutdown_requested.set()
                     logger.info("Abort OTA flag is set properly.")
                     return api_types.AbortResponseEcu(
