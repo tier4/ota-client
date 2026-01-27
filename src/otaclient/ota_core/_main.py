@@ -43,6 +43,7 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import (
+    AbortOTAFlag,
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
@@ -96,6 +97,7 @@ class OTAClient:
         client_update_control_flags: ClientUpdateControlFlags,
         critical_zone_flag: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
+        abort_ota_flag: AbortOTAFlag,
     ) -> None:
         self.local_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
@@ -104,6 +106,7 @@ class OTAClient:
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
         self._critical_zone_flag = critical_zone_flag
+        self._abort_ota_flag = abort_ota_flag
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -462,8 +465,26 @@ class OTAClient:
     ) -> NoReturn:
         """Main loop of ota_core process."""
         _allow_request_after = 0
+        _abort_status_set = False
         while True:
             _now = int(time.time())
+
+            # Check if abort was requested and update status to ABORTING
+            if (
+                not _abort_status_set
+                and self._abort_ota_flag.shutdown_requested.is_set()
+            ):
+                logger.warning("abort requested, setting OTA status to ABORTING")
+                self._live_ota_status = OTAStatus.ABORTING
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTING,
+                        ),
+                    )
+                )
+                _abort_status_set = True
+
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
@@ -541,6 +562,7 @@ def ota_core_process(
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
     critical_zone_flag: CriticalZoneFlag,
+    abort_ota_flag: AbortOTAFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -566,5 +588,6 @@ def ota_core_process(
         client_update_control_flags=client_update_control_flags,
         critical_zone_flag=critical_zone_flag,
         shm_metrics_reader=shm_metrics_reader,
+        abort_ota_flag=abort_ota_flag,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
