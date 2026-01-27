@@ -92,6 +92,7 @@ class TestOTAClient:
             client_update_control_flags=client_update_control_flags,
             critical_zone_flag=critical_zone_flag,
             shm_metrics_reader=mocker.MagicMock(),
+            abort_ota_flag=mocker.MagicMock(),
         )
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
