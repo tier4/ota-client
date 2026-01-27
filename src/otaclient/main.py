@@ -404,6 +404,9 @@ def main() -> None:  # pragma: no cover
             shm_reader_factory=partial(
                 SharedOTAClientStatusReader, name=_shm.name, key=_key
             ),
+            shm_writer_factory=partial(
+                SharedOTAClientStatusWriter, name=_shm.name, key=_key
+            ),
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
