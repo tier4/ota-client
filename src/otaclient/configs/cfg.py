@@ -19,7 +19,7 @@ from otaclient.configs._cfg_configurable import ConfigurableSettings, set_config
 from otaclient.configs._cfg_consts import Consts
 from otaclient.configs._ecu_info import (
     BootloaderType,
-    ECUEndpoint,
+    ECUContact,
     ECUInfo,
     parse_ecu_info,
 )
@@ -27,7 +27,7 @@ from otaclient.configs._proxy_info import ProxyInfo, parse_proxy_info
 
 __all__ = [
     "BootloaderType",
-    "ECUEndpoint",
+    "ECUContact",
     "ECUInfo",
     "ecu_info",
     "ProxyInfo",
