@@ -38,7 +38,9 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     CriticalZoneFlag,
     MultipleECUStatusFlags,
+    OTAStatus,
 )
+from otaclient_common._io import write_str_to_file_atomic
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -417,6 +419,10 @@ def main() -> None:  # pragma: no cover
     )
     _grpc_server_p.start()
 
+    # Create a shared memory reader for main process to read OTA status dir
+    # (needed for writing ABORTED status to file on abort)
+    _main_shm_reader = SharedOTAClientStatusReader(name=_shm.name, key=_key)
+
     del _key
 
     # ------ setup main process ------ #
@@ -445,8 +451,25 @@ def main() -> None:  # pragma: no cover
             logger.info(
                 f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
             )
+
+            # Write ABORTED status to file to persist across reboots
+            try:
+                _local_status = _main_shm_reader.sync_msg()
+                if _local_status and _local_status.ota_status_dir:
+                    _status_file = (
+                        Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
+                    )
+                    write_str_to_file_atomic(_status_file, OTAStatus.ABORTED.name)
+                    logger.info(f"ABORTED status written to {_status_file}")
+                else:
+                    logger.warning(
+                        "OTA status directory not available, cannot persist ABORTED status"
+                    )
+            except Exception as e:
+                logger.error(f"Failed to write ABORTED status to file: {e!r}")
+
             time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
-            # ABORTED status is set by ota_core process before it exits
+
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():
