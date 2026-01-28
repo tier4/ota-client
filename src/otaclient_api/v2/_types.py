@@ -136,6 +136,11 @@ class FailureType(EnumWrapper):
         return f"{self.value:0>1}"
 
 
+class AbortFailureType(EnumWrapper):
+    ABORT_NO_FAILURE = pb2.ABORT_NO_FAILURE
+    ABORT_FAILURE = pb2.ABORT_FAILURE
+
+
 class StatusOta(EnumWrapper):
     INITIALIZED = pb2.INITIALIZED
     SUCCESS = pb2.SUCCESS
@@ -144,6 +149,8 @@ class StatusOta(EnumWrapper):
     ROLLBACKING = pb2.ROLLBACKING
     ROLLBACK_FAILURE = pb2.ROLLBACK_FAILURE
     CLIENT_UPDATING = pb2.CLIENT_UPDATING
+    ABORTING = pb2.ABORTING
+    ABORTED = pb2.ABORTED
 
 
 class StatusProgressPhase(EnumWrapper):
@@ -164,6 +171,7 @@ class UpdatePhase(EnumWrapper):
     APPLYING_UPDATE = pb2.APPLYING_UPDATE
     PROCESSING_POSTUPDATE = pb2.PROCESSING_POSTUPDATE
     FINALIZING_UPDATE = pb2.FINALIZING_UPDATE
+    DOWNLOADING_OTA_CLIENT = pb2.DOWNLOADING_OTA_CLIENT
 
 
 # message wrapper definitions
@@ -347,6 +355,7 @@ V2_V1_PHASE_MAPPING = {
     UpdatePhase.APPLYING_UPDATE: StatusProgressPhase.REGULAR,
     UpdatePhase.PROCESSING_POSTUPDATE: StatusProgressPhase.POST_PROCESSING,
     UpdatePhase.FINALIZING_UPDATE: StatusProgressPhase.POST_PROCESSING,
+    UpdatePhase.DOWNLOADING_OTA_CLIENT: StatusProgressPhase.REGULAR,
 }
 
 
@@ -701,14 +710,14 @@ class AbortRequest(MessageWrapper[pb2.AbortRequest]):
 class AbortResponseEcu(MessageWrapper[pb2.AbortResponseEcu]):
     __slots__ = calculate_slots(pb2.AbortResponseEcu)
     ecu_id: str
-    result: FailureType
+    result: AbortFailureType
     message: str
 
     def __init__(
         self,
         *,
         ecu_id: _Optional[str] = ...,
-        result: _Optional[_Union[FailureType, str]] = ...,
+        result: _Optional[_Union[AbortFailureType, str]] = ...,
         message: _Optional[str] = ...,
     ) -> None: ...
 
