@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from otaclient.configs import BootloaderType, ECUContact, ECUInfo
+from otaclient.configs import BootloaderType, ECUEndpoint, ECUInfo
 from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
 
 
@@ -101,11 +101,11 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     bootloader=BootloaderType.GRUB,
                     available_ecu_ids=["autoware", "p1", "p2"],
                     secondaries=[
-                        ECUContact(
+                        ECUEndpoint(
                             ecu_id="p1",
                             ip_addr=IPv4Address("192.168.0.11"),
                         ),
-                        ECUContact(
+                        ECUEndpoint(
                             ecu_id="p2",
                             ip_addr=IPv4Address("192.168.0.12"),
                         ),
@@ -135,11 +135,11 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     bootloader=BootloaderType.JETSON_UEFI,
                     available_ecu_ids=["autoware", "p1", "p2"],
                     secondaries=[
-                        ECUContact(
+                        ECUEndpoint(
                             ecu_id="p1",
                             ip_addr=IPv4Address("192.168.0.11"),
                         ),
-                        ECUContact(
+                        ECUEndpoint(
                             ecu_id="p2",
                             ip_addr=IPv4Address("192.168.0.12"),
                         ),
