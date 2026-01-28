@@ -6,14 +6,14 @@ ARG UBUNTU_BASE
 ARG OTACLIENT_VER=3.13.1
 
 ENV OTACLIENT_MANIFEST=https://github.com/tier4/ota-client/releases/download/v${OTACLIENT_VER}/manifest.json
-ENV OTACLIENT_ARM64_APP=https://github.com/tier4/ota-client/releases/download/v${OTACLIENT_VER}/otaclient-arm64-v{OTACLIENT_VER}.squashfs
+ENV OTACLIENT_ARM64_APP=https://github.com/tier4/ota-client/releases/download/v${OTACLIENT_VER}/otaclient-arm64-v${OTACLIENT_VER}.squashfs
 ENV OTACLIENT_AMD64_APP=https://github.com/tier4/ota-client/releases/download/v${OTACLIENT_VER}/otaclient-x86_64-v${OTACLIENT_VER}.squashfs
 ENV OTACLIENT_RELEASE_DIR=/opt/ota/otaclient_release
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
-# NOTE(20250225): for PR#492, add a folder that contains 5000 empty files
+# NOTE(20250225): for PR#492, add a folder that contains 1024 empty files
 ENV EMPTY_FILE_FOLDER="/usr/empty_files"
 ENV EMPTY_FILES_COUNT=1024
 
