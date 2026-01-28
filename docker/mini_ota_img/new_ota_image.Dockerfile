@@ -14,7 +14,7 @@ FROM ${SYS_IMG} AS sys_img
 #
 FROM --platform=$TARGETARCH ghcr.io/tier4/ota-image-builder/ota-image-builder:${OTA_IMAGE_BUILDER_VER} AS ota-image-builder
 
-FROM ${UBUNTU_BASE} AS ota_img_builder
+FROM ${UBUNTU_BASE} AS ota-image-build
 
 COPY --from=ota-image-builder /ota-image-builder /ota-image-builder
 
@@ -29,6 +29,7 @@ ENV BUILD_ROOT="/tmp/build_root"
 ENV BUILDER=/ota-image-builder/ota-image-builder
 
 COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
+COPY ./tests/data/ota_image_builder ${BUILD_ROOT}
 
 WORKDIR ${BUILD_ROOT}
 
@@ -36,11 +37,9 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
     set -eux; \
     apt-get update -qq; \
     apt-get install -y -qq --no-install-recommends \
-        ca-certificates wget; \
+        openssl; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*; \
-    wget ${OTA_IMAGE_BUILDER_RELEASE} -O ${BUILD_ROOT}/ota-image-builder; \
-    chmod +x ota-image-builder; \
     # --- generate certs --- #
     pushd ${CERTS_DIR}; \
     bash ${CERTS_DIR}/gen_certs.sh; \
@@ -73,7 +72,7 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
         --sign-cert ${CERTS_DIR}/sign.pem \
         --sign-key ${CERTS_DIR}/sign.key \
         --ca-cert ${CERTS_DIR}/test.interm.pem \
-        ----legacy-compat \
+        --legacy-compat \
         ${OTA_IMAGE_SERVER_ROOT}; \
     # --- clean up --- #
     # although the keys are only for tests, and only used for
@@ -94,5 +93,5 @@ ARG SYS_IMG
 LABEL org.opencontainers.image.description=\
 "A mini OTA image v1 OTA image for OTAClient test, based on system image ${SYS_IMG}"
 
-COPY --from=ota_img_builder /ota-image /ota-image
-COPY --from=ota_img_builder /certs /certs
+COPY --from=ota-image-build /ota-image /ota-image
+COPY --from=ota-image-build /certs /certs
