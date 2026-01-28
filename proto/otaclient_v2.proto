@@ -80,6 +80,11 @@ enum FailureType {
     UNRECOVERABLE = 2;
 }
 
+enum AbortFailureType {
+    ABORT_NO_FAILURE = 0;
+    ABORT_FAILURE = 1;
+}
+
 //
 // Update
 //
@@ -113,13 +118,18 @@ message UpdateResponse {
 //
 
 // Request
+message AbortRequestEcu {
+  string ecu_id = 1;
+}
+
 message AbortRequest {
-  // empty for now
+  repeated AbortRequestEcu ecu = 1;
+  string request_id = 2; // Request id to identify the request from the client.
 }
 
 message AbortResponseEcu {
   string ecu_id = 1; // ECU id responded
-  FailureType result = 2; // result
+  AbortFailureType result = 2; // result
   string message = 3; // message
 }
 
@@ -169,6 +179,8 @@ enum StatusOta {
   ROLLBACKING = 4;
   ROLLBACK_FAILURE = 5;
   CLIENT_UPDATING = 6;
+  ABORTING = 7;
+  ABORTED = 8;
 }
 
 enum StatusProgressPhase {
