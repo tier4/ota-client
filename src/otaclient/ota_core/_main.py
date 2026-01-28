@@ -484,13 +484,6 @@ class OTAClient:
         _allow_request_after = 0
         while True:
             _now = int(time.time())
-
-            # Check if abort was requested
-            # NOTE: ABORTING/ABORTED statuses are set by the servicer via shared memory
-            if self._abort_ota_flag.shutdown_requested.is_set():
-                logger.warning("abort requested, ota_core exiting")
-                return
-
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
