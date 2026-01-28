@@ -35,7 +35,7 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient._utils import gen_request_id, gen_session_id
-from otaclient.configs import ECUContact
+from otaclient.configs import ECUEndpoint
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
@@ -292,20 +292,20 @@ class OTAClientAPIServicer:
                 )
             return response
         # first: dispatch update request to all directly connected subECUs
-        tasks: dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.sub_ecus:
-            if not request.if_contains_ecu(ecu_contact.ecu_id):
+        tasks: dict[asyncio.Task, ECUEndpoint] = {}
+        for ecu_endpoint in self.sub_ecus:
+            if not request.if_contains_ecu(ecu_endpoint.ecu_id):
                 continue
             _task = asyncio.create_task(
                 remote_call(
-                    ecu_contact.ecu_id,
-                    str(ecu_contact.ip_addr),
-                    ecu_contact.port,
+                    ecu_endpoint.ecu_id,
+                    str(ecu_endpoint.ip_addr),
+                    ecu_endpoint.port,
                     request=request,
                     timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
-            tasks[_task] = ecu_contact
+            tasks[_task] = ecu_endpoint
         if tasks:  # NOTE: input for asyncio.wait must not be empty!
             done, _ = await asyncio.wait(tasks)
             for _task in done:
@@ -315,16 +315,16 @@ class OTAClientAPIServicer:
                         update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
-                    _ecu_contact = tasks[_task]
+                    _ecu_endpoint = tasks[_task]
                     logger.warning(
-                        f"{_ecu_contact} doesn't respond to request on-time"
+                        f"{_ecu_endpoint} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
                     self._add_ecu_into_response(
-                        response, _ecu_contact.ecu_id, api_types.FailureType.RECOVERABLE
+                        response, _ecu_endpoint.ecu_id, api_types.FailureType.RECOVERABLE
                     )
             tasks.clear()
 
@@ -444,18 +444,18 @@ class OTAClientAPIServicer:
         response = api_types.AbortResponse()
 
         # First: dispatch abort request to all directly connected sub-ECUs
-        tasks: dict[asyncio.Task, ECUContact] = {}
-        for ecu_contact in self.sub_ecus:
+        tasks: dict[asyncio.Task, ECUEndpoint] = {}
+        for ecu_endpoint in self.sub_ecus:
             _task = asyncio.create_task(
                 OTAClientCall.abort_call(
-                    ecu_contact.ecu_id,
-                    str(ecu_contact.ip_addr),
-                    ecu_contact.port,
+                    ecu_endpoint.ecu_id,
+                    str(ecu_endpoint.ip_addr),
+                    ecu_endpoint.port,
                     request=request,
                     timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
-            tasks[_task] = ecu_contact
+            tasks[_task] = ecu_endpoint
 
         if tasks:
             done, _ = await asyncio.wait(tasks)
@@ -464,14 +464,14 @@ class OTAClientAPIServicer:
                     _ecu_resp = _task.result()
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
-                    _ecu_contact = tasks[_task]
+                    _ecu_endpoint = tasks[_task]
                     logger.warning(
-                        f"{_ecu_contact} doesn't respond to abort request on-time"
+                        f"{_ecu_endpoint} doesn't respond to abort request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     self._add_ecu_into_response(
                         response,
-                        _ecu_contact.ecu_id,
+                        _ecu_endpoint.ecu_id,
                         api_types.AbortFailureType.ABORT_FAILURE,
                     )
             tasks.clear()
