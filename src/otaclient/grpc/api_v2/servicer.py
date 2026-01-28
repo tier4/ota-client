@@ -144,7 +144,7 @@ class OTAClientAPIServicer:
 
     @staticmethod
     def _add_ecu_into_response(
-            response: (
+        response: (
             api_types.UpdateResponse
             | api_types.AbortResponse
             | api_types.RollbackResponse
@@ -192,7 +192,7 @@ class OTAClientAPIServicer:
 
     @staticmethod
     def _create_local_request(
-            req_ecu: api_types.UpdateRequestEcu | api_types.ClientUpdateRequestEcu,
+        req_ecu: api_types.UpdateRequestEcu | api_types.ClientUpdateRequestEcu,
         request_cls: (
             type[UpdateRequestV2]
             | type[RollbackRequestV2]
