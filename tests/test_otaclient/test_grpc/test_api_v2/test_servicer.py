@@ -28,7 +28,7 @@ from otaclient._types import (
     IPCResponse,
     UpdateRequestV2,
 )
-from otaclient.configs._ecu_info import ECUEndpoint, ECUInfo
+from otaclient.configs._ecu_info import ECUContact, ECUInfo
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient_api.v2 import _types as api_types
@@ -275,7 +275,7 @@ class TestOTAClientAPIServicer:
     async def test_update_with_sub_ecus(self, mocker: MockerFixture):
         # Create mock sub_ecus without modifying ecu_info.secondaries
         mock_sub_ecus = [
-            ECUEndpoint(ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051)
+            ECUContact(ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051)
         ]
 
         # Patch the property on the servicer instance instead of modifying ecu_info
@@ -377,7 +377,7 @@ class TestOTAClientAPIServicer:
         )
 
         # Configure mock sub ECUs - patch the servicer property, not the ECUInfo model
-        sub_ecu = ECUEndpoint(
+        sub_ecu = ECUContact(
             ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051
         )
         mocker.patch.object(self.servicer, "sub_ecus", [sub_ecu])
