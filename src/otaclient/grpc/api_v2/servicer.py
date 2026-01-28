@@ -37,7 +37,7 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient._utils import SharedOTAClientStatusWriter, gen_request_id, gen_session_id
-from otaclient.configs import ECUEndpoint
+from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
@@ -68,7 +68,7 @@ class OTAClientAPIServicer:
         self.sub_ecus = ecu_info.secondaries
         self.listen_addr = ecu_info.ip_addr
         self.listen_port = cfg.OTA_API_SERVER_PORT
-        self.local_ecu_id = ecu_info.ecu_id
+        self.my_ecu_id = ecu_info.ecu_id
         self._executor = executor
 
         self._op_queue = op_queue
@@ -122,7 +122,7 @@ class OTAClientAPIServicer:
 
             if _req_response.res == IPCResEnum.ACCEPT:
                 return response_type(
-                    ecu_id=self.local_ecu_id,
+                    ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.NO_FAILURE,
                 )
             else:
@@ -130,19 +130,19 @@ class OTAClientAPIServicer:
                     f"local otaclient doesn't accept request: {_req_response.msg}"
                 )
                 return response_type(
-                    ecu_id=self.local_ecu_id,
+                    ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.RECOVERABLE,
                 )
         except AssertionError as e:
             logger.error(f"local otaclient response with unexpected msg: {e!r}")
             return response_type(
-                ecu_id=self.local_ecu_id,
+                ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.RECOVERABLE,
             )
         except Exception as e:  # failed to get ACK from otaclient within timeout
             logger.error(f"local otaclient failed to ACK request: {e!r}")
             return response_type(
-                ecu_id=self.local_ecu_id,
+                ecu_id=self.my_ecu_id,
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
@@ -296,20 +296,20 @@ class OTAClientAPIServicer:
                 )
             return response
         # first: dispatch update request to all directly connected subECUs
-        tasks: dict[asyncio.Task, ECUEndpoint] = {}
-        for ecu_endpoint in self.sub_ecus:
-            if not request.if_contains_ecu(ecu_endpoint.ecu_id):
+        tasks: dict[asyncio.Task, ECUContact] = {}
+        for ecu_contact in self.sub_ecus:
+            if not request.if_contains_ecu(ecu_contact.ecu_id):
                 continue
             _task = asyncio.create_task(
                 remote_call(
-                    ecu_endpoint.ecu_id,
-                    str(ecu_endpoint.ip_addr),
-                    ecu_endpoint.port,
+                    ecu_contact.ecu_id,
+                    str(ecu_contact.ip_addr),
+                    ecu_contact.port,
                     request=request,
                     timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
-            tasks[_task] = ecu_endpoint
+            tasks[_task] = ecu_contact
         if tasks:  # NOTE: input for asyncio.wait must not be empty!
             done, _ = await asyncio.wait(tasks)
             for _task in done:
@@ -319,9 +319,9 @@ class OTAClientAPIServicer:
                         update_acked_ecus.update(_ecu_resp.ecus_acked_update)
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
-                    _ecu_endpoint = tasks[_task]
+                    _ecu_contact = tasks[_task]
                     logger.warning(
-                        f"{_ecu_endpoint} doesn't respond to request on-time"
+                        f"{_ecu_contact} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     # NOTE(20230517): aligns with the previous behavior that create
@@ -329,13 +329,13 @@ class OTAClientAPIServicer:
                     #                 ECU.
                     self._add_ecu_into_response(
                         response,
-                        _ecu_endpoint.ecu_id,
+                        _ecu_contact.ecu_id,
                         api_types.FailureType.RECOVERABLE,
                     )
             tasks.clear()
 
         # second: dispatch update request to local if required by incoming request
-        if req_ecu := request.find_ecu(self.local_ecu_id):
+        if req_ecu := request.find_ecu(self.my_ecu_id):
             local_request = self._create_local_request(
                 req_ecu=req_ecu, request_cls=request_cls, request_id=request.request_id
             )
@@ -349,7 +349,7 @@ class OTAClientAPIServicer:
                 update_acked_ecus is not None
                 and _resp.result == api_types.FailureType.NO_FAILURE
             ):
-                update_acked_ecus.add(self.local_ecu_id)
+                update_acked_ecus.add(self.my_ecu_id)
             response.add_ecu(_resp)
 
         # finally, trigger ecu_status_storage entering active mode if needed
@@ -392,7 +392,7 @@ class OTAClientAPIServicer:
         try:
             if self._abort_ota_flag.shutdown_requested.is_set():
                 return api_types.AbortResponseEcu(
-                    ecu_id=self.local_ecu_id,
+                    ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                     message="Abort already in progress",
                 )
@@ -407,7 +407,7 @@ class OTAClientAPIServicer:
                 self._abort_ota_flag.shutdown_requested.set()
                 logger.info("Abort OTA flag is set properly.")
                 return api_types.AbortResponseEcu(
-                    ecu_id=self.local_ecu_id,
+                    ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                 )
             else:
@@ -419,14 +419,14 @@ class OTAClientAPIServicer:
                         daemon=True,
                     ).start()
                     return api_types.AbortResponseEcu(
-                        ecu_id=self.local_ecu_id,
+                        ecu_id=self.my_ecu_id,
                         result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                         message="Abort request queued, will process after critical zone",
                     )
                 else:
                     logger.info("abort request already queued, ignoring...")
                     return api_types.AbortResponseEcu(
-                        ecu_id=self.local_ecu_id,
+                        ecu_id=self.my_ecu_id,
                         result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                         message="Abort request already queued",
                     )
@@ -434,7 +434,7 @@ class OTAClientAPIServicer:
         except Exception as e:
             logger.error(f"failed to send abort request to main process: {e!r}")
             return api_types.AbortResponseEcu(
-                ecu_id=self.local_ecu_id,
+                ecu_id=self.my_ecu_id,
                 result=api_types.AbortFailureType.ABORT_FAILURE,
                 message="Failed to process abort request",
             )
@@ -463,18 +463,18 @@ class OTAClientAPIServicer:
 
         # First: dispatch abort request to all directly connected sub-ECUs
         # NOTE: v1 aborts all ECUs unconditionally (no per-ECU filtering)
-        tasks: dict[asyncio.Task, ECUEndpoint] = {}
-        for ecu_endpoint in self.sub_ecus:
+        tasks: dict[asyncio.Task, ECUContact] = {}
+        for ecu_contact in self.sub_ecus:
             _task = asyncio.create_task(
                 OTAClientCall.abort_call(
-                    ecu_endpoint.ecu_id,
-                    str(ecu_endpoint.ip_addr),
-                    ecu_endpoint.port,
+                    ecu_contact.ecu_id,
+                    str(ecu_contact.ip_addr),
+                    ecu_contact.port,
                     request=request,
                     timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
             )
-            tasks[_task] = ecu_endpoint
+            tasks[_task] = ecu_contact
 
         if tasks:
             done, _ = await asyncio.wait(tasks)
@@ -483,14 +483,14 @@ class OTAClientAPIServicer:
                     _ecu_resp = _task.result()
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
-                    _ecu_endpoint = tasks[_task]
+                    _ecu_contact = tasks[_task]
                     logger.warning(
-                        f"{_ecu_endpoint} doesn't respond to abort request on-time"
+                        f"{_ecu_contact} doesn't respond to abort request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     self._add_ecu_into_response(
                         response,
-                        _ecu_endpoint.ecu_id,
+                        _ecu_contact.ecu_id,
                         api_types.AbortFailureType.ABORT_FAILURE,
                     )
             tasks.clear()
