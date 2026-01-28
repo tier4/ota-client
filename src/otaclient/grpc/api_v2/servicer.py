@@ -324,7 +324,9 @@ class OTAClientAPIServicer:
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
                     self._add_ecu_into_response(
-                        response, _ecu_endpoint.ecu_id, api_types.FailureType.RECOVERABLE
+                        response,
+                        _ecu_endpoint.ecu_id,
+                        api_types.FailureType.RECOVERABLE,
                     )
             tasks.clear()
 
