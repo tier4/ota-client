@@ -65,7 +65,7 @@ class BootloaderType(StrEnum):
         return value
 
 
-class ECUEndpoint(BaseFixedConfig):
+class ECUContact(BaseFixedConfig):
     ecu_id: str
     ip_addr: IPvAnyAddress
     # NOTE(20240327): set the default as literal for now, in the future
@@ -82,7 +82,7 @@ class ECUInfo(BaseFixedConfig):
         ip_addr: the IP address OTA servicer listening on, default is <service_config.DEFAULT_SERVER_ADDRESS>.
         bootloader: the bootloader type of this ECU.
         available_ecu_ids: a list of ECU IDs that should be involved in OTA campaign.
-        secondaries: a list of ECUEndpoint objects for sub ECUs.
+        secondaries: a list of ECUContact objects for sub ECUs.
     """
 
     format_version: int = 1
@@ -98,7 +98,7 @@ class ECUInfo(BaseFixedConfig):
         Field(validate_default=False),
     ] = BootloaderType.AUTO_DETECT
     available_ecu_ids: List[str] = Field(default_factory=list)
-    secondaries: List[ECUEndpoint] = Field(default_factory=list)
+    secondaries: List[ECUContact] = Field(default_factory=list)
 
     def get_available_ecu_ids(self) -> list[str]:
         """
@@ -106,7 +106,7 @@ class ECUInfo(BaseFixedConfig):
               available_ecu_ids attrs for backward compatibility reason.
         """
         # onetime fix, if no availabe_ecu_id is specified,
-        # add local_ecu_id into the list
+        # add my_ecu_id into the list
         if len(self.available_ecu_ids) == 0:
             return [self.ecu_id]
         return self.available_ecu_ids.copy()
