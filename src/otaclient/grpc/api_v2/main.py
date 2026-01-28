@@ -78,6 +78,7 @@ def grpc_server_process(
             resp_queue=resp_queue,
             critical_zone_flag=critical_zone_flag,
             abort_ota_flag=abort_ota_flag,
+            shm_reader=shm_reader,
             shm_writer=shm_writer,
             executor=thread_pool,
         )

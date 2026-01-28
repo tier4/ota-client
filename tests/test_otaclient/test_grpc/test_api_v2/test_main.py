@@ -92,6 +92,11 @@ class TestGrpcServerLauncher:
             mock_shm_reader.atexit = MagicMock()
             return mock_shm_reader
 
+        def mock_shm_writer_factory():
+            mock_shm_writer = MagicMock()
+            mock_shm_writer.atexit = MagicMock()
+            return mock_shm_writer
+
         # Run the server process function with patched asyncio.run
         with (
             patch("asyncio.run") as mock_run,
@@ -110,6 +115,7 @@ class TestGrpcServerLauncher:
 
             grpc_server_process(
                 shm_reader_factory=mock_shm_reader_factory,
+                shm_writer_factory=mock_shm_writer_factory,
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
