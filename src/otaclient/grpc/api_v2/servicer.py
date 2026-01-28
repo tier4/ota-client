@@ -20,11 +20,9 @@ import logging
 import multiprocessing.queues as mp_queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
-from otaclient_common._io import write_str_to_file_atomic
 from otaclient._types import (
     AbortOTAFlag,
     AbortRequestV2,
@@ -39,7 +37,6 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient._utils import (
-    SharedOTAClientStatusReader,
     SharedOTAClientStatusWriter,
     gen_request_id,
     gen_session_id,
@@ -49,6 +46,7 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_common._io import write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +67,6 @@ class OTAClientAPIServicer:
         resp_queue: mp_queue.Queue[IPCResponse],
         critical_zone_flag: CriticalZoneFlag,
         abort_ota_flag: AbortOTAFlag,
-        shm_reader: SharedOTAClientStatusReader,
         shm_writer: SharedOTAClientStatusWriter,
         executor: ThreadPoolExecutor,
     ):
@@ -85,7 +82,6 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
-        self._shm_reader = shm_reader
         self._shm_writer = shm_writer
         self._abort_thread_started = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -380,45 +376,9 @@ class OTAClientAPIServicer:
         except Exception as e:
             logger.warning(f"failed to set OTA status to {status}: {e!r}")
 
-    def _write_ota_status_to_file(self, status: OTAStatus) -> bool:
-        """Write OTA status to the status file to persist across reboots.
-
-        This reads the OTA status directory path from shared memory (set by ota_core
-        after boot controller initialization) and writes the status to the file.
-
-        Args:
-            status: The OTA status to write.
-
-        Returns:
-            True if successful, False otherwise.
-        """
-        try:
-            local_status = self._shm_reader.read_msg()
-            if local_status is None or not local_status.ota_status_dir:
-                logger.warning(
-                    "OTA status directory not available from shared memory, "
-                    "cannot write status to file"
-                )
-                return False
-
-            status_dir = Path(local_status.ota_status_dir)
-            if not status_dir.exists():
-                logger.warning(f"OTA status directory does not exist: {status_dir}")
-                return False
-
-            status_file = status_dir / cfg.OTA_STATUS_FNAME
-            write_str_to_file_atomic(status_file, status.name)
-            logger.info(f"OTA status {status.name} written to {status_file}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to write OTA status to file: {e!r}")
-            return False
-
     def _process_queued_abort(self) -> None:
         self._critical_zone_flag.acquire_lock_no_release(blocking=True)
         logger.warning("critical zone ended, processing queued abort request...")
-        # Write ABORTED status to file to persist across reboots
-        self._write_ota_status_to_file(OTAStatus.ABORTED)
         self._abort_ota_flag.shutdown_requested.set()
         logger.info("Abort OTA flag is set properly.")
 
@@ -449,8 +409,6 @@ class OTAClientAPIServicer:
                 logger.warning(
                     "abort function requested, interrupting OTA and exit now ..."
                 )
-                # Write ABORTED status to file to persist across reboots
-                self._write_ota_status_to_file(OTAStatus.ABORTED)
                 self._abort_ota_flag.shutdown_requested.set()
                 logger.info("Abort OTA flag is set properly.")
                 return api_types.AbortResponseEcu(
