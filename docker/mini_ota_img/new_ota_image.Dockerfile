@@ -1,5 +1,6 @@
 ARG SYS_IMG=ghcr.io/tier4/ota-client/sys_img_for_test:ubuntu_22.04
 ARG UBUNTU_BASE=ubuntu:22.04
+ARG OTA_IMAGE_BUILDER_VER=0.10.0
 
 #
 # ------ stage 1: prepare base image ------ #
@@ -11,10 +12,11 @@ FROM ${SYS_IMG} AS sys_img
 #
 # ------ stage 2: build new OTA image ------ #
 #
+FROM --platform=$TARGETARCH ghcr.io/tier4/ota-image-builder/ota-image-builder:${OTA_IMAGE_BUILDER_VER} AS ota-image-builder
 
 FROM ${UBUNTU_BASE} AS ota_img_builder
 
-ARG OTA_IMAGE_BUILDER_RELEASE="https://github.com/tier4/ota-image-builder/releases/download/v0.3.2/ota-image-builder-x86_64"
+COPY --from=ota-image-builder /ota-image-builder /ota-image-builder
 
 SHELL ["/bin/bash", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -24,9 +26,9 @@ ENV OTA_IMAGE_SERVER_ROOT="/ota-image"
 ENV ROOTFS="/rootfs"
 ENV CERTS_DIR="/certs"
 ENV BUILD_ROOT="/tmp/build_root"
+ENV BUILDER=/ota-image-builder/ota-image-builder
 
 COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
-COPY ./tests/data/ota_image_builder ${BUILD_ROOT}
 
 WORKDIR ${BUILD_ROOT}
 
@@ -45,26 +47,33 @@ RUN --mount=type=bind,source=/,target=/rootfs,from=sys_img,rw \
     popd; \
     # --- start to build the OTA image --- #
     mkdir -p ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder -d init \
+    ${BUILDER} -d init \
         --annotations-file full_annotations.yaml \
         ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder -d add-image \
+    ${BUILDER} -d add-image \
         --annotations-file full_annotations.yaml \
         --release-key dev \
         --sys-config "autoware:sys_config.yaml" \
         --rootfs ${ROOTFS} \
         ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder -d add-image \
+    ${BUILDER} -d add-image \
         --annotations-file full_annotations.yaml \
         --release-key prd \
         --sys-config "autoware:sys_config.yaml" \
         --rootfs ${ROOTFS}/var \
         ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder -d finalize ${OTA_IMAGE_SERVER_ROOT}; \
-    ./ota-image-builder -d sign \
+    ${BUILDER} -d add-otaclient-package \
+        --release-dir ${ROOTFS}/opt/ota/otaclient_release \
+        ${OTA_IMAGE_SERVER_ROOT}; \
+    ${BUILDER} -d add-otaclient-package-legacy-compat \
+        --release-dir ${ROOTFS}/opt/ota/otaclient_release \
+        ${OTA_IMAGE_SERVER_ROOT}; \
+    ${BUILDER} -d finalize ${OTA_IMAGE_SERVER_ROOT}; \
+    ${BUILDER} -d sign \
         --sign-cert ${CERTS_DIR}/sign.pem \
         --sign-key ${CERTS_DIR}/sign.key \
         --ca-cert ${CERTS_DIR}/test.interm.pem \
+        ----legacy-compat \
         ${OTA_IMAGE_SERVER_ROOT}; \
     # --- clean up --- #
     # although the keys are only for tests, and only used for
