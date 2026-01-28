@@ -154,6 +154,8 @@ class OTAClientStatus:
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
     failure_traceback: str = ""
+    # Path to OTA status directory (set by ota_core after boot controller init)
+    ota_status_dir: str = ""
 
 
 @dataclass

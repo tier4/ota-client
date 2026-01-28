@@ -76,6 +76,10 @@ class BootControllerBase(ABC):
         """Get the ota_status loaded from status file during otaclient starts up."""
         return self._ota_status_control.booted_ota_status
 
+    def get_ota_status_dir(self) -> Path:
+        """Get the path to the OTA status directory for the current slot."""
+        return self._ota_status_control.current_ota_status_dir
+
     # ====== Common error handling ======
 
     def on_operation_failure(self):
