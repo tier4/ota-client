@@ -99,7 +99,6 @@ class OTAClient:
         client_update_control_flags: ClientUpdateControlFlags,
         critical_zone_flag: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
-        abort_ota_flag: AbortOTAFlag,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
         self.proxy = proxy
@@ -108,7 +107,6 @@ class OTAClient:
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
         self._critical_zone_flag = critical_zone_flag
-        self._abort_ota_flag = abort_ota_flag
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -562,7 +560,6 @@ def ota_core_process(
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
     critical_zone_flag: CriticalZoneFlag,
-    abort_ota_flag: AbortOTAFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -588,6 +585,5 @@ def ota_core_process(
         client_update_control_flags=client_update_control_flags,
         critical_zone_flag=critical_zone_flag,
         shm_metrics_reader=shm_metrics_reader,
-        abort_ota_flag=abort_ota_flag,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
