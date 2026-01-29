@@ -58,6 +58,7 @@ class TestOTAClientAPIServicer:
         self.mock_cfg = mocker.patch(f"{SERVICER_MODULE}.cfg")
         self.mock_cfg.OTA_API_SERVER_PORT = 50051
         self.mock_cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT = 5
+        self.mock_cfg.OTA_STATUS_FNAME = "status"
 
         # Setup mocks for queues and executor
         self.op_queue = mocker.MagicMock()
