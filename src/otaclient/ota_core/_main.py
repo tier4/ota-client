@@ -25,7 +25,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Callable, Optional
+from typing import Callable, NoReturn, Optional
 
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
@@ -460,7 +460,7 @@ class OTAClient:
         *,
         req_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-    ) -> None:
+    ) -> NoReturn:
         """Main loop of ota_core process."""
         _allow_request_after = 0
         while True:
