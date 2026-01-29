@@ -46,7 +46,6 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common._io import write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -155,33 +154,17 @@ class OTAClientAPIServicer:
     def _add_ecu_into_response(
         response: (
             api_types.UpdateResponse
-            | api_types.AbortResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
         ecu_id: str,
-        failure_type: api_types.FailureType | api_types.AbortFailureType,
+        failure_type: api_types.FailureType,
     ) -> None:
         """Add ECU into response with specified failure type."""
         if isinstance(response, api_types.UpdateResponse):
             ecu_response = api_types.UpdateResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
-            )
-            response.add_ecu(ecu_response)
-        elif isinstance(response, api_types.AbortResponse):
-            if isinstance(failure_type, api_types.AbortFailureType):
-                abort_failure_type = failure_type
-            else:
-                # Map FailureType to AbortFailureType
-                abort_failure_type = (
-                    api_types.AbortFailureType.ABORT_NO_FAILURE
-                    if failure_type is api_types.FailureType.NO_FAILURE
-                    else api_types.AbortFailureType.ABORT_FAILURE
-                )
-            ecu_response = api_types.AbortResponseEcu(
-                ecu_id=ecu_id,
-                result=abort_failure_type,
             )
             response.add_ecu(ecu_response)
         elif isinstance(response, api_types.RollbackResponse):
@@ -198,6 +181,19 @@ class OTAClientAPIServicer:
             response.add_ecu(ecu_response)
         else:
             raise ValueError(f"invalid response type: {response}")
+
+    @staticmethod
+    def _add_ecu_into_abort_response(
+        response: api_types.AbortResponse,
+        ecu_id: str,
+        abort_failure_type: api_types.AbortFailureType,
+    ) -> None:
+        """Add ECU into abort response with specified failure type."""
+        ecu_response = api_types.AbortResponseEcu(
+            ecu_id=ecu_id,
+            result=abort_failure_type,
+        )
+        response.add_ecu(ecu_response)
 
     @staticmethod
     def _create_local_request(
@@ -493,7 +489,7 @@ class OTAClientAPIServicer:
                         f"{_ecu_contact} doesn't respond to abort request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
-                    self._add_ecu_into_response(
+                    self._add_ecu_into_abort_response(
                         response,
                         _ecu_contact.ecu_id,
                         api_types.AbortFailureType.ABORT_FAILURE,
