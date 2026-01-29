@@ -498,14 +498,10 @@ class OTAClientAPIServicer:
 
         # Second: handle local ECU abort request
         local_abort_request = AbortRequestV2(
-            request_id=gen_request_id(),
+            request_id=request.request_id,
             session_id="",  # abort doesn't create an OTA session
         )
-        local_response = await asyncio.get_running_loop().run_in_executor(
-            self._executor,
-            self._handle_abort_request,
-            local_abort_request,
-        )
+        local_response = self._handle_abort_request(local_abort_request)
         response.add_ecu(local_response)
 
         # Set ABORTED status after all ECUs have responded
