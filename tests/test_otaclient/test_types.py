@@ -69,7 +69,9 @@ class TestCriticalZoneFlag:
 
         def waiter():
             # This should block until holder releases
-            with critical_zone_flag.acquire_lock_with_release(blocking=True) as acquired:
+            with critical_zone_flag.acquire_lock_with_release(
+                blocking=True
+            ) as acquired:
                 results.append(acquired)
 
         holder_thread = threading.Thread(target=holder)
