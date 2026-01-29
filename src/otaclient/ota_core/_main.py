@@ -43,7 +43,6 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import (
-    AbortOTAFlag,
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
