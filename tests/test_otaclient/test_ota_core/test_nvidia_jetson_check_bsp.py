@@ -64,8 +64,8 @@ class TestNvidiaJetsonCheckBSPLegacy:
         # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify standby_slot_bsp_ver_check was not called
-        mock_boot_controller.standby_slot_bsp_ver_check.assert_not_called()
+        # Verify current_slot_bsp_ver_check was not called
+        mock_boot_controller.current_slot_bsp_ver_check.assert_not_called()
 
     def test_bsp_version_check_success(
         self, mock_ota_updater: tuple, mocker: MockerFixture
@@ -90,13 +90,13 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         )
 
         # Mock successful compatibility check
-        mock_boot_controller.standby_slot_bsp_ver_check.return_value = (True, "R36.4.0")
+        mock_boot_controller.current_slot_bsp_ver_check.return_value = (True, "R36.4.0")
 
         # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
         # Verify the check was called with parsed version
-        mock_boot_controller.standby_slot_bsp_ver_check.assert_called_once_with(
+        mock_boot_controller.current_slot_bsp_ver_check.assert_called_once_with(
             parsed_version
         )
 
@@ -123,7 +123,7 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         )
 
         # Mock failed compatibility check
-        mock_boot_controller.standby_slot_bsp_ver_check.return_value = (
+        mock_boot_controller.current_slot_bsp_ver_check.return_value = (
             False,
             "R35.4.1",
         )
@@ -153,8 +153,8 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         # Should not raise any exception (treated as file not found)
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify standby_slot_bsp_ver_check was not called
-        mock_boot_controller.standby_slot_bsp_ver_check.assert_not_called()
+        # Verify current_slot_bsp_ver_check was not called
+        mock_boot_controller.current_slot_bsp_ver_check.assert_not_called()
 
     def test_integration_with_parse_nv_tegra_release(
         self, mock_ota_updater: tuple, mocker: MockerFixture
@@ -174,13 +174,13 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
 
         # Don't mock parse_nv_tegra_release - use the real function
         # Mock successful compatibility check
-        mock_boot_controller.standby_slot_bsp_ver_check.return_value = (True, "R35.4.1")
+        mock_boot_controller.current_slot_bsp_ver_check.return_value = (True, "R35.4.1")
 
         # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
         # Verify the check was called with the correctly parsed version
         expected_version = BSPVersion(35, 4, 1)
-        mock_boot_controller.standby_slot_bsp_ver_check.assert_called_once_with(
+        mock_boot_controller.current_slot_bsp_ver_check.assert_called_once_with(
             expected_version
         )

@@ -115,29 +115,18 @@ BSPVersionStr = Annotated[
 """BSPVersion in string representation."""
 
 
-class SlotBSPVersion(BaseModel):
+class CurrentBSPVersion(BaseModel):
     """
     BSP version string schema: Rxx.yy.z
     """
 
-    slot_a: Optional[BSPVersionStr] = None
-    slot_b: Optional[BSPVersionStr] = None
+    version: Optional[BSPVersionStr] = None
 
-    def set_by_slot(self, slot_id: SlotID, ver: BSPVersion | None) -> None:
-        if slot_id == SLOT_A:
-            self.slot_a = ver
-        elif slot_id == SLOT_B:
-            self.slot_b = ver
-        else:
-            raise ValueError(f"invalid slot_id: {slot_id}")
+    def set_version(self, ver: BSPVersion | None) -> None:
+        self.version = ver
 
-    def get_by_slot(self, slot_id: SlotID) -> BSPVersion | None:
-        if slot_id == SLOT_A:
-            return self.slot_a
-        elif slot_id == SLOT_B:
-            return self.slot_b
-        else:
-            raise ValueError(f"invalid slot_id: {slot_id}")
+    def get_version(self) -> BSPVersion | None:
+        return self.version
 
 
 NVBootctrlTarget = Literal["bootloader", "rootfs"]
@@ -290,48 +279,21 @@ class FirmwareBSPVersionControl:
         self,
         current_slot: SlotID,
         current_slot_bsp_ver: BSPVersion,
-        *,
-        current_bsp_version_file: Path,
     ) -> None:
         self.current_slot, self.standby_slot = current_slot, SLOT_FLIP[current_slot]
 
-        self._version = SlotBSPVersion()
-        try:
-            self._version = SlotBSPVersion.model_validate_json(
-                current_bsp_version_file.read_text()
-            )
-        except Exception as e:
-            logger.warning(f"invalid or missing bsp_verion file: {e!r}")
-            current_bsp_version_file.unlink(missing_ok=True)
-            logger.warning(
-                "assume standby slot is running the same version of firmware"
-            )
-            self._version.set_by_slot(self.standby_slot, current_slot_bsp_ver)
-
-        # NOTE: only check the standby slot's firmware BSP version info from file,
-        #   for current slot, always trust the value from nvbootctrl.
-        self._version.set_by_slot(current_slot, current_slot_bsp_ver)
-
-    def write_to_file(self, fw_bsp_fpath: StrOrPath) -> None:
-        """Write firmware_bsp_version from memory to firmware_bsp_version file."""
-        write_str_to_file_atomic(fw_bsp_fpath, self._version.model_dump_json())
+        self._version = CurrentBSPVersion()
+        # for both current and standby slot, always trust the value from nvbootctrl.
+        self._version.set_version(current_slot_bsp_ver)
 
     @property
     def current_slot_bsp_ver(self) -> BSPVersion:
-        assert (res := self._version.get_by_slot(self.current_slot))
+        assert (res := self._version.get_version())
         return res
 
     @current_slot_bsp_ver.setter
     def current_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
-        self._version.set_by_slot(self.current_slot, bsp_ver)
-
-    @property
-    def standby_slot_bsp_ver(self) -> BSPVersion | None:
-        return self._version.get_by_slot(self.standby_slot)
-
-    @standby_slot_bsp_ver.setter
-    def standby_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
-        self._version.set_by_slot(self.standby_slot, bsp_ver)
+        self._version.set_version(bsp_ver)
 
 
 NV_TEGRA_RELEASE_PA = re.compile(
