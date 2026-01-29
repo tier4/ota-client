@@ -82,7 +82,7 @@ class OTAClientAPIServicer:
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
         self._shm_writer = shm_writer
-        self._abort_thread_started = threading.Lock()
+        self._abort_thread_lock = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -413,7 +413,7 @@ class OTAClientAPIServicer:
                 )
             else:
                 # Lock not acquired = IN critical zone, queue abort
-                if self._abort_thread_started.acquire(blocking=False):
+                if self._abort_thread_lock.acquire(blocking=False):
                     logger.warning("in critical zone, queuing abort request...")
                     threading.Thread(
                         target=self._process_queued_abort,
