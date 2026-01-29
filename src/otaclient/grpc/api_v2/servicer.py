@@ -20,6 +20,7 @@ import logging
 import multiprocessing.queues as mp_queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
@@ -31,16 +32,12 @@ from otaclient._types import (
     IPCRequest,
     IPCResEnum,
     IPCResponse,
-    OTAClientStatus,
     OTAStatus,
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient._utils import (
-    SharedOTAClientStatusWriter,
-    gen_request_id,
-    gen_session_id,
-)
+from otaclient._utils import SharedOTAClientStatusReader, gen_request_id, gen_session_id
+from otaclient_common._io import write_str_to_file_atomic
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
@@ -66,7 +63,7 @@ class OTAClientAPIServicer:
         resp_queue: mp_queue.Queue[IPCResponse],
         critical_zone_flag: CriticalZoneFlag,
         abort_ota_flag: AbortOTAFlag,
-        shm_writer: SharedOTAClientStatusWriter,
+        shm_reader: SharedOTAClientStatusReader,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -81,7 +78,7 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
-        self._shm_writer = shm_writer
+        self._shm_reader = shm_reader
         self._abort_thread_lock = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -363,14 +360,33 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _set_ota_status(self, status: OTAStatus) -> None:
-        """Set the OTA status via shared memory."""
+    def _get_ota_status_file_path(self) -> Path | None:
+        """Get the path to the OTA status file from shared memory.
+
+        Returns:
+            Path to the OTA status file, or None if not available.
+        """
         try:
-            _status = OTAClientStatus(ota_status=status)
-            self._shm_writer.write_msg(_status)
-            logger.info(f"OTA status set to {status}")
+            _local_status = self._shm_reader.sync_msg()
+            if _local_status and _local_status.ota_status_dir:
+                return Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
         except Exception as e:
-            logger.warning(f"failed to set OTA status to {status}: {e!r}")
+            logger.warning(f"failed to get OTA status file path: {e!r}")
+        return None
+
+    def _set_ota_status(self, status: OTAStatus) -> None:
+        """Set the OTA status directly to the status file."""
+        _status_file = self._get_ota_status_file_path()
+        if _status_file:
+            try:
+                write_str_to_file_atomic(_status_file, status.name)
+                logger.info(f"OTA status {status} written to {_status_file}")
+            except Exception as e:
+                logger.warning(f"failed to set OTA status to {status}: {e!r}")
+        else:
+            logger.warning(
+                "OTA status directory not available, cannot persist status"
+            )
 
     def _process_queued_abort(self) -> None:
         self._critical_zone_flag.acquire_lock_no_release(blocking=True)
@@ -459,9 +475,6 @@ class OTAClientAPIServicer:
         logger.info(f"receive abort request: {request}")
         response = api_types.AbortResponse()
 
-        # Set ABORTING status immediately when abort is requested
-        self._set_ota_status(OTAStatus.ABORTING)
-
         # First: dispatch abort request to all directly connected sub-ECUs
         # NOTE: v1 aborts all ECUs unconditionally (no per-ECU filtering)
         tasks: dict[asyncio.Task, ECUContact] = {}
@@ -497,15 +510,16 @@ class OTAClientAPIServicer:
             tasks.clear()
 
         # Second: handle local ECU abort request
+        new_session_id = gen_session_id("__abort")
         local_abort_request = AbortRequestV2(
             request_id=request.request_id,
-            session_id="",  # abort doesn't create an OTA session
+            session_id=new_session_id,
         )
         local_response = self._handle_abort_request(local_abort_request)
         response.add_ecu(local_response)
 
-        # Set ABORTED status after all ECUs have responded
-        self._set_ota_status(OTAStatus.ABORTED)
+        # Set ABORTING status after all ECUs have responded
+        self._set_ota_status(OTAStatus.ABORTING)
 
         return response
 

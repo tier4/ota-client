@@ -77,8 +77,11 @@ class TestOTAClientAPIServicer:
         self.abort_ota_flag.shutdown_requested = mocker.MagicMock()
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
 
-        # Setup mock for shared memory writer
-        self.shm_writer = mocker.MagicMock()
+        # Setup mock for shared memory reader
+        self.shm_reader = mocker.MagicMock()
+        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
+            ota_status_dir="/tmp/ota-status"
+        )
 
         # Create the servicer instance
         self.servicer = OTAClientAPIServicer(
@@ -87,7 +90,7 @@ class TestOTAClientAPIServicer:
             resp_queue=self.resp_queue,
             critical_zone_flag=self.critical_zone_flag,
             abort_ota_flag=self.abort_ota_flag,
-            shm_writer=self.shm_writer,
+            shm_reader=self.shm_reader,
             executor=self.executor,
         )
 
