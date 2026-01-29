@@ -27,6 +27,7 @@ import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     AbortOTAFlag,
     AbortRequestV2,
+    AbortThreadLock,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
     IPCRequest,
@@ -37,12 +38,12 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient._utils import SharedOTAClientStatusReader, gen_request_id, gen_session_id
-from otaclient_common._io import write_str_to_file_atomic
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_common._io import write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class OTAClientAPIServicer:
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
         self._shm_reader = shm_reader
-        self._abort_thread_lock = threading.Lock()
+        self._abort_thread_lock = AbortThreadLock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -384,15 +385,17 @@ class OTAClientAPIServicer:
             except Exception as e:
                 logger.warning(f"failed to set OTA status to {status}: {e!r}")
         else:
-            logger.warning(
-                "OTA status directory not available, cannot persist status"
-            )
+            logger.warning("OTA status directory not available, cannot persist status")
 
     def _process_queued_abort(self) -> None:
-        self._critical_zone_flag.acquire_lock_no_release(blocking=True)
-        logger.warning("critical zone ended, processing queued abort request...")
-        self._abort_ota_flag.shutdown_requested.set()
-        logger.info("Abort OTA flag is set properly.")
+        try:
+            with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
+                logger.warning("critical zone ended, processing queued abort request...")
+                self._abort_ota_flag.shutdown_requested.set()
+                logger.info("Abort OTA flag is set properly.")
+        finally:
+            # Release _abort_thread_lock (acquired in _handle_abort_request)
+            self._abort_thread_lock.release_lock()
 
     def _handle_abort_request(
         self, request: AbortRequestV2
@@ -429,7 +432,7 @@ class OTAClientAPIServicer:
                 )
             else:
                 # Lock not acquired = IN critical zone, queue abort
-                if self._abort_thread_lock.acquire(blocking=False):
+                if self._abort_thread_lock.acquire_lock_no_release(blocking=False):
                     logger.warning("in critical zone, queuing abort request...")
                     threading.Thread(
                         target=self._process_queued_abort,
