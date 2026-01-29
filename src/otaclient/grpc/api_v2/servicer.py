@@ -390,7 +390,9 @@ class OTAClientAPIServicer:
     def _process_queued_abort(self) -> None:
         try:
             with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
-                logger.warning("critical zone ended, processing queued abort request...")
+                logger.warning(
+                    "critical zone ended, processing queued abort request..."
+                )
                 self._abort_ota_flag.shutdown_requested.set()
                 logger.info("Abort OTA flag is set properly.")
         finally:
