@@ -460,7 +460,7 @@ class OTAClient:
         *,
         req_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-    ) -> None:
+    ) -> NoReturn:
         """Main loop of ota_core process."""
         _allow_request_after = 0
         while True:

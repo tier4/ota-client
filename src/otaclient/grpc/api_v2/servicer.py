@@ -178,7 +178,7 @@ class OTAClientAPIServicer:
             )
             response.add_ecu(ecu_response)
         else:
-            raise ValueError(f"invalid response type: {response}")
+            raise ValueError(f"invalid response type: {type(response).__name__}")
 
     @staticmethod
     def _add_ecu_into_abort_response(
