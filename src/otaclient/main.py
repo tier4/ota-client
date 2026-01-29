@@ -40,7 +40,6 @@ from otaclient._types import (
     MultipleECUStatusFlags,
     OTAStatus,
 )
-from otaclient_common._io import write_str_to_file_atomic
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientMetricsWriter,
@@ -49,6 +48,7 @@ from otaclient._utils import (
 )
 from otaclient.configs.cfg import cfg
 from otaclient_common import replace_root
+from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import (
     bind_mount_ro,
