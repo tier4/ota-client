@@ -116,9 +116,19 @@ class UpdateResponse(_message.Message):
     ecu: _containers.RepeatedCompositeFieldContainer[UpdateResponseEcu]
     def __init__(self, ecu: _Optional[_Iterable[_Union[UpdateResponseEcu, _Mapping]]] = ...) -> None: ...
 
+class AbortRequestEcu(_message.Message):
+    __slots__ = ["ecu_id"]
+    ECU_ID_FIELD_NUMBER: _ClassVar[int]
+    ecu_id: str
+    def __init__(self, ecu_id: _Optional[str] = ...) -> None: ...
+
 class AbortRequest(_message.Message):
-    __slots__ = []
-    def __init__(self) -> None: ...
+    __slots__ = ["ecu", "request_id"]
+    ECU_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    ecu: _containers.RepeatedCompositeFieldContainer[AbortRequestEcu]
+    request_id: str
+    def __init__(self, ecu: _Optional[_Iterable[_Union[AbortRequestEcu, _Mapping]]] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class AbortResponseEcu(_message.Message):
     __slots__ = ["ecu_id", "result", "message"]
