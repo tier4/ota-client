@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
@@ -80,17 +81,59 @@ class CriticalZoneFlag:
         self._lock = lock
 
     @contextmanager
-    def acquire_lock_no_release(self):
-        yield self._lock.acquire(block=False)
+    def acquire_lock_with_release(self, blocking: bool = False):
+        """Acquire lock and release it when exiting the context.
 
-    @contextmanager
-    def acquire_lock_with_release(self):
-        acquired = self._lock.acquire(block=False)
+        Args:
+            blocking: If True, block until the lock is acquired.
+                      If False, return immediately with acquired=False if lock unavailable.
+
+        Yields:
+            bool: True if lock was acquired, False otherwise.
+        """
+        acquired = self._lock.acquire(block=blocking)
         try:
             yield acquired
         finally:
             if acquired:
                 self._lock.release()
+
+    def acquire_lock_no_release(self, blocking: bool = False) -> bool:
+        """Acquire lock without releasing."""
+        return self._lock.acquire(block=blocking)
+
+
+class AbortThreadLock:
+    """Wrapper for threading.Lock used to prevent multiple abort threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    @contextmanager
+    def acquire_lock_with_release(self, blocking: bool = False):
+        """Acquire lock and release it when exiting the context.
+
+        Args:
+            blocking: If True, block until the lock is acquired.
+                      If False, return immediately with acquired=False if lock unavailable.
+
+        Yields:
+            bool: True if lock was acquired, False otherwise.
+        """
+        acquired = self._lock.acquire(blocking=blocking)
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                self._lock.release()
+
+    def acquire_lock_no_release(self, blocking: bool = False) -> bool:
+        """Acquire lock without releasing."""
+        return self._lock.acquire(blocking=blocking)
+
+    def release_lock(self) -> None:
+        """Release the lock."""
+        self._lock.release()
 
 
 @dataclass
@@ -155,6 +198,8 @@ class OTAClientStatus:
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
     failure_traceback: str = ""
+    # Path to OTA status directory (set by ota_core after boot controller init)
+    ota_status_dir: str = ""
 
 
 @dataclass

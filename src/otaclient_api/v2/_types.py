@@ -699,10 +699,24 @@ class ClientUpdateResponse(
 # abort API
 
 
-class AbortRequest(MessageWrapper[pb2.AbortRequest]):
-    __slots__ = calculate_slots(pb2.AbortRequest)
+class AbortRequestEcu(MessageWrapper[pb2.AbortRequestEcu]):
+    __slots__ = calculate_slots(pb2.AbortRequestEcu)
+    ecu_id: str
 
-    def __init__(self) -> None: ...
+    def __init__(self, *, ecu_id: _Optional[str] = ...) -> None: ...
+
+
+class AbortRequest(ECUList[AbortRequestEcu], MessageWrapper[pb2.AbortRequest]):
+    __slots__ = calculate_slots(pb2.AbortRequest)
+    ecu: RepeatedCompositeContainer[AbortRequestEcu]
+    request_id: str
+
+    def __init__(
+        self,
+        *,
+        ecu: _Optional[_Iterable[AbortRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
+    ) -> None: ...
 
 
 class AbortResponseEcu(MessageWrapper[pb2.AbortResponseEcu]):

@@ -34,6 +34,10 @@ class BootControllerProtocol(Protocol):
         """
 
     @abstractmethod
+    def get_ota_status_dir(self) -> Path:
+        """Get the path to the OTA status directory for the current slot."""
+
+    @abstractmethod
     def get_standby_slot_path(self) -> Path:
         """Get the Path points to the standby slot mount point."""
 

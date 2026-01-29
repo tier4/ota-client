@@ -18,27 +18,32 @@ from __future__ import annotations
 import asyncio
 import logging
 import multiprocessing.queues as mp_queue
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     AbortOTAFlag,
     AbortRequestV2,
+    AbortThreadLock,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
+    OTAStatus,
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient._utils import gen_request_id, gen_session_id
+from otaclient._utils import SharedOTAClientStatusReader, gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_common._io import write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,7 @@ class OTAClientAPIServicer:
         resp_queue: mp_queue.Queue[IPCResponse],
         critical_zone_flag: CriticalZoneFlag,
         abort_ota_flag: AbortOTAFlag,
+        shm_reader: SharedOTAClientStatusReader,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -73,6 +79,8 @@ class OTAClientAPIServicer:
         self._ecu_status_storage = ecu_status_storage
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
+        self._shm_reader = shm_reader
+        self._abort_thread_lock = AbortThreadLock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -140,11 +148,10 @@ class OTAClientAPIServicer:
                 result=api_types.FailureType.UNRECOVERABLE,
             )
 
+    @staticmethod
     def _add_ecu_into_response(
-        self,
         response: (
             api_types.UpdateResponse
-            | api_types.AbortResponse
             | api_types.RollbackResponse
             | api_types.ClientUpdateResponse
         ),
@@ -154,12 +161,6 @@ class OTAClientAPIServicer:
         """Add ECU into response with specified failure type."""
         if isinstance(response, api_types.UpdateResponse):
             ecu_response = api_types.UpdateResponseEcu(
-                ecu_id=ecu_id,
-                result=failure_type,
-            )
-            response.add_ecu(ecu_response)
-        elif isinstance(response, api_types.AbortResponse):
-            ecu_response = api_types.AbortResponseEcu(
                 ecu_id=ecu_id,
                 result=failure_type,
             )
@@ -179,8 +180,21 @@ class OTAClientAPIServicer:
         else:
             raise ValueError(f"invalid response type: {response}")
 
+    @staticmethod
+    def _add_ecu_into_abort_response(
+        response: api_types.AbortResponse,
+        ecu_id: str,
+        abort_failure_type: api_types.AbortFailureType,
+    ) -> None:
+        """Add ECU into abort response with specified failure type."""
+        ecu_response = api_types.AbortResponseEcu(
+            ecu_id=ecu_id,
+            result=abort_failure_type,
+        )
+        response.add_ecu(ecu_response)
+
+    @staticmethod
     def _create_local_request(
-        self,
         req_ecu: api_types.UpdateRequestEcu | api_types.ClientUpdateRequestEcu,
         request_cls: (
             type[UpdateRequestV2]
@@ -313,7 +327,9 @@ class OTAClientAPIServicer:
                     #                 response with RECOVERABLE OTA error for unresponsive
                     #                 ECU.
                     self._add_ecu_into_response(
-                        response, _ecu_contact.ecu_id, api_types.FailureType.RECOVERABLE
+                        response,
+                        _ecu_contact.ecu_id,
+                        api_types.FailureType.RECOVERABLE,
                     )
             tasks.clear()
 
@@ -345,6 +361,44 @@ class OTAClientAPIServicer:
             )
         return response
 
+    def _get_ota_status_file_path(self) -> Path | None:
+        """Get the path to the OTA status file from shared memory.
+
+        Returns:
+            Path to the OTA status file, or None if not available.
+        """
+        try:
+            _local_status = self._shm_reader.sync_msg()
+            if _local_status and _local_status.ota_status_dir:
+                return Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
+        except Exception as e:
+            logger.warning(f"failed to get OTA status file path: {e!r}")
+        return None
+
+    def _set_ota_status(self, status: OTAStatus) -> None:
+        """Set the OTA status directly to the status file."""
+        _status_file = self._get_ota_status_file_path()
+        if _status_file:
+            try:
+                write_str_to_file_atomic(_status_file, status.name)
+                logger.info(f"OTA status {status} written to {_status_file}")
+            except Exception as e:
+                logger.warning(f"failed to set OTA status to {status}: {e!r}")
+        else:
+            logger.warning("OTA status directory not available, cannot persist status")
+
+    def _process_queued_abort(self) -> None:
+        try:
+            with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
+                logger.warning(
+                    "critical zone ended, processing queued abort request..."
+                )
+                self._abort_ota_flag.shutdown_requested.set()
+                logger.info("Abort OTA flag is set properly.")
+        finally:
+            # Release _abort_thread_lock (acquired in _handle_abort_request)
+            self._abort_thread_lock.release_lock()
+
     def _handle_abort_request(
         self, request: AbortRequestV2
     ) -> api_types.AbortResponseEcu:
@@ -353,39 +407,57 @@ class OTAClientAPIServicer:
         if not isinstance(request, AbortRequestV2):
             return api_types.AbortResponseEcu(
                 ecu_id="",
-                result=api_types.FailureType.RECOVERABLE,
+                result=api_types.AbortFailureType.ABORT_FAILURE,
                 message="invalid abort request",
             )
 
         try:
-            # Check if critical zone lock is available
-            with self._critical_zone_flag.acquire_lock_no_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.warning("in critical zone, reject abort request ...")
-                    return api_types.AbortResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.FailureType.RECOVERABLE,
-                        message="In critical zone, abort request rejected",
-                    )
+            if self._abort_ota_flag.shutdown_requested.is_set():
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                    message="Abort already in progress",
+                )
 
+            _lock_acquired = self._critical_zone_flag.acquire_lock_no_release()
+
+            if _lock_acquired:
+                # Lock acquired = NOT in critical zone, process immediately
                 logger.warning(
                     "abort function requested, interrupting OTA and exit now ..."
                 )
-                # set the abort flag to notify main process to abort ongoing OTA
                 self._abort_ota_flag.shutdown_requested.set()
-
                 logger.info("Abort OTA flag is set properly.")
-
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
-                    result=api_types.FailureType.NO_FAILURE,
+                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                 )
+            else:
+                # Lock not acquired = IN critical zone, queue abort
+                if self._abort_thread_lock.acquire_lock_no_release(blocking=False):
+                    logger.warning("in critical zone, queuing abort request...")
+                    threading.Thread(
+                        target=self._process_queued_abort,
+                        daemon=True,
+                    ).start()
+                    return api_types.AbortResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                        message="Abort request queued, will process after critical zone",
+                    )
+                else:
+                    logger.info("abort request already queued, ignoring...")
+                    return api_types.AbortResponseEcu(
+                        ecu_id=self.my_ecu_id,
+                        result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                        message="Abort request already queued",
+                    )
 
         except Exception as e:
             logger.error(f"failed to send abort request to main process: {e!r}")
             return api_types.AbortResponseEcu(
                 ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
+                result=api_types.AbortFailureType.ABORT_FAILURE,
                 message="Failed to process abort request",
             )
 
@@ -404,17 +476,57 @@ class OTAClientAPIServicer:
         )
 
     async def abort(self, request: api_types.AbortRequest) -> api_types.AbortResponse:
-        # TODO: after security measures are implemented, the below needs to be updated to actually handle abort request
-        logger.warning("abort API is not supported yet, rejecting all abort request")
-        return api_types.AbortResponse(
-            ecu=[
-                api_types.AbortResponseEcu(
-                    ecu_id="",
-                    result=api_types.FailureType.RECOVERABLE,
-                    message="abort API is not supported yet",
+        """Handle abort request for local and sub-ECUs."""
+        logger.info(f"receive abort request: {request}")
+        response = api_types.AbortResponse()
+
+        # First: dispatch abort request to all directly connected sub-ECUs
+        # NOTE: v1 aborts all ECUs unconditionally (no per-ECU filtering)
+        tasks: dict[asyncio.Task, ECUContact] = {}
+        for ecu_contact in self.sub_ecus:
+            _task = asyncio.create_task(
+                OTAClientCall.abort_call(
+                    ecu_contact.ecu_id,
+                    str(ecu_contact.ip_addr),
+                    ecu_contact.port,
+                    request=request,
+                    timeout=cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT,
                 )
-            ]
+            )
+            tasks[_task] = ecu_contact
+
+        if tasks:
+            done, _ = await asyncio.wait(tasks)
+            for _task in done:
+                try:
+                    _ecu_resp = _task.result()
+                    response.merge_from(_ecu_resp)
+                except ECUNoResponse as e:
+                    _ecu_contact = tasks[_task]
+                    logger.warning(
+                        f"{_ecu_contact} doesn't respond to abort request on-time"
+                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                    )
+                    self._add_ecu_into_abort_response(
+                        response,
+                        _ecu_contact.ecu_id,
+                        api_types.AbortFailureType.ABORT_FAILURE,
+                    )
+            tasks.clear()
+
+        # Second: handle local ECU abort request
+        new_session_id = gen_session_id("__abort")
+        local_abort_request = AbortRequestV2(
+            request_id=request.request_id,
+            session_id=new_session_id,
         )
+        local_response = self._handle_abort_request(local_abort_request)
+        response.add_ecu(local_response)
+
+        # Set ABORTING status after all ECUs have responded
+        self._set_ota_status(OTAStatus.ABORTING)
+
+        return response
 
     async def rollback(
         self, request: api_types.RollbackRequest
