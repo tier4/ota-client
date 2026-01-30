@@ -99,7 +99,7 @@ class CriticalZoneFlag:
 
 
 class AbortThreadLock:
-    """Wrapper for threading.Lock used to prevent multiple abort threads."""
+    """Wrapper for threading.Lock used to serialize abort processing threads."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -121,14 +121,6 @@ class AbortThreadLock:
         finally:
             if acquired:
                 self._lock.release()
-
-    def acquire_lock_no_release(self, blocking: bool = False) -> bool:
-        """Acquire lock without releasing."""
-        return self._lock.acquire(blocking=blocking)
-
-    def release_lock(self) -> None:
-        """Release the lock."""
-        self._lock.release()
 
 
 @dataclass
