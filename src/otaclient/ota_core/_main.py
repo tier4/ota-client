@@ -43,6 +43,7 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import (
+    AbortOTAFlag,
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
@@ -95,6 +96,7 @@ class OTAClient:
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
         critical_zone_flag: CriticalZoneFlag,
+        abort_ota_flag: AbortOTAFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -104,6 +106,7 @@ class OTAClient:
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
         self._critical_zone_flag = critical_zone_flag
+        self._abort_ota_flag = abort_ota_flag
 
         self._shm_metrics_reader = shm_metrics_reader
         atexit.register(shm_metrics_reader.atexit)
@@ -333,6 +336,7 @@ class OTAClient:
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
                     critical_zone_flag=self._critical_zone_flag,
+                    abort_ota_flag=self._abort_ota_flag,
                     boot_controller=self.boot_controller,
                     image_identifier=image_id,
                     **_common_args,
@@ -347,6 +351,7 @@ class OTAClient:
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
                     critical_zone_flag=self._critical_zone_flag,
+                    abort_ota_flag=self._abort_ota_flag,
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
@@ -542,6 +547,7 @@ def ota_core_process(
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
     critical_zone_flag: CriticalZoneFlag,
+    abort_ota_flag: AbortOTAFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
@@ -566,6 +572,7 @@ def ota_core_process(
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
         critical_zone_flag=critical_zone_flag,
+        abort_ota_flag=abort_ota_flag,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
