@@ -319,7 +319,7 @@ class OTAClientAPIServicer:
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
-                    logger.warning(
+                    logger.error(
                         f"{_ecu_contact} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
@@ -372,7 +372,7 @@ class OTAClientAPIServicer:
             if _local_status and _local_status.ota_status_dir:
                 return Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
         except Exception as e:
-            logger.warning(f"failed to get OTA status file path: {e!r}")
+            logger.error(f"failed to get OTA status file path: {e!r}")
         return None
 
     def _set_ota_status(self, status: OTAStatus) -> None:
@@ -383,7 +383,7 @@ class OTAClientAPIServicer:
                 write_str_to_file_atomic(_status_file, status.name)
                 logger.info(f"OTA status {status} written to {_status_file}")
             except Exception as e:
-                logger.warning(f"failed to set OTA status to {status}: {e!r}")
+                logger.error(f"failed to set OTA status to {status}: {e!r}")
         else:
             logger.warning("OTA status directory not available, cannot persist status")
 
@@ -514,7 +514,7 @@ class OTAClientAPIServicer:
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
-                    logger.warning(
+                    logger.error(
                         f"{_ecu_contact} doesn't respond to abort request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
