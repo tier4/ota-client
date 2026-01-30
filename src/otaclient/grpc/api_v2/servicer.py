@@ -432,39 +432,40 @@ class OTAClientAPIServicer:
                     message="Cannot abort: OTA update is in final phase and will complete shortly",
                 )
 
-            _lock_acquired = self._critical_zone_flag.acquire_lock_no_release()
-
-            if _lock_acquired:
-                # Lock acquired = NOT in critical zone, process immediately
-                logger.warning(
-                    "abort function requested, interrupting OTA and exit now ..."
-                )
-                self._abort_ota_flag.shutdown_requested.set()
-                logger.info("Abort OTA flag is set properly.")
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                )
-            else:
-                # Lock not acquired = IN critical zone, queue abort
-                if self._abort_thread_lock.acquire_lock_no_release(blocking=False):
-                    logger.warning("in critical zone, queuing abort request...")
-                    threading.Thread(
-                        target=self._process_queued_abort,
-                        daemon=True,
-                    ).start()
+            with self._critical_zone_flag.acquire_lock_with_release(
+                blocking=False
+            ) as _lock_acquired:
+                if _lock_acquired:
+                    # Lock acquired = NOT in critical zone, process immediately
+                    logger.warning(
+                        "abort function requested, interrupting OTA and exit now ..."
+                    )
+                    self._abort_ota_flag.shutdown_requested.set()
+                    logger.info("Abort OTA flag is set properly.")
                     return api_types.AbortResponseEcu(
                         ecu_id=self.my_ecu_id,
                         result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                        message="Abort request queued, will process after critical zone",
                     )
                 else:
-                    logger.info("abort request already queued, ignoring...")
-                    return api_types.AbortResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                        message="Abort request already queued",
-                    )
+                    # Lock not acquired = IN critical zone, queue abort
+                    if self._abort_thread_lock.acquire_lock_no_release(blocking=False):
+                        logger.warning("in critical zone, queuing abort request...")
+                        threading.Thread(
+                            target=self._process_queued_abort,
+                            daemon=True,
+                        ).start()
+                        return api_types.AbortResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                            message="Abort request queued, will process after critical zone",
+                        )
+                    else:
+                        logger.info("abort request already queued, ignoring...")
+                        return api_types.AbortResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                            message="Abort request already queued",
+                        )
 
         except Exception as e:
             logger.error(f"failed to send abort request to main process: {e!r}")

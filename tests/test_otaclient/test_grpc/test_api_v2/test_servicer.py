@@ -74,7 +74,13 @@ class TestOTAClientAPIServicer:
 
         # Setup mock for CriticalZoneFlag and AbortOTAFlag
         self.critical_zone_flag = mocker.MagicMock()
-        self.critical_zone_flag.acquire_lock_no_release.return_value = True
+        # Setup context manager for acquire_lock_with_release (yields True by default)
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=True)
+        )
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__exit__ = (
+            mocker.MagicMock(return_value=None)
+        )
 
         self.abort_ota_flag = mocker.MagicMock()
         self.abort_ota_flag.shutdown_requested = mocker.MagicMock()
@@ -586,10 +592,13 @@ class TestOTAClientAPIServicer:
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
         assert "final phase" in result.message
 
-    def test_handle_abort_request_not_in_critical_zone(self):
+    def test_handle_abort_request_not_in_critical_zone(self, mocker: MockerFixture):
         """Test abort request when NOT in critical zone (lock acquired immediately)."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
-        self.critical_zone_flag.acquire_lock_no_release.return_value = True
+        # Configure context manager to yield True (lock acquired)
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=True)
+        )
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
@@ -601,7 +610,10 @@ class TestOTAClientAPIServicer:
     def test_handle_abort_request_in_critical_zone_queued(self, mocker: MockerFixture):
         """Test abort request when IN critical zone (queued for later)."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
-        self.critical_zone_flag.acquire_lock_no_release.return_value = False
+        # Configure context manager to yield False (lock NOT acquired = in critical zone)
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=False)
+        )
 
         # Mock the abort thread lock to allow queuing
         mock_abort_thread_lock = mocker.MagicMock()
@@ -623,7 +635,10 @@ class TestOTAClientAPIServicer:
     def test_handle_abort_request_already_queued(self, mocker: MockerFixture):
         """Test abort request when already queued (another thread is processing)."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
-        self.critical_zone_flag.acquire_lock_no_release.return_value = False
+        # Configure context manager to yield False (lock NOT acquired = in critical zone)
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=False)
+        )
 
         # Mock the abort thread lock to indicate already locked
         mock_abort_thread_lock = mocker.MagicMock()

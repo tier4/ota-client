@@ -41,12 +41,14 @@ class TestCriticalZoneFlag:
 
     def test_acquire_lock_with_release_non_blocking_fail(self, critical_zone_flag):
         """Test non-blocking acquire when lock is held."""
-        # First acquire the lock
-        critical_zone_flag.acquire_lock_no_release(blocking=False)
-
-        # Try to acquire again - should fail
+        # First acquire the lock using the context manager
         with critical_zone_flag.acquire_lock_with_release(blocking=False) as acquired:
-            assert acquired is False
+            assert acquired is True
+            # Try to acquire again while held - should fail
+            with critical_zone_flag.acquire_lock_with_release(
+                blocking=False
+            ) as acquired_again:
+                assert acquired_again is False
 
     def test_acquire_lock_with_release_releases_lock(self, critical_zone_flag):
         """Test that lock is released after exiting context."""
@@ -60,14 +62,18 @@ class TestCriticalZoneFlag:
     def test_acquire_lock_with_release_blocking(self, critical_zone_flag):
         """Test blocking acquire waits for lock."""
         results = []
+        holder_ready = threading.Event()
 
         def holder():
-            critical_zone_flag.acquire_lock_no_release(blocking=True)
-            time.sleep(0.2)
-            # Note: We need to release manually since we used acquire_lock_no_release
-            critical_zone_flag._lock.release()
+            with critical_zone_flag.acquire_lock_with_release(
+                blocking=True
+            ) as acquired:
+                assert acquired is True
+                holder_ready.set()
+                time.sleep(0.2)
 
         def waiter():
+            holder_ready.wait()  # Wait for holder to acquire lock
             # This should block until holder releases
             with critical_zone_flag.acquire_lock_with_release(
                 blocking=True
@@ -78,22 +84,12 @@ class TestCriticalZoneFlag:
         waiter_thread = threading.Thread(target=waiter)
 
         holder_thread.start()
-        time.sleep(0.05)  # Ensure holder has the lock
         waiter_thread.start()
 
         holder_thread.join()
         waiter_thread.join()
 
         assert results == [True]
-
-    def test_acquire_lock_no_release_does_not_release(self, critical_zone_flag):
-        """Test that acquire_lock_no_release doesn't release the lock."""
-        acquired = critical_zone_flag.acquire_lock_no_release(blocking=False)
-        assert acquired is True
-
-        # Try to acquire again - should fail because lock is still held
-        acquired_again = critical_zone_flag.acquire_lock_no_release(blocking=False)
-        assert acquired_again is False
 
 
 class TestAbortThreadLock:
