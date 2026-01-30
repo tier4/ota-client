@@ -184,12 +184,13 @@ class TestMain:
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
         mock_mp_ctx.Event.side_effect = [
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
+            MagicMock(),  # any_child_ecu_in_update
+            MagicMock(),  # any_requires_network
+            MagicMock(),  # all_success
+            MagicMock(),  # notify_data_ready_event
+            MagicMock(),  # request_shutdown_event
+            MagicMock(),  # shutdown_requested (AbortOTAFlag)
+            MagicMock(),  # reject_abort (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
@@ -243,12 +244,13 @@ class TestMain:
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
         mock_mp_ctx.Event.side_effect = [
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
+            MagicMock(),  # any_child_ecu_in_update
+            MagicMock(),  # any_requires_network
+            MagicMock(),  # all_success
+            MagicMock(),  # notify_data_ready_event
+            MagicMock(),  # request_shutdown_event
+            MagicMock(),  # shutdown_requested (AbortOTAFlag)
+            MagicMock(),  # reject_abort (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
