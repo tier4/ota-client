@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import CriticalZoneFlag, UpdatePhase
+from otaclient._types import AbortOTAFlag, CriticalZoneFlag, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -79,10 +79,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         *,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
+        abort_ota_flag: AbortOTAFlag,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         super().__init__(**kwargs)
         self.critical_zone_flag = critical_zone_flag
+        self._abort_ota_flag = abort_ota_flag
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
@@ -373,6 +375,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
             self._in_update()
 
+            # Set reject_abort flag BEFORE acquiring lock to prevent race condition.
+            # This ensures abort requests are rejected during post-update/finalize phases.
+            logger.info("Setting reject_abort flag for final update phases")
+            self._abort_ota_flag.reject_abort.set()
+
             with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
                 if not _lock_acquired:
                     logger.error(
@@ -411,12 +418,14 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         ca_chains_store: CAChainStore,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
+        abort_ota_flag: AbortOTAFlag,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
             critical_zone_flag=critical_zone_flag,
+            abort_ota_flag=abort_ota_flag,
             **kwargs,
         )
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
@@ -469,6 +478,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
+        abort_ota_flag: AbortOTAFlag,
         image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
@@ -476,6 +486,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
             self,
             boot_controller=boot_controller,
             critical_zone_flag=critical_zone_flag,
+            abort_ota_flag=abort_ota_flag,
             **kwargs,
         )
         self.setup_ota_image_support(

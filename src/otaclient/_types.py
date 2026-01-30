@@ -138,6 +138,7 @@ class AbortThreadLock:
 @dataclass
 class AbortOTAFlag:
     shutdown_requested: mp_sync.Event
+    reject_abort: mp_sync.Event
 
 
 #
