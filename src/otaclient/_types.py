@@ -97,10 +97,6 @@ class CriticalZoneFlag:
             if acquired:
                 self._lock.release()
 
-    def acquire_lock_no_release(self, blocking: bool = False) -> bool:
-        """Acquire lock without releasing."""
-        return self._lock.acquire(block=blocking)
-
 
 class AbortThreadLock:
     """Wrapper for threading.Lock used to prevent multiple abort threads."""
