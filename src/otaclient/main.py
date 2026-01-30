@@ -377,7 +377,10 @@ def main() -> None:  # pragma: no cover
         request_shutdown_event=mp_ctx.Event(),
     )
     critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
-    abort_ota_flag = AbortOTAFlag(shutdown_requested=mp_ctx.Event())
+    abort_ota_flag = AbortOTAFlag(
+        shutdown_requested=mp_ctx.Event(),
+        reject_abort=mp_ctx.Event(),
+    )
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
