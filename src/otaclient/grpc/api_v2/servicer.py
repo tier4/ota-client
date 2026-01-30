@@ -419,6 +419,19 @@ class OTAClientAPIServicer:
                     message="Abort already in progress",
                 )
 
+            # Check if we're in final update phases (post_update/finalize_update)
+            # where abort should be rejected, not queued
+            if self._abort_ota_flag.reject_abort.is_set():
+                logger.info(
+                    "abort request rejected: OTA update is in final phase "
+                    "(post_update/finalize_update)"
+                )
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_FAILURE,
+                    message="Cannot abort: OTA update is in final phase and will complete shortly",
+                )
+
             _lock_acquired = self._critical_zone_flag.acquire_lock_no_release()
 
             if _lock_acquired:

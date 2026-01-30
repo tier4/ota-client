@@ -79,6 +79,8 @@ class TestOTAClientAPIServicer:
         self.abort_ota_flag = mocker.MagicMock()
         self.abort_ota_flag.shutdown_requested = mocker.MagicMock()
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.abort_ota_flag.reject_abort = mocker.MagicMock()
+        self.abort_ota_flag.reject_abort.is_set.return_value = False
 
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
@@ -571,6 +573,18 @@ class TestOTAClientAPIServicer:
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_NO_FAILURE
         assert "already in progress" in result.message
+
+    def test_handle_abort_request_rejected_final_phase(self):
+        """Test abort request rejected when in final update phase (post_update/finalize)."""
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.abort_ota_flag.reject_abort.is_set.return_value = True
+
+        request = AbortRequestV2(request_id="test-req", session_id="test-session")
+        result = self.servicer._handle_abort_request(request)
+
+        assert result.ecu_id == "autoware"
+        assert result.result == api_types.AbortFailureType.ABORT_FAILURE
+        assert "final phase" in result.message
 
     def test_handle_abort_request_not_in_critical_zone(self):
         """Test abort request when NOT in critical zone (lock acquired immediately)."""
