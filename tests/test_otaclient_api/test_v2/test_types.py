@@ -185,3 +185,12 @@ class Test_enum_wrapper_cooperate:
         _converted = api_types.StatusProgressPhase(_protobuf_enum)
         assert _protobuf_enum == _converted
         assert _converted == api_types.StatusProgressPhase.REGULAR
+
+
+class TestV2V1PhaseMapping:
+    def test_all_update_phases_in_mapping(self):
+        """All UpdatePhase values should be in V2_V1_PHASE_MAPPING."""
+        for phase in api_types.UpdatePhase:
+            assert (
+                phase in api_types.V2_V1_PHASE_MAPPING
+            ), f"{phase} not in V2_V1_PHASE_MAPPING"
