@@ -13,7 +13,6 @@
 # limitations under the License.
 """The implementation of tracking otaclient operation stats."""
 
-
 from __future__ import annotations
 
 import logging
