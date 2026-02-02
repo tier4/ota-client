@@ -12,7 +12,7 @@
   // note that it is NOT the schedule of renovate task dispatching,
   //  but the time window of allowing renovate to create PRs,
   //  see https://docs.renovatebot.com/configuration-options/#schedule
-  "schedule": ["* 20-23,0-8 * * 1-5", "* * * * 0,6"],
+  "schedule": [ "* 20-23,0-8 * * 1-5", "* * * * 0,6" ],
   "lockFileMaintenance": {
     "enabled": true
   },
@@ -35,6 +35,9 @@
     "labels": [
       "security",
       "dependencies"
+    ],
+    "gitIgnoredAuthors": [
+      "github-actions[bot]+sync-lockfile@users.noreply.github.com"
     ]
   },
   "prHourlyLimit": 16
