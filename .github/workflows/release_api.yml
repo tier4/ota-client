@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           # use the minimum py ver we support to generate the wheel
-          python-version: 3.8
+          python-version: 3.14
 
       - name: install build deps
         run: |
