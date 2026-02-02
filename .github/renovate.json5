@@ -26,6 +26,10 @@
         "pep621"
       ],
       "rangeStrategy": "widen"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions updates"
     }
   ],
   "labels": [
