@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tracker that queries and stores ECU status from all defined ECUs."""
 
-
 from __future__ import annotations
 
 import asyncio

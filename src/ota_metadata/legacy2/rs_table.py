@@ -13,7 +13,6 @@
 # limitations under the License.
 """Resource table implementation for legacy OTA image."""
 
-
 from __future__ import annotations
 
 import random

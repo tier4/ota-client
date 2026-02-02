@@ -13,7 +13,6 @@
 # limitations under the License.
 """Configure the logging for otaclient."""
 
-
 from __future__ import annotations
 
 import atexit

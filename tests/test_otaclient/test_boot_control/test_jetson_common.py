@@ -13,7 +13,6 @@
 # limitations under the License.
 """Tests for Jetson device boot control implementation common."""
 
-
 from __future__ import annotations
 
 from pathlib import Path
