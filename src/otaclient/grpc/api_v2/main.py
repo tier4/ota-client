@@ -83,7 +83,6 @@ def grpc_server_process(
         v2_grpc.add_OtaClientServiceServicer_to_server(
             server=server, servicer=ota_client_service_v2
         )
-
         _address_info = f"{ecu_info.ip_addr}:{cfg.OTA_API_SERVER_PORT}"
         server.add_insecure_port(_address_info)
 
