@@ -897,20 +897,12 @@ class JetsonUEFIBootControl(BootControllerBase):
             )
 
             # load firmware BSP version
-            current_fw_bsp_ver_fpath = (
-                current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-            )
-            self._firmware_bsp_ver_control = bsp_ver_ctrl = FirmwareBSPVersionControl(
+            self._firmware_bsp_ver_control = FirmwareBSPVersionControl(
                 current_slot=uefi_control.current_slot,
                 current_slot_bsp_ver=uefi_control.fw_bsp_version,
-                current_bsp_version_file=current_fw_bsp_ver_fpath,
             )
-            # always update the bsp_version_file on startup to reflect
-            #   the up-to-date current slot BSP version
-            self._firmware_bsp_ver_control.write_to_file(current_fw_bsp_ver_fpath)
             logger.info(
-                f"\ncurrent slot firmware BSP version: {uefi_control.fw_bsp_version}\n"
-                f"standby slot firmware BSP version: {bsp_ver_ctrl.standby_slot_bsp_ver}"
+                f"\ncurrent slot firmware BSP version: {uefi_control.fw_bsp_version}"
             )
 
             logger.info("jetson-uefi boot control start up finished")
@@ -975,26 +967,23 @@ class JetsonUEFIBootControl(BootControllerBase):
     def bootloader_type(self) -> str:
         return boot_cfg.BOOTLOADER
 
-    def standby_slot_bsp_ver_check(
+    def current_slot_bsp_ver_check(
         self, bsp_ver_str: str | BSPVersion
     ) -> tuple[bool, tuple[BSPVersion | None, BSPVersion] | None]:
-        """Check if the input BSP version matches the firmware BSP version of standby slot.
+        """Check if the input BSP version matches the firmware BSP version of current slot.
 
         If the BSP version is mismatched, we should reject the OTA.
+        1. It is not possible to access standby slot's firmware BSP version,
+            only current slot's version can be acquired.
+        2. As otaclient will not do BSP update (we use another tool for BSP update,
+            which will update both slots' firmware), we assume that both slots' firmware
+            BSP version is the same.
 
         Returns:
             Return a tuple indicates the check result. If the first element is True, BSP version
                 matches, otherwise return False with a tuple of input BSPVersion, expected BSPVersion.
         """
-        standby_fw_bsp_ver = self._firmware_bsp_ver_control.standby_slot_bsp_ver
-        active_fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
-
-        fw_bsp_ver = standby_fw_bsp_ver
-        if not fw_bsp_ver:
-            logger.warning(
-                "standby slot fw BSP version is not available, use active_slot fw BSP ver instead ..."
-            )
-            fw_bsp_ver = active_fw_bsp_ver
+        fw_bsp_ver = self._firmware_bsp_ver_control.current_slot_bsp_ver
 
         try:
             _bsp_ver = BSPVersion.parse(bsp_ver_str)
@@ -1022,13 +1011,6 @@ class JetsonUEFIBootControl(BootControllerBase):
             ),
             standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
         )
-
-        # ------ preserve BSP version file to standby slot ------ #
-        standby_fw_bsp_ver_fpath = (
-            self._ota_status_control.standby_ota_status_dir
-            / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-        )
-        self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
         # ------ preserve /boot/ota folder to standby rootfs ------ #
         preserve_ota_config_files_to_standby(

@@ -33,7 +33,6 @@ class GrubControlConfig:
 class JetsonBootCommon:
     # ota_status related
     OTA_STATUS_DIR = "/boot/ota-status"
-    FIRMWARE_BSP_VERSION_FNAME = "firmware_bsp_version"
 
     # boot control related
     EXTLINUX_FILE = "/boot/extlinux/extlinux.conf"

@@ -43,7 +43,8 @@ class OTAErrorCode(int, Enum):
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
     E_CLIENT_UPDATE_SAME_VERSIONS = 205
     E_CLIENT_UPDATE_FAILED = 206
-    E_OTA_STOP_REQUESTED = 207
+    E_OTA_ABORT_REQUESTED = 207
+    E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 208
 
     #
     # ------ unrecoverable errors ------
@@ -63,7 +64,7 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 312
     E_APPLY_OTAUPDATE_FAILED = 313
     E_OTACLIENT_STARTUP_FAILED = 314
-    E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 315
+    RESERVED_315 = 315
 
     def to_errcode_str(self) -> str:
         return f"{self.value:0>3}"
@@ -160,9 +161,7 @@ class OTAErrorRecoverable(OTAError):
 
 class OTABusy(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_BUSY
-    failure_description: str = (
-        "on-going OTA operation(update or rollback) detected, this request has been ignored"
-    )
+    failure_description: str = "on-going OTA operation(update or rollback) detected, this request has been ignored"
 
 
 class InvalidStatusForOTARollback(OTAErrorRecoverable):
@@ -193,8 +192,15 @@ class ClientUpdateFailed(OTAErrorRecoverable):
 
 
 class OTAStopRequested(OTAErrorRecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_STOP_REQUESTED
-    failure_description: str = "OTA interrupted by OTA STOP request"
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORT_REQUESTED
+    failure_description: str = "OTA interrupted by OTA abort request"
+
+
+class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
+    failure_errcode: OTAErrorCode = (
+        OTAErrorCode.E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED
+    )
+    failure_description: str = "boot_control BSP version compatibility check failed"
 
 
 #
@@ -254,15 +260,6 @@ class BootControlPostRollbackFailed(OTAErrorUnrecoverable):
     )
 
 
-class BootControlBSPVersionCompatibilityFailed(OTAErrorUnrecoverable):
-    failure_errcode: OTAErrorCode = (
-        OTAErrorCode.E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED
-    )
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: boot_control BSP version compatibility check failed"
-    )
-
-
 class StandbySlotInsufficientSpace(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_STANDBY_SLOT_INSUFFICIENT_SPACE
     failure_description: str = (
@@ -279,30 +276,22 @@ class InvalidUpdateRequest(OTAErrorUnrecoverable):
 
 class MetadataJWTInvalid(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_INVALID
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: verfication for metadata.jwt is OK but metadata.jwt's content is invalid"
 
 
 class MetadataJWTVerficationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_METADATAJWT_CERT_VERIFICATION_FAILED
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: certificate verification failed for OTA metadata.jwt"
 
 
 class OTAProxyFailedToStart(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTAPROXY_FAILED_TO_START
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: otaproxy is required for multiple ECU update but otaproxy failed to start"
 
 
 class UpdateDeltaGenerationFailed(OTAErrorUnrecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_UPDATEDELTA_GENERATION_FAILED
-    failure_description: str = (
-        f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
-    )
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to calculate and/or prepare update delta"
 
 
 class ApplyOTAUpdateFailed(OTAErrorUnrecoverable):
