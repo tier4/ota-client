@@ -25,7 +25,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from pydantic import BaseModel, BeforeValidator, PlainSerializer
+from pydantic import BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
 
 from otaclient_common import cmdhelper, replace_root
@@ -113,20 +113,6 @@ BSPVersionStr = Annotated[
     PlainSerializer(BSPVersion.dump, return_type=str),
 ]
 """BSPVersion in string representation."""
-
-
-class CurrentBSPVersion(BaseModel):
-    """
-    BSP version string schema: Rxx.yy.z
-    """
-
-    version: Optional[BSPVersionStr] = None
-
-    def set_version(self, ver: BSPVersion | None) -> None:
-        self.version = ver
-
-    def get_version(self) -> BSPVersion | None:
-        return self.version
 
 
 NVBootctrlTarget = Literal["bootloader", "rootfs"]
@@ -282,18 +268,17 @@ class FirmwareBSPVersionControl:
     ) -> None:
         self.current_slot, self.standby_slot = current_slot, SLOT_FLIP[current_slot]
 
-        self._version = CurrentBSPVersion()
         # for both current and standby slot, always trust the value from nvbootctrl.
-        self._version.set_version(current_slot_bsp_ver)
+        self._version = current_slot_bsp_ver
 
     @property
     def current_slot_bsp_ver(self) -> BSPVersion:
-        assert (res := self._version.get_version())
-        return res
+        assert self._version
+        return self._version
 
     @current_slot_bsp_ver.setter
     def current_slot_bsp_ver(self, bsp_ver: BSPVersion | None):
-        self._version.set_version(bsp_ver)
+        self._version = bsp_ver
 
 
 NV_TEGRA_RELEASE_PA = re.compile(

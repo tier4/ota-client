@@ -24,7 +24,6 @@ from otaclient.boot_control._jetson_common import (
     SLOT_A,
     SLOT_B,
     BSPVersion,
-    CurrentBSPVersion,
     FirmwareBSPVersionControl,
     SlotID,
     detect_external_rootdev,
@@ -97,87 +96,18 @@ class TestBSPVersion:
         assert _in.dump() == _expect
 
 
-class TestCurrentBSPVersion:
-
-    @pytest.mark.parametrize(
-        "_in, _bsp_ver, _expect",
-        (
-            (
-                CurrentBSPVersion(),
-                BSPVersion(32, 6, 1),
-                CurrentBSPVersion(version=BSPVersion(32, 6, 1)),
-            ),
-            (
-                CurrentBSPVersion(version=BSPVersion(32, 5, 1)),
-                None,
-                CurrentBSPVersion(version=None),
-            ),
-            (
-                CurrentBSPVersion(version=BSPVersion(32, 5, 1)),
-                None,
-                CurrentBSPVersion(version=None),
-            ),
-        ),
-    )
-    def test_set_version(
-        self,
-        _in: CurrentBSPVersion,
-        _bsp_ver: BSPVersion | None,
-        _expect: CurrentBSPVersion,
-    ):
-        _in.set_version(_bsp_ver)
-        assert _in == _expect
-
-    @pytest.mark.parametrize(
-        "_in, _expect",
-        (
-            (
-                CurrentBSPVersion(),
-                None,
-            ),
-            (
-                CurrentBSPVersion(version=BSPVersion(32, 6, 1)),
-                BSPVersion(32, 6, 1),
-            ),
-        ),
-    )
-    def test_get_version(
-        self,
-        _in: CurrentBSPVersion,
-        _expect: BSPVersion | None,
-    ):
-        assert _in.get_version() == _expect
-
-    @pytest.mark.parametrize(
-        "_in",
-        (
-            (CurrentBSPVersion()),
-            (CurrentBSPVersion(version=BSPVersion(32, 5, 1))),
-            (CurrentBSPVersion(version=BSPVersion(35, 4, 1))),
-        ),
-    )
-    def test_load_and_dump(self, _in: CurrentBSPVersion):
-        assert CurrentBSPVersion.model_validate_json(_in.model_dump_json()) == _in
-
-
 class TestFirmwareBSPVersionControl:
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, tmp_path: Path):
-        self.test_fw_bsp_vf = tmp_path / "firmware_bsp_version"
+    def setup_test(self):
         self.ver = BSPVersion(35, 5, 0)
 
     def test_init(self):
-        self.test_fw_bsp_vf.write_text(
-            CurrentBSPVersion(version=self.ver).model_dump_json()
-        )
-
         loaded = FirmwareBSPVersionControl(
             SLOT_A,
             self.ver,
         )
 
-        # NOTE: FirmwareBSPVersionControl will not use the information for current slot.
         assert loaded.current_slot_bsp_ver == self.ver
 
 
