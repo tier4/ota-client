@@ -534,8 +534,9 @@ class OTAClientAPIServicer:
         local_response = self._handle_abort_request(local_abort_request)
         response.add_ecu(local_response)
 
-        # Set ABORTING status after all ECUs have responded
-        self._set_ota_status(OTAStatus.ABORTING)
+        # Only set ABORTING status if local abort was successful
+        if local_response.result == api_types.AbortFailureType.ABORT_NO_FAILURE:
+            self._set_ota_status(OTAStatus.ABORTING)
 
         return response
 
