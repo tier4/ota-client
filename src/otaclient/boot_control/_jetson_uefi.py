@@ -973,6 +973,11 @@ class JetsonUEFIBootControl(BootControllerBase):
         """Check if the input BSP version matches the firmware BSP version of current slot.
 
         If the BSP version is mismatched, we should reject the OTA.
+        1. It is not possible to access standby slot's firmware BSP version,
+            only current slot's version can be acquired.
+        2. As otaclient will not do BSP update (we use another tool for BSP update,
+            which will update both slots' firmware), we assume that both slots' firmware
+            BSP version is the same.
 
         Returns:
             Return a tuple indicates the check result. If the first element is True, BSP version
