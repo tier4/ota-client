@@ -91,7 +91,8 @@ class TestOTAClientAPIServicer:
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir="/tmp/ota-status"
+            ota_status_dir="/tmp/ota-status",
+            ota_status=OTAStatus.UPDATING,
         )
 
         # Create the servicer instance
@@ -591,6 +592,46 @@ class TestOTAClientAPIServicer:
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
         assert "final phase" in result.message
+
+    @pytest.mark.parametrize(
+        "ota_status",
+        [
+            OTAStatus.INITIALIZED,
+            OTAStatus.SUCCESS,
+            OTAStatus.FAILURE,
+            OTAStatus.ABORTED,
+            OTAStatus.ROLLBACK_FAILURE,
+        ],
+    )
+    def test_handle_abort_request_rejected_no_active_update(
+        self, mocker: MockerFixture, ota_status: OTAStatus
+    ):
+        """Test abort request rejected when no active OTA update is in progress."""
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
+            ota_status=ota_status,
+        )
+
+        request = AbortRequestV2(request_id="test-req", session_id="test-session")
+        result = self.servicer._handle_abort_request(request)
+
+        assert result.ecu_id == "autoware"
+        assert result.result == api_types.AbortFailureType.ABORT_FAILURE
+        assert "no active OTA update" in result.message
+
+    def test_handle_abort_request_rejected_shm_reader_returns_none(
+        self, mocker: MockerFixture
+    ):
+        """Test abort request rejected when shm_reader returns None."""
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.shm_reader.sync_msg.return_value = None
+
+        request = AbortRequestV2(request_id="test-req", session_id="test-session")
+        result = self.servicer._handle_abort_request(request)
+
+        assert result.ecu_id == "autoware"
+        assert result.result == api_types.AbortFailureType.ABORT_FAILURE
+        assert "no active OTA update" in result.message
 
     def test_handle_abort_request_not_in_critical_zone(self, mocker: MockerFixture):
         """Test abort request when NOT in critical zone (lock acquired immediately)."""
