@@ -13,7 +13,6 @@
 # limitations under the License.
 """A simple tool to query OTA status locally, for API version 2."""
 
-
 from __future__ import annotations
 
 import argparse

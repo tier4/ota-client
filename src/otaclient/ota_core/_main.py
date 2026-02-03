@@ -355,6 +355,14 @@ class OTAClient:
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
+        except ota_errors.OTAAbortRequested as e:
+            logger.info(f"OTA update aborted: {e.get_failure_reason()}")
+            self._live_ota_status = OTAStatus.ABORTED
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTED),
+                )
+            )
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
@@ -563,6 +571,7 @@ def ota_core_process(
         msg_queue=_local_status_report_queue,
         shm_status=shm_writer,
         max_traceback_size=max_traceback_size,
+        abort_ota_flag=abort_ota_flag,
     )
     _status_monitor.start()
     _status_monitor.start_log_thread()
