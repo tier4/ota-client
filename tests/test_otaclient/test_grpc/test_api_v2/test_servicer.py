@@ -825,3 +825,34 @@ class TestOTAClientAPIServicer:
         self.critical_zone_flag.acquire_lock_with_release.assert_not_called()
         # Assert shutdown was NOT set again
         self.abort_ota_flag.shutdown_requested.set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_abort_rejected_does_not_set_aborting_status(
+        self, mocker: MockerFixture, tmp_path
+    ):
+        """Test that ABORTING status is NOT set when local abort is rejected."""
+        # Ensure no sub-ECUs
+        mocker.patch.object(self.servicer, "sub_ecus", [])
+
+        # Setup shm_reader for status file writing
+        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
+            ota_status_dir=str(tmp_path)
+        )
+
+        # Setup abort flag to reject abort (in final phase)
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.abort_ota_flag.reject_abort.is_set.return_value = True
+
+        abort_request = api_types.AbortRequest()
+
+        result = await self.servicer.abort(abort_request)
+
+        # Assert local ECU response indicates failure
+        ecu_responses = list(result.iter_ecu())
+        assert len(ecu_responses) == 1
+        assert ecu_responses[0].ecu_id == "autoware"
+        assert ecu_responses[0].result == api_types.AbortFailureType.ABORT_FAILURE
+
+        # Assert ABORTING status was NOT written
+        status_file = tmp_path / "status"
+        assert not status_file.exists()
