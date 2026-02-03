@@ -684,7 +684,8 @@ class TestOTAClientAPIServicer:
 
         # Setup shm_reader for status file writing
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path)
+            ota_status_dir=str(tmp_path),
+            ota_status=OTAStatus.UPDATING,
         )
 
         # Setup abort flag
@@ -720,7 +721,8 @@ class TestOTAClientAPIServicer:
 
         # Setup shm_reader for status file writing
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path)
+            ota_status_dir=str(tmp_path),
+            ota_status=OTAStatus.UPDATING,
         )
 
         # Setup abort flag
@@ -769,7 +771,8 @@ class TestOTAClientAPIServicer:
 
         # Setup shm_reader for status file writing
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path)
+            ota_status_dir=str(tmp_path),
+            ota_status=OTAStatus.UPDATING,
         )
 
         # Setup abort flag
@@ -877,7 +880,8 @@ class TestOTAClientAPIServicer:
 
         # Setup shm_reader for status file writing
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path)
+            ota_status_dir=str(tmp_path),
+            ota_status=OTAStatus.UPDATING,
         )
 
         # Setup abort flag to reject abort (in final phase)
