@@ -370,26 +370,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                     raise ota_errors.OTAAbortRequested(module=__name__)
 
                 logger.info("Entering critical zone for OTA update: pre-update phase")
+
                 self._pre_update()
 
-            # Check if abort was requested/queued during pre_update phase.
-            # Honor abort before starting the lengthy _in_update phase.
-            if self._abort_ota_flag.shutdown_requested.is_set():
-                logger.warning(
-                    "Abort was requested during pre-update phase, stopping before in-update"
-                )
-                raise ota_errors.OTAAbortRequested(module=__name__)
-
             self._in_update()
-
-            # Check if abort was requested during _in_update phase.
-            # This must be checked BEFORE setting reject_abort to honor abort requests
-            # that were accepted while we were outside the critical zone.
-            if self._abort_ota_flag.shutdown_requested.is_set():
-                logger.warning(
-                    "Abort was requested during update phase, stopping before final phases"
-                )
-                raise ota_errors.OTAAbortRequested(module=__name__)
 
             # Set reject_abort flag BEFORE acquiring lock to prevent race condition.
             # This ensures abort requests are rejected during post-update/finalize phases.
