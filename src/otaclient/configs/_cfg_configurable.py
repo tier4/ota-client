@@ -89,8 +89,6 @@ class _OTAClientSettings(BaseModel):
 
     FSTRIM_AT_OTA: bool = True
     FSTRIM_AT_OTA_TIMEOUT: int = 30  # seconds
-    FSTRIM_AT_OTACLIENT_STARTUP: bool = True
-    FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT: int = 360  # 6mins
 
 
 class _MultipleECUSettings(BaseModel):
