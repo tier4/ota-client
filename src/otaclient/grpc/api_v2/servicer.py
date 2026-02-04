@@ -368,15 +368,6 @@ class OTAClientAPIServicer:
                 return
 
             with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
-                # Check reject_abort INSIDE the lock to avoid race condition where
-                # ota-core sets reject_abort after we checked but before we acquired lock
-                if self._abort_ota_flag.reject_abort.is_set():
-                    logger.info(
-                        "abort request rejected: OTA update entered final phase "
-                        "(post_update/finalize_update) while waiting"
-                    )
-                    return
-
                 logger.warning(
                     "critical zone ended, processing queued abort request..."
                 )
@@ -419,25 +410,24 @@ class OTAClientAPIServicer:
                     message="Cannot abort: no active OTA update in progress",
                 )
 
+            # Check if we're in final update phases (post_update/finalize_update)
+            # where abort should be rejected, not queued
+            if self._abort_ota_flag.reject_abort.is_set():
+                logger.info(
+                    "abort request rejected: OTA update is in final phase "
+                    "(post_update/finalize_update)"
+                )
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_FAILURE,
+                    message="Cannot abort: OTA update is in final phase and will complete shortly",
+                )
+
             with self._critical_zone_flag.acquire_lock_with_release(
                 blocking=False
             ) as _lock_acquired:
                 if _lock_acquired:
-                    # Lock acquired = NOT in critical zone
-                    # Check reject_abort INSIDE the lock to avoid race condition where
-                    # ota-core sets reject_abort after we checked but before we acquired lock
-                    if self._abort_ota_flag.reject_abort.is_set():
-                        logger.info(
-                            "abort request rejected: OTA update is in final phase "
-                            "(post_update/finalize_update)"
-                        )
-                        return api_types.AbortResponseEcu(
-                            ecu_id=self.my_ecu_id,
-                            result=api_types.AbortFailureType.ABORT_FAILURE,
-                            message="Cannot abort: OTA update is in final phase and will complete shortly",
-                        )
-
-                    # Safe to abort - process immediately
+                    # Lock acquired = NOT in critical zone, process immediately
                     logger.warning(
                         "abort function requested, interrupting OTA and exit now ..."
                     )
