@@ -87,7 +87,10 @@ class TestOTAClient:
 
         # start otaclient
         abort_ota_flag = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
+        abort_ota_flag.reject_abort.is_set.return_value = False
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,

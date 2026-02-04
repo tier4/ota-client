@@ -426,13 +426,23 @@ class OTAClientAPIServicer:
 
             # Check if there's an active OTA update to abort
             _local_status = self._shm_reader.sync_msg()
-            if _local_status is None or _local_status.ota_status not in (
+            if _local_status is None:
+                logger.info(
+                    "abort request rejected: no active OTA update (current status: unknown)"
+                )
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_FAILURE,
+                    message="Cannot abort: no active OTA update in progress",
+                )
+
+            if _local_status.ota_status not in (
                 OTAStatus.UPDATING,
                 OTAStatus.CLIENT_UPDATING,
             ):
                 logger.info(
                     f"abort request rejected: no active OTA update "
-                    f"(current status: {_local_status.ota_status if _local_status else 'unknown'})"
+                    f"(current status: {_local_status.ota_status})"
                 )
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
