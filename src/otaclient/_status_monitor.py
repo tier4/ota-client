@@ -62,6 +62,7 @@ atexit.register(_global_shutdown)
 @dataclass
 class SetOTAClientMetaReport:
     firmware_version: str = ""
+    ota_status_dir: str = ""
 
 
 @dataclass
@@ -272,6 +273,8 @@ class OTAClientStatusCollector:
         if isinstance(payload, SetOTAClientMetaReport):
             if payload.firmware_version:
                 status_storage.firmware_version = payload.firmware_version
+            if payload.ota_status_dir:
+                status_storage.ota_status_dir = payload.ota_status_dir
             return True
 
         # ------ on session start/end ------ #
