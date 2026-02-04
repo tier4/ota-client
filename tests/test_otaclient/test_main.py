@@ -450,9 +450,7 @@ class TestMain:
 
         # Use tmp_path as the default OTA status directory
         default_ota_status_dir = tmp_path / "ota-status"
-        mocker.patch.object(
-            main.cfg, "OTA_STATUS_DIR", str(default_ota_status_dir)
-        )
+        mocker.patch.object(main.cfg, "OTA_STATUS_DIR", str(default_ota_status_dir))
 
         # Mock SharedOTAClientStatusReader to return empty ota_status_dir
         mock_shm_reader = mocker.MagicMock()
