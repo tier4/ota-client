@@ -453,6 +453,17 @@ class OTAClientAPIServicer:
                 blocking=False
             ) as _lock_acquired:
                 if _lock_acquired:
+                    # Double-check reject_abort after acquiring lock to handle race condition
+                    # where OTA entered final phase between the initial check and lock acquisition
+                    if self._is_abort_rejected_by_final_phase(
+                        "handle_abort_request_after_lock"
+                    ):
+                        return api_types.AbortResponseEcu(
+                            ecu_id=self.my_ecu_id,
+                            result=api_types.AbortFailureType.ABORT_FAILURE,
+                            message="Cannot abort: OTA update is in final phase and will complete shortly",
+                        )
+
                     # Lock acquired = NOT in critical zone, process immediately
                     logger.warning(
                         "abort function requested, interrupting OTA and exit now ..."
