@@ -317,7 +317,7 @@ class OTAClientAPIServicer:
                     response.merge_from(_ecu_resp)
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
-                    logger.error(
+                    logger.warning(
                         f"{_ecu_contact} doesn't respond to request on-time"
                         f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
@@ -478,6 +478,9 @@ class OTAClientAPIServicer:
         """Handle abort request for local and sub-ECUs."""
         logger.info(f"receive abort request: {request}")
         response = api_types.AbortResponse()
+
+        if not request.request_id:
+            request.request_id = gen_request_id()
 
         # First: dispatch abort request to all directly connected sub-ECUs
         # NOTE: v1 aborts all ECUs unconditionally (no per-ECU filtering)

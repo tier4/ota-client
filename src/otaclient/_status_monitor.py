@@ -340,7 +340,9 @@ class OTAClientStatusCollector:
                 logger.info("Abort detected, setting OTA status to ABORTING")
                 self._input_queue.put_nowait(
                     StatusReport(
-                        payload=OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTING),
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTING
+                        ),
                         session_id=self._status.session_id,
                     )
                 )
