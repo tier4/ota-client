@@ -30,6 +30,12 @@
     {
       "matchManagers": ["github-actions"],
       "groupName": "github-actions updates"
+    },
+    // do not update Python version used for building whl
+    {
+      "matchManagers": ["github-actions"],
+      "matchDepNames": ["python"],
+      "enabled": false
     }
   ],
   "labels": [
