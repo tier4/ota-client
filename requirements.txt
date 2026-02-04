@@ -88,7 +88,7 @@ multidict==6.1.0 ; python_full_version < '3.9'
     #   aiohttp
     #   otaclient
     #   yarl
-multidict==6.7.0 ; python_full_version >= '3.9'
+multidict==6.7.1 ; python_full_version >= '3.9'
     # via
     #   aiohttp
     #   otaclient
@@ -105,7 +105,7 @@ propcache==0.4.1 ; python_full_version >= '3.9'
     #   yarl
 protobuf==5.29.5 ; python_full_version < '3.9'
     # via otaclient
-protobuf==6.33.4 ; python_full_version >= '3.9'
+protobuf==6.33.5 ; python_full_version >= '3.9'
     # via otaclient
 pycparser==2.23 ; (python_full_version < '3.10' and implementation_name != 'PyPy') or (python_full_version < '3.9' and implementation_name == 'PyPy')
     # via cffi
@@ -135,7 +135,7 @@ pydantic-settings==2.12.0 ; python_full_version >= '3.10'
     # via otaclient
 pyjwt==2.9.0 ; python_full_version < '3.9'
     # via ota-image-libs
-pyjwt==2.10.1 ; python_full_version >= '3.9'
+pyjwt==2.11.0 ; python_full_version >= '3.9'
     # via ota-image-libs
 python-dotenv==1.0.1 ; python_full_version < '3.9'
     # via
