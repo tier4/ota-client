@@ -174,7 +174,6 @@ class OTAClient:
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
-                    ota_status_dir=str(self.boot_controller.get_ota_status_dir()),
                 ),
             )
         )

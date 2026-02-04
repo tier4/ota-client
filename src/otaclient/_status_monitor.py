@@ -62,7 +62,6 @@ atexit.register(_global_shutdown)
 @dataclass
 class SetOTAClientMetaReport:
     firmware_version: str = ""
-    ota_status_dir: str = ""
 
 
 @dataclass
@@ -273,8 +272,6 @@ class OTAClientStatusCollector:
         if isinstance(payload, SetOTAClientMetaReport):
             if payload.firmware_version:
                 status_storage.firmware_version = payload.firmware_version
-            if payload.ota_status_dir:
-                status_storage.ota_status_dir = payload.ota_status_dir
             return True
 
         # ------ on session start/end ------ #
@@ -292,6 +289,9 @@ class OTAClientStatusCollector:
             ]:
                 status_storage.session_id = report.session_id
                 return _on_new_ota_session(status_storage, payload)
+            if new_ota_status == OTAStatus.ABORTING:
+                status_storage.ota_status = new_ota_status
+                return True
             status_storage.session_id = ""  # clear session if we are not in an OTA
             return _on_session_finished(status_storage, payload)
 
@@ -338,8 +338,12 @@ class OTAClientStatusCollector:
                 and self._status.ota_status == OTAStatus.UPDATING
             ):
                 logger.info("Abort detected, setting OTA status to ABORTING")
-                self._status.ota_status = OTAStatus.ABORTING
-                latest_changes_pushed = False
+                self._input_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTING),
+                        session_id=self._status.session_id,
+                    )
+                )
 
             # ------ push status ------ #
             # NOTE: always push OTAStatus change report

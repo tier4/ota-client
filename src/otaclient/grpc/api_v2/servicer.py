@@ -20,7 +20,6 @@ import logging
 import multiprocessing.queues as mp_queue
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
@@ -43,7 +42,6 @@ from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
-from otaclient_common._io import write_str_to_file_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -361,32 +359,6 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _get_ota_status_file_path(self) -> Path | None:
-        """Get the path to the OTA status file from shared memory.
-
-        Returns:
-            Path to the OTA status file, or None if not available.
-        """
-        try:
-            _local_status = self._shm_reader.sync_msg()
-            if _local_status and _local_status.ota_status_dir:
-                return Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
-        except Exception as e:
-            logger.error(f"failed to get OTA status file path: {e!r}")
-        return None
-
-    def _set_ota_status(self, status: OTAStatus) -> None:
-        """Set the OTA status directly to the status file."""
-        _status_file = self._get_ota_status_file_path()
-        if _status_file:
-            try:
-                write_str_to_file_atomic(_status_file, status.name)
-                logger.info(f"OTA status {status} written to {_status_file}")
-            except Exception as e:
-                logger.error(f"failed to set OTA status to {status}: {e!r}")
-        else:
-            logger.warning("OTA status directory not available, cannot persist status")
-
     def _process_queued_abort(self) -> None:
         # Use blocking acquire - threads will serialize here
         with self._abort_thread_lock.acquire_lock_with_release(blocking=True):
@@ -549,10 +521,6 @@ class OTAClientAPIServicer:
         )
         local_response = self._handle_abort_request(local_abort_request)
         response.add_ecu(local_response)
-
-        # Only set ABORTING status if local abort was successful
-        if local_response.result == api_types.AbortFailureType.ABORT_NO_FAILURE:
-            self._set_ota_status(OTAStatus.ABORTING)
 
         return response
 

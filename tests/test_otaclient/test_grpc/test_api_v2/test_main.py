@@ -90,9 +90,7 @@ class TestGrpcServerLauncher:
         def mock_shm_reader_factory():
             mock_shm_reader = MagicMock()
             mock_shm_reader.atexit = MagicMock()
-            mock_shm_reader.sync_msg.return_value = MagicMock(
-                ota_status_dir="/tmp/ota-status"
-            )
+            mock_shm_reader.sync_msg.return_value = MagicMock()
             return mock_shm_reader
 
         # Run the server process function with patched asyncio.run
