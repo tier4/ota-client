@@ -60,7 +60,6 @@ from otaclient._utils import (
     get_traceback,
 )
 from otaclient.boot_control import get_boot_controller
-from otaclient.configs._cfg_consts import CANONICAL_ROOT
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
@@ -71,7 +70,6 @@ from otaclient.ota_core._updater import (
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
-from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
 from ._common import handle_upper_proxy
@@ -207,21 +205,6 @@ class OTAClient:
 
         self.started = True
         logger.info("otaclient started")
-
-        # NOTE: not doing fstrim at startup when running as downloaded dynamic otaclient
-        if (
-            not _env.is_running_as_downloaded_dynamic_app()
-            and cfg.FSTRIM_AT_OTACLIENT_STARTUP
-        ):
-            logger.info(
-                "spawn a subprocess to do fstrim on active slot"
-                f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
-            )
-            fstrim_at_subprocess(
-                Path(CANONICAL_ROOT),
-                wait=False,
-                timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
-            )
 
     def _on_failure(
         self,
