@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -23,7 +25,7 @@ import pytest_mock
 
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import StatusReport
-from otaclient._types import AbortOTAFlag, CriticalZoneFlag
+from otaclient._types import AbortOTAFlag, AbortThreadLock, CriticalZoneFlag
 from otaclient.ota_core import _updater
 
 OTA_UPDATER_MODULE = _updater.__name__
@@ -223,3 +225,107 @@ class TestOTAUpdaterRejectAbortFlag:
 
         # Verify reject_abort was cleared after execution
         assert not self.reject_abort_event.is_set()
+
+
+class TestAbortRaceCondition:
+    """Test that race conditions between abort and final update phases are handled."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        # Create multiprocessing events for the flags
+        self.shutdown_requested = mp.Event()
+        self.reject_abort_event = mp.Event()
+        self.abort_ota_flag = AbortOTAFlag(
+            shutdown_requested=self.shutdown_requested,
+            reject_abort=self.reject_abort_event,
+        )
+
+        # Create locks
+        self.critical_zone_lock = mp.Lock()
+        self.critical_zone_flag = CriticalZoneFlag(self.critical_zone_lock)
+        self.abort_thread_lock = AbortThreadLock()
+
+    def _simulate_servicer_abort(self) -> str:
+        """Simulates servicer trying to process abort, returns result."""
+        with self.abort_thread_lock.acquire_lock_with_release(blocking=True):
+            if self.shutdown_requested.is_set():
+                return "already_processed"
+
+            with self.critical_zone_flag.acquire_lock_with_release(blocking=True):
+                # Check reject_abort INSIDE the lock (the fix)
+                if self.reject_abort_event.is_set():
+                    return "rejected_final_phase"
+
+                self.shutdown_requested.set()
+                return "abort_processed"
+
+    def test_abort_rejected_when_reject_abort_set(self):
+        """Test abort is rejected when reject_abort is set (in final phase)."""
+        # Set reject_abort before servicer tries to process
+        self.reject_abort_event.set()
+
+        # Servicer tries to abort
+        result = self._simulate_servicer_abort()
+
+        assert result == "rejected_final_phase"
+        assert not self.shutdown_requested.is_set()
+
+    def test_abort_proceeds_when_not_in_final_phase(self):
+        """Test abort proceeds normally when not in final phase."""
+        # reject_abort is NOT set (not in final phase)
+        assert not self.reject_abort_event.is_set()
+
+        # Servicer tries to abort
+        result = self._simulate_servicer_abort()
+
+        assert result == "abort_processed"
+        assert self.shutdown_requested.is_set()
+
+    def test_queued_abort_rejected_when_final_phase_entered(self):
+        """Test queued abort is rejected if ota-core enters final phase while waiting."""
+        abort_result = []
+        barrier = threading.Barrier(2)
+
+        def simulate_ota_core():
+            """Simulates ota-core holding lock then entering final phase."""
+            with self.critical_zone_flag.acquire_lock_with_release(blocking=True):
+                # Signal that we're in critical zone
+                barrier.wait()
+                # Simulate some work in critical zone
+                time.sleep(0.1)
+            # After releasing lock, immediately set reject_abort (entering final phase)
+            self.reject_abort_event.set()
+
+        def simulate_servicer_queued_abort():
+            """Simulates servicer's queued abort waiting for lock."""
+            # Wait for ota-core to be in critical zone
+            barrier.wait()
+            with self.abort_thread_lock.acquire_lock_with_release(blocking=True):
+                if self.shutdown_requested.is_set():
+                    abort_result.append("already_processed")
+                    return
+
+                # This will block until ota-core releases the lock
+                with self.critical_zone_flag.acquire_lock_with_release(blocking=True):
+                    # By now, ota-core has set reject_abort
+                    if self.reject_abort_event.is_set():
+                        abort_result.append("rejected_final_phase")
+                        return
+
+                    self.shutdown_requested.set()
+                    abort_result.append("abort_processed")
+
+        # Start ota-core thread
+        ota_core_thread = threading.Thread(target=simulate_ota_core)
+        # Start servicer thread
+        servicer_thread = threading.Thread(target=simulate_servicer_queued_abort)
+
+        ota_core_thread.start()
+        servicer_thread.start()
+
+        ota_core_thread.join()
+        servicer_thread.join()
+
+        assert len(abort_result) == 1
+        assert abort_result[0] == "rejected_final_phase"
+        assert not self.shutdown_requested.is_set()
