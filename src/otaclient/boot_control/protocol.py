@@ -21,9 +21,13 @@ from typing import Protocol
 
 from otaclient._types import OTAStatus
 
+from ._ota_status_control import OTAStatusFilesControl
+
 
 class BootControllerProtocol(Protocol):
     """Boot controller protocol for otaclient."""
+
+    _ota_status_control: OTAStatusFilesControl
 
     @abstractmethod
     def get_booted_ota_status(self) -> OTAStatus:
