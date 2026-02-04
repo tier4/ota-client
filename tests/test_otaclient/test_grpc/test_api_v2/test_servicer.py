@@ -87,6 +87,8 @@ class TestOTAClientAPIServicer:
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort = mocker.MagicMock()
         self.abort_ota_flag.reject_abort.is_set.return_value = False
+        # Mock is_in_final_phase() method - defaults to False (not in final phase)
+        self.abort_ota_flag.is_in_final_phase.return_value = False
 
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
@@ -540,6 +542,7 @@ class TestOTAClientAPIServicer:
         """Test abort request rejected when in final update phase (post_update/finalize)."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort.is_set.return_value = True
+        self.abort_ota_flag.is_in_final_phase.return_value = True
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
@@ -802,6 +805,36 @@ class TestOTAClientAPIServicer:
         # Assert shutdown was NOT set again
         self.abort_ota_flag.shutdown_requested.set.assert_not_called()
 
+    def test_process_queued_abort_rejected_in_final_phase(self, mocker: MockerFixture):
+        """Test _process_queued_abort rejects abort when OTA enters final phase."""
+        # Setup abort_thread_lock context manager
+        mock_abort_thread_cm = mocker.MagicMock()
+        mock_abort_thread_cm.__enter__ = mocker.MagicMock(return_value=True)
+        mock_abort_thread_cm.__exit__ = mocker.MagicMock(return_value=None)
+
+        mock_abort_thread_lock = mocker.MagicMock()
+        mock_abort_thread_lock.acquire_lock_with_release.return_value = (
+            mock_abort_thread_cm
+        )
+        self.servicer._abort_thread_lock = mock_abort_thread_lock
+
+        # Abort not yet processed
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        # OTA entered final phase while waiting
+        self.abort_ota_flag.is_in_final_phase.return_value = True
+
+        # Call the method
+        self.servicer._process_queued_abort()
+
+        # Assert abort_thread_lock was acquired
+        mock_abort_thread_lock.acquire_lock_with_release.assert_called_once_with(
+            blocking=True
+        )
+        # Assert critical_zone_flag was NOT acquired (early return due to final phase)
+        self.critical_zone_flag.acquire_lock_with_release.assert_not_called()
+        # Assert shutdown was NOT set (rejected)
+        self.abort_ota_flag.shutdown_requested.set.assert_not_called()
+
     @pytest.mark.asyncio
     async def test_abort_rejected_in_final_phase(self, mocker: MockerFixture):
         """Test that abort is rejected when in final update phase."""
@@ -811,6 +844,7 @@ class TestOTAClientAPIServicer:
         # Setup abort flag to reject abort (in final phase)
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort.is_set.return_value = True
+        self.abort_ota_flag.is_in_final_phase.return_value = True
 
         abort_request = api_types.AbortRequest()
 
