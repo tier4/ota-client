@@ -113,12 +113,12 @@ def _fstrim_at_startup(fstrim_next_fpath: Path) -> None:
         f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s), \n"
         f"next fstrim: {fstrim_next}"
     )
-    fstrim_next_fpath.write_text(str(_now))
     fstrim_at_subprocess(
         Path(CANONICAL_ROOT),
         wait=False,
         timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
     )
+    fstrim_next_fpath.write_text(str(_now))
 
 
 class OTAClient:
