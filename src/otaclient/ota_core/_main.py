@@ -103,7 +103,7 @@ def _fstrim_at_startup(fstrim_next_fpath: Path) -> None:
         fstrim_next = 0
 
     if _now < fstrim_next:
-        logger.info(f"skip fstrim as { _now < fstrim_next=}")
+        logger.info(f"skip fstrim as {_now=} < {fstrim_next=}")
         return
     # next fstrim should be at two days later
     fstrim_next = _now + cfg.FSTRIM_AT_OTACLIENT_STARTUP_INTERVAL
