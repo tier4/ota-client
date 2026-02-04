@@ -118,7 +118,7 @@ def _fstrim_at_startup(fstrim_next_fpath: Path) -> None:
         wait=False,
         timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
     )
-    fstrim_next_fpath.write_text(str(_now))
+    fstrim_next_fpath.write_text(str(fstrim_next))
 
 
 class OTAClient:
