@@ -503,21 +503,13 @@ class JetsonCBootControl(BootControllerBase):
             )
 
             # load firmware BSP version
-            current_fw_bsp_ver_fpath = (
-                current_ota_status_dir / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-            )
             self._firmware_bsp_ver_control = bsp_ver_ctrl = FirmwareBSPVersionControl(
                 current_slot=cboot_control.current_bootloader_slot,
                 # NOTE: see comments at L240-242
                 current_slot_bsp_ver=cboot_control.rootfs_bsp_version,
-                current_bsp_version_file=current_fw_bsp_ver_fpath,
             )
-            # always update the bsp_version_file on startup to reflect
-            #   the up-to-date current slot BSP version
-            self._firmware_bsp_ver_control.write_to_file(current_fw_bsp_ver_fpath)
             logger.info(
-                f"\ncurrent slot firmware BSP version: {bsp_ver_ctrl.current_slot_bsp_ver}\n"
-                f"standby slot firmware BSP version: {bsp_ver_ctrl.standby_slot_bsp_ver}"
+                f"\ncurrent slot firmware BSP version: {bsp_ver_ctrl.current_slot_bsp_ver}"
             )
 
             logger.info("jetson-cboot boot control start up finished")
@@ -641,13 +633,6 @@ class JetsonCBootControl(BootControllerBase):
             raise JetsonCBootContrlError("firmware update failed")
         else:
             logger.info("new firmware is written to the standby slot")
-
-        # ------ preserve BSP version files to standby slot ------ #
-        standby_fw_bsp_ver_fpath = (
-            self._ota_status_control.standby_ota_status_dir
-            / boot_cfg.FIRMWARE_BSP_VERSION_FNAME
-        )
-        self._firmware_bsp_ver_control.write_to_file(standby_fw_bsp_ver_fpath)
 
         # ------ preserve /boot/ota folder to standby rootfs ------ #
         preserve_ota_config_files_to_standby(

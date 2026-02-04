@@ -70,6 +70,7 @@ from otaclient.ota_core._updater import (
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
+from otaclient_common._io import remove_file
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 from otaclient_common.linux import fstrim_at_subprocess
 
@@ -84,6 +85,40 @@ HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
+
+
+def _fstrim_at_startup(fstrim_next_fpath: Path) -> None:
+    """Will trigger a fstrim on otaclient start up when conditions met.
+
+    Trigger condition:
+    1. `ota-status`/fstrim_next timestamp is older than now.
+    2. cfg.FSTRIM_AT_OTACLIENT_STARTUP is True.
+    3. NOT running as downloaded dynamic otaclient.
+    """
+    _now = int(time.time())
+    try:
+        fstrim_next = int(fstrim_next_fpath.read_text())
+    except Exception:  # remove invalid fstrim_next file
+        remove_file(fstrim_next_fpath)
+        fstrim_next = 0
+
+    if _now < fstrim_next:
+        logger.info(f"skip fstrim as {_now=} < {fstrim_next=}")
+        return
+    # next fstrim should be at two days later
+    fstrim_next = _now + cfg.FSTRIM_AT_OTACLIENT_STARTUP_INTERVAL
+
+    logger.info(
+        "spawn a subprocess to do fstrim on active slot"
+        f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s), \n"
+        f"next fstrim: {fstrim_next}"
+    )
+    fstrim_at_subprocess(
+        Path(CANONICAL_ROOT),
+        wait=False,
+        timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
+    )
+    fstrim_next_fpath.write_text(str(fstrim_next))
 
 
 class OTAClient:
@@ -208,19 +243,15 @@ class OTAClient:
         self.started = True
         logger.info("otaclient started")
 
-        # NOTE: not doing fstrim at startup when running as downloaded dynamic otaclient
         if (
-            not _env.is_running_as_downloaded_dynamic_app()
-            and cfg.FSTRIM_AT_OTACLIENT_STARTUP
+            cfg.FSTRIM_AT_OTACLIENT_STARTUP
+            and not _env.is_running_as_downloaded_dynamic_app()
         ):
-            logger.info(
-                "spawn a subprocess to do fstrim on active slot"
-                f"(timeout={cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT}s)"
-            )
-            fstrim_at_subprocess(
-                Path(CANONICAL_ROOT),
-                wait=False,
-                timeout=cfg.FSTRIM_AT_OTACLIENT_STARTUP_TIMEOUT,
+            _fstrim_at_startup(
+                fstrim_next_fpath=(
+                    self.boot_controller._ota_status_control.current_ota_status_dir
+                    / cfg.FSTRIM_NEXT_FNAME
+                )
             )
 
     def _on_failure(
