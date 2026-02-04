@@ -314,7 +314,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
     def _finalize_update(self) -> None:
         """Finalize-Update: wait for all sub ECUs, and then reboot."""
-        logger.info("local update finished, wait on all subecs...")
+        logger.info("local update finished, wait on all sub ECUs...")
         _current_finalizing_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
