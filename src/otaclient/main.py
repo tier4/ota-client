@@ -464,7 +464,10 @@ def main() -> None:  # pragma: no cover
 
             # Write ABORTED status to file to persist across reboots
             try:
-                _status_file = Path(cfg.OTA_STATUS_DIR) / cfg.OTA_STATUS_FNAME
+                _status_dir = Path(cfg.OTA_STATUS_DIR)
+                if not _status_dir.exists():
+                    _status_dir.mkdir(parents=True, exist_ok=True)
+                _status_file = _status_dir / cfg.OTA_STATUS_FNAME
                 write_str_to_file_atomic(_status_file, OTAStatus.ABORTED.name)
                 logger.info(f"ABORTED status written to {_status_file}")
             except Exception as e:
