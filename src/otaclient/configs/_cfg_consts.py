@@ -86,6 +86,8 @@ class Consts:
     OTA_VERSION_FNAME = "version"
     SLOT_IN_USE_FNAME = "slot_in_use"
 
+    FSTRIM_NEXT_FNAME = "fstrim_next"
+
     DEFAULT_VERSION_STR = ""
 
     OTA_API_SERVER_PORT = 50051
