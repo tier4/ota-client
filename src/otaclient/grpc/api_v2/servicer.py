@@ -296,7 +296,7 @@ class OTAClientAPIServicer:
                     response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
                 )
             return response
-        # first: dispatch update request to all directly connected subECUs
+        # first: dispatch update request to all directly connected sub ECUs
         tasks: dict[asyncio.Task, ECUContact] = {}
         for ecu_contact in self.sub_ecus:
             if not request.if_contains_ecu(ecu_contact.ecu_id):
@@ -363,6 +363,24 @@ class OTAClientAPIServicer:
             )
         return response
 
+    def _is_abort_rejected_by_final_phase(self, caller: str = "") -> bool:
+        """Check if abort should be rejected because OTA is in final phase.
+
+        Args:
+            caller: Optional identifier for the caller context (for logging).
+
+        Returns:
+            True if abort should be rejected (OTA in final phase), False otherwise.
+        """
+        if self._abort_ota_flag.is_in_final_phase():
+            caller_info = f" [{caller}]" if caller else ""
+            logger.info(
+                f"abort request rejected{caller_info}: OTA update is in final phase "
+                "(post_update/finalize_update)"
+            )
+            return True
+        return False
+
     def _process_queued_abort(self) -> None:
         # Use blocking acquire - threads will serialize here
         with self._abort_thread_lock.acquire_lock_with_release(blocking=True):
@@ -371,7 +389,15 @@ class OTAClientAPIServicer:
                 logger.info("Abort already processed by another thread, skipping")
                 return
 
+            # Check if OTA entered final phase while we were waiting
+            if self._is_abort_rejected_by_final_phase("after_abort_thread_lock"):
+                return
+
             with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
+                # Double-check reject_abort after acquiring lock
+                if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
+                    return
+
                 logger.warning(
                     "critical zone ended, processing queued abort request..."
                 )
@@ -416,11 +442,7 @@ class OTAClientAPIServicer:
 
             # Check if we're in final update phases (post_update/finalize_update)
             # where abort should be rejected, not queued
-            if self._abort_ota_flag.reject_abort.is_set():
-                logger.info(
-                    "abort request rejected: OTA update is in final phase "
-                    "(post_update/finalize_update)"
-                )
+            if self._is_abort_rejected_by_final_phase("handle_abort_request"):
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_FAILURE,

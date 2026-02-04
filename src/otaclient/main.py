@@ -450,10 +450,10 @@ def main() -> None:  # pragma: no cover
         if abort_ota_flag.shutdown_requested.is_set():
             # Check if ota-core is in final phase (post_update/finalize_update)
             # If so, reject the abort request by clearing the flag
-            if abort_ota_flag.reject_abort.is_set():
+            if abort_ota_flag.is_in_final_phase():
                 logger.info(
                     "Abort requested but OTA is in final phase "
-                    "(post_update/finalize_update), rejecting abort request"
+                    "[main_health_check], rejecting abort request"
                 )
                 abort_ota_flag.shutdown_requested.clear()
                 continue
