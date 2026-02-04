@@ -183,14 +183,21 @@ class TestMain:
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
+
+        # Create properly configured mock events for AbortOTAFlag
+        mock_shutdown_requested = MagicMock()
+        mock_shutdown_requested.is_set.return_value = False
+        mock_reject_abort = MagicMock()
+        mock_reject_abort.is_set.return_value = False
+
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
             MagicMock(),  # any_requires_network
             MagicMock(),  # all_success
             MagicMock(),  # notify_data_ready_event
             MagicMock(),  # request_shutdown_event
-            MagicMock(),  # shutdown_requested (AbortOTAFlag)
-            MagicMock(),  # reject_abort (AbortOTAFlag)
+            mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
+            mock_reject_abort,  # reject_abort (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
@@ -243,14 +250,21 @@ class TestMain:
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
+
+        # Create properly configured mock events for AbortOTAFlag
+        mock_shutdown_requested = MagicMock()
+        mock_shutdown_requested.is_set.return_value = False
+        mock_reject_abort = MagicMock()
+        mock_reject_abort.is_set.return_value = False
+
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
             MagicMock(),  # any_requires_network
             MagicMock(),  # all_success
             MagicMock(),  # notify_data_ready_event
             MagicMock(),  # request_shutdown_event
-            MagicMock(),  # shutdown_requested (AbortOTAFlag)
-            MagicMock(),  # reject_abort (AbortOTAFlag)
+            mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
+            mock_reject_abort,  # reject_abort (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
