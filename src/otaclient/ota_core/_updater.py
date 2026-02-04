@@ -403,6 +403,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
+            self._abort_ota_flag.reject_abort.clear()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
