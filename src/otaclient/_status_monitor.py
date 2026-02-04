@@ -312,7 +312,7 @@ class OTAClientStatusCollector:
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
-        next_shm_push, lastest_changes_pushed = 0, False
+        next_shm_push, latest_changes_pushed = 0, False
         while True:
             _now = time.perf_counter()
 
@@ -326,7 +326,7 @@ class OTAClientStatusCollector:
 
                 if self.load_report(_report):  # valid report
                     report = _report
-                    lastest_changes_pushed = False
+                    latest_changes_pushed = False
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
@@ -339,19 +339,19 @@ class OTAClientStatusCollector:
             ):
                 logger.info("Abort detected, setting OTA status to ABORTING")
                 self._status.ota_status = OTAStatus.ABORTING
-                lastest_changes_pushed = False
+                latest_changes_pushed = False
 
             # ------ push status ------ #
             # NOTE: always push OTAStatus change report
             # NOTE: for every push interval, push only when we have status updated
             if self._status and (
-                (_now > next_shm_push and not lastest_changes_pushed)
+                (_now > next_shm_push and not latest_changes_pushed)
                 or (report and isinstance(report.payload, OTAStatusChangeReport))
             ):
                 try:
                     self._shm_status.write_msg(self._status)
                     next_shm_push = _now + self.shm_push_interval
-                    lastest_changes_pushed = True
+                    latest_changes_pushed = True
                 except Exception as e:
                     burst_suppressed_logger.debug(
                         f"failed to push status to shm: {e!r}"
