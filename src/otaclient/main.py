@@ -454,17 +454,9 @@ def main() -> None:  # pragma: no cover
 
             # Write ABORTED status to file to persist across reboots
             try:
-                _local_status = _main_shm_reader.sync_msg()
-                if _local_status and _local_status.ota_status_dir:
-                    _status_file = (
-                        Path(_local_status.ota_status_dir) / cfg.OTA_STATUS_FNAME
-                    )
-                    write_str_to_file_atomic(_status_file, OTAStatus.ABORTED.name)
-                    logger.info(f"ABORTED status written to {_status_file}")
-                else:
-                    logger.warning(
-                        "OTA status directory not available, cannot persist ABORTED status"
-                    )
+                _status_file = Path(cfg.OTA_STATUS_DIR) / cfg.OTA_STATUS_FNAME
+                write_str_to_file_atomic(_status_file, OTAStatus.ABORTED.name)
+                logger.info(f"ABORTED status written to {_status_file}")
             except Exception as e:
                 logger.error(f"Failed to write ABORTED status to file: {e!r}")
 

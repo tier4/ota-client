@@ -91,7 +91,6 @@ class TestOTAClientAPIServicer:
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir="/tmp/ota-status",
             ota_status=OTAStatus.UPDATING,
         )
 
@@ -526,50 +525,6 @@ class TestOTAClientAPIServicer:
 
     # ==================== Abort Tests ====================
 
-    def test_get_ota_status_file_path_success(self, mocker: MockerFixture):
-        """Test getting OTA status file path when available."""
-        # shm_reader is already set up in fixture with ota_status_dir="/tmp/ota-status"
-        result = self.servicer._get_ota_status_file_path()
-
-        assert result is not None
-        assert str(result).endswith("status")
-        assert "/tmp/ota-status" in str(result)
-
-    def test_get_ota_status_file_path_no_dir(self, mocker: MockerFixture):
-        """Test getting OTA status file path when ota_status_dir is empty."""
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(ota_status_dir="")
-
-        result = self.servicer._get_ota_status_file_path()
-
-        assert result is None
-
-    def test_get_ota_status_file_path_exception(self, mocker: MockerFixture):
-        """Test getting OTA status file path when exception occurs."""
-        self.shm_reader.sync_msg.side_effect = Exception("SHM read error")
-
-        result = self.servicer._get_ota_status_file_path()
-
-        assert result is None
-
-    def test_set_ota_status_success(self, mocker: MockerFixture, tmp_path):
-        """Test setting OTA status to file."""
-        status_file = tmp_path / "status"
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path)
-        )
-
-        self.servicer._set_ota_status(OTAStatus.ABORTING)
-
-        assert status_file.exists()
-        assert status_file.read_text() == "ABORTING"
-
-    def test_set_ota_status_no_path(self, mocker: MockerFixture):
-        """Test setting OTA status when path is not available."""
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(ota_status_dir="")
-
-        # Should not raise, just log warning
-        self.servicer._set_ota_status(OTAStatus.ABORTING)
-
     def test_handle_abort_request_shutdown_already_requested(self):
         """Test abort request when shutdown is already requested."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = True
@@ -677,16 +632,10 @@ class TestOTAClientAPIServicer:
         assert "invalid abort request" in result.message
 
     @pytest.mark.asyncio
-    async def test_abort_local_ecu_only(self, mocker: MockerFixture, tmp_path):
+    async def test_abort_local_ecu_only(self, mocker: MockerFixture):
         """Test abort with local ECU only (no sub-ECUs)."""
         # Ensure no sub-ECUs
         mocker.patch.object(self.servicer, "sub_ecus", [])
-
-        # Setup shm_reader for status file writing
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path),
-            ota_status=OTAStatus.UPDATING,
-        )
 
         # Setup abort flag
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
@@ -705,25 +654,14 @@ class TestOTAClientAPIServicer:
         assert ecu_responses[0].ecu_id == "autoware"
         assert ecu_responses[0].result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
-        # Assert ABORTING status was written
-        status_file = tmp_path / "status"
-        assert status_file.exists()
-        assert status_file.read_text() == "ABORTING"
-
     @pytest.mark.asyncio
-    async def test_abort_with_sub_ecus(self, mocker: MockerFixture, tmp_path):
+    async def test_abort_with_sub_ecus(self, mocker: MockerFixture):
         """Test abort with sub-ECUs."""
         # Setup sub-ECUs
         mock_sub_ecus = [
             ECUContact(ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051)
         ]
         mocker.patch.object(self.servicer, "sub_ecus", mock_sub_ecus)
-
-        # Setup shm_reader for status file writing
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path),
-            ota_status=OTAStatus.UPDATING,
-        )
 
         # Setup abort flag
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
@@ -761,19 +699,13 @@ class TestOTAClientAPIServicer:
         mock_abort_call.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_abort_subecu_no_response(self, mocker: MockerFixture, tmp_path):
+    async def test_abort_subecu_no_response(self, mocker: MockerFixture):
         """Test abort when sub-ECU doesn't respond."""
         # Setup sub-ECUs
         sub_ecu = ECUContact(
             ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051
         )
         mocker.patch.object(self.servicer, "sub_ecus", [sub_ecu])
-
-        # Setup shm_reader for status file writing
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path),
-            ota_status=OTAStatus.UPDATING,
-        )
 
         # Setup abort flag
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
@@ -871,18 +803,10 @@ class TestOTAClientAPIServicer:
         self.abort_ota_flag.shutdown_requested.set.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_abort_rejected_does_not_set_aborting_status(
-        self, mocker: MockerFixture, tmp_path
-    ):
-        """Test that ABORTING status is NOT set when local abort is rejected."""
+    async def test_abort_rejected_in_final_phase(self, mocker: MockerFixture):
+        """Test that abort is rejected when in final update phase."""
         # Ensure no sub-ECUs
         mocker.patch.object(self.servicer, "sub_ecus", [])
-
-        # Setup shm_reader for status file writing
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status_dir=str(tmp_path),
-            ota_status=OTAStatus.UPDATING,
-        )
 
         # Setup abort flag to reject abort (in final phase)
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
@@ -897,7 +821,3 @@ class TestOTAClientAPIServicer:
         assert len(ecu_responses) == 1
         assert ecu_responses[0].ecu_id == "autoware"
         assert ecu_responses[0].result == api_types.AbortFailureType.ABORT_FAILURE
-
-        # Assert ABORTING status was NOT written
-        status_file = tmp_path / "status"
-        assert not status_file.exists()
