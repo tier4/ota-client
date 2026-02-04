@@ -394,6 +394,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 self._finalize_update()
 
             # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
+        except ota_errors.OTAAbortRequested:
+            # Abort is not a failure - don't call on_operation_failure()
+            logger.info("OTA update aborted by user request")
+            raise
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
