@@ -371,7 +371,7 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         boot_control._firmware_bsp_ver_control = mock_fw_bsp_ver_control
 
         # Call the real method
-        result, _ = JetsonUEFIBootControl.standby_slot_bsp_ver_check(
+        result, _ = JetsonUEFIBootControl.current_slot_bsp_ver_check(
             boot_control, download_bsp_version
         )
 
@@ -393,7 +393,7 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         boot_control._firmware_bsp_ver_control = mock_fw_bsp_ver_control
 
         # Call the real method - should return False (R35 != R36)
-        result, _ = JetsonUEFIBootControl.standby_slot_bsp_ver_check(
+        result, _ = JetsonUEFIBootControl.current_slot_bsp_ver_check(
             boot_control,
             "R35.4.1",
         )

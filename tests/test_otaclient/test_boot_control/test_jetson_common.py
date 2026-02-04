@@ -26,7 +26,6 @@ from otaclient.boot_control._jetson_common import (
     SLOT_B,
     BSPVersion,
     FirmwareBSPVersionControl,
-    SlotBSPVersion,
     SlotID,
     detect_external_rootdev,
     get_nvbootctrl_conf_tnspec,
@@ -98,129 +97,19 @@ class TestBSPVersion:
         assert _in.dump() == _expect
 
 
-class TestSlotBSPVersion:
-
-    @pytest.mark.parametrize(
-        "_in, _slot, _bsp_ver, _expect",
-        (
-            (
-                SlotBSPVersion(),
-                SLOT_A,
-                BSPVersion(32, 6, 1),
-                SlotBSPVersion(slot_a=BSPVersion(32, 6, 1)),
-            ),
-            (
-                SlotBSPVersion(
-                    slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
-                ),
-                SLOT_B,
-                None,
-                SlotBSPVersion(slot_a=BSPVersion(32, 5, 1), slot_b=None),
-            ),
-            (
-                SlotBSPVersion(
-                    slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
-                ),
-                SLOT_A,
-                None,
-                SlotBSPVersion(slot_a=None, slot_b=BSPVersion(32, 6, 1)),
-            ),
-        ),
-    )
-    def test_set_by_slot(
-        self,
-        _in: SlotBSPVersion,
-        _slot: SlotID,
-        _bsp_ver: BSPVersion | None,
-        _expect: SlotBSPVersion,
-    ):
-        _in.set_by_slot(_slot, _bsp_ver)
-        assert _in == _expect
-
-    @pytest.mark.parametrize(
-        "_in, _slot, _expect",
-        (
-            (
-                SlotBSPVersion(),
-                SLOT_A,
-                None,
-            ),
-            (
-                SlotBSPVersion(
-                    slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
-                ),
-                SLOT_B,
-                BSPVersion(32, 6, 1),
-            ),
-            (
-                SlotBSPVersion(
-                    slot_a=BSPVersion(32, 5, 1), slot_b=BSPVersion(32, 6, 1)
-                ),
-                SLOT_A,
-                BSPVersion(32, 5, 1),
-            ),
-        ),
-    )
-    def test_get_by_slot(
-        self,
-        _in: SlotBSPVersion,
-        _slot: SlotID,
-        _expect: BSPVersion | None,
-    ):
-        assert _in.get_by_slot(_slot) == _expect
-
-    @pytest.mark.parametrize(
-        "_in",
-        (
-            (SlotBSPVersion()),
-            (SlotBSPVersion(slot_a=BSPVersion(32, 5, 1))),
-            (SlotBSPVersion(slot_a=BSPVersion(35, 4, 1), slot_b=BSPVersion(35, 5, 0))),
-        ),
-    )
-    def test_load_and_dump(self, _in: SlotBSPVersion):
-        assert SlotBSPVersion.model_validate_json(_in.model_dump_json()) == _in
-
-
 class TestFirmwareBSPVersionControl:
 
     @pytest.fixture(autouse=True)
-    def setup_test(self, tmp_path: Path):
-        self.test_fw_bsp_vf = tmp_path / "firmware_bsp_version"
-        self.slot_b_ver = BSPVersion(35, 5, 0)
-        self.slot_a_ver = BSPVersion(35, 4, 1)
+    def setup_test(self):
+        self.ver = BSPVersion(35, 5, 0)
 
     def test_init(self):
-        self.test_fw_bsp_vf.write_text(
-            SlotBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
-        )
-
         loaded = FirmwareBSPVersionControl(
             SLOT_A,
-            self.slot_a_ver,
-            current_bsp_version_file=self.test_fw_bsp_vf,
+            self.ver,
         )
 
-        # NOTE: FirmwareBSPVersionControl will not use the information for current slot.
-        assert loaded.current_slot_bsp_ver == self.slot_a_ver
-        assert loaded.standby_slot_bsp_ver == self.slot_b_ver
-
-    def test_write_to_file(self):
-        self.test_fw_bsp_vf.write_text(
-            SlotBSPVersion(slot_b=self.slot_b_ver).model_dump_json()
-        )
-        loaded = FirmwareBSPVersionControl(
-            SLOT_A,
-            self.slot_a_ver,
-            current_bsp_version_file=self.test_fw_bsp_vf,
-        )
-        loaded.write_to_file(self.test_fw_bsp_vf)
-
-        assert (
-            self.test_fw_bsp_vf.read_text()
-            == SlotBSPVersion(
-                slot_a=self.slot_a_ver, slot_b=self.slot_b_ver
-            ).model_dump_json()
-        )
+        assert loaded.current_slot_bsp_ver == self.ver
 
 
 @pytest.mark.parametrize(

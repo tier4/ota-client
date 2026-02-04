@@ -445,13 +445,13 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
 
         _download_bsp_ver = parse_nv_tegra_release(_raw_download_bsp_ver_str)
         # perform compatibility check
-        _check_res, _bsp_vers = _bootloader.standby_slot_bsp_ver_check(
+        _check_res, _bsp_vers = _bootloader.current_slot_bsp_ver_check(
             _download_bsp_ver
         )
         if not _check_res:
             _err_msg = (
                 f"OTA image's BSP version doesn't match(input_bsp: fw_bsp={_bsp_vers}) "
-                "ECU standby slot's firmware BSP version, reject OTA!"
+                "ECU current slot's firmware BSP version, reject OTA!"
             )
             raise ota_errors.BootControlBSPVersionCompatibilityFailed(
                 _err_msg, module=__name__
@@ -486,11 +486,11 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         _bootloader = self._boot_controller
         assert isinstance(_bootloader, JetsonUEFIBootControl)
 
-        _check_res, _bsp_vers = _bootloader.standby_slot_bsp_ver_check(_bsp_ver_str)
+        _check_res, _bsp_vers = _bootloader.current_slot_bsp_ver_check(_bsp_ver_str)
         if not _check_res:
             _err_msg = (
                 f"OTA image's BSP version doesn't match(input_bsp: fw_bsp={_bsp_vers}) "
-                "ECU standby slot's firmware BSP version, reject OTA!"
+                "ECU current slot's firmware BSP version, reject OTA!"
             )
             raise ota_errors.BootControlBSPVersionCompatibilityFailed(
                 _err_msg, module=__name__
