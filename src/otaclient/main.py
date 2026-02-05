@@ -38,7 +38,6 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     CriticalZoneFlag,
     MultipleECUStatusFlags,
-    OTAStatus,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
