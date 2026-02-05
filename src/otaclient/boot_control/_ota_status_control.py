@@ -286,6 +286,10 @@ class OTAStatusFilesControl:
         if self.standby_ota_status_dir.is_dir():
             self._store_standby_status(OTAStatus.FAILURE)
 
+    def on_abort(self):
+        """Store ABORTED to status file on abort."""
+        self._store_current_status(OTAStatus.ABORTED)
+
     @property
     def booted_ota_status(self) -> OTAStatus:
         """Loaded current slot's ota_status during boot control starts.

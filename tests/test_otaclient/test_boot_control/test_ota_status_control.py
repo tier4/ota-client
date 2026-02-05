@@ -320,3 +320,50 @@ class TestOTAStatusFilesControl:
             == status_control._load_current_slot_in_use()
             == self.slot_a
         )
+
+    def test_on_abort(self):
+        """Test that on_abort writes ABORTED status to the current slot."""
+        # ------ setup ------ #
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.SUCCESS)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            force_initialize=False,
+        )
+
+        # ------ execution ------ #
+        status_control.on_abort()
+
+        # ------ assertion ------ #
+        # The status file should be set to ABORTED
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.ABORTED
+
+    def test_on_failure(self):
+        """Test that on_failure writes FAILURE status to current and standby slots."""
+        # ------ setup ------ #
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.SUCCESS)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        # Create standby slot status file to simulate mid-update state
+        write_str_to_file_atomic(self.slot_b_status_file, OTAStatus.UPDATING)
+
+        status_control = OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            force_initialize=False,
+        )
+
+        # ------ execution ------ #
+        status_control.on_failure()
+
+        # ------ assertion ------ #
+        # Both current and standby status files should be set to FAILURE
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
+        assert read_str_from_file(self.slot_b_status_file) == OTAStatus.FAILURE
