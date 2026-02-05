@@ -38,7 +38,6 @@ from otaclient._types import (
     ClientUpdateControlFlags,
     CriticalZoneFlag,
     MultipleECUStatusFlags,
-    OTAStatus,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
@@ -48,7 +47,6 @@ from otaclient._utils import (
 )
 from otaclient.configs.cfg import cfg
 from otaclient_common import replace_root
-from otaclient_common._io import write_str_to_file_atomic
 from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import (
     bind_mount_ro,
@@ -419,10 +417,6 @@ def main() -> None:  # pragma: no cover
     )
     _grpc_server_p.start()
 
-    # Create a shared memory reader for main process to read OTA status dir
-    # (needed for writing ABORTED status to the correct path on abort)
-    _main_shm_reader = SharedOTAClientStatusReader(name=_shm.name, key=_key)
-
     del _key
 
     # ------ setup main process ------ #
@@ -462,26 +456,8 @@ def main() -> None:  # pragma: no cover
                 f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
             )
 
-            # Write ABORTED status to file to persist across reboots
-            # Read the correct OTA status directory from shared memory (set by ota_core)
-            try:
-                _local_status = _main_shm_reader.sync_msg()
-                if _local_status and _local_status.ota_status_dir:
-                    _status_dir = Path(_local_status.ota_status_dir)
-                else:
-                    # Fallback to default if shared memory doesn't have the path
-                    logger.warning(
-                        "ota_status_dir not available in shared memory, using default"
-                    )
-                    _status_dir = Path(cfg.OTA_STATUS_DIR)
-
-                if not _status_dir.exists():
-                    _status_dir.mkdir(parents=True, exist_ok=True)
-                _status_file = _status_dir / cfg.OTA_STATUS_FNAME
-                write_str_to_file_atomic(_status_file, OTAStatus.ABORTED.name)
-                logger.info(f"ABORTED status written to {_status_file}")
-            except Exception as e:
-                logger.error(f"Failed to write ABORTED status to file: {e!r}")
+            # Note: ABORTED status is persisted by ota_core via boot_controller.on_abort()
+            # when it handles the OTAAbortRequested exception
 
             time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
 
