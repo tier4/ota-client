@@ -174,7 +174,6 @@ class OTAClient:
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
-                    ota_status_dir=str(self.boot_controller.get_ota_status_dir()),
                 ),
             )
         )
@@ -363,6 +362,7 @@ class OTAClient:
                     payload=OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTED),
                 )
             )
+            self.boot_controller.on_abort()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
