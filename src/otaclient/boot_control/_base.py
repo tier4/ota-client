@@ -88,6 +88,12 @@ class BootControllerBase(ABC):
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
+    def on_abort(self):
+        """Cleanup by boot_control implementation when OTA is aborted."""
+        logger.warning("on abort try to unmounting standby slot...")
+        self._ota_status_control.on_abort()
+        self._mp_control.umount_all(ignore_error=True)
+
     # ====== Template Method pattern for update flow ======
 
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool):
