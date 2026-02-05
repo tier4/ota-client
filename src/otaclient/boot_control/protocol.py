@@ -67,6 +67,15 @@ class BootControllerProtocol(Protocol):
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
 
+    @abstractmethod
+    def on_abort(self) -> None:
+        """Cleanup by boot_control implementation when OTA is aborted.
+
+        This method should:
+        1. Write ABORTED status to the status file
+        2. Cleanup any mounts for the aborted OTA
+        """
+
     #
     # ------ update ------ #
     #
