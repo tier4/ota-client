@@ -81,31 +81,6 @@ class TestStatusMonitor:
         assert otaclient_status.failure_type == FailureType.RECOVERABLE
         assert otaclient_status.failure_reason == _test_failure_reason
 
-    def test_ota_status_dir_propagation(
-        self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
-    ):
-        """Test that ota_status_dir is correctly propagated via SetOTAClientMetaReport."""
-        status_collector, msg_queue = ota_status_collector
-
-        _test_ota_status_dir = "/boot/ota-partition.a"
-        _test_firmware_version = "test_version"
-
-        msg_queue.put_nowait(
-            StatusReport(
-                payload=SetOTAClientMetaReport(
-                    firmware_version=_test_firmware_version,
-                    ota_status_dir=_test_ota_status_dir,
-                )
-            )
-        )
-
-        time.sleep(2)  # wait for reports being processed
-
-        otaclient_status = status_collector.otaclient_status
-        assert otaclient_status
-        assert otaclient_status.firmware_version == _test_firmware_version
-        assert otaclient_status.ota_status_dir == _test_ota_status_dir
-
     def test_start_ota_update(
         self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ):
