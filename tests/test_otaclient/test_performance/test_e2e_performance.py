@@ -201,6 +201,8 @@ class TestOTAUpdatePerformanceE2E:
         abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # Start test timing
         report.start_test()
@@ -289,6 +291,8 @@ class TestOTAUpdatePerformanceE2E:
         abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # Start test timing
         report.start_test()

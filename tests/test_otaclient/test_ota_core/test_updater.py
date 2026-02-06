@@ -54,9 +54,13 @@ class TestOTAUpdaterRejectAbortFlag:
         # Create multiprocessing events for the flags
         self.shutdown_requested = mp.Event()
         self.reject_abort_event = mp.Event()
+        self.abort_acknowledged_event = mp.Event()
+        self.status_written_event = mp.Event()
         self.abort_ota_flag = AbortOTAFlag(
             shutdown_requested=self.shutdown_requested,
             reject_abort=self.reject_abort_event,
+            abort_acknowledged=self.abort_acknowledged_event,
+            status_written=self.status_written_event,
         )
 
         # Create a lock for critical zone
@@ -233,9 +237,13 @@ class TestMainProcessAbortHandling:
         # Create multiprocessing events for the flags
         self.shutdown_requested = mp.Event()
         self.reject_abort_event = mp.Event()
+        self.abort_acknowledged_event = mp.Event()
+        self.status_written_event = mp.Event()
         self.abort_ota_flag = AbortOTAFlag(
             shutdown_requested=self.shutdown_requested,
             reject_abort=self.reject_abort_event,
+            abort_acknowledged=self.abort_acknowledged_event,
+            status_written=self.status_written_event,
         )
 
     def _simulate_main_process_health_check(self) -> bool:
