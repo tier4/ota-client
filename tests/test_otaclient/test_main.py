@@ -198,6 +198,8 @@ class TestMain:
             MagicMock(),  # request_shutdown_event
             mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
             mock_reject_abort,  # reject_abort (AbortOTAFlag)
+            MagicMock(),  # abort_acknowledged (AbortOTAFlag)
+            MagicMock(),  # status_written (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
@@ -265,6 +267,8 @@ class TestMain:
             MagicMock(),  # request_shutdown_event
             mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
             mock_reject_abort,  # reject_abort (AbortOTAFlag)
+            MagicMock(),  # abort_acknowledged (AbortOTAFlag)
+            MagicMock(),  # status_written (AbortOTAFlag)
         ]
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
@@ -346,6 +350,45 @@ class TestMain:
         # Verify behavior based on flag values
         mock_dynamic_otaclient_init.assert_called_once()
         mock_check_other_otaclient.assert_called_once()
+
+
+class TestWaitForAbortStatus:
+    """Tests for _wait_for_abort_status function."""
+
+    def test_status_written_immediately(self, mocker: pytest_mock.MockerFixture):
+        """Test that function returns True when status_written is set immediately."""
+        mock_flag = mocker.MagicMock()
+        mock_flag.status_written.wait.return_value = True
+
+        result = main._wait_for_abort_status(mock_flag)
+
+        assert result is True
+        mock_flag.abort_acknowledged.set.assert_called_once()
+
+    def test_reject_abort_during_wait(self, mocker: pytest_mock.MockerFixture):
+        """Test that function returns False when reject_abort is set during wait."""
+        mock_flag = mocker.MagicMock()
+        mock_flag.status_written.wait.return_value = False
+        mock_flag.reject_abort.is_set.return_value = True
+
+        result = main._wait_for_abort_status(mock_flag)
+
+        assert result is False
+        mock_flag.abort_acknowledged.set.assert_called_once()
+
+    def test_retries_exhausted(self, mocker: pytest_mock.MockerFixture):
+        """Test that function returns True after exhausting retries."""
+        mock_flag = mocker.MagicMock()
+        mock_flag.status_written.wait.return_value = False
+        mock_flag.reject_abort.is_set.return_value = False
+
+        result = main._wait_for_abort_status(mock_flag)
+
+        assert result is True
+        assert (
+            mock_flag.status_written.wait.call_count
+            == main.ABORT_STATUS_WRITTEN_MAX_RETRIES
+        )
 
 
 class TestBindExternalNFSCache:
