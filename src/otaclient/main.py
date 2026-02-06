@@ -378,6 +378,8 @@ def main() -> None:  # pragma: no cover
     abort_ota_flag = AbortOTAFlag(
         shutdown_requested=mp_ctx.Event(),
         reject_abort=mp_ctx.Event(),
+        abort_acknowledged=mp_ctx.Event(),
+        status_written=mp_ctx.Event(),
     )
 
     _ota_core_p = mp_ctx.Process(
@@ -442,24 +444,22 @@ def main() -> None:  # pragma: no cover
         time.sleep(HEALTH_CHECK_INTERVAL)
 
         if abort_ota_flag.shutdown_requested.is_set():
-            # Check if ota-core is in final phase (post_update/finalize_update)
-            # If so, reject the abort request by clearing the flag
-            if abort_ota_flag.is_in_final_phase():
-                logger.info(
-                    "Abort requested but OTA is in final phase "
-                    "[main_health_check], rejecting abort request"
+            logger.info("Received abort request. Acknowledging abort to ota_core...")
+
+            # Signal to ota_core that main.py has acknowledged the abort request
+            # This allows ota_core to safely write the ABORTED status to disk
+            abort_ota_flag.abort_acknowledged.set()
+
+            # Wait for ota_core to signal that ABORTED status has been written
+            logger.info("Waiting for ota_core to write ABORTED status...")
+            if abort_ota_flag.status_written.wait(
+                timeout=SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED
+            ):
+                logger.info("ABORTED status written successfully by ota_core")
+            else:
+                logger.warning(
+                    "Timeout waiting for ota_core to write ABORTED status"
                 )
-                abort_ota_flag.shutdown_requested.clear()
-                continue
-
-            logger.info(
-                f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
-            )
-
-            # Note: ABORTED status is persisted by ota_core via boot_controller.on_abort()
-            # when it handles the OTAAbortRequested exception
-
-            time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
 
             return _on_shutdown()
 

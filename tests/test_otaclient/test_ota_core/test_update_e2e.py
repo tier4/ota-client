@@ -105,6 +105,8 @@ class TestOTAUpdater:
         abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -169,6 +171,8 @@ class TestOTAUpdater:
         abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)

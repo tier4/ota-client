@@ -127,14 +127,8 @@ class AbortThreadLock:
 class AbortOTAFlag:
     shutdown_requested: mp_sync.Event
     reject_abort: mp_sync.Event
-
-    def is_in_final_phase(self) -> bool:
-        """Check if OTA is in final phase (post_update/finalize_update).
-
-        Returns:
-            True if OTA is in final phase and abort should be rejected.
-        """
-        return self.reject_abort.is_set()
+    abort_acknowledged: mp_sync.Event  # main.py sets this after seeing shutdown_requested
+    status_written: mp_sync.Event  # ota_core sets this after writing ABORTED status
 
 
 #

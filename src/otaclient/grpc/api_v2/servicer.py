@@ -41,7 +41,11 @@ from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
-from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_api.v2.api_caller import (
+    ECUAbortNotSupported,
+    ECUNoResponse,
+    OTAClientCall,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,11 +191,13 @@ class OTAClientAPIServicer:
         response: api_types.AbortResponse,
         ecu_id: str,
         abort_failure_type: api_types.AbortFailureType,
+        message: str = "",
     ) -> None:
         """Add ECU into abort response with specified failure type."""
         ecu_response = api_types.AbortResponseEcu(
             ecu_id=ecu_id,
             result=abort_failure_type,
+            message=message,
         )
         response.add_ecu(ecu_response)
 
@@ -372,7 +378,7 @@ class OTAClientAPIServicer:
         Returns:
             True if abort should be rejected (OTA in final phase), False otherwise.
         """
-        if self._abort_ota_flag.is_in_final_phase():
+        if self._abort_ota_flag.reject_abort.is_set():
             caller_info = f" [{caller}]" if caller else ""
             logger.info(
                 f"abort request rejected{caller_info}: OTA update is in final phase "
@@ -549,7 +555,26 @@ class OTAClientAPIServicer:
             for _task in done:
                 try:
                     _ecu_resp = _task.result()
+                    _ecu_contact = tasks[_task]
+                    logger.info(
+                        f"{_ecu_contact} abort response: {_ecu_resp}"
+                    )
                     response.merge_from(_ecu_resp)
+                except ECUAbortNotSupported as e:
+                    _ecu_contact = tasks[_task]
+                    logger.warning(
+                        f"{_ecu_contact} does not support the abort endpoint"
+                        " (older OTA Client version without abort support)"
+                    )
+                    self._add_ecu_into_abort_response(
+                        response,
+                        _ecu_contact.ecu_id,
+                        api_types.AbortFailureType.ABORT_FAILURE,
+                        message=(
+                            f"ECU {_ecu_contact.ecu_id} does not support"
+                            " the abort endpoint (UNIMPLEMENTED)"
+                        ),
+                    )
                 except ECUNoResponse as e:
                     _ecu_contact = tasks[_task]
                     logger.error(
@@ -560,6 +585,7 @@ class OTAClientAPIServicer:
                         response,
                         _ecu_contact.ecu_id,
                         api_types.AbortFailureType.ABORT_FAILURE,
+                        message=str(e),
                     )
             tasks.clear()
 
