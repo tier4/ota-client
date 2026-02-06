@@ -396,9 +396,7 @@ class OTAClientAPIServicer:
             if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
                 return
 
-            logger.warning(
-                "critical zone ended, processing queued abort request..."
-            )
+            logger.warning("critical zone ended, processing queued abort request...")
             self._abort_ota_flag.shutdown_requested.set()
             logger.info("Abort OTA flag is set properly.")
 
