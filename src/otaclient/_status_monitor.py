@@ -25,7 +25,6 @@ from threading import Thread
 from typing import Literal, cast
 
 from otaclient._types import (
-    AbortOTAFlag,
     FailureType,
     OTAClientStatus,
     OTAStatus,
@@ -246,7 +245,6 @@ class OTAClientStatusCollector:
         min_collect_interval: float = MIN_COLLECT_INTERVAL,
         shm_push_interval: float = SHM_PUSH_INTERVAL,
         max_traceback_size: int,
-        abort_ota_flag: AbortOTAFlag | None = None,
     ) -> None:
         self.max_traceback_size = max_traceback_size
         self.min_collect_interval = min_collect_interval
@@ -258,7 +256,6 @@ class OTAClientStatusCollector:
 
         self._status = None
         self._shm_status = shm_status
-        self._abort_ota_flag = abort_ota_flag
 
         atexit.register(shm_status.atexit)
 
@@ -329,23 +326,6 @@ class OTAClientStatusCollector:
                     latest_changes_pushed = False
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
-
-            # ------ check abort flag and update status ------ #
-            if (
-                self._abort_ota_flag
-                and self._abort_ota_flag.shutdown_requested.is_set()
-                and self._status
-                and self._status.ota_status == OTAStatus.UPDATING
-            ):
-                logger.info("Abort detected, setting OTA status to ABORTING")
-                self._input_queue.put_nowait(
-                    StatusReport(
-                        payload=OTAStatusChangeReport(
-                            new_ota_status=OTAStatus.ABORTING
-                        ),
-                        session_id=self._status.session_id,
-                    )
-                )
 
             # ------ push status ------ #
             # NOTE: always push OTAStatus change report

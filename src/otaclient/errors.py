@@ -43,8 +43,7 @@ class OTAErrorCode(int, Enum):
     E_UPDATE_REQUEST_COOKIE_INVALID = 204
     E_CLIENT_UPDATE_SAME_VERSIONS = 205
     E_CLIENT_UPDATE_FAILED = 206
-    E_OTA_ABORT_REQUESTED = 207
-    E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 208
+    E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 207
 
     #
     # ------ unrecoverable errors ------
@@ -191,11 +190,6 @@ class ClientUpdateFailed(OTAErrorRecoverable):
     failure_description: str = (
         "failed to update client package, please check the log for more details"
     )
-
-
-class OTAAbortRequested(OTAErrorRecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORT_REQUESTED
-    failure_description: str = "OTA interrupted by OTA ABORT request"
 
 
 class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
