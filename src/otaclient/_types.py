@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
-import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
@@ -91,31 +90,6 @@ class CriticalZoneFlag:
             bool: True if lock was acquired, False otherwise.
         """
         acquired = self._lock.acquire(block=blocking)
-        try:
-            yield acquired
-        finally:
-            if acquired:
-                self._lock.release()
-
-
-class AbortThreadLock:
-    """Wrapper for threading.Lock used to serialize abort processing threads."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-
-    @contextmanager
-    def acquire_lock_with_release(self, blocking: bool = False):
-        """Acquire lock and release it when exiting the context.
-
-        Args:
-            blocking: If True, block until the lock is acquired.
-                      If False, return immediately with acquired=False if lock unavailable.
-
-        Yields:
-            bool: True if lock was acquired, False otherwise.
-        """
-        acquired = self._lock.acquire(blocking=blocking)
         try:
             yield acquired
         finally:

@@ -367,7 +367,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                     logger.error(
                         "Unable to acquire critical zone lock during pre-update phase, as OTA is already aborting"
                     )
-                    raise ota_errors.OTAAbortRequested(module=__name__)
+                    return
 
                 logger.info("Entering critical zone for OTA update: pre-update phase")
 
@@ -385,7 +385,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                     logger.error(
                         "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already aborting"
                     )
-                    raise ota_errors.OTAAbortRequested(module=__name__)
+                    return
 
                 logger.info(
                     "Entering critical zone for OTA update: post-update and finalize-update phases"
@@ -393,16 +393,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 self._post_update()
                 self._finalize_update()
 
-            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
-        except ota_errors.OTAAbortRequested:
-            logger.info("OTA update aborted by user request")
-            # Wait for main.py to acknowledge the abort before writing status
-            # This ensures main.py is ready to coordinate the shutdown
-            logger.info("Waiting for main.py to acknowledge abort...")
-            self._abort_ota_flag.abort_acknowledged.wait()
-            logger.info("Abort acknowledged by main.py, writing ABORTED status...")
-            self._boot_controller.on_abort()
-            raise
+        # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
