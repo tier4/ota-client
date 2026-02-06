@@ -556,11 +556,9 @@ class OTAClientAPIServicer:
                 try:
                     _ecu_resp = _task.result()
                     _ecu_contact = tasks[_task]
-                    logger.info(
-                        f"{_ecu_contact} abort response: {_ecu_resp}"
-                    )
+                    logger.info(f"{_ecu_contact} abort response: {_ecu_resp}")
                     response.merge_from(_ecu_resp)
-                except ECUAbortNotSupported as e:
+                except ECUAbortNotSupported:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} does not support the abort endpoint"

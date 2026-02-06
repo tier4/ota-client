@@ -127,7 +127,9 @@ class AbortThreadLock:
 class AbortOTAFlag:
     shutdown_requested: mp_sync.Event
     reject_abort: mp_sync.Event
-    abort_acknowledged: mp_sync.Event  # main.py sets this after seeing shutdown_requested
+    abort_acknowledged: (
+        mp_sync.Event
+    )  # main.py sets this after seeing shutdown_requested
     status_written: mp_sync.Event  # ota_core sets this after writing ABORTED status
 
 

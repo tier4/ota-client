@@ -457,9 +457,7 @@ def main() -> None:  # pragma: no cover
             ):
                 logger.info("ABORTED status written successfully by ota_core")
             else:
-                logger.warning(
-                    "Timeout waiting for ota_core to write ABORTED status"
-                )
+                logger.warning("Timeout waiting for ota_core to write ABORTED status")
 
             return _on_shutdown()
 
