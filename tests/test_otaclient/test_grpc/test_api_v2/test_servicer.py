@@ -783,18 +783,7 @@ class TestOTAClientAPIServicer:
         assert local_resp.result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
     def test_process_queued_abort(self, mocker: MockerFixture):
-        """Test _process_queued_abort processes abort after acquiring locks."""
-        # Setup abort_thread_lock context manager
-        mock_abort_thread_cm = mocker.MagicMock()
-        mock_abort_thread_cm.__enter__ = mocker.MagicMock(return_value=True)
-        mock_abort_thread_cm.__exit__ = mocker.MagicMock(return_value=None)
-
-        mock_abort_thread_lock = mocker.MagicMock()
-        mock_abort_thread_lock.acquire_lock_with_release.return_value = (
-            mock_abort_thread_cm
-        )
-        self.servicer._abort_thread_lock = mock_abort_thread_lock
-
+        """Test _process_queued_abort processes abort after critical zone ends."""
         # Setup critical_zone_flag context manager
         mock_critical_zone_cm = mocker.MagicMock()
         mock_critical_zone_cm.__enter__ = mocker.MagicMock(return_value=True)
@@ -803,75 +792,27 @@ class TestOTAClientAPIServicer:
             mock_critical_zone_cm
         )
 
-        # Abort not yet processed
-        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        # Not in final phase
+        self.abort_ota_flag.reject_abort.is_set.return_value = False
 
         # Call the method
         self.servicer._process_queued_abort()
 
-        # Assert both locks were acquired with blocking=True
-        mock_abort_thread_lock.acquire_lock_with_release.assert_called_once_with(
-            blocking=True
-        )
+        # Assert critical_zone_flag was acquired with blocking=True
         self.critical_zone_flag.acquire_lock_with_release.assert_called_once_with(
             blocking=True
         )
         # Assert shutdown was requested
         self.abort_ota_flag.shutdown_requested.set.assert_called_once()
 
-    def test_process_queued_abort_already_processed(self, mocker: MockerFixture):
-        """Test _process_queued_abort skips if abort already processed."""
-        # Setup abort_thread_lock context manager
-        mock_abort_thread_cm = mocker.MagicMock()
-        mock_abort_thread_cm.__enter__ = mocker.MagicMock(return_value=True)
-        mock_abort_thread_cm.__exit__ = mocker.MagicMock(return_value=None)
-
-        mock_abort_thread_lock = mocker.MagicMock()
-        mock_abort_thread_lock.acquire_lock_with_release.return_value = (
-            mock_abort_thread_cm
-        )
-        self.servicer._abort_thread_lock = mock_abort_thread_lock
-
-        # Abort already processed
-        self.abort_ota_flag.shutdown_requested.is_set.return_value = True
-
-        # Call the method
-        self.servicer._process_queued_abort()
-
-        # Assert abort_thread_lock was acquired
-        mock_abort_thread_lock.acquire_lock_with_release.assert_called_once_with(
-            blocking=True
-        )
-        # Assert critical_zone_flag was NOT acquired (early return)
-        self.critical_zone_flag.acquire_lock_with_release.assert_not_called()
-        # Assert shutdown was NOT set again
-        self.abort_ota_flag.shutdown_requested.set.assert_not_called()
-
     def test_process_queued_abort_rejected_in_final_phase(self, mocker: MockerFixture):
         """Test _process_queued_abort rejects abort when OTA enters final phase."""
-        # Setup abort_thread_lock context manager
-        mock_abort_thread_cm = mocker.MagicMock()
-        mock_abort_thread_cm.__enter__ = mocker.MagicMock(return_value=True)
-        mock_abort_thread_cm.__exit__ = mocker.MagicMock(return_value=None)
-
-        mock_abort_thread_lock = mocker.MagicMock()
-        mock_abort_thread_lock.acquire_lock_with_release.return_value = (
-            mock_abort_thread_cm
-        )
-        self.servicer._abort_thread_lock = mock_abort_thread_lock
-
-        # Abort not yet processed
-        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         # OTA entered final phase while waiting
         self.abort_ota_flag.reject_abort.is_set.return_value = True
 
         # Call the method
         self.servicer._process_queued_abort()
 
-        # Assert abort_thread_lock was acquired
-        mock_abort_thread_lock.acquire_lock_with_release.assert_called_once_with(
-            blocking=True
-        )
         # Assert critical_zone_flag was NOT acquired (early return due to final phase)
         self.critical_zone_flag.acquire_lock_with_release.assert_not_called()
         # Assert shutdown was NOT set (rejected)

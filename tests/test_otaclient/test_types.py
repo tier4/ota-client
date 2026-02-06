@@ -21,7 +21,7 @@ import time
 
 import pytest
 
-from otaclient._types import AbortThreadLock, CriticalZoneFlag
+from otaclient._types import CriticalZoneFlag
 
 
 class TestCriticalZoneFlag:
@@ -78,68 +78,6 @@ class TestCriticalZoneFlag:
             with critical_zone_flag.acquire_lock_with_release(
                 blocking=True
             ) as acquired:
-                results.append(acquired)
-
-        holder_thread = threading.Thread(target=holder)
-        waiter_thread = threading.Thread(target=waiter)
-
-        holder_thread.start()
-        waiter_thread.start()
-
-        holder_thread.join()
-        waiter_thread.join()
-
-        assert results == [True]
-
-
-class TestAbortThreadLock:
-    """Tests for AbortThreadLock class."""
-
-    @pytest.fixture
-    def abort_thread_lock(self):
-        """Create an AbortThreadLock."""
-        return AbortThreadLock()
-
-    def test_acquire_lock_with_release_non_blocking_success(self, abort_thread_lock):
-        """Test non-blocking acquire when lock is available."""
-        with abort_thread_lock.acquire_lock_with_release(blocking=False) as acquired:
-            assert acquired is True
-
-    def test_acquire_lock_with_release_non_blocking_fail(self, abort_thread_lock):
-        """Test non-blocking acquire when lock is held."""
-        # First acquire the lock using the context manager
-        with abort_thread_lock.acquire_lock_with_release(blocking=False) as acquired:
-            assert acquired is True
-            # Try to acquire again while held - should fail
-            with abort_thread_lock.acquire_lock_with_release(
-                blocking=False
-            ) as acquired_again:
-                assert acquired_again is False
-
-    def test_acquire_lock_with_release_releases_lock(self, abort_thread_lock):
-        """Test that lock is released after exiting context."""
-        with abort_thread_lock.acquire_lock_with_release(blocking=False) as acquired:
-            assert acquired is True
-
-        # Lock should be released, so we can acquire again
-        with abort_thread_lock.acquire_lock_with_release(blocking=False) as acquired:
-            assert acquired is True
-
-    def test_acquire_lock_with_release_blocking(self, abort_thread_lock):
-        """Test blocking acquire waits for lock."""
-        results = []
-        holder_ready = threading.Event()
-
-        def holder():
-            with abort_thread_lock.acquire_lock_with_release(blocking=True) as acquired:
-                assert acquired is True
-                holder_ready.set()
-                time.sleep(0.2)
-
-        def waiter():
-            holder_ready.wait()  # Wait for holder to acquire lock
-            # This should block until holder releases
-            with abort_thread_lock.acquire_lock_with_release(blocking=True) as acquired:
                 results.append(acquired)
 
         holder_thread = threading.Thread(target=holder)

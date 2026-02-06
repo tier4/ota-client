@@ -78,7 +78,7 @@ from ._common import handle_upper_proxy
 logger = logging.getLogger(__name__)
 
 
-OP_CHECK_INTERVAL = 1  # second
+ABORT_THREAD_CHECK_INTERVAL = 2  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
@@ -249,31 +249,63 @@ class OTAClient:
         logger.info("exit from dynamic client...")
         self._client_update_control_flags.request_shutdown_event.set()
 
-    def _abort_monitor_thread(self) -> None:
-        """Monitor for abort acknowledgment and handle cleanup.
+    def _abort_handler_thread(self) -> None:
+        """Handle the abort lifecycle: ABORTING status transition and cleanup.
 
-        This thread runs during OTA updates to respond immediately when main.py
-        acknowledges an abort request. It writes the ABORTED status and performs
-        cleanup, then signals status_written so main.py can shut down.
+        Phase 1: Wait for shutdown_requested (set by servicer).
+          - Set live status to ABORTING and report it via status queue.
 
-        This is necessary because OTAAbortRequested exceptions are only raised
-        at critical zone lock acquisition points, which may not happen for a long
-        time during downloading or applying updates.
+        Phase 2: Wait for abort_acknowledged (set by main.py).
+          - Write ABORTED status to disk and perform cleanup.
+          - Signal status_written so main.py can shut down.
+
+        This is a daemon thread — it will be killed on process exit (e.g., reboot
+        after successful OTA).
         """
+        # Phase 1: Wait for abort request from servicer
         while True:
-            # Wait for main.py to acknowledge the abort, check every 1 second
-            if self._abort_ota_flag.abort_acknowledged.wait(timeout=OP_CHECK_INTERVAL):
-                # Check if OTA is in final phase (reject_abort is set)
-                if self._abort_ota_flag.reject_abort.is_set():
-                    logger.info(
-                        "Abort acknowledged but OTA in final phase, "
-                        "letting update complete normally"
+            if self._abort_ota_flag.shutdown_requested.wait(
+                timeout=ABORT_THREAD_CHECK_INTERVAL
+            ):
+                self._live_ota_status = OTAStatus.ABORTING
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTING,
+                        ),
                     )
+                )
+                break
+
+            # Exit if no OTA in progress (update completed or failed)
+            if not self.is_busy:
+                return
+
+        # Phase 2: Wait for main.py to acknowledge the abort
+        while True:
+            if self._abort_ota_flag.abort_acknowledged.wait(
+                timeout=ABORT_THREAD_CHECK_INTERVAL
+            ):
+                # Race condition guard: if OTA entered final phase between
+                # servicer setting shutdown_requested and us waking up,
+                # do NOT call on_abort() as it would unmount during post_update.
+                # The thread will be killed on reboot.
+                if self._abort_ota_flag.reject_abort.is_set():
                     return
 
                 logger.info(
                     "Abort acknowledged by main.py, writing ABORTED status and cleanup..."
                 )
+                # update live status first
+                self._live_ota_status = OTAStatus.ABORTED
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTED,
+                        ),
+                    )
+                )
+                # write to file next
                 self.boot_controller.on_abort()
                 self._abort_ota_flag.status_written.set()
                 return
@@ -294,6 +326,7 @@ class OTAClient:
             OTAStatus.UPDATING,
             OTAStatus.ROLLBACKING,
             OTAStatus.CLIENT_UPDATING,
+            OTAStatus.ABORTING,
         ]
 
     def update(self, request: UpdateRequestV2) -> None:
@@ -307,14 +340,14 @@ class OTAClient:
             f"start new OTA update request:{request_id}, session: {new_session_id=}"
         )
 
-        # Start abort monitor thread to handle abort requests immediately
-        # This is needed because OTAAbortRequested is only raised at lock acquisition points
-        _abort_monitor = threading.Thread(
-            target=self._abort_monitor_thread,
+        # Start abort handler thread to manage the abort lifecycle
+        # (ABORTING → ABORTED status transitions + cleanup).
+        _abort_handler = threading.Thread(
+            target=self._abort_handler_thread,
             daemon=True,
-            name="ota_abort_monitor",
+            name="ota_abort_handler",
         )
-        _abort_monitor.start()
+        _abort_handler.start()
 
         # NOTE(20250916): set OTA update status before ensuring upper otaproxy
         #                 as local otaproxy needs OTA update status to start.
@@ -396,16 +429,6 @@ class OTAClient:
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
-        except ota_errors.OTAAbortRequested as e:
-            logger.info(f"OTA update aborted: {e.get_failure_reason()}")
-            self._live_ota_status = OTAStatus.ABORTED
-            self._status_report_queue.put_nowait(
-                StatusReport(
-                    payload=OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTED),
-                )
-            )
-            # NOTE: on_abort() is called in _updater.py before re-raising
-            self._abort_ota_flag.status_written.set()
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
@@ -522,7 +545,7 @@ class OTAClient:
         while True:
             _now = int(time.time())
             try:
-                request = req_queue.get(timeout=OP_CHECK_INTERVAL)
+                request = req_queue.get(timeout=ABORT_THREAD_CHECK_INTERVAL)
             except Empty:
                 continue
 
@@ -614,7 +637,6 @@ def ota_core_process(
         msg_queue=_local_status_report_queue,
         shm_status=shm_writer,
         max_traceback_size=max_traceback_size,
-        abort_ota_flag=abort_ota_flag,
     )
     _status_monitor.start()
     _status_monitor.start_log_thread()
