@@ -26,7 +26,6 @@ import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     AbortOTAFlag,
     AbortRequestV2,
-    AbortThreadLock,
     ClientUpdateRequestV2,
     CriticalZoneFlag,
     IPCRequest,
@@ -82,7 +81,7 @@ class OTAClientAPIServicer:
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
         self._shm_reader = shm_reader
-        self._abort_thread_lock = AbortThreadLock()
+        self._abort_queued = False
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -388,27 +387,20 @@ class OTAClientAPIServicer:
         return False
 
     def _process_queued_abort(self) -> None:
-        # Use blocking acquire - threads will serialize here
-        with self._abort_thread_lock.acquire_lock_with_release(blocking=True):
-            # Check if abort was already processed by another thread
-            if self._abort_ota_flag.shutdown_requested.is_set():
-                logger.info("Abort already processed by another thread, skipping")
+        # Check if OTA entered final phase while we were waiting
+        if self._is_abort_rejected_by_final_phase("before_critical_zone_lock"):
+            return
+
+        with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
+            # Double-check reject_abort after acquiring lock
+            if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
                 return
 
-            # Check if OTA entered final phase while we were waiting
-            if self._is_abort_rejected_by_final_phase("after_abort_thread_lock"):
-                return
-
-            with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
-                # Double-check reject_abort after acquiring lock
-                if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
-                    return
-
-                logger.warning(
-                    "critical zone ended, processing queued abort request..."
-                )
-                self._abort_ota_flag.shutdown_requested.set()
-                logger.info("Abort OTA flag is set properly.")
+            logger.warning(
+                "critical zone ended, processing queued abort request..."
+            )
+            self._abort_ota_flag.shutdown_requested.set()
+            logger.info("Abort OTA flag is set properly.")
 
     def _handle_abort_request(
         self, request: AbortRequestV2
@@ -492,13 +484,16 @@ class OTAClientAPIServicer:
                     )
                 else:
                     # Lock not acquired = IN critical zone, queue abort
-                    # Start a thread to wait for critical zone to end
-                    # Multiple threads will serialize via _abort_thread_lock
-                    logger.warning("in critical zone, queuing abort request...")
-                    threading.Thread(
-                        target=self._process_queued_abort,
-                        daemon=True,
-                    ).start()
+                    # Only spawn one thread to wait for critical zone to end
+                    if self._abort_queued:
+                        logger.info("abort already queued, skipping duplicate")
+                    else:
+                        logger.warning("in critical zone, queuing abort request...")
+                        self._abort_queued = True
+                        threading.Thread(
+                            target=self._process_queued_abort,
+                            daemon=True,
+                        ).start()
                     return api_types.AbortResponseEcu(
                         ecu_id=self.my_ecu_id,
                         result=api_types.AbortFailureType.ABORT_NO_FAILURE,
@@ -556,11 +551,9 @@ class OTAClientAPIServicer:
                 try:
                     _ecu_resp = _task.result()
                     _ecu_contact = tasks[_task]
-                    logger.info(
-                        f"{_ecu_contact} abort response: {_ecu_resp}"
-                    )
+                    logger.info(f"{_ecu_contact} abort response: {_ecu_resp}")
                     response.merge_from(_ecu_resp)
-                except ECUAbortNotSupported as e:
+                except ECUAbortNotSupported:
                     _ecu_contact = tasks[_task]
                     logger.warning(
                         f"{_ecu_contact} does not support the abort endpoint"
