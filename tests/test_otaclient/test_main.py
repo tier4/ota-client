@@ -385,7 +385,10 @@ class TestWaitForAbortStatus:
         result = main._wait_for_abort_status(mock_flag)
 
         assert result is True
-        assert mock_flag.status_written.wait.call_count == main.ABORT_STATUS_WRITTEN_MAX_RETRIES
+        assert (
+            mock_flag.status_written.wait.call_count
+            == main.ABORT_STATUS_WRITTEN_MAX_RETRIES
+        )
 
 
 class TestBindExternalNFSCache:
