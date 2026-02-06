@@ -91,6 +91,8 @@ class TestOTAClient:
         abort_ota_flag.shutdown_requested.is_set.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
