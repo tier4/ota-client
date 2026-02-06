@@ -34,7 +34,7 @@ from otaclient.configs._ecu_info import ECUContact, ECUInfo
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient_api.v2 import _types as api_types
-from otaclient_api.v2.api_caller import ECUNoResponse
+from otaclient_api.v2.api_caller import ECUAbortNotSupported, ECUNoResponse
 from tests.utils import compare_message
 
 logger = logging.getLogger(__name__)
@@ -87,8 +87,8 @@ class TestOTAClientAPIServicer:
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort = mocker.MagicMock()
         self.abort_ota_flag.reject_abort.is_set.return_value = False
-        # Mock is_in_final_phase() method - defaults to False (not in final phase)
-        self.abort_ota_flag.is_in_final_phase.return_value = False
+        self.abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        self.abort_ota_flag.status_written = mocker.MagicMock()
 
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
@@ -542,7 +542,6 @@ class TestOTAClientAPIServicer:
         """Test abort request rejected when in final update phase (post_update/finalize)."""
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort.is_set.return_value = True
-        self.abort_ota_flag.is_in_final_phase.return_value = True
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
@@ -732,9 +731,52 @@ class TestOTAClientAPIServicer:
         ecu_responses = list(result.iter_ecu())
         assert len(ecu_responses) == 2
 
-        # Find sub-ECU response - should have ABORT_FAILURE
+        # Find sub-ECU response - should have ABORT_FAILURE with message
         sub_ecu_resp = next(r for r in ecu_responses if r.ecu_id == "ecu1")
         assert sub_ecu_resp.result == api_types.AbortFailureType.ABORT_FAILURE
+        assert sub_ecu_resp.message  # error message should be populated
+
+        # Local ECU should still succeed
+        local_resp = next(r for r in ecu_responses if r.ecu_id == "autoware")
+        assert local_resp.result == api_types.AbortFailureType.ABORT_NO_FAILURE
+
+    @pytest.mark.asyncio
+    async def test_abort_subecu_not_supported(self, mocker: MockerFixture):
+        """Test abort when sub-ECU doesn't support the abort endpoint."""
+        # Setup sub-ECUs
+        sub_ecu = ECUContact(
+            ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051
+        )
+        mocker.patch.object(self.servicer, "sub_ecus", [sub_ecu])
+
+        # Setup abort flag
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        # Configure context manager to yield True (lock acquired = not in critical zone)
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=True)
+        )
+
+        # Mock OTAClientCall.abort_call to raise ECUAbortNotSupported
+        mock_abort_call = mocker.patch(
+            "otaclient_api.v2.api_caller.OTAClientCall.abort_call",
+            new_callable=mocker.AsyncMock,
+        )
+        mock_abort_call.side_effect = ECUAbortNotSupported(
+            "ecu_id='ecu1' does not support the abort endpoint"
+        )
+
+        abort_request = api_types.AbortRequest()
+
+        result = await self.servicer.abort(abort_request)
+
+        # Assert ECU responses
+        ecu_responses = list(result.iter_ecu())
+        assert len(ecu_responses) == 2
+
+        # Find sub-ECU response - should have ABORT_FAILURE with UNIMPLEMENTED message
+        sub_ecu_resp = next(r for r in ecu_responses if r.ecu_id == "ecu1")
+        assert sub_ecu_resp.result == api_types.AbortFailureType.ABORT_FAILURE
+        assert "UNIMPLEMENTED" in sub_ecu_resp.message
 
         # Local ECU should still succeed
         local_resp = next(r for r in ecu_responses if r.ecu_id == "autoware")
@@ -821,7 +863,7 @@ class TestOTAClientAPIServicer:
         # Abort not yet processed
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         # OTA entered final phase while waiting
-        self.abort_ota_flag.is_in_final_phase.return_value = True
+        self.abort_ota_flag.reject_abort.is_set.return_value = True
 
         # Call the method
         self.servicer._process_queued_abort()
@@ -844,7 +886,6 @@ class TestOTAClientAPIServicer:
         # Setup abort flag to reject abort (in final phase)
         self.abort_ota_flag.shutdown_requested.is_set.return_value = False
         self.abort_ota_flag.reject_abort.is_set.return_value = True
-        self.abort_ota_flag.is_in_final_phase.return_value = True
 
         abort_request = api_types.AbortRequest()
 
