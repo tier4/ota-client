@@ -196,6 +196,13 @@ class TestOTAUpdatePerformanceE2E:
         critical_zone_flag.acquire_lock_with_release.return_value.__exit__ = (
             mocker.MagicMock(return_value=False)
         )
+        abort_ota_flag = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested.is_set.return_value = False
+        abort_ota_flag.reject_abort = mocker.MagicMock()
+        abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # Start test timing
         report.start_test()
@@ -224,6 +231,7 @@ class TestOTAUpdatePerformanceE2E:
             boot_controller=mock_boot_controller,  # type: ignore
             ecu_status_flags=ecu_status_flags,
             critical_zone_flag=critical_zone_flag,
+            abort_ota_flag=abort_ota_flag,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
@@ -278,6 +286,13 @@ class TestOTAUpdatePerformanceE2E:
         critical_zone_flag.acquire_lock_with_release.return_value.__exit__ = (
             mocker.MagicMock(return_value=False)
         )
+        abort_ota_flag = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested = mocker.MagicMock()
+        abort_ota_flag.shutdown_requested.is_set.return_value = False
+        abort_ota_flag.reject_abort = mocker.MagicMock()
+        abort_ota_flag.reject_abort.is_set.return_value = False
+        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.status_written = mocker.MagicMock()
 
         # Start test timing
         report.start_test()
@@ -306,6 +321,7 @@ class TestOTAUpdatePerformanceE2E:
             boot_controller=mock_boot_controller,  # type: ignore
             ecu_status_flags=ecu_status_flags,
             critical_zone_flag=critical_zone_flag,
+            abort_ota_flag=abort_ota_flag,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),

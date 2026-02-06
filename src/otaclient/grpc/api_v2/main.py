@@ -74,6 +74,7 @@ def grpc_server_process(
             resp_queue=resp_queue,
             critical_zone_flag=critical_zone_flag,
             abort_ota_flag=abort_ota_flag,
+            shm_reader=shm_reader,
             executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)

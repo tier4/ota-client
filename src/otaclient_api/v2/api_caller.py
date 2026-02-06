@@ -25,6 +25,10 @@ class ECUNoResponse(Exception):
     """Raised when ECU cannot response to request on-time."""
 
 
+class ECUAbortNotSupported(ECUNoResponse):
+    """Raised when ECU does not support the abort endpoint."""
+
+
 class OTAClientCall:
     @staticmethod
     async def status_call(
@@ -79,6 +83,15 @@ class OTAClientCall:
                 stub = pb2_grpc.OtaClientServiceStub(channel)
                 resp = await stub.Abort(request.export_pb(), timeout=timeout)
                 return _types.AbortResponse.convert(resp)
+        except grpc.aio.AioRpcError as e:
+            if e.code() == grpc.StatusCode.UNIMPLEMENTED:
+                _msg = (
+                    f"{ecu_id=} does not support the abort endpoint"
+                    f" (older OTA Client version): {e!r}"
+                )
+                raise ECUAbortNotSupported(_msg) from e
+            _msg = f"{ecu_id=} failed to respond to abort request on-time: {e!r}"
+            raise ECUNoResponse(_msg) from e
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to abort request on-time: {e!r}"
             raise ECUNoResponse(_msg) from e

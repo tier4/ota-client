@@ -34,6 +34,10 @@ class BootControllerProtocol(Protocol):
         """
 
     @abstractmethod
+    def get_ota_status_dir(self) -> Path:
+        """Get the path to the OTA status directory for the current slot."""
+
+    @abstractmethod
     def get_standby_slot_path(self) -> Path:
         """Get the Path points to the standby slot mount point."""
 
@@ -62,6 +66,15 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def on_operation_failure(self) -> None:
         """Cleanup by boot_control implementation when OTA failed."""
+
+    @abstractmethod
+    def on_abort(self) -> None:
+        """Cleanup by boot_control implementation when OTA is aborted.
+
+        This method should:
+        1. Write ABORTED status to the status file
+        2. Cleanup any mounts for the aborted OTA
+        """
 
     #
     # ------ update ------ #

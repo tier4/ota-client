@@ -76,12 +76,22 @@ class BootControllerBase(ABC):
         """Get the ota_status loaded from status file during otaclient starts up."""
         return self._ota_status_control.booted_ota_status
 
+    def get_ota_status_dir(self) -> Path:
+        """Get the path to the OTA status directory for the current slot."""
+        return self._ota_status_control.current_ota_status_dir
+
     # ====== Common error handling ======
 
     def on_operation_failure(self):
         """Cleanup by boot_control implementation when OTA failed."""
         logger.warning("on failure try to unmounting standby slot...")
         self._ota_status_control.on_failure()
+        self._mp_control.umount_all(ignore_error=True)
+
+    def on_abort(self):
+        """Cleanup by boot_control implementation when OTA is aborted."""
+        logger.warning("on abort try to unmounting standby slot...")
+        self._ota_status_control.on_abort()
         self._mp_control.umount_all(ignore_error=True)
 
     # ====== Template Method pattern for update flow ======

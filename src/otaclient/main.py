@@ -65,6 +65,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED = 3  # seconds
+ABORT_STATUS_WRITTEN_MAX_RETRIES = 3
 SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
@@ -78,6 +79,38 @@ _shm: mp_shm.SharedMemory | None = None
 _shm_metrics: mp_shm.SharedMemory | None = None
 
 _global_shutdown_lock = threading.Lock()
+
+
+def _wait_for_abort_status(abort_ota_flag: AbortOTAFlag) -> bool:
+    """Acknowledge abort and wait for ota_core to write ABORTED status.
+
+    Returns True if shutdown should proceed, False if abort was rejected.
+    """
+    logger.info("Received abort request. Acknowledging abort to ota_core...")
+    abort_ota_flag.abort_acknowledged.set()
+
+    for attempt in range(ABORT_STATUS_WRITTEN_MAX_RETRIES):
+        if abort_ota_flag.status_written.wait(
+            timeout=SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED
+        ):
+            logger.info("ABORTED status written successfully by ota_core")
+            return True
+        if abort_ota_flag.reject_abort.is_set():
+            logger.info(
+                "OTA entered final phase after abort was acknowledged, "
+                "cancelling abort shutdown"
+            )
+            return False
+        logger.warning(
+            f"Still waiting for ota_core to write ABORTED status "
+            f"(attempt {attempt + 1}/{ABORT_STATUS_WRITTEN_MAX_RETRIES})"
+        )
+
+    logger.warning(
+        "Gave up waiting for ota_core to write ABORTED status, "
+        "proceeding with shutdown"
+    )
+    return True
 
 
 def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
@@ -375,7 +408,12 @@ def main() -> None:  # pragma: no cover
         request_shutdown_event=mp_ctx.Event(),
     )
     critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
-    abort_ota_flag = AbortOTAFlag(shutdown_requested=mp_ctx.Event())
+    abort_ota_flag = AbortOTAFlag(
+        shutdown_requested=mp_ctx.Event(),
+        reject_abort=mp_ctx.Event(),
+        abort_acknowledged=mp_ctx.Event(),
+        status_written=mp_ctx.Event(),
+    )
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -392,6 +430,7 @@ def main() -> None:  # pragma: no cover
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
             critical_zone_flag=critical_zone_flag,
+            abort_ota_flag=abort_ota_flag,
         ),
         name="otaclient_ota_core",
     )
@@ -437,12 +476,12 @@ def main() -> None:  # pragma: no cover
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-        if abort_ota_flag.shutdown_requested.is_set():
-            logger.info(
-                f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
-            )
-            time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
-            return _on_shutdown()
+        if (
+            abort_ota_flag.shutdown_requested.is_set()
+            and not abort_ota_flag.reject_abort.is_set()
+        ):
+            if _wait_for_abort_status(abort_ota_flag):
+                return _on_shutdown()
 
         if not _ota_core_p.is_alive():
             logger.error(

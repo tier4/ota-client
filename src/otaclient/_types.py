@@ -79,12 +79,17 @@ class CriticalZoneFlag:
         self._lock = lock
 
     @contextmanager
-    def acquire_lock_no_release(self):
-        yield self._lock.acquire(block=False)
+    def acquire_lock_with_release(self, blocking: bool = False):
+        """Acquire lock and release it when exiting the context.
 
-    @contextmanager
-    def acquire_lock_with_release(self):
-        acquired = self._lock.acquire(block=False)
+        Args:
+            blocking: If True, block until the lock is acquired.
+                      If False, return immediately with acquired=False if lock unavailable.
+
+        Yields:
+            bool: True if lock was acquired, False otherwise.
+        """
+        acquired = self._lock.acquire(block=blocking)
         try:
             yield acquired
         finally:
@@ -95,6 +100,11 @@ class CriticalZoneFlag:
 @dataclass
 class AbortOTAFlag:
     shutdown_requested: mp_sync.Event
+    reject_abort: mp_sync.Event
+    abort_acknowledged: (
+        mp_sync.Event
+    )  # main.py sets this after seeing shutdown_requested
+    status_written: mp_sync.Event  # ota_core sets this after writing ABORTED status
 
 
 #
