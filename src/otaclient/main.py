@@ -479,6 +479,14 @@ def main() -> None:  # pragma: no cover
         if abort_ota_flag.shutdown_requested.is_set():
             if _wait_for_abort_status(abort_ota_flag):
                 return _on_shutdown()
+            # Abort was rejected (e.g., OTA entered final phase).
+            # Clear shutdown_requested so future abort attempts are not
+            # treated as "already in progress".
+            logger.info(
+                "Abort was rejected, clearing shutdown_requested "
+                "to allow future abort attempts"
+            )
+            abort_ota_flag.shutdown_requested.clear()
 
         if not _ota_core_p.is_alive():
             logger.error(
