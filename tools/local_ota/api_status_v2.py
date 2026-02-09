@@ -32,7 +32,7 @@ async def main(
     port: int,
     *,
     req: _types.StatusRequest,
-    timeout: int = 3,
+    timeout: int = 10,
 ) -> None:
     try:
         resp = await OTAClientCall.status_call(
