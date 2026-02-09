@@ -795,6 +795,9 @@ class TestOTAClientAPIServicer:
         # Not in final phase
         self.abort_ota_flag.reject_abort.is_set.return_value = False
 
+        # Simulate that abort was queued
+        self.servicer._abort_queued.set()
+
         # Call the method
         self.servicer._process_queued_abort()
 
@@ -804,11 +807,16 @@ class TestOTAClientAPIServicer:
         )
         # Assert shutdown was requested
         self.abort_ota_flag.shutdown_requested.set.assert_called_once()
+        # Assert _abort_queued is cleared so future aborts can be queued
+        assert not self.servicer._abort_queued.is_set()
 
     def test_process_queued_abort_rejected_in_final_phase(self, mocker: MockerFixture):
         """Test _process_queued_abort rejects abort when OTA enters final phase."""
         # OTA entered final phase while waiting
         self.abort_ota_flag.reject_abort.is_set.return_value = True
+
+        # Simulate that abort was queued
+        self.servicer._abort_queued.set()
 
         # Call the method
         self.servicer._process_queued_abort()
@@ -817,6 +825,8 @@ class TestOTAClientAPIServicer:
         self.critical_zone_flag.acquire_lock_with_release.assert_not_called()
         # Assert shutdown was NOT set (rejected)
         self.abort_ota_flag.shutdown_requested.set.assert_not_called()
+        # Assert _abort_queued is cleared even when rejected
+        assert not self.servicer._abort_queued.is_set()
 
     @pytest.mark.asyncio
     async def test_abort_rejected_in_final_phase(self, mocker: MockerFixture):
