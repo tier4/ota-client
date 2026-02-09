@@ -363,6 +363,7 @@ class TestWaitForAbortStatus:
         result = main._wait_for_abort_status(mock_flag)
 
         assert result is True
+        mock_flag.status_written.clear.assert_called_once()
         mock_flag.abort_acknowledged.set.assert_called_once()
 
     def test_reject_abort_during_wait(self, mocker: pytest_mock.MockerFixture):
@@ -374,6 +375,7 @@ class TestWaitForAbortStatus:
         result = main._wait_for_abort_status(mock_flag)
 
         assert result is False
+        mock_flag.status_written.clear.assert_called_once()
         mock_flag.abort_acknowledged.set.assert_called_once()
 
     def test_retries_exhausted(self, mocker: pytest_mock.MockerFixture):

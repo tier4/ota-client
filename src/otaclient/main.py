@@ -87,6 +87,8 @@ def _wait_for_abort_status(abort_ota_flag: AbortOTAFlag) -> bool:
     Returns True if shutdown should proceed, False if abort was rejected.
     """
     logger.info("Received abort request. Acknowledging abort to ota_core...")
+    # Clear status_written from any previous attempt to avoid a stale signal.
+    abort_ota_flag.status_written.clear()
     abort_ota_flag.abort_acknowledged.set()
 
     for attempt in range(ABORT_STATUS_WRITTEN_MAX_RETRIES):
@@ -487,6 +489,8 @@ def main() -> None:  # pragma: no cover
                 "to allow future abort attempts"
             )
             abort_ota_flag.shutdown_requested.clear()
+            abort_ota_flag.abort_acknowledged.clear()
+            abort_ota_flag.status_written.clear()
 
         if not _ota_core_p.is_alive():
             logger.error(
