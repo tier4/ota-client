@@ -264,7 +264,9 @@ class OTAClient:
         """
         # Phase 1: Wait for abort request from servicer
         while True:
-            if self._abort_ota_flag.shutdown_requested.wait(timeout=ABORT_THREAD_CHECK_INTERVAL):
+            if self._abort_ota_flag.shutdown_requested.wait(
+                timeout=ABORT_THREAD_CHECK_INTERVAL
+            ):
                 self._live_ota_status = OTAStatus.ABORTING
                 self._status_report_queue.put_nowait(
                     StatusReport(
@@ -281,7 +283,9 @@ class OTAClient:
 
         # Phase 2: Wait for main.py to acknowledge the abort
         while True:
-            if self._abort_ota_flag.abort_acknowledged.wait(timeout=ABORT_THREAD_CHECK_INTERVAL):
+            if self._abort_ota_flag.abort_acknowledged.wait(
+                timeout=ABORT_THREAD_CHECK_INTERVAL
+            ):
                 # Race condition guard: if OTA entered final phase between
                 # servicer setting shutdown_requested and us waking up,
                 # do NOT call on_abort() as it would unmount during post_update.

@@ -90,5 +90,3 @@ class TestCriticalZoneFlag:
         waiter_thread.join()
 
         assert results == [True]
-
-
