@@ -403,10 +403,15 @@ class OTAClientAPIServicer:
                 self._abort_ota_flag.shutdown_requested.set()
                 logger.info("Abort OTA flag is set properly.")
         finally:
-            # Guard against releasing an unlocked lock in case this method is
-            # ever called without acquiring _abort_queued_lock beforehand.
-            if self._abort_queued_lock.locked():
+            # Best-effort release of _abort_queued_lock; avoid crashing if it is
+            # not held or has already been released by the time we get here.
+            try:
                 self._abort_queued_lock.release()
+            except RuntimeError:
+                logger.warning(
+                    "Attempted to release _abort_queued_lock, but it was not held "
+                    "by the current thread."
+                )
 
     def _handle_abort_request(
         self, request: AbortRequestV2
