@@ -84,13 +84,23 @@ class OTAClientCall:
                 resp = await stub.Abort(request.export_pb(), timeout=timeout)
                 return _types.AbortResponse.convert(resp)
         except grpc.aio.AioRpcError as e:
-            if e.code() == grpc.StatusCode.UNIMPLEMENTED:
+            code = e.code()
+            if code == grpc.StatusCode.UNIMPLEMENTED:
                 _msg = (
                     f"{ecu_id=} does not support the abort endpoint"
                     f" (older OTA Client version): {e!r}"
                 )
                 raise ECUAbortNotSupported(_msg) from e
-            _msg = f"{ecu_id=} failed to respond to abort request on-time: {e!r}"
+            if code == grpc.StatusCode.DEADLINE_EXCEEDED:
+                _msg = (
+                    f"{ecu_id=} failed to respond to abort request on-time "
+                    f"(gRPC code={code}): {e!r}"
+                )
+            else:
+                _msg = (
+                    f"{ecu_id=} abort request failed with gRPC error code "
+                    f"{code}: {e!r}"
+                )
             raise ECUNoResponse(_msg) from e
         except Exception as e:
             _msg = f"{ecu_id=} failed to respond to abort request on-time: {e!r}"
