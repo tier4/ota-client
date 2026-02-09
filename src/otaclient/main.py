@@ -102,6 +102,7 @@ def _wait_for_abort_status(abort_ota_flag: AbortOTAFlag) -> bool:
                 "OTA entered final phase after abort was acknowledged, "
                 "cancelling abort shutdown"
             )
+            abort_ota_flag.abort_acknowledged.clear()
             return False
         logger.warning(
             f"Still waiting for ota_core to write ABORTED status "
