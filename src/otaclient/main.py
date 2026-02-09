@@ -476,10 +476,7 @@ def main() -> None:  # pragma: no cover
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-        if (
-            abort_ota_flag.shutdown_requested.is_set()
-            and not abort_ota_flag.reject_abort.is_set()
-        ):
+        if abort_ota_flag.shutdown_requested.is_set():
             if _wait_for_abort_status(abort_ota_flag):
                 return _on_shutdown()
 
