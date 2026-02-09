@@ -103,7 +103,7 @@ propcache==0.4.1 ; python_full_version >= '3.9'
     # via
     #   aiohttp
     #   yarl
-protobuf==5.29.5 ; python_full_version < '3.9'
+protobuf==5.29.6 ; python_full_version < '3.9'
     # via otaclient
 protobuf==6.33.5 ; python_full_version >= '3.9'
     # via otaclient
