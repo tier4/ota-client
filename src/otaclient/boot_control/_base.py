@@ -84,13 +84,13 @@ class BootControllerBase(ABC):
 
     def on_operation_failure(self):
         """Cleanup by boot_control implementation when OTA failed."""
-        logger.warning("on failure try to unmounting standby slot...")
+        logger.warning("on failure trying to unmount standby slot...")
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
 
     def on_abort(self):
         """Cleanup by boot_control implementation when OTA is aborted."""
-        logger.warning("on abort try to unmounting standby slot...")
+        logger.warning("on abort trying to unmount standby slot...")
         self._ota_status_control.on_abort()
         self._mp_control.umount_all(ignore_error=True)
 
