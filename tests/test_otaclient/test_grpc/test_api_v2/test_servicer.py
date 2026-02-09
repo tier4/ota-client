@@ -624,6 +624,31 @@ class TestOTAClientAPIServicer:
         assert "queued" in result.message
         mock_thread.assert_called_once()
         mock_thread.return_value.start.assert_called_once()
+        # Lock should be held (thread is mocked, so _process_queued_abort never ran)
+        assert self.servicer._abort_queued_lock.locked()
+
+    def test_handle_abort_request_in_critical_zone_duplicate_skipped(
+        self, mocker: MockerFixture
+    ):
+        """Test that a second abort request while already queued is skipped."""
+        self.abort_ota_flag.shutdown_requested.is_set.return_value = False
+        self.critical_zone_flag.acquire_lock_with_release.return_value.__enter__ = (
+            mocker.MagicMock(return_value=False)
+        )
+
+        # Pre-acquire the lock to simulate an already-queued abort
+        self.servicer._abort_queued_lock.acquire()
+
+        # Mock threading.Thread to verify no new thread is spawned
+        mock_thread = mocker.patch("otaclient.grpc.api_v2.servicer.threading.Thread")
+
+        request = AbortRequestV2(request_id="test-req", session_id="test-session")
+        result = self.servicer._handle_abort_request(request)
+
+        assert result.result == api_types.AbortFailureType.ABORT_NO_FAILURE
+        assert "queued" in result.message
+        # No new thread should be spawned
+        mock_thread.assert_not_called()
 
     def test_handle_abort_request_invalid_request(self):
         """Test abort request with invalid request type."""
