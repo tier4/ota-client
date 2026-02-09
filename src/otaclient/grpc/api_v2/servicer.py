@@ -512,7 +512,7 @@ class OTAClientAPIServicer:
                     )
 
         except Exception as e:
-            logger.error(f"failed to send abort request to main process: {e!r}")
+            logger.error(f"failed to handle abort request: {e!r}")
             return api_types.AbortResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.AbortFailureType.ABORT_FAILURE,
