@@ -377,6 +377,7 @@ class TestWaitForAbortStatus:
         assert result is False
         mock_flag.status_written.clear.assert_called_once()
         mock_flag.abort_acknowledged.set.assert_called_once()
+        mock_flag.abort_acknowledged.clear.assert_called_once()
 
     def test_retries_exhausted(self, mocker: pytest_mock.MockerFixture):
         """Test that function returns True after exhausting retries."""
