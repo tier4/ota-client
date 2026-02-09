@@ -78,7 +78,7 @@ from ._common import handle_upper_proxy
 logger = logging.getLogger(__name__)
 
 
-ABORT_THREAD_CHECK_INTERVAL = 2  # second
+OP_CHECK_INTERVAL = 1  # second
 HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
@@ -265,7 +265,7 @@ class OTAClient:
         # Phase 1: Wait for abort request from servicer
         while True:
             if self._abort_ota_flag.shutdown_requested.wait(
-                timeout=ABORT_THREAD_CHECK_INTERVAL
+                timeout=OP_CHECK_INTERVAL
             ):
                 self._live_ota_status = OTAStatus.ABORTING
                 self._status_report_queue.put_nowait(
@@ -284,7 +284,7 @@ class OTAClient:
         # Phase 2: Wait for main.py to acknowledge the abort
         while True:
             if self._abort_ota_flag.abort_acknowledged.wait(
-                timeout=ABORT_THREAD_CHECK_INTERVAL
+                timeout=OP_CHECK_INTERVAL
             ):
                 # Race condition guard: if OTA entered final phase between
                 # servicer setting shutdown_requested and us waking up,
@@ -545,7 +545,7 @@ class OTAClient:
         while True:
             _now = int(time.time())
             try:
-                request = req_queue.get(timeout=ABORT_THREAD_CHECK_INTERVAL)
+                request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
                 continue
 
