@@ -81,7 +81,7 @@ class OTAClientAPIServicer:
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
         self._shm_reader = shm_reader
-        self._abort_queued = False
+        self._abort_queued = threading.Event()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -387,18 +387,23 @@ class OTAClientAPIServicer:
         return False
 
     def _process_queued_abort(self) -> None:
-        # Check if OTA entered final phase while we were waiting
-        if self._is_abort_rejected_by_final_phase("before_critical_zone_lock"):
-            return
-
-        with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
-            # Double-check reject_abort after acquiring lock
-            if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
+        try:
+            # Check if OTA entered final phase while we were waiting
+            if self._is_abort_rejected_by_final_phase("before_critical_zone_lock"):
                 return
 
-            logger.warning("critical zone ended, processing queued abort request...")
-            self._abort_ota_flag.shutdown_requested.set()
-            logger.info("Abort OTA flag is set properly.")
+            with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
+                # Double-check reject_abort after acquiring lock
+                if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
+                    return
+
+                logger.warning(
+                    "critical zone ended, processing queued abort request..."
+                )
+                self._abort_ota_flag.shutdown_requested.set()
+                logger.info("Abort OTA flag is set properly.")
+        finally:
+            self._abort_queued.clear()
 
     def _handle_abort_request(
         self, request: AbortRequestV2
@@ -483,11 +488,12 @@ class OTAClientAPIServicer:
                 else:
                     # Lock not acquired = IN critical zone, queue abort
                     # Only spawn one thread to wait for critical zone to end
-                    if self._abort_queued:
+                    # Use Event.set() as an atomic test-and-set gate
+                    if self._abort_queued.is_set():
                         logger.info("abort already queued, skipping duplicate")
                     else:
                         logger.warning("in critical zone, queuing abort request...")
-                        self._abort_queued = True
+                        self._abort_queued.set()
                         threading.Thread(
                             target=self._process_queued_abort,
                             daemon=True,
