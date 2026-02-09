@@ -373,12 +373,18 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
                 self._pre_update()
 
+                logger.warning("TEST CODE: sleep 120 seconds after pre_update")
+                time.sleep(120)
+
             self._in_update()
 
             # Set reject_abort flag BEFORE acquiring lock to prevent race condition.
             # This ensures abort requests are rejected during post-update/finalize phases.
             logger.info("Setting reject_abort flag for final update phases")
             self._abort_ota_flag.reject_abort.set()
+
+            logger.warning("TEST CODE: sleep 120 seconds after setting reject_abort flag")
+            time.sleep(120)
 
             with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
                 if not _lock_acquired:
@@ -390,6 +396,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 logger.info(
                     "Entering critical zone for OTA update: post-update and finalize-update phases"
                 )
+
+                logger.warning("TEST CODE: sleep 120 seconds before post_update and finalize_update")
+                time.sleep(120)
+
                 self._post_update()
                 self._finalize_update()
 
