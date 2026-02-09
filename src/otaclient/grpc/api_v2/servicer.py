@@ -501,10 +501,29 @@ class OTAClientAPIServicer:
                         logger.info("abort already queued, skipping duplicate")
                     else:
                         logger.warning("in critical zone, queuing abort request...")
-                        threading.Thread(
+                        abort_thread = threading.Thread(
                             target=self._process_queued_abort,
                             daemon=True,
-                        ).start()
+                        )
+                        try:
+                            abort_thread.start()
+                        except Exception as e:
+                            # If the background thread fails to start, release the gate
+                            # lock so future abort queueing attempts are not blocked.
+                            logger.error(
+                                "failed to start queued abort processing thread: %r", e
+                            )
+                            try:
+                                self._abort_queued_lock.release()
+                            except RuntimeError:
+                                # Lock might already be released in unforeseen cases;
+                                # ignore to avoid masking the original error.
+                                pass
+                            return api_types.AbortResponseEcu(
+                                ecu_id=self.my_ecu_id,
+                                result=api_types.AbortFailureType.ABORT_FAILURE,
+                                message="Failed to queue abort request",
+                            )
                     return api_types.AbortResponseEcu(
                         ecu_id=self.my_ecu_id,
                         result=api_types.AbortFailureType.ABORT_NO_FAILURE,
