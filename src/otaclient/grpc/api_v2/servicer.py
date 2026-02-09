@@ -81,7 +81,7 @@ class OTAClientAPIServicer:
         self._critical_zone_flag = critical_zone_flag
         self._abort_ota_flag = abort_ota_flag
         self._shm_reader = shm_reader
-        self._abort_queued = threading.Event()
+        self._abort_queued_lock = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -403,7 +403,7 @@ class OTAClientAPIServicer:
                 self._abort_ota_flag.shutdown_requested.set()
                 logger.info("Abort OTA flag is set properly.")
         finally:
-            self._abort_queued.clear()
+            self._abort_queued_lock.release()
 
     def _handle_abort_request(
         self, request: AbortRequestV2
@@ -488,12 +488,11 @@ class OTAClientAPIServicer:
                 else:
                     # Lock not acquired = IN critical zone, queue abort
                     # Only spawn one thread to wait for critical zone to end
-                    # Use Event.set() as an atomic test-and-set gate
-                    if self._abort_queued.is_set():
+                    # acquire(blocking=False) is an atomic test-and-set gate
+                    if not self._abort_queued_lock.acquire(blocking=False):
                         logger.info("abort already queued, skipping duplicate")
                     else:
                         logger.warning("in critical zone, queuing abort request...")
-                        self._abort_queued.set()
                         threading.Thread(
                             target=self._process_queued_abort,
                             daemon=True,
