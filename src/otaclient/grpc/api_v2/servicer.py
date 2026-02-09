@@ -409,8 +409,8 @@ class OTAClientAPIServicer:
                 self._abort_queued_lock.release()
             except RuntimeError:
                 logger.warning(
-                    "Attempted to release _abort_queued_lock, but it was not held "
-                    "by the current thread."
+                    "Attempted to release _abort_queued_lock, but it was not locked "
+                    "(it may have already been released)."
                 )
 
     def _handle_abort_request(
