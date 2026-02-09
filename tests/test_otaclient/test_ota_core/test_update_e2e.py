@@ -103,9 +103,11 @@ class TestOTAUpdater:
         abort_ota_flag = mocker.MagicMock()
         abort_ota_flag.shutdown_requested = mocker.MagicMock()
         abort_ota_flag.shutdown_requested.is_set.return_value = False
+        abort_ota_flag.shutdown_requested.wait.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
         abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.abort_acknowledged.wait.return_value = False
         abort_ota_flag.status_written = mocker.MagicMock()
 
         # ------ execution ------ #
@@ -169,9 +171,11 @@ class TestOTAUpdater:
         abort_ota_flag = mocker.MagicMock()
         abort_ota_flag.shutdown_requested = mocker.MagicMock()
         abort_ota_flag.shutdown_requested.is_set.return_value = False
+        abort_ota_flag.shutdown_requested.wait.return_value = False
         abort_ota_flag.reject_abort = mocker.MagicMock()
         abort_ota_flag.reject_abort.is_set.return_value = False
         abort_ota_flag.abort_acknowledged = mocker.MagicMock()
+        abort_ota_flag.abort_acknowledged.wait.return_value = False
         abort_ota_flag.status_written = mocker.MagicMock()
 
         # ------ execution ------ #
