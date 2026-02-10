@@ -194,10 +194,6 @@ class ClientUpdateFailed(OTAErrorRecoverable):
     )
 
 
-# DEPRECATED
-class OTAAbortRequested(OTAErrorRecoverable):
-    failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORT_REQUESTED
-    failure_description: str = "OTA interrupted by OTA ABORT request"
 
 
 class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
