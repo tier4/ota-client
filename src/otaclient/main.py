@@ -481,7 +481,12 @@ def main() -> None:  # pragma: no cover
 
         if abort_ota_flag.shutdown_requested.is_set():
             if _wait_for_abort_status(abort_ota_flag):
+                logger.info(
+                    f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
+                )
+                time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
                 return _on_shutdown()
+
             # Abort was rejected (e.g., OTA entered final phase).
             # Clear shutdown_requested so future abort attempts are not
             # treated as "already in progress".
