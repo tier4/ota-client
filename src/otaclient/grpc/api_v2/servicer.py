@@ -445,10 +445,7 @@ class OTAClientAPIServicer:
                     message="Cannot abort: no active OTA update in progress",
                 )
 
-            if _local_status.ota_status not in (
-                OTAStatus.UPDATING,
-                OTAStatus.CLIENT_UPDATING,
-            ):
+            if _local_status.ota_status not in (OTAStatus.UPDATING,):
                 logger.info(
                     f"abort request rejected: no active OTA update "
                     f"(current status: {_local_status.ota_status})"
