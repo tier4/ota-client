@@ -99,7 +99,7 @@ def _on_shutdown(sys_exit: bool | int = True):  # pragma: no cover
         if _grpc_server_p:
             _grpc_server_p.terminate()
             _grpc_server_p.join()
-            _grpc_server_p = None/
+            _grpc_server_p = None
 
         if _shm:
             _shm.close()
