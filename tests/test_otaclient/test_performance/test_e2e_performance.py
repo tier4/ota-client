@@ -190,6 +190,7 @@ class TestOTAUpdatePerformanceE2E:
             return_value=False
         )
         abort_ota_state = mocker.MagicMock()
+        abort_ota_state.try_accept_abort.return_value = False
 
         # Start test timing
         report.start_test()
@@ -266,6 +267,7 @@ class TestOTAUpdatePerformanceE2E:
             return_value=False
         )
         abort_ota_state = mocker.MagicMock()
+        abort_ota_state.try_accept_abort.return_value = False
 
         # Start test timing
         report.start_test()
