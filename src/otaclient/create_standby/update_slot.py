@@ -190,6 +190,7 @@ class UpdateStandbySlot:
         )
         status_reporter_t.start()
         try:
+            _next_abort_check = 0
             with ThreadPoolExecutor(
                 max_workers=self.max_workers, thread_name_prefix="ota_update_slot"
             ) as pool:
@@ -197,14 +198,21 @@ class UpdateStandbySlot:
                     if self._interrupted.is_set():
                         logger.error("detect worker failed, abort!")
                         return
-                    if (
-                        self._abort_state is not None
-                        and self._abort_state.try_accept_abort()
-                    ):
-                        raise ota_errors.OTAAborted(
-                            "OTA update aborted by user request",
-                            module=__name__,
-                        )
+
+                    # Check abort at the same interval as status reporting
+                    # to avoid lock overhead per file.
+                    _now = time.time()
+                    if _now > _next_abort_check:
+                        _next_abort_check = _now + self.status_report_interval
+                        if (
+                            self._abort_state is not None
+                            and self._abort_state.try_accept_abort()
+                        ):
+                            raise ota_errors.OTAAbortAccepted(
+                                "OTA abort accepted by updater",
+                                module=__name__,
+                            )
+
                     self._se.acquire()
 
                     _digest = _entry.digest

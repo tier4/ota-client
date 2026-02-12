@@ -193,9 +193,9 @@ class ClientUpdateFailed(OTAErrorRecoverable):
     )
 
 
-class OTAAborted(OTAErrorRecoverable):
+class OTAAbortAccepted(OTAErrorRecoverable):
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORTED
-    failure_description: str = "OTA update aborted by user request"
+    failure_description: str = "OTA abort accepted, cleanup pending"
 
 
 class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):

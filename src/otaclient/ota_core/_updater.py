@@ -95,12 +95,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
     def _check_abort(self) -> None:
         """Lightweight abort check — safe to call from any loop.
 
-        Transitions REQUESTED → ABORTING and raises OTAAborted.
+        Transitions REQUESTED → ABORTING and raises OTAAbortAccepted.
         Actual cleanup happens in execute()'s except handler via _do_abort().
         """
         if self._abort_state.try_accept_abort():
-            raise ota_errors.OTAAborted(
-                "OTA update aborted by user request", module=__name__
+            raise ota_errors.OTAAbortAccepted(
+                "OTA abort accepted by updater", module=__name__
             )
 
     def _do_abort(self) -> None:
@@ -193,7 +193,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         logger.info(f"standby_firmware_version: {standby_firmware_version}")
 
     def _in_update(self):
-        """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
+        """In-Update: delta calculation, resources downloading and apply updates to standby slot."""
         logger.info("start to calculate delta ...")
         assert self._fst_db_helper
         _delta_digests = DeltaCalculator(
@@ -265,7 +265,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 abort_state=self._abort_state,
             )
             standby_slot_creator.update_slot()
-        except ota_errors.OTAAborted:
+        except ota_errors.OTAAbortAccepted:
             raise
         except Exception as e:
             raise ota_errors.ApplyOTAUpdateFailed(
@@ -410,14 +410,14 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             # enter_final_phase transitions REQUESTED → ABORTING for us.
             old_state = self._abort_state.enter_final_phase()
             if old_state == AbortState.REQUESTED:
-                raise ota_errors.OTAAborted(
-                    "OTA update aborted by user request", module=__name__
+                raise ota_errors.OTAAbortAccepted(
+                    "OTA abort accepted by updater", module=__name__
                 )
 
             self._post_update()
             self._finalize_update()
 
-        except ota_errors.OTAAborted:
+        except ota_errors.OTAAbortAccepted:
             self._do_abort()
             raise  # propagate to _main.py for status handling
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
