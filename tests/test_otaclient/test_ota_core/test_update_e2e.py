@@ -100,6 +100,7 @@ class TestOTAUpdater:
             return_value=False
         )
         abort_ota_state = mocker.MagicMock()
+        abort_ota_state.try_accept_abort.return_value = False
 
         # ------ execution ------ #
         ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -158,6 +159,7 @@ class TestOTAUpdater:
             return_value=False
         )
         abort_ota_state = mocker.MagicMock()
+        abort_ota_state.try_accept_abort.return_value = False
 
         # ------ execution ------ #
         ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
