@@ -76,7 +76,7 @@ class TestOTAClientAPIServicer:
         # Setup mock for OTAAbortState
         self.abort_ota_state = mocker.MagicMock()
         self.abort_ota_state.try_set_requested.return_value = True
-        self.abort_ota_state.state = mocker.PropertyMock(return_value=None)
+        self.abort_ota_state.state = AbortState.NONE
 
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
