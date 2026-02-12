@@ -184,23 +184,19 @@ class TestMain:
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
 
-        # Create properly configured mock events for AbortOTAFlag
-        mock_shutdown_requested = MagicMock()
-        mock_shutdown_requested.is_set.return_value = False
-        mock_reject_abort = MagicMock()
-        mock_reject_abort.is_set.return_value = False
-
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
             MagicMock(),  # any_requires_network
             MagicMock(),  # all_success
             MagicMock(),  # notify_data_ready_event
             MagicMock(),  # request_shutdown_event
-            mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
-            mock_reject_abort,  # reject_abort (AbortOTAFlag)
-            MagicMock(),  # abort_acknowledged (AbortOTAFlag)
-            MagicMock(),  # status_written (AbortOTAFlag)
         ]
+
+        # Setup Value mock for OTAAbortState
+        mock_abort_value = MagicMock()
+        mock_abort_value.value = 0  # AbortState.NONE
+        mock_mp_ctx.Value.return_value = mock_abort_value
+
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -253,23 +249,19 @@ class TestMain:
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
 
-        # Create properly configured mock events for AbortOTAFlag
-        mock_shutdown_requested = MagicMock()
-        mock_shutdown_requested.is_set.return_value = False
-        mock_reject_abort = MagicMock()
-        mock_reject_abort.is_set.return_value = False
-
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
             MagicMock(),  # any_requires_network
             MagicMock(),  # all_success
             MagicMock(),  # notify_data_ready_event
             MagicMock(),  # request_shutdown_event
-            mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
-            mock_reject_abort,  # reject_abort (AbortOTAFlag)
-            MagicMock(),  # abort_acknowledged (AbortOTAFlag)
-            MagicMock(),  # status_written (AbortOTAFlag)
         ]
+
+        # Setup Value mock for OTAAbortState (not aborted)
+        mock_abort_value = MagicMock()
+        mock_abort_value.value = 0  # AbortState.NONE
+        mock_mp_ctx.Value.return_value = mock_abort_value
+
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -295,7 +287,7 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     def test_main_abort_shutdown(self, mock_logging, mocker: pytest_mock.MockerFixture):
-        """Test main function shutdown via abort request path."""
+        """Test main function shutdown when abort state reaches ABORTED."""
         # Mock the modules and functions imported in main()
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
@@ -322,23 +314,19 @@ class TestMain:
         mock_mp_ctx = mocker.MagicMock()
         mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
 
-        # Create properly configured mock events for AbortOTAFlag
-        mock_shutdown_requested = MagicMock()
-        mock_shutdown_requested.is_set.return_value = True
-        mock_reject_abort = MagicMock()
-        mock_reject_abort.is_set.return_value = False
-
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
             MagicMock(),  # any_requires_network
             MagicMock(),  # all_success
             MagicMock(),  # notify_data_ready_event
             MagicMock(),  # request_shutdown_event
-            mock_shutdown_requested,  # shutdown_requested (AbortOTAFlag)
-            mock_reject_abort,  # reject_abort (AbortOTAFlag)
-            MagicMock(),  # abort_acknowledged (AbortOTAFlag)
-            MagicMock(),  # status_written (AbortOTAFlag)
         ]
+
+        # Setup Value mock for OTAAbortState — ABORTED triggers shutdown
+        mock_abort_value = MagicMock()
+        mock_abort_value.value = 3  # AbortState.ABORTED
+        mock_mp_ctx.Value.return_value = mock_abort_value
+
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -347,9 +335,6 @@ class TestMain:
 
         # Mock time.sleep to prevent real delays
         mock_sleep = mocker.patch(f"{MAIN_MODULE}.time.sleep")
-
-        # Mock _wait_for_abort_status to return True (proceed with shutdown)
-        mocker.patch(f"{MAIN_MODULE}._wait_for_abort_status", return_value=True)
 
         # Mock _on_shutdown to prevent SystemExit
         mock_on_shutdown = mocker.patch(f"{MAIN_MODULE}._on_shutdown")
@@ -420,48 +405,6 @@ class TestMain:
         # Verify behavior based on flag values
         mock_dynamic_otaclient_init.assert_called_once()
         mock_check_other_otaclient.assert_called_once()
-
-
-class TestWaitForAbortStatus:
-    """Tests for _wait_for_abort_status function."""
-
-    def test_status_written_immediately(self, mocker: pytest_mock.MockerFixture):
-        """Test that function returns True when status_written is set immediately."""
-        mock_flag = mocker.MagicMock()
-        mock_flag.status_written.wait.return_value = True
-
-        result = main._wait_for_abort_status(mock_flag)
-
-        assert result is True
-        mock_flag.status_written.clear.assert_called_once()
-        mock_flag.abort_acknowledged.set.assert_called_once()
-
-    def test_reject_abort_during_wait(self, mocker: pytest_mock.MockerFixture):
-        """Test that function returns False when reject_abort is set during wait."""
-        mock_flag = mocker.MagicMock()
-        mock_flag.status_written.wait.return_value = False
-        mock_flag.reject_abort.is_set.return_value = True
-
-        result = main._wait_for_abort_status(mock_flag)
-
-        assert result is False
-        mock_flag.status_written.clear.assert_called_once()
-        mock_flag.abort_acknowledged.set.assert_called_once()
-        mock_flag.abort_acknowledged.clear.assert_called_once()
-
-    def test_retries_exhausted(self, mocker: pytest_mock.MockerFixture):
-        """Test that function returns True after exhausting retries."""
-        mock_flag = mocker.MagicMock()
-        mock_flag.status_written.wait.return_value = False
-        mock_flag.reject_abort.is_set.return_value = False
-
-        result = main._wait_for_abort_status(mock_flag)
-
-        assert result is True
-        assert (
-            mock_flag.status_written.wait.call_count
-            == main.ABORT_STATUS_WRITTEN_MAX_RETRIES
-        )
 
 
 class TestBindExternalNFSCache:

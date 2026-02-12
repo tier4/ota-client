@@ -74,6 +74,104 @@ class FailureType(StrEnum):
 #
 
 
+class AbortState(IntEnum):
+    """States for the OTA abort state machine.
+
+    Transitions:
+        NONE → REQUESTED      (Servicer: abort RPC received)
+        NONE → FINAL_PHASE    (Updater: closing abort window before post_update)
+        REQUESTED → ABORTING  (Updater: accepting abort between phases)
+        REQUESTED → FINAL_PHASE (Updater: abort arrived too late, rejecting)
+        ABORTING → ABORTED    (Updater: cleanup done, status written to disk)
+        FINAL_PHASE → NONE    (Updater: finally block on failure path)
+        FINAL_PHASE → [reboot] (Updater: _finalize_update succeeds)
+        ABORTED → [shutdown]  (Main: _on_shutdown)
+    """
+
+    NONE = 0
+    REQUESTED = 1
+    ABORTING = 2
+    ABORTED = 3
+    FINAL_PHASE = 4
+
+
+class OTAAbortState:
+    """Shared abort state machine for cross-process abort coordination.
+
+    Uses a single mp.Value with its internal lock for atomic CAS operations.
+    All state transitions are serialized by the same lock, eliminating race
+    conditions between the Servicer (gRPC process) and Updater (OTA Core process).
+    """
+
+    def __init__(self, value: mp_sync.Value):
+        self._value = value
+
+    @property
+    def state(self) -> AbortState:
+        """Read the current abort state."""
+        return AbortState(self._value.value)
+
+    def try_set_requested(self) -> bool:
+        """CAS: NONE → REQUESTED. Used by Servicer when abort RPC arrives.
+
+        Returns True if the transition succeeded (abort request recorded).
+        Returns False if the state was not NONE (abort already in progress,
+        or Updater already in final phase).
+        """
+        with self._value.get_lock():
+            if self._value.value == AbortState.NONE:
+                self._value.value = AbortState.REQUESTED
+                return True
+            return False
+
+    def try_accept_abort(self) -> bool:
+        """CAS: REQUESTED → ABORTING. Used by Updater between phases.
+
+        Returns True if the transition succeeded (abort accepted).
+        Returns False if no abort was requested.
+        """
+        with self._value.get_lock():
+            if self._value.value == AbortState.REQUESTED:
+                self._value.value = AbortState.ABORTING
+                return True
+            return False
+
+    def set_aborted(self) -> None:
+        """CAS: ABORTING → ABORTED. Used by Updater after cleanup is done."""
+        with self._value.get_lock():
+            if self._value.value == AbortState.ABORTING:
+                self._value.value = AbortState.ABORTED
+
+    def enter_final_phase(self) -> AbortState:
+        """Atomically close the abort window or accept a pending abort.
+
+        Used by Updater after _in_update() completes, before _post_update().
+
+        - If NONE: transitions to FINAL_PHASE (abort window closed).
+        - If REQUESTED: transitions to ABORTING (accept the pending abort).
+        - Otherwise: no change.
+
+        Returns the state that was found BEFORE the transition.
+        """
+        with self._value.get_lock():
+            old = AbortState(self._value.value)
+            if old == AbortState.NONE:
+                self._value.value = AbortState.FINAL_PHASE
+            elif old == AbortState.REQUESTED:
+                self._value.value = AbortState.ABORTING
+            return old
+
+    def reset_final_phase(self) -> None:
+        """CAS: FINAL_PHASE → NONE. Used in Updater's finally block.
+
+        On the success path, _finalize_update() reboots and this never runs.
+        On the failure path, this resets state so future abort requests work.
+        """
+        with self._value.get_lock():
+            if self._value.value == AbortState.FINAL_PHASE:
+                self._value.value = AbortState.NONE
+
+
 class CriticalZoneFlag:
     def __init__(self, lock: mp_sync.Lock):
         self._lock = lock
@@ -95,16 +193,6 @@ class CriticalZoneFlag:
         finally:
             if acquired:
                 self._lock.release()
-
-
-@dataclass
-class AbortOTAFlag:
-    shutdown_requested: mp_sync.Event
-    reject_abort: mp_sync.Event
-    abort_acknowledged: (
-        mp_sync.Event
-    )  # main.py sets this after seeing shutdown_requested
-    status_written: mp_sync.Event  # ota_core sets this after writing ABORTED status
 
 
 #

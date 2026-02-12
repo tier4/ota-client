@@ -18,19 +18,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import multiprocessing.queues as mp_queue
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, overload
 
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
-    AbortOTAFlag,
     AbortRequestV2,
+    AbortState,
     ClientUpdateRequestV2,
-    CriticalZoneFlag,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
+    OTAAbortState,
     OTAStatus,
     RollbackRequestV2,
     UpdateRequestV2,
@@ -63,8 +62,7 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-        critical_zone_flag: CriticalZoneFlag,
-        abort_ota_flag: AbortOTAFlag,
+        abort_ota_state: OTAAbortState,
         shm_reader: SharedOTAClientStatusReader,
         executor: ThreadPoolExecutor,
     ):
@@ -78,10 +76,8 @@ class OTAClientAPIServicer:
         self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
-        self._critical_zone_flag = critical_zone_flag
-        self._abort_ota_flag = abort_ota_flag
+        self._abort_ota_state = abort_ota_state
         self._shm_reader = shm_reader
-        self._abort_queued_lock = threading.Lock()
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -278,9 +274,9 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
-        if self._abort_ota_flag.shutdown_requested.is_set():
+        if self._abort_ota_state.state not in (AbortState.NONE, AbortState.FINAL_PHASE):
             logger.error(
-                "otaclient is stopping due to OTA ABORT requested. Rejecting all further incoming request"
+                "otaclient is aborting OTA update. Rejecting all further incoming requests"
             )
             for _req in request.iter_ecu():
                 self._add_ecu_into_response(
@@ -368,56 +364,15 @@ class OTAClientAPIServicer:
             )
         return response
 
-    def _is_abort_rejected_by_final_phase(self, caller: str = "") -> bool:
-        """Check if abort should be rejected because OTA is in final phase.
-
-        Args:
-            caller: Optional identifier for the caller context (for logging).
-
-        Returns:
-            True if abort should be rejected (OTA in final phase), False otherwise.
-        """
-        if self._abort_ota_flag.reject_abort.is_set():
-            caller_info = f" [{caller}]" if caller else ""
-            logger.info(
-                f"abort request rejected{caller_info}: OTA update is in final phase "
-                "(post_update/finalize_update)"
-            )
-            return True
-        return False
-
-    def _process_queued_abort(self) -> None:
-        try:
-            # Check if OTA entered final phase while we were waiting
-            if self._is_abort_rejected_by_final_phase("before_critical_zone_lock"):
-                return
-
-            with self._critical_zone_flag.acquire_lock_with_release(blocking=True):
-                # Double-check reject_abort after acquiring lock
-                if self._is_abort_rejected_by_final_phase("after_critical_zone_lock"):
-                    return
-
-                logger.warning(
-                    "critical zone ended, processing queued abort request..."
-                )
-                self._abort_ota_flag.shutdown_requested.set()
-                logger.info("Abort OTA flag is set properly.")
-        finally:
-            # Best-effort release of _abort_queued_lock; avoid crashing if it is
-            # not held or has already been released by the time we get here.
-            try:
-                self._abort_queued_lock.release()
-            except RuntimeError:
-                logger.warning(
-                    "Attempted to release _abort_queued_lock, but it was not locked "
-                    "(it may have already been released)."
-                )
-
     def _handle_abort_request(
         self, request: AbortRequestV2
     ) -> api_types.AbortResponseEcu:
-        """Dispatch abort request to main process."""
-        logger.info(f"handling request: {request}")
+        """Handle abort request using atomic CAS on shared abort state.
+
+        The Servicer only records the request (NONE → REQUESTED). The Updater
+        in the OTA Core process owns the decision to accept or reject.
+        """
+        logger.info(f"handling abort request: {request}")
         if not isinstance(request, AbortRequestV2):
             return api_types.AbortResponseEcu(
                 ecu_id="",
@@ -426,13 +381,6 @@ class OTAClientAPIServicer:
             )
 
         try:
-            if self._abort_ota_flag.shutdown_requested.is_set():
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                    message="Abort already in progress",
-                )
-
             # Check if there's an active OTA update to abort
             _local_status = self._shm_reader.sync_msg()
             if _local_status is None:
@@ -456,76 +404,38 @@ class OTAClientAPIServicer:
                     message="Cannot abort: no active OTA update in progress",
                 )
 
-            # Check if we're in final update phases (post_update/finalize_update)
-            # where abort should be rejected, not queued
-            if self._is_abort_rejected_by_final_phase("handle_abort_request"):
+            # Atomic CAS: NONE → REQUESTED
+            if self._abort_ota_state.try_set_requested():
+                logger.warning("abort request accepted, state set to REQUESTED")
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                )
+
+            # CAS failed — check why
+            current_state = self._abort_ota_state.state
+            if current_state in (AbortState.REQUESTED, AbortState.ABORTING):
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                    message="Abort already in progress",
+                )
+            if current_state == AbortState.FINAL_PHASE:
+                logger.info(
+                    "abort request rejected: OTA update is in final phase "
+                    "(post_update/finalize_update)"
+                )
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_FAILURE,
                     message="Cannot abort: OTA update is in final phase and will complete shortly",
                 )
-
-            with self._critical_zone_flag.acquire_lock_with_release(
-                blocking=False
-            ) as _lock_acquired:
-                if _lock_acquired:
-                    # Double-check reject_abort after acquiring lock to handle race condition
-                    # where OTA entered final phase between the initial check and lock acquisition
-                    if self._is_abort_rejected_by_final_phase(
-                        "handle_abort_request_after_lock"
-                    ):
-                        return api_types.AbortResponseEcu(
-                            ecu_id=self.my_ecu_id,
-                            result=api_types.AbortFailureType.ABORT_FAILURE,
-                            message="Cannot abort: OTA update is in final phase and will complete shortly",
-                        )
-
-                    # Lock acquired = NOT in critical zone, process immediately
-                    logger.warning(
-                        "abort function requested, interrupting OTA and exit now ..."
-                    )
-                    self._abort_ota_flag.shutdown_requested.set()
-                    logger.info("Abort OTA flag is set properly.")
-                    return api_types.AbortResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                    )
-                else:
-                    # Lock not acquired = IN critical zone, queue abort
-                    # Only spawn one thread to wait for critical zone to end
-                    # acquire(blocking=False) is an atomic test-and-set gate
-                    if not self._abort_queued_lock.acquire(blocking=False):
-                        logger.info("abort already queued, skipping duplicate")
-                    else:
-                        logger.warning("in critical zone, queuing abort request...")
-                        abort_thread = threading.Thread(
-                            target=self._process_queued_abort,
-                            daemon=True,
-                        )
-                        try:
-                            abort_thread.start()
-                        except Exception as e:
-                            # If the background thread fails to start, release the gate
-                            # lock so future abort queueing attempts are not blocked.
-                            logger.error(
-                                "failed to start queued abort processing thread: %r", e
-                            )
-                            try:
-                                self._abort_queued_lock.release()
-                            except RuntimeError:
-                                # Lock might already be released in unforeseen cases;
-                                # ignore to avoid masking the original error.
-                                pass
-                            return api_types.AbortResponseEcu(
-                                ecu_id=self.my_ecu_id,
-                                result=api_types.AbortFailureType.ABORT_FAILURE,
-                                message="Failed to queue abort request",
-                            )
-                    return api_types.AbortResponseEcu(
-                        ecu_id=self.my_ecu_id,
-                        result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                        message="Abort request queued, will process after critical zone",
-                    )
+            # ABORTED or unexpected state
+            return api_types.AbortResponseEcu(
+                ecu_id=self.my_ecu_id,
+                result=api_types.AbortFailureType.ABORT_FAILURE,
+                message=f"Cannot abort: unexpected state {current_state.name}",
+            )
 
         except Exception as e:
             logger.error(f"failed to handle abort request: {e!r}")
