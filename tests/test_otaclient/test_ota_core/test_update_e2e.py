@@ -100,15 +100,7 @@ class TestOTAUpdater:
             return_value=False
         )
         critical_zone_flag = mocker.MagicMock()
-        abort_ota_flag = mocker.MagicMock()
-        abort_ota_flag.shutdown_requested = mocker.MagicMock()
-        abort_ota_flag.shutdown_requested.is_set.return_value = False
-        abort_ota_flag.shutdown_requested.wait.return_value = False
-        abort_ota_flag.reject_abort = mocker.MagicMock()
-        abort_ota_flag.reject_abort.is_set.return_value = False
-        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
-        abort_ota_flag.abort_acknowledged.wait.return_value = False
-        abort_ota_flag.status_written = mocker.MagicMock()
+        abort_ota_state = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -138,7 +130,7 @@ class TestOTAUpdater:
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
             critical_zone_flag=critical_zone_flag,
-            abort_ota_flag=abort_ota_flag,
+            abort_ota_state=abort_ota_state,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
@@ -168,15 +160,7 @@ class TestOTAUpdater:
             return_value=False
         )
         critical_zone_flag = mocker.MagicMock()
-        abort_ota_flag = mocker.MagicMock()
-        abort_ota_flag.shutdown_requested = mocker.MagicMock()
-        abort_ota_flag.shutdown_requested.is_set.return_value = False
-        abort_ota_flag.shutdown_requested.wait.return_value = False
-        abort_ota_flag.reject_abort = mocker.MagicMock()
-        abort_ota_flag.reject_abort.is_set.return_value = False
-        abort_ota_flag.abort_acknowledged = mocker.MagicMock()
-        abort_ota_flag.abort_acknowledged.wait.return_value = False
-        abort_ota_flag.status_written = mocker.MagicMock()
+        abort_ota_state = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
@@ -206,7 +190,7 @@ class TestOTAUpdater:
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
             critical_zone_flag=critical_zone_flag,
-            abort_ota_flag=abort_ota_flag,
+            abort_ota_state=abort_ota_state,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
