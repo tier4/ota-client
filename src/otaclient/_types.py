@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import multiprocessing.sharedctypes as mp_sharedctypes
 import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
 from typing import ClassVar, Optional
@@ -96,13 +97,9 @@ class AbortState(IntEnum):
 
 class OTAAbortState:
     """Shared abort state machine for cross-process abort coordination.
-
-    Uses a single mp.Value with its internal lock for atomic CAS operations.
-    All state transitions are serialized by the same lock, eliminating race
-    conditions between the Servicer (gRPC process) and Updater (OTA Core process).
     """
 
-    def __init__(self, value: mp_sync.Value):
+    def __init__(self, value: mp_sharedctypes.Synchronized):
         self._value = value
 
     @property
@@ -111,7 +108,9 @@ class OTAAbortState:
         return AbortState(self._value.value)
 
     def try_set_requested(self) -> bool:
-        """CAS: NONE → REQUESTED. Used by Servicer when abort RPC arrives.
+        """Atomic compare-and-swap: NONE → REQUESTED.
+
+        Used by Servicer when abort RPC arrives.
 
         Returns True if the transition succeeded (abort request recorded).
         Returns False if the state was not NONE (abort already in progress,
@@ -124,7 +123,9 @@ class OTAAbortState:
             return False
 
     def try_accept_abort(self) -> bool:
-        """CAS: REQUESTED → ABORTING. Used by Updater between phases.
+        """Atomic compare-and-swap: REQUESTED → ABORTING.
+
+        Used by Updater at safe checkpoints between phases.
 
         Returns True if the transition succeeded (abort accepted).
         Returns False if no abort was requested.
@@ -136,13 +137,16 @@ class OTAAbortState:
             return False
 
     def set_aborted(self) -> None:
-        """CAS: ABORTING → ABORTED. Used by Updater after cleanup is done."""
+        """Atomic compare-and-swap: ABORTING → ABORTED.
+
+        Used by Updater after abort cleanup is done.
+        """
         with self._value.get_lock():
             if self._value.value == AbortState.ABORTING:
                 self._value.value = AbortState.ABORTED
 
     def enter_final_phase(self) -> AbortState:
-        """Atomically close the abort window or accept a pending abort.
+        """Atomic compare-and-swap: close the abort window or accept a pending abort.
 
         Used by Updater after _in_update() completes, before _post_update().
 
@@ -161,8 +165,9 @@ class OTAAbortState:
             return old
 
     def reset_final_phase(self) -> None:
-        """CAS: FINAL_PHASE → NONE. Used in Updater's finally block.
+        """Atomic compare-and-swap: FINAL_PHASE → NONE.
 
+        Used in Updater's finally block.
         On the success path, _finalize_update() reboots and this never runs.
         On the failure path, this resets state so future abort requests work.
         """

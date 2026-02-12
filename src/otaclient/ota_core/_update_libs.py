@@ -340,10 +340,6 @@ def download_resources_handler(
         operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
     )
     for _done_count, _fut in enumerate(downloader, start=1):
-        if abort_state is not None and abort_state.try_accept_abort():
-            raise ota_errors.OTAAborted(
-                "OTA update aborted by user request", module=__name__
-            )
         _now = time.time()
         if download_exception_handler(_fut):
             _download_res = _fut.result()
@@ -360,6 +356,13 @@ def download_resources_handler(
         ) > _report_batch_cnt or _now > _next_commit_before:
             _next_commit_before = _now + DOWNLOAD_REPORT_INTERVAL
             _report_batch_cnt = _this_batch
+
+            # Check abort at the same interval as status reporting
+            # (every 300 files or every 1s) to avoid lock overhead per file.
+            if abort_state is not None and abort_state.try_accept_abort():
+                raise ota_errors.OTAAbortAccepted(
+                    "OTA abort accepted by updater", module=__name__
+                )
 
             status_report_queue.put_nowait(
                 StatusReport(

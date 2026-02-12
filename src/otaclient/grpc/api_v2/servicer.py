@@ -367,7 +367,7 @@ class OTAClientAPIServicer:
     def _handle_abort_request(
         self, request: AbortRequestV2
     ) -> api_types.AbortResponseEcu:
-        """Handle abort request using atomic CAS on shared abort state.
+        """Handle abort request using atomic compare-and-swap on shared abort state.
 
         The Servicer only records the request (NONE → REQUESTED). The Updater
         in the OTA Core process owns the decision to accept or reject.
@@ -404,7 +404,7 @@ class OTAClientAPIServicer:
                     message="Cannot abort: no active OTA update in progress",
                 )
 
-            # Atomic CAS: NONE → REQUESTED
+            # Atomic compare-and-swap: NONE → REQUESTED
             if self._abort_ota_state.try_set_requested():
                 logger.warning("abort request accepted, state set to REQUESTED")
                 return api_types.AbortResponseEcu(
@@ -412,7 +412,7 @@ class OTAClientAPIServicer:
                     result=api_types.AbortFailureType.ABORT_NO_FAILURE,
                 )
 
-            # CAS failed — check why
+            # State transition failed — check why
             current_state = self._abort_ota_state.state
             if current_state in (AbortState.REQUESTED, AbortState.ABORTING):
                 return api_types.AbortResponseEcu(
