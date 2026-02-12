@@ -80,8 +80,7 @@ class AbortState(IntEnum):
     Transitions:
         NONE → REQUESTED      (Servicer: abort RPC received)
         NONE → FINAL_PHASE    (Updater: closing abort window before post_update)
-        REQUESTED → ABORTING  (Updater: accepting abort between phases)
-        REQUESTED → FINAL_PHASE (Updater: abort arrived too late, rejecting)
+        REQUESTED → ABORTING  (Updater: accepting abort between phases or at enter_final_phase)
         ABORTING → ABORTED    (Updater: cleanup done, status written to disk)
         FINAL_PHASE → NONE    (Updater: finally block on failure path)
         FINAL_PHASE → [reboot] (Updater: _finalize_update succeeds)
@@ -96,8 +95,7 @@ class AbortState(IntEnum):
 
 
 class OTAAbortState:
-    """Shared abort state machine for cross-process abort coordination.
-    """
+    """Shared abort state machine for cross-process abort coordination."""
 
     def __init__(self, value: mp_sharedctypes.Synchronized):
         self._value = value

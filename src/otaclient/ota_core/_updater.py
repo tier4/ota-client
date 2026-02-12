@@ -86,6 +86,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self._abort_state = abort_ota_state
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
+        self._in_critical_zone = False
 
         # NOTE: should be updated by _process_metadata
         self.total_regulars_size = 0
@@ -97,7 +98,14 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
         Transitions REQUESTED → ABORTING and raises OTAAbortAccepted.
         Actual cleanup happens in execute()'s except handler via _do_abort().
+
+        No-op during critical zones (_pre_update, _post_update, _finalize_update)
+        where aborting mid-operation could leave the system in an inconsistent state.
+        The abort request stays as REQUESTED and is picked up at the next
+        _check_abort() after the critical zone exits.
         """
+        if self._in_critical_zone:
+            return
         if self._abort_state.try_accept_abort():
             raise ota_errors.OTAAbortAccepted(
                 "OTA abort accepted by updater", module=__name__
@@ -400,7 +408,14 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._process_metadata()
             self._check_abort()
 
-            self._pre_update()
+            # Critical zone: _pre_update formats/mounts slots and sets up
+            # boot control. Aborting mid-way could leave the system in an
+            # inconsistent state. Abort is deferred to _check_abort after.
+            self._in_critical_zone = True
+            try:
+                self._pre_update()
+            finally:
+                self._in_critical_zone = False
             self._check_abort()
 
             self._in_update()
@@ -414,8 +429,15 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                     "OTA abort accepted by updater", module=__name__
                 )
 
-            self._post_update()
-            self._finalize_update()
+            # Critical zone: _post_update and _finalize_update write final
+            # metadata and switch boot partitions. Already protected by
+            # FINAL_PHASE state, but the flag provides defense-in-depth.
+            self._in_critical_zone = True
+            try:
+                self._post_update()
+                self._finalize_update()
+            finally:
+                self._in_critical_zone = False
 
         except ota_errors.OTAAbortAccepted:
             self._do_abort()
