@@ -93,18 +93,18 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self._iter_persists_func: Callable[[], Iterable[str] | None] | None = None
 
     def _check_abort(self) -> None:
-        """Lightweight abort check — safe to call from any loop.
+        """Lightweight abort checkpoint — safe to call from any loop.
 
-        Transitions REQUESTED → ABORTING and raises OTAAbortAccepted.
-        Actual cleanup happens in execute()'s except handler via _do_abort().
+        Transitions REQUESTED → ABORTING and raises OTAAbortSignal to
+        unwind the stack. Actual cleanup happens in execute()'s except handler.
 
         Safe to call during critical zones — try_accept_abort() only acts on
         REQUESTED state, not CRITICAL_ZONE_ABORT_REQUESTED. Abort requests
         queued during a critical zone become REQUESTED after exit_critical_zone().
         """
         if self._abort_state.try_accept_abort():
-            raise ota_errors.OTAAbortAccepted(
-                "OTA abort accepted by updater", module=__name__
+            raise ota_errors.OTAAbortSignal(
+                "OTA abort signal raised", module=__name__
             )
 
     def _do_abort(self) -> None:
@@ -269,7 +269,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 abort_state=self._abort_state,
             )
             standby_slot_creator.update_slot()
-        except ota_errors.OTAAbortAccepted:
+        except ota_errors.OTAAbortSignal:
             raise
         except Exception as e:
             raise ota_errors.ApplyOTAUpdateFailed(
@@ -423,8 +423,8 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             # enter_final_phase transitions REQUESTED → ABORTING for us.
             old_state = self._abort_state.enter_final_phase()
             if old_state == AbortState.REQUESTED:
-                raise ota_errors.OTAAbortAccepted(
-                    "OTA abort accepted by updater", module=__name__
+                raise ota_errors.OTAAbortSignal(
+                    "OTA abort signal raised", module=__name__
                 )
 
             # _post_update and _finalize_update are protected by FINAL_PHASE
@@ -433,7 +433,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._post_update()
             self._finalize_update()
 
-        except ota_errors.OTAAbortAccepted:
+        except ota_errors.OTAAbortSignal:
             self._do_abort()
             raise  # propagate to _main.py for status handling
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA

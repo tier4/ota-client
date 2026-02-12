@@ -209,7 +209,7 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
                 session_id=self.session_id,
                 abort_state=self._abort_state,
             )
-        except ota_errors.OTAAbortAccepted:
+        except ota_errors.OTAAbortSignal:
             raise
         except Exception as e:
             _err_msg = (
@@ -347,7 +347,7 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
             # NOTE: only remove the download tmp when download finished successfully!
             #       this enables the OTA download resume feature.
             shutil.rmtree(_download_tmp, ignore_errors=True)
-        except ota_errors.OTAAbortAccepted:
+        except ota_errors.OTAAbortSignal:
             raise
         except Exception as e:
             _err_msg = (
