@@ -350,7 +350,7 @@ class OTAClient:
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
-        except ota_errors.OTAAborted:
+        except ota_errors.OTAAbortAccepted:
             self._live_ota_status = OTAStatus.ABORTED
             self._status_report_queue.put_nowait(
                 StatusReport(
