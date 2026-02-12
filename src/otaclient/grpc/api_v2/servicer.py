@@ -274,7 +274,11 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
-        if self._abort_ota_state.state not in (AbortState.NONE, AbortState.FINAL_PHASE):
+        if self._abort_ota_state.state not in (
+            AbortState.NONE,
+            AbortState.FINAL_PHASE,
+            AbortState.CRITICAL_ZONE,
+        ):
             logger.error(
                 "otaclient is aborting OTA update. Rejecting all further incoming requests"
             )
@@ -404,7 +408,9 @@ class OTAClientAPIServicer:
                     message="Cannot abort: no active OTA update in progress",
                 )
 
-            # Atomic compare-and-swap: NONE → REQUESTED
+            # Atomic compare-and-swap:
+            #   NONE → REQUESTED, or
+            #   CRITICAL_ZONE → CRITICAL_ZONE_ABORT_REQUESTED (queued)
             if self._abort_ota_state.try_set_requested():
                 logger.warning("abort request accepted, state set to REQUESTED")
                 return api_types.AbortResponseEcu(
@@ -414,7 +420,11 @@ class OTAClientAPIServicer:
 
             # State transition failed — check why
             current_state = self._abort_ota_state.state
-            if current_state in (AbortState.REQUESTED, AbortState.ABORTING):
+            if current_state in (
+                AbortState.REQUESTED,
+                AbortState.ABORTING,
+                AbortState.CRITICAL_ZONE_ABORT_REQUESTED,
+            ):
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_NO_FAILURE,
