@@ -46,7 +46,7 @@ from otaclient._status_monitor import (
     StatusReport,
     UpdateProgressReport,
 )
-from otaclient._types import UpdatePhase
+from otaclient._types import OTAAbortState, UpdatePhase
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import (
@@ -74,7 +74,7 @@ DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
-class DeltaCalCulator:
+class DeltaCalculator:
     def __init__(
         self,
         *,
@@ -333,12 +333,17 @@ def download_resources_handler(
     metrics: OTAMetricsData,
     status_report_queue: Queue[StatusReport],
     session_id: str,
+    abort_state: OTAAbortState | None = None,
 ) -> None:
     _next_commit_before, _report_batch_cnt = 0, 0
     _merged_payload = UpdateProgressReport(
         operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
     )
     for _done_count, _fut in enumerate(downloader, start=1):
+        if abort_state is not None and abort_state.try_accept_abort():
+            raise ota_errors.OTAAborted(
+                "OTA update aborted by user request", module=__name__
+            )
         _now = time.time()
         if download_exception_handler(_fut):
             _download_res = _fut.result()

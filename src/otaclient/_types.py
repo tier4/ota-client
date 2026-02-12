@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -170,29 +169,6 @@ class OTAAbortState:
         with self._value.get_lock():
             if self._value.value == AbortState.FINAL_PHASE:
                 self._value.value = AbortState.NONE
-
-
-class CriticalZoneFlag:
-    def __init__(self, lock: mp_sync.Lock):
-        self._lock = lock
-
-    @contextmanager
-    def acquire_lock_with_release(self, blocking: bool = False):
-        """Acquire lock and release it when exiting the context.
-
-        Args:
-            blocking: If True, block until the lock is acquired.
-                      If False, return immediately with acquired=False if lock unavailable.
-
-        Yields:
-            bool: True if lock was acquired, False otherwise.
-        """
-        acquired = self._lock.acquire(block=blocking)
-        try:
-            yield acquired
-        finally:
-            if acquired:
-                self._lock.release()
 
 
 #

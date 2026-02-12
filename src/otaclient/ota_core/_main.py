@@ -45,7 +45,6 @@ from otaclient._status_monitor import (
 from otaclient._types import (
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
-    CriticalZoneFlag,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -95,7 +94,6 @@ class OTAClient:
         proxy: str | None = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
-        critical_zone_flag: CriticalZoneFlag,
         abort_ota_state: OTAAbortState,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
@@ -105,7 +103,6 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
-        self._critical_zone_flag = critical_zone_flag
         self._abort_ota_state = abort_ota_state
 
         self._shm_metrics_reader = shm_metrics_reader
@@ -335,7 +332,6 @@ class OTAClient:
 
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
-                    critical_zone_flag=self._critical_zone_flag,
                     abort_ota_state=self._abort_ota_state,
                     boot_controller=self.boot_controller,
                     image_identifier=image_id,
@@ -350,13 +346,20 @@ class OTAClient:
                     )
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
-                    critical_zone_flag=self._critical_zone_flag,
                     abort_ota_state=self._abort_ota_state,
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
         except ota_errors.OTAAborted:
             self._live_ota_status = OTAStatus.ABORTED
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.ABORTED,
+                    ),
+                    session_id=new_session_id,
+                )
+            )
             logger.info("OTA update aborted by user request")
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
@@ -550,7 +553,6 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
-    critical_zone_flag: CriticalZoneFlag,
     abort_ota_state: OTAAbortState,
 ):
     from otaclient._logging import configure_logging
@@ -575,7 +577,6 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
-        critical_zone_flag=critical_zone_flag,
         abort_ota_state=abort_ota_state,
         shm_metrics_reader=shm_metrics_reader,
     )
