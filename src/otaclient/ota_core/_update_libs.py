@@ -360,8 +360,8 @@ def download_resources_handler(
             # Check abort at the same interval as status reporting
             # (every 300 files or every 1s) to avoid lock overhead per file.
             if abort_state is not None and abort_state.try_accept_abort():
-                raise ota_errors.OTAAbortAccepted(
-                    "OTA abort accepted by updater", module=__name__
+                raise ota_errors.OTAAbortSignal(
+                    "OTA abort signal raised", module=__name__
                 )
 
             status_report_queue.put_nowait(
