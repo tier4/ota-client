@@ -22,8 +22,8 @@ import pytest
 import pytest_mock
 
 from otaclient import errors as ota_errors
-from otaclient._status_monitor import StatusReport
-from otaclient._types import AbortState, CriticalZoneFlag, OTAAbortState
+from otaclient._status_monitor import OTAStatusChangeReport, StatusReport
+from otaclient._types import AbortState, OTAAbortState, OTAStatus
 from otaclient.ota_core import _updater
 
 OTA_UPDATER_MODULE = _updater.__name__
@@ -55,10 +55,6 @@ class TestOTAUpdaterAbortState:
         self.abort_value = mp.Value("i", AbortState.NONE)
         self.abort_ota_state = OTAAbortState(self.abort_value)
 
-        # Create a lock for critical zone
-        self.critical_zone_lock = mp.Lock()
-        self.critical_zone_flag = CriticalZoneFlag(self.critical_zone_lock)
-
         # Mock boot controller
         self.mock_boot_controller = mocker.MagicMock()
 
@@ -78,7 +74,6 @@ class TestOTAUpdaterAbortState:
 
         updater = MockOTAUpdater(
             boot_controller=self.mock_boot_controller,
-            critical_zone_flag=self.critical_zone_flag,
             abort_ota_state=self.abort_ota_state,
         )
 
@@ -258,3 +253,59 @@ class TestOTAUpdaterAbortState:
         # During _post_update, abort state should be FINAL_PHASE
         assert len(abort_state_during_post_update) == 1
         assert abort_state_during_post_update[0] == AbortState.FINAL_PHASE
+
+    def test_abort_during_in_update_phase(
+        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+    ):
+        """Test that OTAAborted raised during _in_update triggers cleanup."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+
+        # Simulate _check_abort() firing inside _in_update (e.g., during download).
+        # _check_abort transitions REQUESTED → ABORTING before raising.
+        def simulate_intra_phase_abort():
+            self.abort_value.value = AbortState.ABORTING
+            raise ota_errors.OTAAborted("abort during download", module=__name__)
+
+        mocker.patch.object(
+            mock_updater, "_in_update", side_effect=simulate_intra_phase_abort
+        )
+
+        with pytest.raises(ota_errors.OTAAborted):
+            mock_updater.execute()
+
+        # _do_abort should have been called in the except handler
+        assert self.abort_ota_state.state == AbortState.ABORTED
+        self.mock_boot_controller.on_abort.assert_called_once()
+
+    def test_aborting_status_report_sent(
+        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+    ):
+        """Test that ABORTING OTAStatusChangeReport is sent during abort cleanup."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+
+        # Set abort state to REQUESTED before execute
+        self.abort_value.value = AbortState.REQUESTED
+
+        with pytest.raises(ota_errors.OTAAborted):
+            mock_updater.execute()
+
+        # Collect all status reports from the queue
+        reports = []
+        while not self.status_report_queue.empty():
+            reports.append(self.status_report_queue.get_nowait())
+
+        # Verify ABORTING status report was sent
+        aborting_reports = [
+            r
+            for r in reports
+            if isinstance(r.payload, OTAStatusChangeReport)
+            and r.payload.new_ota_status == OTAStatus.ABORTING
+        ]
+        assert len(aborting_reports) == 1
