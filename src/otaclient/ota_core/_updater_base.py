@@ -207,7 +207,10 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
+                abort_state=self._abort_state,
             )
+        except ota_errors.OTAAborted:
+            raise
         except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "
@@ -339,10 +342,13 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
+                abort_state=self._abort_state,
             )
             # NOTE: only remove the download tmp when download finished successfully!
             #       this enables the OTA download resume feature.
             shutil.rmtree(_download_tmp, ignore_errors=True)
+        except ota_errors.OTAAborted:
+            raise
         except Exception as e:
             _err_msg = (
                 "download aborted due to download stalls longer than "

@@ -36,7 +36,6 @@ from otaclient import __version__
 from otaclient._types import (
     AbortState,
     ClientUpdateControlFlags,
-    CriticalZoneFlag,
     MultipleECUStatusFlags,
     OTAAbortState,
 )
@@ -375,7 +374,6 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
-    critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
     abort_ota_state = OTAAbortState(mp_ctx.Value("i", AbortState.NONE))
 
     _ota_core_p = mp_ctx.Process(
@@ -392,7 +390,6 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
-            critical_zone_flag=critical_zone_flag,
             abort_ota_state=abort_ota_state,
         ),
         name="otaclient_ota_core",

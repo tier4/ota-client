@@ -168,14 +168,6 @@ class TestMain:
             return_value=mock_client_update_flags,
         )
 
-        # Mock CriticalZoneFlag
-        mock_critical_zone_flag = mocker.MagicMock()
-        mock_critical_zone_flag.acquire.return_value = True
-        mock_critical_zone_flag_class = mocker.MagicMock(
-            return_value=mock_critical_zone_flag
-        )
-        mocker.patch(f"{MAIN_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
-
         # Create mock for otaproxy thread
         mock_thread = mocker.MagicMock()
         mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_thread)

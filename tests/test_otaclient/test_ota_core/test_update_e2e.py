@@ -99,7 +99,6 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        critical_zone_flag = mocker.MagicMock()
         abort_ota_state = mocker.MagicMock()
 
         # ------ execution ------ #
@@ -129,7 +128,6 @@ class TestOTAUpdater:
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
-            critical_zone_flag=critical_zone_flag,
             abort_ota_state=abort_ota_state,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
@@ -159,7 +157,6 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        critical_zone_flag = mocker.MagicMock()
         abort_ota_state = mocker.MagicMock()
 
         # ------ execution ------ #
@@ -189,7 +186,6 @@ class TestOTAUpdater:
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
-            critical_zone_flag=critical_zone_flag,
             abort_ota_state=abort_ota_state,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
