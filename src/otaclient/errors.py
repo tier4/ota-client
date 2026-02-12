@@ -193,9 +193,16 @@ class ClientUpdateFailed(OTAErrorRecoverable):
     )
 
 
-class OTAAbortAccepted(OTAErrorRecoverable):
+class OTAAbortSignal(OTAErrorRecoverable):
+    """Control-flow signal for abort stack unwinding.
+
+    Raised by _check_abort() after transitioning REQUESTED → ABORTING.
+    Caught by execute() to trigger centralized cleanup via _do_abort().
+    Analogous to asyncio.CancelledError or KeyboardInterrupt.
+    """
+
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORTED
-    failure_description: str = "OTA abort accepted, cleanup pending"
+    failure_description: str = "OTA abort signal, cleanup pending"
 
 
 class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):

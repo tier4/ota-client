@@ -208,8 +208,8 @@ class UpdateStandbySlot:
                             self._abort_state is not None
                             and self._abort_state.try_accept_abort()
                         ):
-                            raise ota_errors.OTAAbortAccepted(
-                                "OTA abort accepted by updater",
+                            raise ota_errors.OTAAbortSignal(
+                                "OTA abort signal raised",
                                 module=__name__,
                             )
 
