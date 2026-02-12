@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import AbortOTAFlag, CriticalZoneFlag, UpdatePhase
+from otaclient._types import AbortState, CriticalZoneFlag, OTAAbortState, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -79,12 +79,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         *,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
-        abort_ota_flag: AbortOTAFlag,
+        abort_ota_state: OTAAbortState,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         super().__init__(**kwargs)
         self.critical_zone_flag = critical_zone_flag
-        self._abort_ota_flag = abort_ota_flag
+        self._abort_state = abort_ota_state
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
@@ -92,6 +92,25 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self.total_regulars_size = 0
         self._fst_db_helper: FileTableDBHelper | None = None
         self._iter_persists_func: Callable[[], Iterable[str] | None] | None = None
+
+    def _check_abort(self) -> None:
+        """Check if an abort has been requested and process it.
+
+        Called between update phases. If an abort was requested (REQUESTED),
+        atomically transitions to ABORTING, performs cleanup, and raises OTAAborted.
+        """
+        if self._abort_state.try_accept_abort():
+            self._do_abort()
+            raise ota_errors.OTAAborted(
+                "OTA update aborted by user request", module=__name__
+            )
+
+    def _do_abort(self) -> None:
+        """Perform abort cleanup: write ABORTED status to disk and set state to ABORTED."""
+        logger.info("Accepting OTA abort request, performing cleanup...")
+        self._boot_controller.on_abort()
+        self._abort_state.set_aborted()
+        logger.info("OTA abort cleanup completed")
 
     @abstractmethod
     def _process_metadata(self) -> None: ...
@@ -358,41 +377,33 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
+        Abort checks are performed between phases using the pull model:
+        the Updater polls the shared abort state at safe checkpoints.
         """
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
             self._process_metadata()
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already aborting"
-                    )
-                    return
+            self._check_abort()
 
-                logger.info("Entering critical zone for OTA update: pre-update phase")
-
-                self._pre_update()
+            self._pre_update()
+            self._check_abort()
 
             self._in_update()
 
-            # Set reject_abort flag BEFORE acquiring lock to prevent race condition.
-            # This ensures abort requests are rejected during post-update/finalize phases.
-            logger.info("Setting reject_abort flag for final update phases")
-            self._abort_ota_flag.reject_abort.set()
-
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already aborting"
-                    )
-                    return
-
-                logger.info(
-                    "Entering critical zone for OTA update: post-update and finalize-update phases"
+            # Atomically close the abort window before entering final phases.
+            # If an abort was REQUESTED while we were in _in_update(), accept it now.
+            old_state = self._abort_state.enter_final_phase()
+            if old_state == AbortState.REQUESTED:
+                self._do_abort()
+                raise ota_errors.OTAAborted(
+                    "OTA update aborted by user request", module=__name__
                 )
-                self._post_update()
-                self._finalize_update()
 
+            self._post_update()
+            self._finalize_update()
+
+        except ota_errors.OTAAborted:
+            raise  # propagate to _main.py for status handling
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
@@ -403,7 +414,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            self._abort_ota_flag.reject_abort.clear()
+            self._abort_state.reset_final_phase()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
@@ -419,14 +430,14 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         ca_chains_store: CAChainStore,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
-        abort_ota_flag: AbortOTAFlag,
+        abort_ota_state: OTAAbortState,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
             critical_zone_flag=critical_zone_flag,
-            abort_ota_flag=abort_ota_flag,
+            abort_ota_state=abort_ota_state,
             **kwargs,
         )
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
@@ -479,7 +490,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
         critical_zone_flag: CriticalZoneFlag,
-        abort_ota_flag: AbortOTAFlag,
+        abort_ota_state: OTAAbortState,
         image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
@@ -487,7 +498,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
             self,
             boot_controller=boot_controller,
             critical_zone_flag=critical_zone_flag,
-            abort_ota_flag=abort_ota_flag,
+            abort_ota_state=abort_ota_state,
             **kwargs,
         )
         self.setup_ota_image_support(
