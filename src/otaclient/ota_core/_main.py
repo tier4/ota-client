@@ -300,7 +300,6 @@ class OTAClient:
 
         self._shm_metrics_reader = shm_metrics_reader
         self._abort_handler: AbortHandler | None = None
-        self._resp_queue: mp_queue.Queue[IPCResponse] | None = None
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -681,6 +680,7 @@ class OTAClient:
     ) -> NoReturn:
         """Main loop of ota_core process."""
         self._resp_queue = resp_queue
+
         _allow_request_after = 0
         while True:
             _now = int(time.time())
@@ -690,10 +690,9 @@ class OTAClient:
                 continue
 
             if isinstance(request, AbortRequestV2):
-                if (
-                    self._live_ota_status != OTAStatus.UPDATING
-                    or self._abort_handler is None
-                ):
+                if self._abort_handler is not None:
+                    self._abort_handler.submit(request)
+                else:
                     resp_queue.put_nowait(
                         IPCResponse(
                             res=IPCResEnum.REJECT_OTHER,
@@ -701,8 +700,6 @@ class OTAClient:
                             session_id=request.session_id,
                         )
                     )
-                else:
-                    self._abort_handler.submit(request)
 
             elif _now < _allow_request_after or self.is_busy:
                 _err_msg = (
