@@ -272,11 +272,14 @@ class TestClientPackageDownloader:
     ):
         ota_client_package._manifest = Manifest(**manifest_data)
 
-        with patch("platform.machine", return_value=machine), patch(
-            "platform.processor", return_value=arch
-        ), patch.object(Path, "is_file", return_value=is_squashfs_exists), patch(
-            "otaclient.client_package.shutil.which",
-            return_value="/fake/path/to/zstd" if is_zstd_supported else None,
+        with (
+            patch("platform.machine", return_value=machine),
+            patch("platform.processor", return_value=arch),
+            patch.object(Path, "is_file", return_value=is_squashfs_exists),
+            patch(
+                "otaclient.client_package.shutil.which",
+                return_value="/fake/path/to/zstd" if is_zstd_supported else None,
+            ),
         ):
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
@@ -350,13 +353,17 @@ class TestClientPackageDownloader:
         condition = threading.Condition()
 
         # Test when client version is different (needs download)
-        with patch.object(
-            ota_client_package, "_prepare_manifest"
-        ) as mock_prepare_manifest, patch.object(
-            ota_client_package, "_prepare_client_package"
-        ) as mock_prepare_client_package, patch.object(
-            ota_client_package, "is_same_client_package_version"
-        ) as mock_is_same_version:
+        with (
+            patch.object(
+                ota_client_package, "_prepare_manifest"
+            ) as mock_prepare_manifest,
+            patch.object(
+                ota_client_package, "_prepare_client_package"
+            ) as mock_prepare_client_package,
+            patch.object(
+                ota_client_package, "is_same_client_package_version"
+            ) as mock_is_same_version,
+        ):
             mock_prepare_manifest.return_value = iter([[]])
             mock_prepare_client_package.return_value = iter([[]])
             mock_is_same_version.return_value = is_same_package_version
