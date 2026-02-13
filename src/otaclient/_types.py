@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import multiprocessing.sharedctypes as mp_sharedctypes
 import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
 from typing import ClassVar, Optional
@@ -77,142 +76,27 @@ class FailureType(StrEnum):
 class AbortState(IntEnum):
     """States for the OTA abort state machine.
 
+    The AbortHandler in ota_core._main owns this state as a plain instance
+    variable protected by threading.Lock (no shared memory needed).
+
     Transitions:
-        NONE → REQUESTED                          (Servicer: abort RPC received)
-        NONE → CRITICAL_ZONE                      (Updater: entering critical zone)
-        NONE → FINAL_PHASE                        (Updater: closing abort window before post_update)
-        CRITICAL_ZONE → CRITICAL_ZONE_ABORT_REQUESTED  (Servicer: abort RPC during critical zone)
-        CRITICAL_ZONE → NONE                      (Updater: exiting critical zone, no abort pending)
-        CRITICAL_ZONE_ABORT_REQUESTED → REQUESTED  (Updater: exiting critical zone, abort now eligible)
-        REQUESTED → ABORTING                      (Updater: accepting abort between phases or at enter_final_phase)
-        ABORTING → ABORTED                        (Updater: cleanup done, status written to disk)
-        FINAL_PHASE → NONE                        (Updater: finally block on failure path)
-        FINAL_PHASE → [reboot]                    (Updater: _finalize_update succeeds)
-        ABORTED → [shutdown]                      (Main: _on_shutdown)
+        NONE → CRITICAL_ZONE                (AbortHandler: updater entering critical zone)
+        NONE → FINAL_PHASE                  (AbortHandler: updater entering final phase)
+        NONE → ABORTING                     (AbortHandler: abort accepted immediately)
+        CRITICAL_ZONE → NONE               (AbortHandler: updater exiting critical zone normally)
+        CRITICAL_ZONE → REQUESTED          (AbortHandler: abort RPC during critical zone, queued)
+        REQUESTED → ABORTING               (AbortHandler: exit_critical_zone drives queued abort)
+        ABORTING → ABORTED                 (AbortHandler: cleanup done)
+        ABORTED → [process exit]           (AbortHandler: SIGUSR1 sent, process exits)
+        FINAL_PHASE → [reject abort]       (AbortHandler: abort rejected during final phase)
     """
 
     NONE = 0
-    REQUESTED = 1
+    REQUESTED = 1  # abort requested during critical zone, queued until zone exits
     ABORTING = 2
     ABORTED = 3
     FINAL_PHASE = 4
     CRITICAL_ZONE = 5
-    CRITICAL_ZONE_ABORT_REQUESTED = 6
-
-
-class OTAAbortState:
-    """Shared abort state machine for cross-process abort coordination."""
-
-    def __init__(self, value: mp_sharedctypes.Synchronized):
-        self._value = value
-
-    @property
-    def state(self) -> AbortState:
-        """Read the current abort state."""
-        return AbortState(self._value.value)
-
-    def try_set_requested(self) -> bool:
-        """Atomic compare-and-swap: NONE → REQUESTED, or
-        CRITICAL_ZONE → CRITICAL_ZONE_ABORT_REQUESTED.
-
-        Used by Servicer when abort RPC arrives.
-
-        Returns True if the transition succeeded (abort request recorded).
-        If the Updater is in a critical zone, the request is queued and
-        will become REQUESTED when the critical zone exits.
-        Returns False if the state doesn't allow recording an abort request.
-        """
-        with self._value.get_lock():
-            cur = self._value.value
-            if cur == AbortState.NONE:
-                self._value.value = AbortState.REQUESTED
-                return True
-            if cur == AbortState.CRITICAL_ZONE:
-                self._value.value = AbortState.CRITICAL_ZONE_ABORT_REQUESTED
-                return True
-            return False
-
-    def try_accept_abort(self) -> bool:
-        """Atomic compare-and-swap: REQUESTED → ABORTING.
-
-        Used by Updater at safe checkpoints between phases.
-
-        Returns True if the transition succeeded (abort accepted).
-        Returns False if no abort was requested. Notably, this does NOT
-        accept CRITICAL_ZONE_ABORT_REQUESTED — that state must first
-        transition to REQUESTED via exit_critical_zone().
-        """
-        with self._value.get_lock():
-            if self._value.value == AbortState.REQUESTED:
-                self._value.value = AbortState.ABORTING
-                return True
-            return False
-
-    def enter_critical_zone(self) -> None:
-        """Atomic compare-and-swap: NONE → CRITICAL_ZONE.
-
-        Used by Updater before phases where aborting mid-operation could
-        leave the system in an inconsistent state (e.g., _pre_update).
-        While in CRITICAL_ZONE, try_accept_abort() is a no-op — abort
-        requests are queued as CRITICAL_ZONE_ABORT_REQUESTED instead.
-        """
-        with self._value.get_lock():
-            if self._value.value == AbortState.NONE:
-                self._value.value = AbortState.CRITICAL_ZONE
-
-    def exit_critical_zone(self) -> None:
-        """Atomic compare-and-swap: CRITICAL_ZONE → NONE, or
-        CRITICAL_ZONE_ABORT_REQUESTED → REQUESTED.
-
-        Used by Updater after a critical zone completes. If an abort was
-        queued during the critical zone, it becomes REQUESTED and will be
-        picked up by the next _check_abort() call.
-        """
-        with self._value.get_lock():
-            cur = self._value.value
-            if cur == AbortState.CRITICAL_ZONE:
-                self._value.value = AbortState.NONE
-            elif cur == AbortState.CRITICAL_ZONE_ABORT_REQUESTED:
-                self._value.value = AbortState.REQUESTED
-
-    def set_aborted(self) -> None:
-        """Atomic compare-and-swap: ABORTING → ABORTED.
-
-        Used by Updater after abort cleanup is done.
-        """
-        with self._value.get_lock():
-            if self._value.value == AbortState.ABORTING:
-                self._value.value = AbortState.ABORTED
-
-    def enter_final_phase(self) -> AbortState:
-        """Atomic compare-and-swap: close the abort window or accept a pending abort.
-
-        Used by Updater after _in_update() completes, before _post_update().
-
-        - If NONE: transitions to FINAL_PHASE (abort window closed).
-        - If REQUESTED: transitions to ABORTING (accept the pending abort).
-        - Otherwise: no change.
-
-        Returns the state that was found BEFORE the transition.
-        """
-        with self._value.get_lock():
-            old = AbortState(self._value.value)
-            if old == AbortState.NONE:
-                self._value.value = AbortState.FINAL_PHASE
-            elif old == AbortState.REQUESTED:
-                self._value.value = AbortState.ABORTING
-            return old
-
-    def reset_final_phase(self) -> None:
-        """Atomic compare-and-swap: FINAL_PHASE → NONE.
-
-        Used in Updater's finally block.
-        On the success path, _finalize_update() reboots and this never runs.
-        On the failure path, this resets state so future abort requests work.
-        """
-        with self._value.get_lock():
-            if self._value.value == AbortState.FINAL_PHASE:
-                self._value.value = AbortState.NONE
 
 
 #

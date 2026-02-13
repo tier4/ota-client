@@ -25,7 +25,6 @@ from pytest_mock import MockerFixture
 
 from otaclient._types import (
     AbortRequestV2,
-    AbortState,
     IPCResEnum,
     IPCResponse,
     OTAStatus,
@@ -73,11 +72,6 @@ class TestOTAClientAPIServicer:
         self.ecu_status_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         self.ecu_status_storage.export = mocker.AsyncMock()
 
-        # Setup mock for OTAAbortState
-        self.abort_ota_state = mocker.MagicMock()
-        self.abort_ota_state.try_set_requested.return_value = True
-        self.abort_ota_state.state = AbortState.NONE
-
         # Setup mock for shared memory reader
         self.shm_reader = mocker.MagicMock()
         self.shm_reader.sync_msg.return_value = mocker.MagicMock(
@@ -89,7 +83,6 @@ class TestOTAClientAPIServicer:
             ecu_status_storage=self.ecu_status_storage,
             op_queue=self.op_queue,
             resp_queue=self.resp_queue,
-            abort_ota_state=self.abort_ota_state,
             shm_reader=self.shm_reader,
             executor=self.executor,
         )
@@ -515,67 +508,27 @@ class TestOTAClientAPIServicer:
     # ==================== Abort Tests ====================
 
     def test_handle_abort_request_success(self):
-        """Test abort request succeeds via atomic CAS: NONE → REQUESTED."""
-        self.abort_ota_state.try_set_requested.return_value = True
+        """Test abort request succeeds via IPC: op_queue sends request, resp_queue returns ACCEPT."""
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="test-session",
+            msg="abort accepted",
+        )
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
 
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_NO_FAILURE
-        self.abort_ota_state.try_set_requested.assert_called_once()
+        self.op_queue.put_nowait.assert_called_once_with(request)
+        self.resp_queue.get.assert_called_once()
 
-    def test_handle_abort_request_already_in_progress(self):
-        """Test abort request when abort is already REQUESTED or ABORTING."""
-        self.abort_ota_state.try_set_requested.return_value = False
-        self.abort_ota_state.state = AbortState.REQUESTED
-
-        request = AbortRequestV2(request_id="test-req", session_id="test-session")
-        result = self.servicer._handle_abort_request(request)
-
-        assert result.ecu_id == "autoware"
-        assert result.result == api_types.AbortFailureType.ABORT_NO_FAILURE
-        assert "already in progress" in result.message
-
-    def test_handle_abort_request_rejected_final_phase(self):
-        """Test abort request rejected when in final update phase."""
-        self.abort_ota_state.try_set_requested.return_value = False
-        self.abort_ota_state.state = AbortState.FINAL_PHASE
-
-        request = AbortRequestV2(request_id="test-req", session_id="test-session")
-        result = self.servicer._handle_abort_request(request)
-
-        assert result.ecu_id == "autoware"
-        assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-        assert "final phase" in result.message
-
-    def test_handle_abort_request_rejected_already_aborted(self):
-        """Test abort request rejected when already in ABORTED state."""
-        self.abort_ota_state.try_set_requested.return_value = False
-        self.abort_ota_state.state = AbortState.ABORTED
-
-        request = AbortRequestV2(request_id="test-req", session_id="test-session")
-        result = self.servicer._handle_abort_request(request)
-
-        assert result.ecu_id == "autoware"
-        assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-
-    @pytest.mark.parametrize(
-        "ota_status",
-        [
-            OTAStatus.INITIALIZED,
-            OTAStatus.SUCCESS,
-            OTAStatus.FAILURE,
-            OTAStatus.ABORTED,
-            OTAStatus.ROLLBACK_FAILURE,
-        ],
-    )
-    def test_handle_abort_request_rejected_no_active_update(
-        self, mocker: MockerFixture, ota_status: OTAStatus
-    ):
-        """Test abort request rejected when no active OTA update is in progress."""
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status=ota_status,
+    def test_handle_abort_request_rejected(self):
+        """Test abort request rejected via IPC: resp_queue returns REJECT_OTHER."""
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.REJECT_OTHER,
+            session_id="test-session",
+            msg="abort rejected by OTA Core",
         )
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
@@ -583,34 +536,49 @@ class TestOTAClientAPIServicer:
 
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-        assert "no active OTA update" in result.message
+        assert "abort rejected by OTA Core" in result.message
+        self.op_queue.put_nowait.assert_called_once_with(request)
+        self.resp_queue.get.assert_called_once()
 
-    def test_handle_abort_request_rejected_shm_reader_returns_none(
-        self, mocker: MockerFixture
-    ):
-        """Test abort request rejected when shm_reader returns None."""
-        self.shm_reader.sync_msg.return_value = None
+    def test_handle_abort_request_timeout(self):
+        """Test abort request when resp_queue.get raises an exception (timeout)."""
+        self.resp_queue.get.side_effect = Exception("Timeout waiting for response")
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
 
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-        assert "no active OTA update" in result.message
+        assert "Failed to process abort request" in result.message
+        self.op_queue.put_nowait.assert_called_once_with(request)
+        self.resp_queue.get.assert_called_once()
 
-    def test_handle_abort_request_invalid_request(self):
-        """Test abort request with invalid request type."""
-        result = self.servicer._handle_abort_request("invalid_request")
+    def test_handle_abort_request_session_id_mismatch(self):
+        """Test abort request when resp_queue returns mismatched session_id."""
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="wrong-session-id",
+            msg="OK",
+        )
 
-        assert result.ecu_id == ""
+        request = AbortRequestV2(request_id="test-req", session_id="test-session")
+        result = self.servicer._handle_abort_request(request)
+
+        assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-        assert "invalid abort request" in result.message
+        assert "Unexpected response" in result.message
+        self.op_queue.put_nowait.assert_called_once_with(request)
+        self.resp_queue.get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_abort_local_ecu_only(self, mocker: MockerFixture):
         """Test abort with local ECU only (no sub-ECUs)."""
         mocker.patch.object(self.servicer, "sub_ecus", [])
-        self.abort_ota_state.try_set_requested.return_value = True
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="test-session-id",
+            msg="abort accepted",
+        )
 
         abort_request = api_types.AbortRequest()
         result = await self.servicer.abort(abort_request)
@@ -627,7 +595,11 @@ class TestOTAClientAPIServicer:
             ECUContact(ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051)
         ]
         mocker.patch.object(self.servicer, "sub_ecus", mock_sub_ecus)
-        self.abort_ota_state.try_set_requested.return_value = True
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="test-session-id",
+            msg="abort accepted",
+        )
 
         sub_ecu_response = api_types.AbortResponse()
         sub_ecu_response.add_ecu(
@@ -659,7 +631,11 @@ class TestOTAClientAPIServicer:
             ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051
         )
         mocker.patch.object(self.servicer, "sub_ecus", [sub_ecu])
-        self.abort_ota_state.try_set_requested.return_value = True
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="test-session-id",
+            msg="abort accepted",
+        )
 
         mock_abort_call = mocker.patch(
             "otaclient_api.v2.api_caller.OTAClientCall.abort_call",
@@ -687,7 +663,11 @@ class TestOTAClientAPIServicer:
             ecu_id="ecu1", ip_addr=IPv4Address("192.168.1.2"), port=50051
         )
         mocker.patch.object(self.servicer, "sub_ecus", [sub_ecu])
-        self.abort_ota_state.try_set_requested.return_value = True
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.ACCEPT,
+            session_id="test-session-id",
+            msg="abort accepted",
+        )
 
         mock_abort_call = mocker.patch(
             "otaclient_api.v2.api_caller.OTAClientCall.abort_call",
@@ -711,11 +691,14 @@ class TestOTAClientAPIServicer:
         assert local_resp.result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
     @pytest.mark.asyncio
-    async def test_abort_rejected_in_final_phase(self, mocker: MockerFixture):
-        """Test that abort is rejected when in final update phase."""
+    async def test_abort_rejected_by_ota_core(self, mocker: MockerFixture):
+        """Test that abort is rejected when OTA Core rejects the request via IPC."""
         mocker.patch.object(self.servicer, "sub_ecus", [])
-        self.abort_ota_state.try_set_requested.return_value = False
-        self.abort_ota_state.state = AbortState.FINAL_PHASE
+        self.resp_queue.get.return_value = IPCResponse(
+            res=IPCResEnum.REJECT_OTHER,
+            session_id="test-session-id",
+            msg="abort rejected: in final phase",
+        )
 
         abort_request = api_types.AbortRequest()
         result = await self.servicer.abort(abort_request)

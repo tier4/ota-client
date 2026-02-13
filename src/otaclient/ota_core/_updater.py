@@ -31,12 +31,11 @@ from ota_metadata.file_table.utils import save_fstable
 from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
-    OTAStatusChangeReport,
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import AbortState, OTAAbortState, OTAStatus, UpdatePhase
+from otaclient._types import UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -79,11 +78,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self,
         *,
         boot_controller: BootControllerProtocol,
-        abort_ota_state: OTAAbortState,
+        abort_handler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         super().__init__(**kwargs)
-        self._abort_state = abort_ota_state
+        self._abort_handler = abort_handler
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
@@ -91,40 +90,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self.total_regulars_size = 0
         self._fst_db_helper: FileTableDBHelper | None = None
         self._iter_persists_func: Callable[[], Iterable[str] | None] | None = None
-
-    def _check_abort(self) -> None:
-        """Lightweight abort checkpoint — safe to call from any loop.
-
-        Transitions REQUESTED → ABORTING and raises OTAAbortSignal to
-        unwind the stack. Actual cleanup happens in execute()'s except handler.
-
-        Safe to call during critical zones — try_accept_abort() only acts on
-        REQUESTED state, not CRITICAL_ZONE_ABORT_REQUESTED. Abort requests
-        queued during a critical zone become REQUESTED after exit_critical_zone().
-        """
-        if self._abort_state.try_accept_abort():
-            raise ota_errors.OTAAbortSignal(
-                "OTA abort signal raised", module=__name__
-            )
-
-    def _do_abort(self) -> None:
-        """Perform abort cleanup. Called once from execute() after unwinding.
-
-        Sends ABORTING status report (in-memory), performs boot controller
-        cleanup (writes ABORTED to disk), and transitions state to ABORTED.
-        """
-        logger.info("Accepting OTA abort request, performing cleanup...")
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.ABORTING,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._boot_controller.on_abort()
-        self._abort_state.set_aborted()
-        logger.info("OTA abort cleanup completed")
 
     @abstractmethod
     def _process_metadata(self) -> None: ...
@@ -209,7 +174,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             metrics=self._metrics,
             use_inplace_mode=self._can_use_in_place_mode,
         ).calculate_delta()
-        self._check_abort()
         to_download = len(_delta_digests)
         to_download_size = sum(_delta_digests.values())
         logger.info(
@@ -244,7 +208,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
         logger.info("start to download resources ...")
         self._download_delta_resources(_delta_digests)
-        self._check_abort()
 
         logger.info("start to apply changes to standby slot...")
         _current_time = int(time.time())
@@ -266,7 +229,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
                 resource_dir=self._resource_dir_on_standby,
-                abort_state=self._abort_state,
             )
             standby_slot_creator.update_slot()
         except ota_errors.OTAAbortSignal:
@@ -396,46 +358,37 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
-        Abort checks are performed between phases using the pull model:
-        the Updater polls the shared abort state at safe checkpoints.
+        Abort is handled by the AbortHandler thread. The updater calls
+        zone transition methods (enter/exit_critical_zone, enter_final_phase)
+        which raise OTAAbortSignal if abort is in progress.
         """
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
             self._process_metadata()
-            self._check_abort()
 
             # Critical zone: _pre_update formats/mounts slots and sets up
             # boot control. Aborting mid-way could leave the system in an
             # inconsistent state. Abort requests arriving during this phase
-            # are queued as CRITICAL_ZONE_ABORT_REQUESTED and become
-            # REQUESTED when the critical zone exits.
-            self._abort_state.enter_critical_zone()
+            # are queued (REQUESTED) and executed when the zone exits.
+            self._abort_handler.enter_critical_zone()
             try:
                 self._pre_update()
             finally:
-                self._abort_state.exit_critical_zone()
-            self._check_abort()
+                self._abort_handler.exit_critical_zone()
 
             self._in_update()
 
-            # Atomically close the abort window before entering final phases.
-            # If an abort was REQUESTED while we were in _in_update(), accept it now.
-            # enter_final_phase transitions REQUESTED → ABORTING for us.
-            old_state = self._abort_state.enter_final_phase()
-            if old_state == AbortState.REQUESTED:
-                raise ota_errors.OTAAbortSignal(
-                    "OTA abort signal raised", module=__name__
-                )
-
-            # _post_update and _finalize_update are protected by FINAL_PHASE
-            # state — try_set_requested() rejects abort requests, and
-            # try_accept_abort() is a no-op since state is not REQUESTED.
+            # Close the abort window before entering final phases.
+            # If abort is in progress, this raises OTAAbortSignal.
+            self._abort_handler.enter_final_phase()
             self._post_update()
             self._finalize_update()
 
         except ota_errors.OTAAbortSignal:
-            self._do_abort()
-            raise  # propagate to _main.py for status handling
+            # Abort handler is doing cleanup and will kill the process.
+            # Don't call on_operation_failure — just log and re-raise.
+            logger.info("OTA update aborted by abort handler")
+            raise
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
             logger.error(f"update failed: {e!r}")
@@ -446,7 +399,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            self._abort_state.reset_final_phase()
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
@@ -461,13 +413,13 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         *,
         ca_chains_store: CAChainStore,
         boot_controller: BootControllerProtocol,
-        abort_ota_state: OTAAbortState,
+        abort_handler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             **kwargs,
         )
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
@@ -519,14 +471,14 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         *,
         ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
-        abort_ota_state: OTAAbortState,
+        abort_handler,
         image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ):
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             **kwargs,
         )
         self.setup_ota_image_support(
