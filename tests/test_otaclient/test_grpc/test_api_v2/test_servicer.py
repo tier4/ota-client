@@ -516,9 +516,9 @@ class TestOTAClientAPIServicer:
         self.resp_queue.get.assert_called_once()
 
     def test_handle_abort_request_rejected(self):
-        """Test abort request rejected via IPC: resp_queue returns REJECT_OTHER."""
+        """Test abort request rejected via IPC: resp_queue returns REJECT_ABORT."""
         self.resp_queue.get.return_value = IPCResponse(
-            res=IPCResEnum.REJECT_OTHER,
+            res=IPCResEnum.REJECT_ABORT,
             session_id="test-session",
             msg="abort rejected by OTA Core",
         )
@@ -687,7 +687,7 @@ class TestOTAClientAPIServicer:
         """Test that abort is rejected when OTA Core rejects the request via IPC."""
         mocker.patch.object(self.servicer, "sub_ecus", [])
         self.resp_queue.get.return_value = IPCResponse(
-            res=IPCResEnum.REJECT_OTHER,
+            res=IPCResEnum.REJECT_ABORT,
             session_id="test-session-id",
             msg="abort rejected: in final phase",
         )
