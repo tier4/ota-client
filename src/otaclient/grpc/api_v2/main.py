@@ -68,7 +68,6 @@ def grpc_server_process(
             ecu_status_storage=ecu_status_storage,
             op_queue=op_queue,
             resp_queue=resp_queue,
-            shm_reader=shm_reader,
             executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)
