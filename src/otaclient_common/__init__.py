@@ -18,9 +18,7 @@ from __future__ import annotations
 import os
 from math import ceil
 from pathlib import Path
-from typing import Optional
-
-from typing_extensions import Literal
+from typing import Literal, Optional
 
 _MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
 # fmt: off

@@ -18,10 +18,9 @@ from __future__ import annotations
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, TypeVar, Union
+from typing import Annotated, Any, Callable, Concatenate, ParamSpec, TypeVar, Union
 
 from pydantic import BeforeValidator, Field
-from typing_extensions import Annotated, Concatenate, ParamSpec
 
 P = ParamSpec("P")
 RT = TypeVar("RT")

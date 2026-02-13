@@ -23,10 +23,10 @@ import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Annotated, Any, Literal, NamedTuple, Optional
 
 from pydantic import BeforeValidator, PlainSerializer
-from typing_extensions import Annotated, Literal, Self
+from typing_extensions import Self
 
 from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic

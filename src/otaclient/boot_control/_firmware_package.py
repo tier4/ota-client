@@ -44,11 +44,10 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any, List, Literal, Union
+from typing import Annotated, Any, List, Literal, Union
 
 import yaml
 from pydantic import BaseModel, BeforeValidator
-from typing_extensions import Annotated
 
 from otaclient_common._typing import StrEnum, StrOrPath, gen_strenum_validator
 

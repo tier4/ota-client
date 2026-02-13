@@ -22,7 +22,7 @@ It is designed to work with web.auto FMS OTA component.
 
 ## Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Linux (Ubuntu 20.04, 22.04, 24.04)
 
 Tested on ubuntu 20.04~24.04, and should work on modern linux distros that use systemd.

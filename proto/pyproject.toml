@@ -10,16 +10,15 @@ requires = [
 name = "otaclient-pb2"
 version = "0.8.0"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: Unix",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 urls.Source = "https://github.com/tier4/ota-client/proto"
 
@@ -58,7 +57,7 @@ proto_builds = [
 [tool.black]
 line-length = 88
 target-version = [
-  'py38',
+  'py310',
 ]
 extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
@@ -80,4 +79,4 @@ ignore = [
   "**/*_pb2.py*",
   "**/*_pb2_grpc.py*",
 ]
-pythonVersion = "3.8"
+pythonVersion = "3.10"

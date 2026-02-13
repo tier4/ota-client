@@ -18,11 +18,10 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import List
+from typing import Annotated, List
 
 import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
-from typing_extensions import Annotated
 
 from otaclient.configs._common import BaseFixedConfig
 from otaclient_common._typing import (
