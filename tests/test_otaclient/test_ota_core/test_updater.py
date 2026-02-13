@@ -274,10 +274,9 @@ class TestAbortHandler:
         self.session_workdir.mkdir()
 
     def _make_handler(self, mocker) -> AbortHandler:
-        boot_controller = mocker.MagicMock()
-        handler = AbortHandler(
-            resp_queue=self.resp_queue,
-            boot_controller=boot_controller,
+        handler = AbortHandler(resp_queue=self.resp_queue)
+        handler.set_session(
+            boot_controller=mocker.MagicMock(),
             session_workdir=self.session_workdir,
             status_report_queue=self.status_report_queue,
             session_id="test_session",
@@ -347,19 +346,29 @@ class TestAbortHandler:
         assert resp.res == IPCResEnum.ACCEPT
         assert "queued" in resp.msg.lower()
 
-    def test_exit_critical_zone_executes_queued_abort(self, mocker):
+    def test_exit_critical_zone_triggers_abort_on_handler_thread(self, mocker):
         """Queue abort during critical zone, call exit_critical_zone,
-        verify _perform_abort is called and OTAAbortSignal is raised."""
+        verify abort handler thread detects ABORTING and runs cleanup."""
         handler = self._make_handler(mocker)
-        # Mock _perform_abort to prevent actual process kill
         mocker.patch.object(handler, "_perform_abort")
+        handler.start()
 
         handler.enter_critical_zone()
-        handler._state = AbortState.REQUESTED  # simulate queued abort
 
+        # Submit abort request — handler sets REQUESTED and returns
+        request = self._make_abort_request()
+        handler.submit(request)
+
+        import time
+
+        time.sleep(0.05)  # let handler thread process request
+        assert handler.state == AbortState.REQUESTED
+
+        # exit_critical_zone transitions REQUESTED → ABORTING
         with pytest.raises(ota_errors.OTAAbortSignal):
             handler.exit_critical_zone()
 
+        time.sleep(1.5)  # let handler thread detect ABORTING (polls every 1s)
         handler._perform_abort.assert_called_once()
 
     def test_abort_handler_rejects_during_final_phase(self, mocker):

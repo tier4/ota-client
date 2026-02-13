@@ -99,14 +99,18 @@ class AbortHandler:
     """Daemon thread that processes abort requests, performs cleanup, and
     terminates the OTA Core process via custom signal.
 
-    The main loop dispatches AbortRequestV2 to this handler via an internal queue.
-    The updater calls enter/exit zone methods to signal protected phases.
-    AbortState encodes both abort lifecycle and zone protection.
-    A threading.Lock makes all state transitions atomic.
+    Created once by OTAClient.main() and runs for the lifetime of the
+    OTA Core process.  Session-specific fields (boot_controller, etc.)
+    are set by OTAClient.update() before the update begins.
 
-    During critical zone, abort is queued (REQUESTED).
-    When exit_critical_zone() is called, it detects the queued abort and
-    performs it directly — no Event needed.
+    The main loop checks OTA status before dispatching.  Abort requests
+    are only dispatched when _live_ota_status == UPDATING.
+
+    During critical zone, abort is queued (REQUESTED).  When the updater
+    calls exit_critical_zone(), it transitions REQUESTED → ABORTING and
+    raises OTAAbortSignal.  The abort handler thread detects ABORTING
+    and runs _perform_abort().
+
     During final phase, abort is rejected.
     """
 
@@ -114,23 +118,37 @@ class AbortHandler:
         self,
         *,
         resp_queue: mp_queue.Queue[IPCResponse],
+    ) -> None:
+        self._thread = None
+        self._resp_queue = resp_queue
+        self._abort_queue: Queue[AbortRequestV2] = Queue()
+        self._state = AbortState.NONE
+        self._lock = threading.Lock()
+
+        # Session-specific fields, set by update() before the update starts.
+        self._boot_controller = None
+        self._session_workdir: Path | None = None
+        self._status_report_queue: Queue[StatusReport] | None = None
+        self._session_id: str | None = None
+
+    @property
+    def state(self) -> AbortState:
+        return self._state
+
+    def set_session(
+        self,
+        *,
         boot_controller,
         session_workdir: Path,
         status_report_queue: Queue[StatusReport],
         session_id: str,
     ) -> None:
-        self._resp_queue = resp_queue
+        """Set session-specific fields for the current update."""
         self._boot_controller = boot_controller
         self._session_workdir = session_workdir
         self._status_report_queue = status_report_queue
         self._session_id = session_id
-        self._abort_queue: Queue[AbortRequestV2] = Queue()
         self._state = AbortState.NONE
-        self._lock = threading.Lock()
-
-    @property
-    def state(self) -> AbortState:
-        return self._state
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -143,9 +161,9 @@ class AbortHandler:
     def _perform_abort(self) -> None:
         """Perform abort cleanup and kill process.
 
-        Called with state already set to ABORTING (under lock, before calling).
-        Can be called from abort handler thread (NONE case) or
-        updater thread (queued critical zone case).
+        Always called on the abort handler thread with state already set
+        to ABORTING.  In Path A (immediate), called directly from _handle().
+        In Path B (queued), called after _run() detects ABORTING.
         """
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -183,7 +201,8 @@ class AbortHandler:
     def exit_critical_zone(self) -> None:
         """CRITICAL_ZONE → NONE (normal).
 
-        REQUESTED → ABORTING → perform abort → raise OTAAbortSignal.
+        REQUESTED → ABORTING → raise OTAAbortSignal.
+        The abort handler thread detects ABORTING and runs _perform_abort().
         """
         with self._lock:
             if self._state == AbortState.REQUESTED:
@@ -197,8 +216,7 @@ class AbortHandler:
                 self._state = AbortState.NONE
                 return
 
-        # Only reached for REQUESTED → ABORTING path
-        self._perform_abort()
+        # REQUESTED → ABORTING path: abort handler thread will do cleanup.
         raise ota_errors.OTAAbortSignal(
             "abort queued during critical zone, now executing",
             module=__name__,
@@ -228,6 +246,13 @@ class AbortHandler:
             request = self._abort_queue.get()
             self._handle(request)
 
+            # If abort was queued during critical zone, wait for
+            # exit_critical_zone() to transition REQUESTED → ABORTING.
+            while self._state == AbortState.REQUESTED:
+                time.sleep(1)
+            if self._state == AbortState.ABORTING:
+                self._perform_abort()
+
     def _handle(self, request: AbortRequestV2) -> None:
         with self._lock:
             if self._state == AbortState.FINAL_PHASE:
@@ -255,7 +280,8 @@ class AbortHandler:
                 return
 
             if self._state == AbortState.CRITICAL_ZONE:
-                # Queue the abort — exit_critical_zone() will execute it
+                # Queue the abort — handler returns to _run() loop and polls.
+                # exit_critical_zone() will transition REQUESTED → ABORTING.
                 self._state = AbortState.REQUESTED
                 self._resp_queue.put_nowait(
                     IPCResponse(
@@ -495,15 +521,13 @@ class OTAClient:
         )
         url_base = request.url_base
 
-        # Create abort handler for this update session
-        self._abort_handler = AbortHandler(
-            resp_queue=self._resp_queue,
+        # Configure abort handler for this update session
+        self._abort_handler.set_session(
             boot_controller=self.boot_controller,
             session_workdir=session_wd,
             status_report_queue=self._status_report_queue,
             session_id=new_session_id,
         )
-        self._abort_handler.start()
 
         try:
             logger.info("[update] entering local update...")
@@ -576,7 +600,6 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
         finally:
-            self._abort_handler = None
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
@@ -681,6 +704,8 @@ class OTAClient:
     ) -> NoReturn:
         """Main loop of ota_core process."""
         self._resp_queue = resp_queue
+        self._abort_handler = AbortHandler(resp_queue=resp_queue)
+        self._abort_handler.start()
 
         _allow_request_after = 0
         while True:
@@ -691,9 +716,7 @@ class OTAClient:
                 continue
 
             if isinstance(request, AbortRequestV2):
-                if self._abort_handler is not None:
-                    self._abort_handler.submit(request)
-                else:
+                if self._live_ota_status != OTAStatus.UPDATING:
                     resp_queue.put_nowait(
                         IPCResponse(
                             res=IPCResEnum.REJECT_ABORT,
@@ -701,6 +724,8 @@ class OTAClient:
                             session_id=request.session_id,
                         )
                     )
+                else:
+                    self._abort_handler.submit(request)
 
             elif _now < _allow_request_after or self.is_busy:
                 _err_msg = (
