@@ -385,9 +385,9 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._finalize_update()
 
         except ota_errors.OTAAbortSignal:
-            # Abort handler is doing cleanup and will kill the process.
-            # Don't call on_operation_failure — just log and re-raise.
-            logger.info("OTA update aborted by abort handler")
+            # Abort handler thread is doing (or will do) cleanup.
+            # Don't call on_operation_failure — just re-raise.
+            logger.info("OTA update aborted")
             raise
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
