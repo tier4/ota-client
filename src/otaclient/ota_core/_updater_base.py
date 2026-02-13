@@ -207,7 +207,6 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
-                abort_state=self._abort_state,
             )
         except ota_errors.OTAAbortSignal:
             raise
@@ -342,7 +341,6 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
                 metrics=self._metrics,
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
-                abort_state=self._abort_state,
             )
             # NOTE: only remove the download tmp when download finished successfully!
             #       this enables the OTA download resume feature.

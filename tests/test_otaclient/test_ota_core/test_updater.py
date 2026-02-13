@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import threading
 from pathlib import Path
 from queue import Queue
 
@@ -23,8 +24,15 @@ import pytest_mock
 
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAStatusChangeReport, StatusReport
-from otaclient._types import AbortState, OTAAbortState, OTAStatus
+from otaclient._types import (
+    AbortRequestV2,
+    AbortState,
+    IPCResEnum,
+    IPCResponse,
+    OTAStatus,
+)
 from otaclient.ota_core import _updater
+from otaclient.ota_core._main import AbortHandler
 
 OTA_UPDATER_MODULE = _updater.__name__
 
@@ -39,8 +47,8 @@ class MockOTAUpdater(_updater.OTAUpdaterBase):
         pass
 
 
-class TestOTAUpdaterAbortState:
-    """Test that abort state is properly managed in all execution paths."""
+class TestOTAUpdaterWithAbortHandler:
+    """Test that updater properly delegates abort to AbortHandler."""
 
     @pytest.fixture(autouse=True)
     def setup(
@@ -48,36 +56,32 @@ class TestOTAUpdaterAbortState:
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
     ):
-        # Create a simple queue for status reports
         self.status_report_queue: Queue[StatusReport] = Queue()
-
-        # Create OTAAbortState with a real mp.Value
-        self.abort_value = mp.Value("i", AbortState.NONE)
-        self.abort_ota_state = OTAAbortState(self.abort_value)
-
-        # Mock boot controller
         self.mock_boot_controller = mocker.MagicMock()
-
-        # Session work directory
         self.session_workdir = tmp_path / "session_workdir"
         self.session_workdir.mkdir(parents=True, exist_ok=True)
 
     @pytest.fixture
+    def mock_abort_handler(self, mocker: pytest_mock.MockerFixture) -> mocker.MagicMock:
+        handler = mocker.MagicMock(spec=AbortHandler)
+        return handler
+
+    @pytest.fixture
     def mock_updater(
-        self, mocker: pytest_mock.MockerFixture, tmp_path: Path
+        self,
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+        mock_abort_handler,
     ) -> MockOTAUpdater:
-        """Create a mock OTAUpdater instance for testing."""
-        # Mock the OTAUpdateInitializer __init__ to avoid complex setup
         mocker.patch(
             f"{OTA_UPDATER_MODULE}.OTAUpdateInitializer.__init__", return_value=None
         )
 
         updater = MockOTAUpdater(
             boot_controller=self.mock_boot_controller,
-            abort_ota_state=self.abort_ota_state,
+            abort_handler=mock_abort_handler,
         )
 
-        # Set required attributes that would normally be set by OTAUpdateInitializer
         updater._session_workdir = self.session_workdir
         updater._status_report_queue = self.status_report_queue
         updater.session_id = "test_session_id"
@@ -88,160 +92,120 @@ class TestOTAUpdaterAbortState:
 
         return updater
 
-    def test_successful_update_resets_final_phase(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+    def test_critical_zone_called_around_pre_update(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
     ):
-        """Test that FINAL_PHASE state is set before post_update and reset in finally."""
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
+        """Test that enter/exit_critical_zone is called around _pre_update."""
+        call_order = []
 
-        mock_updater.execute()
-
-        # After successful execute, state should have been FINAL_PHASE
-        # but reset_final_phase in finally resets it to NONE (on failure path)
-        # On success path, _finalize_update reboots so this code doesn't run in production
-        # In test, _finalize_update is mocked so reset_final_phase runs
-        assert self.abort_ota_state.state == AbortState.NONE
-
-    def test_abort_between_metadata_and_pre_update(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that abort is caught between _process_metadata and _pre_update."""
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
-
-        # Set abort state to REQUESTED before execute
-        self.abort_value.value = AbortState.REQUESTED
-
-        with pytest.raises(ota_errors.OTAAbortSignal):
-            mock_updater.execute()
-
-        # Abort should have been processed: REQUESTED → ABORTING → ABORTED
-        assert self.abort_ota_state.state == AbortState.ABORTED
-        self.mock_boot_controller.on_abort.assert_called_once()
-        # _pre_update should NOT have been called
-        mock_updater._pre_update.assert_not_called()
-
-    def test_abort_during_pre_update_critical_zone(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that abort request during _pre_update critical zone is queued
-        and picked up by _check_abort after the critical zone exits."""
-
-        def simulate_abort_during_critical_zone():
-            # During _pre_update, state should be CRITICAL_ZONE.
-            # Simulate servicer recording an abort request.
-            assert self.abort_ota_state.state == AbortState.CRITICAL_ZONE
-            self.abort_ota_state.try_set_requested()
-            assert (
-                self.abort_ota_state.state == AbortState.CRITICAL_ZONE_ABORT_REQUESTED
-            )
-
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(
-            mock_updater, "_pre_update", side_effect=simulate_abort_during_critical_zone
+        mock_abort_handler.enter_critical_zone.side_effect = lambda: call_order.append(
+            "enter_critical_zone"
         )
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
-
-        with pytest.raises(ota_errors.OTAAbortSignal):
-            mock_updater.execute()
-
-        assert self.abort_ota_state.state == AbortState.ABORTED
-        self.mock_boot_controller.on_abort.assert_called_once()
-        mock_updater._in_update.assert_not_called()
-
-    def test_critical_zone_state_during_pre_update(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that state is CRITICAL_ZONE during _pre_update and NONE after."""
-        states_during_pre_update = []
-
-        def capture_state():
-            states_during_pre_update.append(self.abort_ota_state.state)
-
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update", side_effect=capture_state)
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
-
-        mock_updater.execute()
-
-        assert len(states_during_pre_update) == 1
-        assert states_during_pre_update[0] == AbortState.CRITICAL_ZONE
-        # After execute, state should be back to NONE (via reset_final_phase)
-        assert self.abort_ota_state.state == AbortState.NONE
-
-    def test_check_abort_noop_during_critical_zone(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that try_accept_abort() does not accept CRITICAL_ZONE_ABORT_REQUESTED,
-        ensuring abort is deferred until critical zone exits."""
-        check_abort_results = []
-
-        def simulate_check_abort_during_critical_zone():
-            # Simulate servicer queueing abort during critical zone
-            self.abort_ota_state.try_set_requested()
-            assert (
-                self.abort_ota_state.state == AbortState.CRITICAL_ZONE_ABORT_REQUESTED
-            )
-            # try_accept_abort should return False (state is not REQUESTED)
-            result = self.abort_ota_state.try_accept_abort()
-            check_abort_results.append(result)
-            # State should still be CRITICAL_ZONE_ABORT_REQUESTED
-            assert (
-                self.abort_ota_state.state == AbortState.CRITICAL_ZONE_ABORT_REQUESTED
-            )
+        mock_abort_handler.exit_critical_zone.side_effect = lambda: call_order.append(
+            "exit_critical_zone"
+        )
+        mock_abort_handler.enter_final_phase.side_effect = lambda: call_order.append(
+            "enter_final_phase"
+        )
 
         mocker.patch.object(mock_updater, "_process_metadata")
         mocker.patch.object(
             mock_updater,
             "_pre_update",
-            side_effect=simulate_check_abort_during_critical_zone,
+            side_effect=lambda: call_order.append("_pre_update"),
         )
         mocker.patch.object(mock_updater, "_in_update")
         mocker.patch.object(mock_updater, "_post_update")
         mocker.patch.object(mock_updater, "_finalize_update")
 
-        with pytest.raises(ota_errors.OTAAbortSignal):
-            mock_updater.execute()
+        mock_updater.execute()
 
-        # try_accept_abort was called during critical zone and returned False
-        assert check_abort_results == [False]
-        # Abort was picked up after exit_critical_zone → REQUESTED → _check_abort
-        assert self.abort_ota_state.state == AbortState.ABORTED
+        assert call_order == [
+            "enter_critical_zone",
+            "_pre_update",
+            "exit_critical_zone",
+            "enter_final_phase",
+        ]
 
-    def test_abort_after_in_update_via_enter_final_phase(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+    def test_final_phase_entered_before_post_update(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
     ):
-        """Test that abort requested during _in_update is caught by enter_final_phase."""
-
-        def set_abort_requested():
-            self.abort_value.value = AbortState.REQUESTED
-
+        """Test that enter_final_phase is called before _post_update."""
         mocker.patch.object(mock_updater, "_process_metadata")
         mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update", side_effect=set_abort_requested)
+        mocker.patch.object(mock_updater, "_in_update")
         mocker.patch.object(mock_updater, "_post_update")
         mocker.patch.object(mock_updater, "_finalize_update")
 
+        mock_updater.execute()
+
+        mock_abort_handler.enter_final_phase.assert_called_once()
+        mock_updater._post_update.assert_called_once()
+        mock_updater._finalize_update.assert_called_once()
+
+    def test_abort_signal_from_enter_critical_zone(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+    ):
+        """Test that OTAAbortSignal from enter_critical_zone propagates correctly."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+
+        mock_abort_handler.enter_critical_zone.side_effect = ota_errors.OTAAbortSignal(
+            "abort in progress", module=__name__
+        )
+
         with pytest.raises(ota_errors.OTAAbortSignal):
             mock_updater.execute()
 
-        assert self.abort_ota_state.state == AbortState.ABORTED
-        self.mock_boot_controller.on_abort.assert_called_once()
-        mock_updater._post_update.assert_not_called()
+        mock_updater._pre_update.assert_not_called()
+        self.mock_boot_controller.on_operation_failure.assert_not_called()
 
-    def test_no_abort_when_not_requested(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+    def test_abort_signal_from_exit_critical_zone(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+    ):
+        """Test that OTAAbortSignal from exit_critical_zone propagates correctly."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+
+        mock_abort_handler.exit_critical_zone.side_effect = ota_errors.OTAAbortSignal(
+            "queued abort executing", module=__name__
+        )
+
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            mock_updater.execute()
+
+        mock_updater._pre_update.assert_called_once()
+        mock_updater._in_update.assert_not_called()
+        self.mock_boot_controller.on_operation_failure.assert_not_called()
+
+    def test_abort_signal_from_enter_final_phase(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+    ):
+        """Test that OTAAbortSignal from enter_final_phase propagates correctly."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+
+        mock_abort_handler.enter_final_phase.side_effect = ota_errors.OTAAbortSignal(
+            "abort in progress", module=__name__
+        )
+
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            mock_updater.execute()
+
+        mock_updater._post_update.assert_not_called()
+        self.mock_boot_controller.on_operation_failure.assert_not_called()
+
+    def test_no_abort_normal_execution(
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
     ):
         """Test normal execution when no abort is requested."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -252,37 +216,15 @@ class TestOTAUpdaterAbortState:
 
         mock_updater.execute()
 
-        # All phases should have been called
         mock_updater._process_metadata.assert_called_once()
         mock_updater._pre_update.assert_called_once()
         mock_updater._in_update.assert_called_once()
         mock_updater._post_update.assert_called_once()
         mock_updater._finalize_update.assert_called_once()
-        # No abort cleanup
         self.mock_boot_controller.on_abort.assert_not_called()
 
-    def test_final_phase_state_on_post_update_error(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that FINAL_PHASE is reset when _post_update raises an exception."""
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(
-            mock_updater,
-            "_post_update",
-            side_effect=Exception("Post update failed"),
-        )
-        mocker.patch.object(mock_updater, "_finalize_update")
-
-        with pytest.raises(ota_errors.ApplyOTAUpdateFailed):
-            mock_updater.execute()
-
-        # FINAL_PHASE should be reset to NONE by reset_final_phase() in finally
-        assert self.abort_ota_state.state == AbortState.NONE
-
     def test_ota_error_propagated(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
+        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
     ):
         """Test that OTAError is re-raised and on_operation_failure is called."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -301,75 +243,170 @@ class TestOTAUpdaterAbortState:
 
         self.mock_boot_controller.on_operation_failure.assert_called_once()
 
-    def test_enter_final_phase_closes_abort_window(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that enter_final_phase transitions NONE → FINAL_PHASE."""
-        abort_state_during_post_update = []
 
-        def capture_state():
-            abort_state_during_post_update.append(self.abort_ota_state.state)
+class TestAbortHandler:
+    """Test the AbortHandler state machine and behavior."""
 
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update", side_effect=capture_state)
-        mocker.patch.object(mock_updater, "_finalize_update")
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path: Path):
+        self.resp_queue: Queue[IPCResponse] = Queue()
+        self.status_report_queue: Queue[StatusReport] = Queue()
+        self.session_workdir = tmp_path / "session"
+        self.session_workdir.mkdir()
 
-        mock_updater.execute()
-
-        # During _post_update, abort state should be FINAL_PHASE
-        assert len(abort_state_during_post_update) == 1
-        assert abort_state_during_post_update[0] == AbortState.FINAL_PHASE
-
-    def test_abort_during_in_update_phase(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that OTAAbortSignal during _in_update triggers cleanup."""
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
-
-        # Simulate _check_abort() firing inside _in_update (e.g., during download).
-        # _check_abort transitions REQUESTED → ABORTING before raising.
-        def simulate_intra_phase_abort():
-            self.abort_value.value = AbortState.ABORTING
-            raise ota_errors.OTAAbortSignal("OTA abort signal raised", module=__name__)
-
-        mocker.patch.object(
-            mock_updater, "_in_update", side_effect=simulate_intra_phase_abort
+    def _make_handler(self, mocker) -> AbortHandler:
+        boot_controller = mocker.MagicMock()
+        handler = AbortHandler(
+            resp_queue=self.resp_queue,
+            boot_controller=boot_controller,
+            session_workdir=self.session_workdir,
+            status_report_queue=self.status_report_queue,
+            session_id="test_session",
         )
+        return handler
+
+    def _make_abort_request(self) -> AbortRequestV2:
+        return AbortRequestV2(request_id="req_1", session_id="abort_session_1")
+
+    def test_initial_state_is_none(self, mocker):
+        handler = self._make_handler(mocker)
+        assert handler.state == AbortState.NONE
+
+    def test_enter_critical_zone(self, mocker):
+        handler = self._make_handler(mocker)
+        handler.enter_critical_zone()
+        assert handler.state == AbortState.CRITICAL_ZONE
+
+    def test_exit_critical_zone_normal(self, mocker):
+        handler = self._make_handler(mocker)
+        handler.enter_critical_zone()
+        handler.exit_critical_zone()
+        assert handler.state == AbortState.NONE
+
+    def test_enter_final_phase(self, mocker):
+        handler = self._make_handler(mocker)
+        handler.enter_final_phase()
+        assert handler.state == AbortState.FINAL_PHASE
+
+    def test_enter_critical_zone_raises_when_aborting(self, mocker):
+        handler = self._make_handler(mocker)
+        handler._state = AbortState.ABORTING
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            handler.enter_critical_zone()
+
+    def test_enter_final_phase_raises_when_aborting(self, mocker):
+        handler = self._make_handler(mocker)
+        handler._state = AbortState.ABORTING
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            handler.enter_final_phase()
+
+    def test_abort_handler_accepts_when_state_none(self, mocker):
+        """Verify NONE → ABORTING, IPC ACCEPT, _perform_abort called."""
+        handler = self._make_handler(mocker)
+        # Mock _perform_abort to prevent actual process kill
+        mocker.patch.object(handler, "_perform_abort")
+
+        request = self._make_abort_request()
+        handler._handle(request)
+
+        assert handler.state == AbortState.ABORTING
+        resp = self.resp_queue.get_nowait()
+        assert resp.res == IPCResEnum.ACCEPT
+        assert resp.session_id == request.session_id
+        handler._perform_abort.assert_called_once()
+
+    def test_abort_queued_during_critical_zone(self, mocker):
+        """Verify CRITICAL_ZONE → REQUESTED, IPC ACCEPT with queued message."""
+        handler = self._make_handler(mocker)
+        handler.enter_critical_zone()
+
+        request = self._make_abort_request()
+        handler._handle(request)
+
+        assert handler.state == AbortState.REQUESTED
+        resp = self.resp_queue.get_nowait()
+        assert resp.res == IPCResEnum.ACCEPT
+        assert "queued" in resp.msg.lower()
+
+    def test_exit_critical_zone_executes_queued_abort(self, mocker):
+        """Queue abort during critical zone, call exit_critical_zone,
+        verify _perform_abort is called and OTAAbortSignal is raised."""
+        handler = self._make_handler(mocker)
+        # Mock _perform_abort to prevent actual process kill
+        mocker.patch.object(handler, "_perform_abort")
+
+        handler.enter_critical_zone()
+        handler._state = AbortState.REQUESTED  # simulate queued abort
 
         with pytest.raises(ota_errors.OTAAbortSignal):
-            mock_updater.execute()
+            handler.exit_critical_zone()
 
-        # _do_abort should have been called in the except handler
-        assert self.abort_ota_state.state == AbortState.ABORTED
-        self.mock_boot_controller.on_abort.assert_called_once()
+        handler._perform_abort.assert_called_once()
 
-    def test_aborting_status_report_sent(
-        self, mock_updater: MockOTAUpdater, mocker: pytest_mock.MockerFixture
-    ):
-        """Test that ABORTING OTAStatusChangeReport is sent during abort cleanup."""
-        mocker.patch.object(mock_updater, "_process_metadata")
-        mocker.patch.object(mock_updater, "_pre_update")
-        mocker.patch.object(mock_updater, "_in_update")
-        mocker.patch.object(mock_updater, "_post_update")
-        mocker.patch.object(mock_updater, "_finalize_update")
+    def test_abort_handler_rejects_during_final_phase(self, mocker):
+        """Verify abort is rejected during FINAL_PHASE."""
+        handler = self._make_handler(mocker)
+        handler.enter_final_phase()
 
-        # Set abort state to REQUESTED before execute
-        self.abort_value.value = AbortState.REQUESTED
+        request = self._make_abort_request()
+        handler._handle(request)
 
-        with pytest.raises(ota_errors.OTAAbortSignal):
-            mock_updater.execute()
+        assert handler.state == AbortState.FINAL_PHASE
+        resp = self.resp_queue.get_nowait()
+        assert resp.res == IPCResEnum.REJECT_OTHER
 
-        # Collect all status reports from the queue
+    def test_idempotent_abort_when_already_requested(self, mocker):
+        """Verify idempotent ACCEPT when abort already in progress."""
+        handler = self._make_handler(mocker)
+        handler.enter_critical_zone()
+
+        # First abort → queued
+        request1 = self._make_abort_request()
+        handler._handle(request1)
+        assert handler.state == AbortState.REQUESTED
+
+        # Second abort → idempotent accept
+        request2 = AbortRequestV2(request_id="req_2", session_id="abort_session_2")
+        handler._handle(request2)
+        assert handler.state == AbortState.REQUESTED
+
+        # Drain first response
+        self.resp_queue.get_nowait()
+        resp2 = self.resp_queue.get_nowait()
+        assert resp2.res == IPCResEnum.ACCEPT
+        assert "already" in resp2.msg.lower()
+
+    def test_idempotent_abort_when_aborting(self, mocker):
+        """Verify idempotent ACCEPT when state is ABORTING."""
+        handler = self._make_handler(mocker)
+        handler._state = AbortState.ABORTING
+
+        request = self._make_abort_request()
+        handler._handle(request)
+
+        resp = self.resp_queue.get_nowait()
+        assert resp.res == IPCResEnum.ACCEPT
+        assert "already" in resp.msg.lower()
+
+    def test_perform_abort_sends_aborting_status(self, mocker):
+        """Test that _perform_abort sends ABORTING status report."""
+        handler = self._make_handler(mocker)
+        # Mock os.kill to prevent process kill
+        mocker.patch("otaclient.ota_core._main.os.kill")
+        mocker.patch("otaclient.ota_core._main.ensure_umount")
+        mocker.patch("otaclient.ota_core._main.shutil.rmtree")
+
+        handler._state = AbortState.ABORTING
+        handler._perform_abort()
+
+        assert handler.state == AbortState.ABORTED
+        handler._boot_controller.on_abort.assert_called_once()
+
+        # Check ABORTING status was reported
         reports = []
         while not self.status_report_queue.empty():
             reports.append(self.status_report_queue.get_nowait())
 
-        # Verify ABORTING status report was sent
         aborting_reports = [
             r
             for r in reports

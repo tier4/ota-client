@@ -32,9 +32,7 @@ from ota_metadata.file_table.utils import (
     prepare_regular_hardlink,
     prepare_regular_inlined,
 )
-from otaclient import errors as ota_errors
 from otaclient._status_monitor import StatusReport, UpdateProgressReport
-from otaclient._types import OTAAbortState
 from otaclient.configs.cfg import cfg
 from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -55,10 +53,8 @@ class UpdateStandbySlot:
         status_report_interval: int = cfg.PROCESS_FILES_REPORT_INTERVAL,
         max_workers: int = 5,
         concurrent_tasks: int = 1024,
-        abort_state: OTAAbortState | None = None,
     ) -> None:
         self.status_report_interval = status_report_interval
-        self._abort_state = abort_state
         self._fst_db_helper = file_table_db_helper
         self._status_report_queue = status_report_queue
         self.session_id = session_id
@@ -190,7 +186,6 @@ class UpdateStandbySlot:
         )
         status_reporter_t.start()
         try:
-            _next_abort_check = 0
             with ThreadPoolExecutor(
                 max_workers=self.max_workers, thread_name_prefix="ota_update_slot"
             ) as pool:
@@ -198,20 +193,6 @@ class UpdateStandbySlot:
                     if self._interrupted.is_set():
                         logger.error("detect worker failed, abort!")
                         return
-
-                    # Check abort at the same interval as status reporting
-                    # to avoid lock overhead per file.
-                    _now = time.time()
-                    if _now > _next_abort_check:
-                        _next_abort_check = _now + self.status_report_interval
-                        if (
-                            self._abort_state is not None
-                            and self._abort_state.try_accept_abort()
-                        ):
-                            raise ota_errors.OTAAbortSignal(
-                                "OTA abort signal raised",
-                                module=__name__,
-                            )
 
                     self._se.acquire()
 

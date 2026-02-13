@@ -114,7 +114,6 @@ class TestGrpcServerLauncher:
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
-                abort_ota_state=MagicMock(),
             )
 
         # Verify server methods were called

@@ -18,7 +18,10 @@ from __future__ import annotations
 import atexit
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
+import signal
+import sys
 import threading
 import time
 from functools import partial
@@ -43,6 +46,8 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import (
+    AbortRequestV2,
+    AbortState,
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
     FailureType,
@@ -50,7 +55,6 @@ from otaclient._types import (
     IPCResEnum,
     IPCResponse,
     MultipleECUStatusFlags,
-    OTAAbortState,
     OTAStatus,
     UpdateRequestV2,
 )
@@ -83,6 +87,197 @@ HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
+ABORT_SIGNAL = signal.SIGUSR1
+EXIT_CODE_OTA_ABORTED = 79
+
+
+def _abort_signal_handler(signum, frame):
+    sys.exit(EXIT_CODE_OTA_ABORTED)
+
+
+class AbortHandler:
+    """Daemon thread that processes abort requests, performs cleanup, and
+    terminates the OTA Core process via custom signal.
+
+    The main loop dispatches AbortRequestV2 to this handler via an internal queue.
+    The updater calls enter/exit zone methods to signal protected phases.
+    AbortState encodes both abort lifecycle and zone protection.
+    A threading.Lock makes all state transitions atomic.
+
+    During critical zone, abort is queued (REQUESTED).
+    When exit_critical_zone() is called, it detects the queued abort and
+    performs it directly — no Event needed.
+    During final phase, abort is rejected.
+    """
+
+    def __init__(
+        self,
+        *,
+        resp_queue: mp_queue.Queue[IPCResponse],
+        boot_controller,
+        session_workdir: Path,
+        status_report_queue: Queue[StatusReport],
+        session_id: str,
+    ) -> None:
+        self._resp_queue = resp_queue
+        self._boot_controller = boot_controller
+        self._session_workdir = session_workdir
+        self._status_report_queue = status_report_queue
+        self._session_id = session_id
+        self._abort_queue: Queue[AbortRequestV2] = Queue()
+        self._state = AbortState.NONE
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> AbortState:
+        return self._state
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="abort_handler",
+        )
+        self._thread.start()
+
+    def _perform_abort(self) -> None:
+        """Perform abort cleanup and kill process.
+
+        Called with state already set to ABORTING (under lock, before calling).
+        Can be called from abort handler thread (NONE case) or
+        updater thread (queued critical zone case).
+        """
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.ABORTING,
+                ),
+                session_id=self._session_id,
+            )
+        )
+
+        logger.info("Performing abort cleanup...")
+        self._boot_controller.on_abort()
+        ensure_umount(self._session_workdir, ignore_error=True)
+        shutil.rmtree(self._session_workdir, ignore_errors=True)
+        self._state = AbortState.ABORTED
+
+        logger.info(f"Sending {ABORT_SIGNAL.name} to terminate OTA Core process")
+        os.kill(os.getpid(), ABORT_SIGNAL)
+
+    # --- Zone transition methods (called by updater thread) ---
+
+    def enter_critical_zone(self) -> None:
+        """NONE → CRITICAL_ZONE.
+
+        Raises OTAAbortSignal if abort is in progress.
+        """
+        with self._lock:
+            if self._state in (AbortState.ABORTING, AbortState.ABORTED):
+                raise ota_errors.OTAAbortSignal(
+                    "cannot enter critical zone: abort in progress",
+                    module=__name__,
+                )
+            self._state = AbortState.CRITICAL_ZONE
+
+    def exit_critical_zone(self) -> None:
+        """CRITICAL_ZONE → NONE (normal).
+
+        REQUESTED → ABORTING → perform abort → raise OTAAbortSignal.
+        """
+        with self._lock:
+            if self._state == AbortState.REQUESTED:
+                self._state = AbortState.ABORTING
+            elif self._state in (AbortState.ABORTING, AbortState.ABORTED):
+                raise ota_errors.OTAAbortSignal(
+                    "abort in progress",
+                    module=__name__,
+                )
+            else:
+                self._state = AbortState.NONE
+                return
+
+        # Only reached for REQUESTED → ABORTING path
+        self._perform_abort()
+        raise ota_errors.OTAAbortSignal(
+            "abort queued during critical zone, now executing",
+            module=__name__,
+        )
+
+    def enter_final_phase(self) -> None:
+        """NONE → FINAL_PHASE.
+
+        Raises OTAAbortSignal if abort is in progress.
+        """
+        with self._lock:
+            if self._state in (AbortState.ABORTING, AbortState.ABORTED):
+                raise ota_errors.OTAAbortSignal(
+                    "cannot enter final phase: abort in progress",
+                    module=__name__,
+                )
+            self._state = AbortState.FINAL_PHASE
+
+    # --- Abort request handling (abort handler thread) ---
+
+    def submit(self, request: AbortRequestV2) -> None:
+        """Called by main loop to dispatch an abort request."""
+        self._abort_queue.put_nowait(request)
+
+    def _run(self) -> None:
+        while True:
+            request = self._abort_queue.get()
+            self._handle(request)
+
+    def _handle(self, request: AbortRequestV2) -> None:
+        with self._lock:
+            if self._state == AbortState.FINAL_PHASE:
+                self._resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_OTHER,
+                        msg="Cannot abort: update is in FINAL_PHASE",
+                        session_id=request.session_id,
+                    )
+                )
+                return
+
+            if self._state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+                AbortState.REQUESTED,
+            ):
+                self._resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        msg="Abort already in progress",
+                        session_id=request.session_id,
+                    )
+                )
+                return
+
+            if self._state == AbortState.CRITICAL_ZONE:
+                # Queue the abort — exit_critical_zone() will execute it
+                self._state = AbortState.REQUESTED
+                self._resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.ACCEPT,
+                        msg="Abort queued, will proceed after critical zone exits",
+                        session_id=request.session_id,
+                    )
+                )
+                return
+
+            # state is NONE — accept and proceed immediately
+            self._state = AbortState.ABORTING
+            self._resp_queue.put_nowait(
+                IPCResponse(
+                    res=IPCResEnum.ACCEPT,
+                    session_id=request.session_id,
+                )
+            )
+
+        # Only reached for NONE → ABORTING path
+        self._perform_abort()
+
 
 class OTAClient:
     """The adapter between OTAClient gRPC interface and the OTA implementation."""
@@ -94,7 +289,6 @@ class OTAClient:
         proxy: str | None = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
-        abort_ota_state: OTAAbortState,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -103,9 +297,9 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
-        self._abort_ota_state = abort_ota_state
 
         self._shm_metrics_reader = shm_metrics_reader
+        self._abort_handler: AbortHandler | None = None
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -299,6 +493,17 @@ class OTAClient:
             chunk_size=cfg.CHUNK_SIZE,
         )
         url_base = request.url_base
+
+        # Create abort handler for this update session
+        self._abort_handler = AbortHandler(
+            resp_queue=self._resp_queue,
+            boot_controller=self.boot_controller,
+            session_workdir=session_wd,
+            status_report_queue=self._status_report_queue,
+            session_id=new_session_id,
+        )
+        self._abort_handler.start()
+
         try:
             logger.info("[update] entering local update...")
             _common_args = OTAUpdateInterfaceArgs(
@@ -332,7 +537,7 @@ class OTAClient:
 
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
-                    abort_ota_state=self._abort_ota_state,
+                    abort_handler=self._abort_handler,
                     boot_controller=self.boot_controller,
                     image_identifier=image_id,
                     **_common_args,
@@ -346,7 +551,7 @@ class OTAClient:
                     )
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
-                    abort_ota_state=self._abort_ota_state,
+                    abort_handler=self._abort_handler,
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
@@ -360,7 +565,7 @@ class OTAClient:
                     session_id=new_session_id,
                 )
             )
-            logger.info("OTA update aborted by user request")
+            logger.info("OTA update aborted by abort handler")
         except ota_errors.OTAError as e:
             self._live_ota_status = OTAStatus.FAILURE
             self._on_failure(
@@ -370,6 +575,7 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
         finally:
+            self._abort_handler = None
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
@@ -473,6 +679,7 @@ class OTAClient:
         resp_queue: mp_queue.Queue[IPCResponse],
     ) -> NoReturn:
         """Main loop of ota_core process."""
+        self._resp_queue = resp_queue
         _allow_request_after = 0
         while True:
             _now = int(time.time())
@@ -481,7 +688,22 @@ class OTAClient:
             except Empty:
                 continue
 
-            if _now < _allow_request_after or self.is_busy:
+            if isinstance(request, AbortRequestV2):
+                if (
+                    self._live_ota_status != OTAStatus.UPDATING
+                    or self._abort_handler is None
+                ):
+                    resp_queue.put_nowait(
+                        IPCResponse(
+                            res=IPCResEnum.REJECT_OTHER,
+                            msg="Cannot abort: no active OTA update in progress",
+                            session_id=request.session_id,
+                        )
+                    )
+                else:
+                    self._abort_handler.submit(request)
+
+            elif _now < _allow_request_after or self.is_busy:
                 _err_msg = (
                     f"otaclient is busy at {self._live_ota_status} or "
                     f"request too quickly({_allow_request_after=}), "
@@ -553,12 +775,16 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
-    abort_ota_state: OTAAbortState,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
 
     configure_logging()
+
+    # Register signal handler for abort-triggered process termination.
+    # SIGUSR1 handler calls sys.exit(EXIT_CODE_OTA_ABORTED) which propagates
+    # cleanly as SystemExit in the main thread; daemon threads die automatically.
+    signal.signal(ABORT_SIGNAL, _abort_signal_handler)
 
     shm_writer = shm_writer_factory()
     shm_metrics_reader = shm_metrics_reader_factory()
@@ -577,7 +803,6 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
-        abort_ota_state=abort_ota_state,
         shm_metrics_reader=shm_metrics_reader,
     )
     _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)

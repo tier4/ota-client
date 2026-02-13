@@ -26,7 +26,6 @@ from otaclient._types import (
     IPCRequest,
     IPCResponse,
     MultipleECUStatusFlags,
-    OTAAbortState,
 )
 from otaclient._utils import SharedOTAClientStatusReader
 
@@ -39,7 +38,6 @@ def grpc_server_process(
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
-    abort_ota_state: OTAAbortState,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
 
@@ -70,7 +68,6 @@ def grpc_server_process(
             ecu_status_storage=ecu_status_storage,
             op_queue=op_queue,
             resp_queue=resp_queue,
-            abort_ota_state=abort_ota_state,
             shm_reader=shm_reader,
             executor=thread_pool,
         )

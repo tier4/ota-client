@@ -196,9 +196,9 @@ class ClientUpdateFailed(OTAErrorRecoverable):
 class OTAAbortSignal(OTAErrorRecoverable):
     """Control-flow signal for abort stack unwinding.
 
-    Raised by _check_abort() after transitioning REQUESTED → ABORTING.
-    Caught by execute() to trigger centralized cleanup via _do_abort().
-    Analogous to asyncio.CancelledError or KeyboardInterrupt.
+    Raised by AbortHandler zone transition methods (enter_critical_zone,
+    exit_critical_zone, enter_final_phase) when abort is in progress.
+    Caught by execute() to avoid calling on_operation_failure().
     """
 
     failure_errcode: OTAErrorCode = OTAErrorCode.E_OTA_ABORTED

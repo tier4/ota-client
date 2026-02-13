@@ -184,11 +184,6 @@ class TestMain:
             MagicMock(),  # request_shutdown_event
         ]
 
-        # Setup Value mock for OTAAbortState
-        mock_abort_value = MagicMock()
-        mock_abort_value.value = 0  # AbortState.NONE
-        mock_mp_ctx.Value.return_value = mock_abort_value
-
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -249,11 +244,6 @@ class TestMain:
             MagicMock(),  # request_shutdown_event
         ]
 
-        # Setup Value mock for OTAAbortState (not aborted)
-        mock_abort_value = MagicMock()
-        mock_abort_value.value = 0  # AbortState.NONE
-        mock_mp_ctx.Value.return_value = mock_abort_value
-
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -279,7 +269,7 @@ class TestMain:
 
     @patch("otaclient._logging.configure_logging")
     def test_main_abort_shutdown(self, mock_logging, mocker: pytest_mock.MockerFixture):
-        """Test main function shutdown when abort state reaches ABORTED."""
+        """Test main function shutdown when ota_core exits with EXIT_CODE_OTA_ABORTED."""
         # Mock the modules and functions imported in main()
         mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
         mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
@@ -314,11 +304,6 @@ class TestMain:
             MagicMock(),  # request_shutdown_event
         ]
 
-        # Setup Value mock for OTAAbortState — ABORTED triggers shutdown
-        mock_abort_value = MagicMock()
-        mock_abort_value.value = 3  # AbortState.ABORTED
-        mock_mp_ctx.Value.return_value = mock_abort_value
-
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -330,6 +315,10 @@ class TestMain:
 
         # Mock _on_shutdown to prevent SystemExit
         mock_on_shutdown = mocker.patch(f"{MAIN_MODULE}._on_shutdown")
+
+        # Simulate ota_core exiting with EXIT_CODE_OTA_ABORTED (79)
+        self.mock_ota_core_p.is_alive.return_value = False
+        self.mock_ota_core_p.exitcode = 79  # EXIT_CODE_OTA_ABORTED
 
         # Execute main()
         main.main()
