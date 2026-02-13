@@ -372,7 +372,7 @@ class TestAbortHandler:
 
         assert handler.state == AbortState.FINAL_PHASE
         resp = self.resp_queue.get_nowait()
-        assert resp.res == IPCResEnum.REJECT_OTHER
+        assert resp.res == IPCResEnum.REJECT_ABORT
 
     def test_idempotent_abort_when_already_requested(self, mocker):
         """Verify idempotent ACCEPT when abort already in progress."""

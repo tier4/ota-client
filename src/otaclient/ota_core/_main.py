@@ -233,7 +233,7 @@ class AbortHandler:
             if self._state == AbortState.FINAL_PHASE:
                 self._resp_queue.put_nowait(
                     IPCResponse(
-                        res=IPCResEnum.REJECT_OTHER,
+                        res=IPCResEnum.REJECT_ABORT,
                         msg="Cannot abort: update is in FINAL_PHASE",
                         session_id=request.session_id,
                     )
@@ -695,7 +695,7 @@ class OTAClient:
                 else:
                     resp_queue.put_nowait(
                         IPCResponse(
-                            res=IPCResEnum.REJECT_OTHER,
+                            res=IPCResEnum.REJECT_ABORT,
                             msg="Cannot abort: no active OTA update in progress",
                             session_id=request.session_id,
                         )
