@@ -300,6 +300,7 @@ class OTAClient:
 
         self._shm_metrics_reader = shm_metrics_reader
         self._abort_handler: AbortHandler | None = None
+        self._resp_queue: mp_queue.Queue[IPCResponse] | None = None
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
