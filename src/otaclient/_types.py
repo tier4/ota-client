@@ -182,6 +182,8 @@ class IPCResEnum(StrEnum):
     ACCEPT = "ACCEPT"
     REJECT_BUSY = "REJECT_BUSY"
     """The request has been rejected due to otaclient is busy."""
+    REJECT_ABORT = "REJECT_ABORT"
+    """The abort request has been rejected."""
     REJECT_OTHER = "REJECT_OTHER"
     """The request has been rejected for other reason."""
 
