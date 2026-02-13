@@ -2,7 +2,6 @@
 
 Built images and corresponding Ubuntu version:
 
-1. `ubuntu:20.04`: `ghcr.io/tier4/ota-client/test_base:ubuntu_20.04`
 1. `ubuntu:22.04`: `ghcr.io/tier4/ota-client/test_base:ubuntu_22.04`
 1. `ubuntu:24.04`: `ghcr.io/tier4/ota-client/test_base:ubuntu_24.04`
 
@@ -18,7 +17,7 @@ To manually trigger a build, use the workflow dispatch feature on GitHub Actions
 
 ```shell
 BASE_URI=ghcr.io/tier4/ota-client/test_base
-UBUNTU_VER=20.04
+UBUNTU_VER=22.04
 docker login ghcr.io -u YOUR_GITHUB_USERNAME -p YOUR_GITHUB_TOKEN
 docker buildx create --name zstd-builder --driver docker-container --use
 docker buildx build --builder zstd-builder \
