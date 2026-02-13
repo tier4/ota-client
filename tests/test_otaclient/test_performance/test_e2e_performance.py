@@ -189,8 +189,7 @@ class TestOTAUpdatePerformanceE2E:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        abort_ota_state = mocker.MagicMock()
-        abort_ota_state.try_accept_abort.return_value = False
+        abort_handler = mocker.MagicMock()
 
         # Start test timing
         report.start_test()
@@ -218,7 +217,7 @@ class TestOTAUpdatePerformanceE2E:
             downloader_pool=downloader_pool,
             boot_controller=mock_boot_controller,  # type: ignore
             ecu_status_flags=ecu_status_flags,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
@@ -266,8 +265,7 @@ class TestOTAUpdatePerformanceE2E:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        abort_ota_state = mocker.MagicMock()
-        abort_ota_state.try_accept_abort.return_value = False
+        abort_handler = mocker.MagicMock()
 
         # Start test timing
         report.start_test()
@@ -295,7 +293,7 @@ class TestOTAUpdatePerformanceE2E:
             downloader_pool=downloader_pool,
             boot_controller=mock_boot_controller,  # type: ignore
             ecu_status_flags=ecu_status_flags,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),

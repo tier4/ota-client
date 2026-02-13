@@ -24,12 +24,10 @@ from typing import Callable, overload
 import otaclient.configs.cfg as otaclient_cfg
 from otaclient._types import (
     AbortRequestV2,
-    AbortState,
     ClientUpdateRequestV2,
     IPCRequest,
     IPCResEnum,
     IPCResponse,
-    OTAAbortState,
     OTAStatus,
     RollbackRequestV2,
     UpdateRequestV2,
@@ -62,7 +60,6 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-        abort_ota_state: OTAAbortState,
         shm_reader: SharedOTAClientStatusReader,
         executor: ThreadPoolExecutor,
     ):
@@ -76,7 +73,6 @@ class OTAClientAPIServicer:
         self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
-        self._abort_ota_state = abort_ota_state
         self._shm_reader = shm_reader
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
@@ -274,13 +270,10 @@ class OTAClientAPIServicer:
         logger.info(f"receive request: {request}")
         response = response_type()
 
-        if self._abort_ota_state.state not in (
-            AbortState.NONE,
-            AbortState.FINAL_PHASE,
-            AbortState.CRITICAL_ZONE,
-        ):
+        _local_status = self._shm_reader.sync_msg()
+        if _local_status and _local_status.ota_status in (OTAStatus.ABORTING,):
             logger.error(
-                "otaclient is aborting OTA update. Rejecting all further incoming requests"
+                "otaclient is aborting OTA update. Rejecting incoming request"
             )
             for _req in request.iter_ecu():
                 self._add_ecu_into_response(
@@ -371,88 +364,42 @@ class OTAClientAPIServicer:
     def _handle_abort_request(
         self, request: AbortRequestV2
     ) -> api_types.AbortResponseEcu:
-        """Handle abort request using atomic compare-and-swap on shared abort state.
+        """Dispatch abort request to OTA Core via IPC queue.
 
-        The Servicer only records the request (NONE → REQUESTED). The Updater
-        in the OTA Core process owns the decision to accept or reject.
+        The AbortHandler in OTA Core owns abort state transitions and cleanup.
         """
         logger.info(f"handling abort request: {request}")
-        if not isinstance(request, AbortRequestV2):
-            return api_types.AbortResponseEcu(
-                ecu_id="",
-                result=api_types.AbortFailureType.ABORT_FAILURE,
-                message="invalid abort request",
-            )
-
+        self._op_queue.put_nowait(request)
         try:
-            # Check if there's an active OTA update to abort
-            _local_status = self._shm_reader.sync_msg()
-            if _local_status is None:
-                logger.info(
-                    "abort request rejected: no active OTA update (current status: unknown)"
-                )
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.AbortFailureType.ABORT_FAILURE,
-                    message="Cannot abort: no active OTA update in progress",
-                )
+            _resp = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
+            assert isinstance(_resp, IPCResponse), "unexpected msg"
+            assert _resp.session_id == request.session_id, "mismatched session_id"
 
-            if _local_status.ota_status not in (OTAStatus.UPDATING,):
-                logger.info(
-                    f"abort request rejected: no active OTA update "
-                    f"(current status: {_local_status.ota_status})"
-                )
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.AbortFailureType.ABORT_FAILURE,
-                    message="Cannot abort: no active OTA update in progress",
-                )
-
-            # Atomic compare-and-swap:
-            #   NONE → REQUESTED, or
-            #   CRITICAL_ZONE → CRITICAL_ZONE_ABORT_REQUESTED (queued)
-            if self._abort_ota_state.try_set_requested():
-                logger.warning("abort request accepted, state set to REQUESTED")
+            if _resp.res == IPCResEnum.ACCEPT:
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_NO_FAILURE,
+                    message=_resp.msg,
                 )
-
-            # State transition failed — check why
-            current_state = self._abort_ota_state.state
-            if current_state in (
-                AbortState.REQUESTED,
-                AbortState.ABORTING,
-                AbortState.CRITICAL_ZONE_ABORT_REQUESTED,
-            ):
-                return api_types.AbortResponseEcu(
-                    ecu_id=self.my_ecu_id,
-                    result=api_types.AbortFailureType.ABORT_NO_FAILURE,
-                    message="Abort already in progress",
-                )
-            if current_state == AbortState.FINAL_PHASE:
-                logger.info(
-                    "abort request rejected: OTA update is in final phase "
-                    "(post_update/finalize_update)"
-                )
+            else:
                 return api_types.AbortResponseEcu(
                     ecu_id=self.my_ecu_id,
                     result=api_types.AbortFailureType.ABORT_FAILURE,
-                    message="Cannot abort: OTA update is in final phase and will complete shortly",
+                    message=_resp.msg,
                 )
-            # ABORTED or unexpected state
+        except AssertionError as e:
+            logger.error(f"local otaclient response with unexpected msg: {e!r}")
             return api_types.AbortResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.AbortFailureType.ABORT_FAILURE,
-                message=f"Cannot abort: unexpected state {current_state.name}",
+                message=f"Unexpected response: {e!r}",
             )
-
         except Exception as e:
-            logger.error(f"failed to handle abort request: {e!r}")
+            logger.error(f"failed to dispatch abort request to OTA Core: {e!r}")
             return api_types.AbortResponseEcu(
                 ecu_id=self.my_ecu_id,
                 result=api_types.AbortFailureType.ABORT_FAILURE,
-                message="Failed to process abort request",
+                message=f"Failed to process abort request: {e!r}",
             )
 
     # API methods

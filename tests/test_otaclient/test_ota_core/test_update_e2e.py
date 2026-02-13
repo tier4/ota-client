@@ -99,8 +99,7 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        abort_ota_state = mocker.MagicMock()
-        abort_ota_state.try_accept_abort.return_value = False
+        abort_handler = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
@@ -129,7 +128,7 @@ class TestOTAUpdater:
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
@@ -158,8 +157,7 @@ class TestOTAUpdater:
         ecu_status_flags.any_child_ecu_in_update.is_set = mocker.MagicMock(
             return_value=False
         )
-        abort_ota_state = mocker.MagicMock()
-        abort_ota_state.try_accept_abort.return_value = False
+        abort_handler = mocker.MagicMock()
 
         # ------ execution ------ #
         ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
@@ -188,7 +186,7 @@ class TestOTAUpdater:
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
             ecu_status_flags=ecu_status_flags,
-            abort_ota_state=abort_ota_state,
+            abort_handler=abort_handler,
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
