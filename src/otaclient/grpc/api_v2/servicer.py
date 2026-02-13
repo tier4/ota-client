@@ -28,11 +28,10 @@ from otaclient._types import (
     IPCRequest,
     IPCResEnum,
     IPCResponse,
-    OTAStatus,
     RollbackRequestV2,
     UpdateRequestV2,
 )
-from otaclient._utils import SharedOTAClientStatusReader, gen_request_id, gen_session_id
+from otaclient._utils import gen_request_id, gen_session_id
 from otaclient.configs import ECUContact
 from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
@@ -60,7 +59,6 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
-        shm_reader: SharedOTAClientStatusReader,
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -73,7 +71,6 @@ class OTAClientAPIServicer:
         self._resp_queue = resp_queue
 
         self._ecu_status_storage = ecu_status_storage
-        self._shm_reader = shm_reader
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
 
     def _local_update(self, request: UpdateRequestV2) -> api_types.UpdateResponseEcu:
@@ -269,17 +266,6 @@ class OTAClientAPIServicer:
         """Handle incoming request."""
         logger.info(f"receive request: {request}")
         response = response_type()
-
-        _local_status = self._shm_reader.sync_msg()
-        if _local_status and _local_status.ota_status in (OTAStatus.ABORTING,):
-            logger.error(
-                "otaclient is aborting OTA update. Rejecting incoming request"
-            )
-            for _req in request.iter_ecu():
-                self._add_ecu_into_response(
-                    response, _req.ecu_id, api_types.FailureType.UNRECOVERABLE
-                )
-            return response
 
         if not request.request_id:
             request.request_id = gen_request_id()

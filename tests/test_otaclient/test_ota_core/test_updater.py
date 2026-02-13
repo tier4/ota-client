@@ -14,8 +14,6 @@
 
 from __future__ import annotations
 
-import multiprocessing as mp
-import threading
 from pathlib import Path
 from queue import Queue
 
@@ -62,7 +60,7 @@ class TestOTAUpdaterWithAbortHandler:
         self.session_workdir.mkdir(parents=True, exist_ok=True)
 
     @pytest.fixture
-    def mock_abort_handler(self, mocker: pytest_mock.MockerFixture) -> mocker.MagicMock:
+    def mock_abort_handler(self, mocker: pytest_mock.MockerFixture):
         handler = mocker.MagicMock(spec=AbortHandler)
         return handler
 
@@ -93,7 +91,10 @@ class TestOTAUpdaterWithAbortHandler:
         return updater
 
     def test_critical_zone_called_around_pre_update(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that enter/exit_critical_zone is called around _pre_update."""
         call_order = []
@@ -128,7 +129,10 @@ class TestOTAUpdaterWithAbortHandler:
         ]
 
     def test_final_phase_entered_before_post_update(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that enter_final_phase is called before _post_update."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -144,7 +148,10 @@ class TestOTAUpdaterWithAbortHandler:
         mock_updater._finalize_update.assert_called_once()
 
     def test_abort_signal_from_enter_critical_zone(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that OTAAbortSignal from enter_critical_zone propagates correctly."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -164,7 +171,10 @@ class TestOTAUpdaterWithAbortHandler:
         self.mock_boot_controller.on_operation_failure.assert_not_called()
 
     def test_abort_signal_from_exit_critical_zone(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that OTAAbortSignal from exit_critical_zone propagates correctly."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -185,7 +195,10 @@ class TestOTAUpdaterWithAbortHandler:
         self.mock_boot_controller.on_operation_failure.assert_not_called()
 
     def test_abort_signal_from_enter_final_phase(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that OTAAbortSignal from enter_final_phase propagates correctly."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -205,7 +218,10 @@ class TestOTAUpdaterWithAbortHandler:
         self.mock_boot_controller.on_operation_failure.assert_not_called()
 
     def test_no_abort_normal_execution(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test normal execution when no abort is requested."""
         mocker.patch.object(mock_updater, "_process_metadata")
@@ -224,7 +240,10 @@ class TestOTAUpdaterWithAbortHandler:
         self.mock_boot_controller.on_abort.assert_not_called()
 
     def test_ota_error_propagated(
-        self, mock_updater: MockOTAUpdater, mock_abort_handler, mocker: pytest_mock.MockerFixture
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
     ):
         """Test that OTAError is re-raised and on_operation_failure is called."""
         mocker.patch.object(mock_updater, "_process_metadata")

@@ -27,7 +27,6 @@ from otaclient._types import (
     AbortRequestV2,
     IPCResEnum,
     IPCResponse,
-    OTAStatus,
     UpdateRequestV2,
 )
 from otaclient.configs._ecu_info import ECUContact, ECUInfo
@@ -72,18 +71,11 @@ class TestOTAClientAPIServicer:
         self.ecu_status_storage.on_ecus_accept_update_request = mocker.AsyncMock()
         self.ecu_status_storage.export = mocker.AsyncMock()
 
-        # Setup mock for shared memory reader
-        self.shm_reader = mocker.MagicMock()
-        self.shm_reader.sync_msg.return_value = mocker.MagicMock(
-            ota_status=OTAStatus.UPDATING,
-        )
-
         # Create the servicer instance
         self.servicer = OTAClientAPIServicer(
             ecu_status_storage=self.ecu_status_storage,
             op_queue=self.op_queue,
             resp_queue=self.resp_queue,
-            shm_reader=self.shm_reader,
             executor=self.executor,
         )
 
