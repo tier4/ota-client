@@ -131,7 +131,7 @@ pydantic-settings==2.8.1 ; python_full_version < '3.9'
     # via otaclient
 pydantic-settings==2.11.0 ; python_full_version == '3.9.*'
     # via otaclient
-pydantic-settings==2.12.0 ; python_full_version >= '3.10'
+pydantic-settings==2.13.0 ; python_full_version >= '3.10'
     # via otaclient
 pyjwt==2.9.0 ; python_full_version < '3.9'
     # via ota-image-libs
