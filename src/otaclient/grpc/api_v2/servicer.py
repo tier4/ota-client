@@ -108,10 +108,22 @@ class OTAClientAPIServicer:
         self._op_queue.put_nowait(request)
         try:
             _req_response = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
-            assert isinstance(_req_response, IPCResponse), "unexpected msg"
-            assert (
-                _req_response.session_id == request.session_id
-            ), "mismatched session_id"
+
+            if not isinstance(_req_response, IPCResponse):
+                logger.error(f"unexpected IPC response type: {type(_req_response)}")
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
+            if _req_response.session_id != request.session_id:
+                logger.error(
+                    f"session_id mismatch: expected {request.session_id}, "
+                    f"got {_req_response.session_id}"
+                )
+                return response_type(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.FailureType.RECOVERABLE,
+                )
 
             if _req_response.res == IPCResEnum.ACCEPT:
                 return response_type(
@@ -126,12 +138,6 @@ class OTAClientAPIServicer:
                     ecu_id=self.my_ecu_id,
                     result=api_types.FailureType.RECOVERABLE,
                 )
-        except AssertionError as e:
-            logger.error(f"local otaclient response with unexpected msg: {e!r}")
-            return response_type(
-                ecu_id=self.my_ecu_id,
-                result=api_types.FailureType.RECOVERABLE,
-            )
         except Exception as e:  # failed to get ACK from otaclient within timeout
             logger.error(f"local otaclient failed to ACK request: {e!r}")
             return response_type(

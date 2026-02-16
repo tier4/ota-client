@@ -112,7 +112,7 @@ class TestOTAClientAPIServicer:
                     result=api_types.FailureType.RECOVERABLE,
                 ),
             ),
-            # Case 2: Exception case - session_id mismatch
+            # Case 2: session_id mismatch
             (
                 {
                     "session_id": "wrong-session-id",
@@ -144,15 +144,9 @@ class TestOTAClientAPIServicer:
         )
 
         # Act
-        if local_response_data["session_id"] != "test-session-id":
-            # This will cause an assertion error in _dispatch_local_request
-            result = self.servicer._dispatch_local_request(
-                request, api_types.UpdateResponseEcu
-            )
-        else:
-            result = self.servicer._dispatch_local_request(
-                request, api_types.UpdateResponseEcu
-            )
+        result = self.servicer._dispatch_local_request(
+            request, api_types.UpdateResponseEcu
+        )
 
         # Assert
         self.op_queue.put_nowait.assert_called_once_with(request)
