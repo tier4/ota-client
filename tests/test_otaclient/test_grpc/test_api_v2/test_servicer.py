@@ -688,7 +688,7 @@ class TestOTAClientAPIServicer:
     async def test_abort_rejected_by_ota_core(self, mocker: MockerFixture):
         """Test that abort is rejected when OTA Core rejects the request via IPC."""
         mocker.patch.object(self.servicer, "sub_ecus", [])
-        self.resp_queue.get.return_value = IPCResponse(
+        self.abort_resp_queue.get.return_value = IPCResponse(
             res=IPCResEnum.REJECT_ABORT,
             session_id="test-session-id",
             msg="abort rejected: in final phase",
