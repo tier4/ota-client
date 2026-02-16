@@ -62,7 +62,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 #   failure information from ota_core.
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
-SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED = 3  # seconds
+SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED = 6  # seconds
 SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
 
 STATUS_SHM_SIZE = 4096  # bytes
@@ -363,6 +363,8 @@ def main() -> None:  # pragma: no cover
     # shared queues and flags
     local_otaclient_op_queue = mp_ctx.Queue()
     local_otaclient_resp_queue = mp_ctx.Queue()
+    local_abort_op_queue = mp_ctx.Queue()
+    local_abort_resp_queue = mp_ctx.Queue()
     ecu_status_flags = MultipleECUStatusFlags(
         any_child_ecu_in_update=mp_ctx.Event(),
         any_requires_network=mp_ctx.Event(),
@@ -385,6 +387,8 @@ def main() -> None:  # pragma: no cover
             ecu_status_flags=ecu_status_flags,
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
+            abort_op_queue=local_abort_op_queue,
+            abort_resp_queue=local_abort_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
         ),
@@ -400,6 +404,8 @@ def main() -> None:  # pragma: no cover
             ),
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
+            abort_op_queue=local_abort_op_queue,
+            abort_resp_queue=local_abort_resp_queue,
             ecu_status_flags=ecu_status_flags,
         ),
         name="otaclient_api_server",
