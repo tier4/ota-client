@@ -37,8 +37,6 @@ def grpc_server_process(
     shm_reader_factory: Callable[[], SharedOTAClientStatusReader],
     op_queue: mp_Queue[IPCRequest],
     resp_queue: mp_Queue[IPCResponse],
-    abort_op_queue: mp_Queue[IPCRequest],
-    abort_resp_queue: mp_Queue[IPCResponse],
     ecu_status_flags: MultipleECUStatusFlags,
 ) -> NoReturn:  # type: ignore
     from otaclient._logging import configure_logging
@@ -70,8 +68,6 @@ def grpc_server_process(
             ecu_status_storage=ecu_status_storage,
             op_queue=op_queue,
             resp_queue=resp_queue,
-            abort_op_queue=abort_op_queue,
-            abort_resp_queue=abort_resp_queue,
             executor=thread_pool,
         )
         ota_client_service_v2 = OtaClientServiceV2(api_servicer)
