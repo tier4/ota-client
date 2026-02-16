@@ -247,7 +247,7 @@ class AbortHandler:
         try:
             return self._resp_queue.get(timeout=timeout)
         except Empty:
-            logger.error("abort handler did not respond within " f"{timeout}s")
+            logger.error(f"abort handler did not respond within {timeout}s")
             return None
 
     # --- Abort request handling (abort handler thread) ---
@@ -255,17 +255,6 @@ class AbortHandler:
     def _run(self) -> None:
         while True:
             request = self._abort_queue.get()
-
-            if self._ota_client.live_ota_status != OTAStatus.UPDATING:
-                self._resp_queue.put_nowait(
-                    IPCResponse(
-                        res=IPCResEnum.REJECT_ABORT,
-                        msg="Cannot abort: no active OTA update in progress",
-                        session_id=request.session_id,
-                    )
-                )
-                continue
-
             self._handle(request)
 
             # If abort was queued during critical zone, wait for
@@ -278,6 +267,16 @@ class AbortHandler:
 
     def _handle(self, request: AbortRequestV2) -> None:
         with self._cond:
+            if self._ota_client.live_ota_status != OTAStatus.UPDATING:
+                self._resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_ABORT,
+                        msg="Cannot abort: no active OTA update in progress",
+                        session_id=request.session_id,
+                    )
+                )
+                return
+
             if self._state == AbortState.FINAL_PHASE:
                 self._resp_queue.put_nowait(
                     IPCResponse(

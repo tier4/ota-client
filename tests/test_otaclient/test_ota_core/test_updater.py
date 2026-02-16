@@ -418,6 +418,19 @@ class TestAbortHandler:
         assert resp.res == IPCResEnum.ACCEPT
         assert "already" in resp.msg.lower()
 
+    def test_abort_rejected_when_not_updating(self, mocker):
+        """Verify abort is rejected when live_ota_status != UPDATING."""
+        handler = self._make_handler(mocker)
+        handler._ota_client.live_ota_status = OTAStatus.SUCCESS
+
+        request = self._make_abort_request()
+        handler._handle(request)
+
+        assert handler.state == AbortState.NONE
+        resp = handler.get_response()
+        assert resp.res == IPCResEnum.REJECT_ABORT
+        assert resp.session_id == request.session_id
+
     def test_perform_abort_sends_aborting_status(self, mocker):
         """Test that _perform_abort sends ABORTING status report."""
         handler = self._make_handler(mocker)
