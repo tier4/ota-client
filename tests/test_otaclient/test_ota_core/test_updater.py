@@ -26,7 +26,6 @@ from otaclient._types import (
     AbortRequestV2,
     AbortState,
     IPCResEnum,
-    IPCResponse,
     OTAStatus,
 )
 from otaclient.ota_core import _updater
@@ -268,8 +267,6 @@ class TestAbortHandler:
 
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path: Path):
-        self.abort_op_queue: Queue[AbortRequestV2] = Queue()
-        self.abort_resp_queue: Queue[IPCResponse] = Queue()
         self.status_report_queue: Queue[StatusReport] = Queue()
         self.session_workdir = tmp_path / "session"
         self.session_workdir.mkdir()
@@ -278,8 +275,6 @@ class TestAbortHandler:
         ota_client = mocker.MagicMock()
         ota_client.live_ota_status = OTAStatus.UPDATING
         handler = AbortHandler(
-            abort_op_queue=self.abort_op_queue,
-            abort_resp_queue=self.abort_resp_queue,
             ota_client=ota_client,
         )
         handler.set_session(
@@ -335,7 +330,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.ABORTING
-        resp = self.abort_resp_queue.get_nowait()
+        resp = handler.get_response()
         assert resp.res == IPCResEnum.ACCEPT
         assert resp.session_id == request.session_id
         handler._perform_abort.assert_called_once()
@@ -349,7 +344,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.REQUESTED
-        resp = self.abort_resp_queue.get_nowait()
+        resp = handler.get_response()
         assert resp.res == IPCResEnum.ACCEPT
         assert "queued" in resp.msg.lower()
 
@@ -364,7 +359,7 @@ class TestAbortHandler:
 
         # Submit abort request — handler sets REQUESTED and returns
         request = self._make_abort_request()
-        self.abort_op_queue.put_nowait(request)
+        handler.submit(request)
 
         import time
 
@@ -387,7 +382,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.FINAL_PHASE
-        resp = self.abort_resp_queue.get_nowait()
+        resp = handler.get_response()
         assert resp.res == IPCResEnum.REJECT_ABORT
 
     def test_idempotent_abort_when_already_requested(self, mocker):
@@ -406,8 +401,8 @@ class TestAbortHandler:
         assert handler.state == AbortState.REQUESTED
 
         # Drain first response
-        self.abort_resp_queue.get_nowait()
-        resp2 = self.abort_resp_queue.get_nowait()
+        handler.get_response()
+        resp2 = handler.get_response()
         assert resp2.res == IPCResEnum.ACCEPT
         assert "already" in resp2.msg.lower()
 
@@ -419,7 +414,7 @@ class TestAbortHandler:
         request = self._make_abort_request()
         handler._handle(request)
 
-        resp = self.abort_resp_queue.get_nowait()
+        resp = handler.get_response()
         assert resp.res == IPCResEnum.ACCEPT
         assert "already" in resp.msg.lower()
 
