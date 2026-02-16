@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import random
-from typing import Annotated, Any, ClassVar, Generator, Literal
+from typing import Annotated, Any, ClassVar, Generator, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -42,7 +42,7 @@ class ResourceTable(TableSpec):
     """sha256 digest of the original file."""
 
     path: Annotated[
-        str | None,
+        Optional[str],
         SkipValidation,
     ] = None
     """NOTE: only for resource without zstd compression."""
@@ -55,7 +55,7 @@ class ResourceTable(TableSpec):
     """The size of the plain uncompressed resource."""
 
     compression_alg: Annotated[
-        str | None,
+        Optional[str],
         SkipValidation,
     ] = None
     """The compression algorthim used to compressed the resource.
