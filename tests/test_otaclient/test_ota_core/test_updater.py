@@ -351,8 +351,13 @@ class TestAbortHandler:
     def test_exit_critical_zone_triggers_abort_on_handler_thread(self, mocker):
         """Queue abort during critical zone, call exit_critical_zone,
         verify abort handler thread detects ABORTING and runs cleanup."""
+        import threading
+
         handler = self._make_handler(mocker)
-        mocker.patch.object(handler, "_perform_abort")
+        abort_done = threading.Event()
+        mocker.patch.object(
+            handler, "_perform_abort", side_effect=lambda: abort_done.set()
+        )
         handler.start()
 
         handler.enter_critical_zone()
@@ -361,16 +366,17 @@ class TestAbortHandler:
         request = self._make_abort_request()
         handler.submit(request)
 
-        import time
-
-        time.sleep(0.05)  # let handler thread process request
+        # get_response() blocks until _handle() completes
+        resp = handler.get_response()
+        assert resp.res == IPCResEnum.ACCEPT
         assert handler.state == AbortState.REQUESTED
 
         # exit_critical_zone transitions REQUESTED → ABORTING and notifies
         with pytest.raises(ota_errors.OTAAbortSignal):
             handler.exit_critical_zone()
 
-        time.sleep(0.1)  # handler thread wakes immediately from _cond.wait()
+        # Wait for handler thread to wake and call _perform_abort
+        assert abort_done.wait(timeout=2), "_perform_abort was not called"
         handler._perform_abort.assert_called_once()
 
     def test_abort_handler_rejects_during_final_phase(self, mocker):
