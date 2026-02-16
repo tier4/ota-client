@@ -560,7 +560,7 @@ class TestOTAClientAPIServicer:
 
         assert result.ecu_id == "autoware"
         assert result.result == api_types.AbortFailureType.ABORT_FAILURE
-        assert "Unexpected response" in result.message
+        assert "Mismatched session_id" in result.message
         self.op_queue.put_nowait.assert_called_once_with(request)
         self.resp_queue.get.assert_called_once()
 
