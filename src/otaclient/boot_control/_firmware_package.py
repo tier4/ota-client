@@ -44,7 +44,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Annotated, Any, List, Literal, Union
+from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import BaseModel, BeforeValidator
@@ -116,7 +116,7 @@ class PayloadFileLocation(BaseModel):
     """
 
     location_type: Literal["blob", "file"]
-    location_path: Union[str, DigestValue]
+    location_path: str | DigestValue
 
     @classmethod
     def parse(cls, _in: str | PayloadFileLocation | Any) -> PayloadFileLocation:
@@ -167,7 +167,7 @@ class FirmwareManifest(BaseModel):
     hardware_series: str
     hardware_model: str
     firmware_spec: NVIDIAFirmwareSpec
-    firmware_packages: List[FirmwarePackage]
+    firmware_packages: list[FirmwarePackage]
 
     def check_compat(self, _tnspec: str) -> bool:
         """Check if an input compat string is compatible with this compat spec.
@@ -195,7 +195,7 @@ class FirmwareUpdateRequest(BaseModel):
     """
 
     format_version: Literal[1] = 1
-    firmware_list: List[str]
+    firmware_list: list[str]
 
 
 def load_firmware_package(

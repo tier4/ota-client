@@ -18,7 +18,7 @@ import logging
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 from multidict import CIMultiDict
 from simple_sqlite3_orm import (
@@ -64,8 +64,8 @@ class CacheMeta(TableSpec):
     bucket_idx: Annotated[int, ConstrainRepr("NOT NULL")] = 0
     last_access: Annotated[int, ConstrainRepr("NOT NULL")] = 0
     cache_size: Annotated[int, ConstrainRepr("NOT NULL")] = 0
-    file_compression_alg: Optional[str] = None
-    content_encoding: Optional[str] = None
+    file_compression_alg: str | None = None
+    content_encoding: str | None = None
 
     def __hash__(self) -> int:
         return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))

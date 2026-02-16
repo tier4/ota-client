@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated
 
 import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
@@ -96,8 +96,8 @@ class ECUInfo(BaseFixedConfig):
         AfterValidator(BootloaderType.deprecation_validator),
         Field(validate_default=False),
     ] = BootloaderType.AUTO_DETECT
-    available_ecu_ids: List[str] = Field(default_factory=list)
-    secondaries: List[ECUContact] = Field(default_factory=list)
+    available_ecu_ids: list[str] = Field(default_factory=list)
+    secondaries: list[ECUContact] = Field(default_factory=list)
 
     def get_available_ecu_ids(self) -> list[str]:
         """

@@ -25,7 +25,6 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional, Union
 from urllib.parse import urljoin
 
 import requests
@@ -58,8 +57,8 @@ def subprocess_check_output(
     *,
     raise_exception: bool = False,
     default: str = "",
-    timeout: Optional[float] = None,
-    chroot: Optional[str] = None,
+    timeout: float | None = None,
+    chroot: str | None = None,
 ) -> str:
     """Run the <cmd> and return UTF-8 decoded stripped stdout.
 
@@ -68,8 +67,8 @@ def subprocess_check_output(
         raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
         default (str, optional): if <raise_exception> is False, return <default> on underlying
             subprocess call failed. Defaults to "".
-        timeout (Optional[float], optional): timeout for execution. Defaults to None.
-        chroot (Optional[str], optional): chroot path. Defaults to None.
+        timeout (float | None, optional): timeout for execution. Defaults to None.
+        chroot (str | None, optional): chroot path. Defaults to None.
 
     Returns:
         str: UTF-8 decoded stripped stdout.
@@ -95,16 +94,16 @@ def subprocess_call(
     cmd: str | list[str],
     *,
     raise_exception: bool = False,
-    timeout: Optional[float] = None,
-    chroot: Optional[str] = None,
+    timeout: float | None = None,
+    chroot: str | None = None,
 ) -> None:
     """Run the <cmd>.
 
     Args:
         cmd (str | list[str]): command to be executed.
         raise_exception (bool, optional): raise the underlying CalledProcessError. Defaults to False.
-        timeout (Optional[float], optional): timeout for execution. Defaults to None.
-        chroot (Optional[str], optional): chroot path. Defaults to None.
+        timeout (float | None, optional): timeout for execution. Defaults to None.
+        chroot (str | None, optional): chroot path. Defaults to None.
     """
     try:
         subprocess_run_wrapper(
@@ -121,7 +120,7 @@ def subprocess_call(
             raise
 
 
-def copy_stat(src: Union[Path, str], dst: Union[Path, str]):
+def copy_stat(src: Path | str, dst: Path | str):
     """Copy file/dir permission bits and owner info from src to dst."""
     _stat = Path(src).stat()
     os.chown(dst, _stat.st_uid, _stat.st_gid)
@@ -254,7 +253,7 @@ def ensure_otaproxy_start(
     *,
     interval: float = 1,
     connection_timeout: float = 5,
-    probing_timeout: Optional[float] = None,
+    probing_timeout: float | None = None,
     warning_interval: int = 3 * 60,  # seconds
 ):
     """Loop probing <otaproxy_url> until online or exceed <probing_timeout>.

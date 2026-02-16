@@ -21,7 +21,6 @@ import time
 from hashlib import sha256
 from multiprocessing import Process
 from pathlib import Path
-from typing import Tuple
 
 import pytest
 
@@ -43,7 +42,7 @@ _TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT.encode())
 
 
 @pytest.fixture
-def file_t(tmp_path: Path) -> Tuple[str, str, int]:
+def file_t(tmp_path: Path) -> tuple[str, str, int]:
     """A fixture that returns a path to a test file and its sha256."""
     test_f = tmp_path / "test_file"
     test_f.write_text(_TEST_FILE_CONTENT)

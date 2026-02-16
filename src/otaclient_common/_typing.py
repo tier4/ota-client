@@ -18,7 +18,7 @@ from __future__ import annotations
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Annotated, Any, Callable, Concatenate, ParamSpec, TypeVar, Union
+from typing import Annotated, Any, Callable, Concatenate, ParamSpec, TypeVar
 
 from pydantic import BeforeValidator, Field
 
@@ -27,7 +27,7 @@ RT = TypeVar("RT")
 T = TypeVar("T")
 
 EnumT = TypeVar("EnumT", bound=Enum)
-StrOrPath = Union[str, Path]
+StrOrPath = str | Path
 
 # Before 3.11, if type mixin has its own __format__, Enum will implicitly
 #   preserve and use the __format__. This behavior is critical for str Enum

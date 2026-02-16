@@ -19,7 +19,7 @@ import asyncio
 import logging
 import random
 from pathlib import Path
-from typing import Coroutine, Optional
+from typing import Coroutine
 
 import anyio
 import pytest
@@ -64,7 +64,7 @@ class TestOngoingCachingRegister:
     async def _worker(
         self,
         idx: int,
-    ) -> tuple[bool, Optional[CacheMeta]]:
+    ) -> tuple[bool, CacheMeta | None]:
         """
         Returns tuple of bool indicates whether the worker is writter, and CacheMeta
         from tracker.

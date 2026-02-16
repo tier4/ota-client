@@ -15,7 +15,6 @@
 import functools
 import os
 import sys
-from typing import Optional
 
 from otaclient.configs.cfg import cfg
 from otaclient_common import replace_root
@@ -47,7 +46,7 @@ def is_dynamic_client_running() -> bool:
 
 
 @cache
-def get_dynamic_client_chroot_path() -> Optional[str]:
+def get_dynamic_client_chroot_path() -> str | None:
     """Get the chroot path."""
     if is_dynamic_client_running():
         return cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT

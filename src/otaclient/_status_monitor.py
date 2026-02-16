@@ -22,7 +22,7 @@ import time
 from dataclasses import asdict, dataclass
 from enum import Enum, auto
 from threading import Thread
-from typing import Literal, Union, cast
+from typing import Literal, cast
 
 from otaclient._types import (
     FailureType,
@@ -105,13 +105,13 @@ class SetUpdateMetaReport(UpdateMeta):
 
 @dataclass
 class StatusReport:
-    payload: Union[
-        SetOTAClientMetaReport,
-        UpdateProgressReport,
-        OTAStatusChangeReport,
-        OTAUpdatePhaseChangeReport,
-        SetUpdateMetaReport,
-    ]
+    payload: (
+        SetOTAClientMetaReport
+        | UpdateProgressReport
+        | OTAStatusChangeReport
+        | OTAUpdatePhaseChangeReport
+        | SetUpdateMetaReport
+    )
     session_id: str = ""
 
 

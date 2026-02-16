@@ -23,7 +23,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Union
 
 import grpc
 import zstandard
@@ -187,7 +186,7 @@ class DummySubECU:
         return res
 
 
-def zstd_compress_file(src: Union[str, Path], dst: Union[str, Path]):
+def zstd_compress_file(src: str | Path, dst: str | Path):
     cctx = zstandard.ZstdCompressor()
     with open(src, "rb") as src_f, open(dst, "wb") as dst_f:
         cctx.copy_stream(src_f, dst_f)
