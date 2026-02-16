@@ -131,10 +131,7 @@ class AbortHandler:
         self._state = AbortState.NONE
         self._cond = threading.Condition()
 
-        # Session-specific fields, set by update() before the update starts.
-        self._boot_controller = None
-        self._session_workdir: Path | None = None
-        self._status_report_queue: Queue[StatusReport] | None = None
+        # Per-session field, set by update() before the update starts.
         self._session_id: str | None = None
 
     @property
@@ -142,18 +139,8 @@ class AbortHandler:
         with self._cond:
             return self._state
 
-    def set_session(
-        self,
-        *,
-        boot_controller,
-        session_workdir: Path,
-        status_report_queue: Queue[StatusReport],
-        session_id: str,
-    ) -> None:
-        """Set session-specific fields for the current update."""
-        self._boot_controller = boot_controller
-        self._session_workdir = session_workdir
-        self._status_report_queue = status_report_queue
+    def set_session(self, *, session_id: str) -> None:
+        """Set per-session fields and reset state for the current update."""
         self._session_id = session_id
         with self._cond:
             self._state = AbortState.NONE
@@ -167,22 +154,17 @@ class AbortHandler:
         self._thread.start()
 
     def _perform_abort(self) -> None:
-        """Perform abort cleanup and kill process.
+        """Perform abort and kill the ota_core process.
 
         Always called on the abort handler thread with state already set
         to ABORTING.  In Path A (immediate), called directly from _handle().
         In Path B (queued), called after _run() detects ABORTING.
 
-        NOTE: Session workdir cleanup (umount + rmtree) also appears in the
-        update() finally block.  Both locations are necessary:
-          - Path A: SIGUSR1 kills the process before the update thread's
-            finally block runs, so this is the only cleanup.
-          - Path B: Both may run concurrently (abort handler + update
-            thread's finally).  ignore_errors=True makes this safe.
-        Additionally, this method performs ensure_umount which the update()
-        finally block does not.
+        Session workdir cleanup is not done here because SIGUSR1 terminates
+        the process, and on restart OTAClient.__init__ unmounts the parent
+        tmpfs (_update_session_dir), which wipes all session subdirectories.
         """
-        self._status_report_queue.put_nowait(
+        self._ota_client._status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.ABORTING,
@@ -191,10 +173,8 @@ class AbortHandler:
             )
         )
 
-        logger.info("Performing abort cleanup...")
-        self._boot_controller.on_abort()
-        ensure_umount(self._session_workdir, ignore_error=True)
-        shutil.rmtree(self._session_workdir, ignore_errors=True)
+        logger.info("Performing abort...")
+        self._ota_client.boot_controller.on_abort()
         with self._cond:
             self._state = AbortState.ABORTED
 
@@ -258,9 +238,17 @@ class AbortHandler:
         """Submit an abort request to the handler thread."""
         self._abort_queue.put_nowait(request)
 
-    def get_response(self) -> IPCResponse:
-        """Block until the handler thread produces a response."""
-        return self._resp_queue.get()
+    def get_response(self, timeout: float = 3) -> IPCResponse | None:
+        """Block until the handler thread produces a response.
+
+        Returns None if no response arrives within *timeout* seconds
+        (e.g. abort handler thread crashed).
+        """
+        try:
+            return self._resp_queue.get(timeout=timeout)
+        except Empty:
+            logger.error("abort handler did not respond within " f"{timeout}s")
+            return None
 
     # --- Abort request handling (abort handler thread) ---
 
@@ -532,12 +520,7 @@ class OTAClient:
         # Configure abort handler before setting UPDATING status so that
         # session fields are populated before the abort handler would
         # accept any requests (it checks live_ota_status == UPDATING).
-        self._abort_handler.set_session(
-            boot_controller=self.boot_controller,
-            session_workdir=session_wd,
-            status_report_queue=self._status_report_queue,
-            session_id=new_session_id,
-        )
+        self._abort_handler.set_session(session_id=new_session_id)
 
         # NOTE(20250916): set OTA update status before ensuring upper otaproxy
         #                 as local otaproxy needs OTA update status to start.
@@ -637,7 +620,11 @@ class OTAClient:
                 failure_type=e.failure_type,
             )
         finally:
-            shutil.rmtree(session_wd, ignore_errors=True)
+            if self._abort_handler.state not in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()
@@ -756,6 +743,12 @@ class OTAClient:
             if isinstance(request, AbortRequestV2):
                 self._abort_handler.submit(request)
                 _resp = self._abort_handler.get_response()
+                if _resp is None:
+                    _resp = IPCResponse(
+                        res=IPCResEnum.REJECT_ABORT,
+                        msg="abort handler did not respond in time",
+                        session_id=request.session_id,
+                    )
                 resp_queue.put_nowait(_resp)
                 continue
 

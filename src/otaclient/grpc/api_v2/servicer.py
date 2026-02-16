@@ -45,7 +45,7 @@ from otaclient_api.v2.api_caller import (
 logger = logging.getLogger(__name__)
 
 WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT = 6  # seconds
-WAIT_FOR_ABORT_ACK_TIMEOUT = 3  # seconds
+WAIT_FOR_ABORT_ACK_TIMEOUT = 5  # seconds
 
 
 class OTAClientAPIServicer:
