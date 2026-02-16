@@ -468,7 +468,7 @@ class OTAClientAPIServicer:
                     _ecu_contact = tasks[_task]
                     logger.error(
                         f"{_ecu_contact} did not respond to abort request on-time"
-                        f"(within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
+                        f" (within {cfg.WAITING_SUBECU_ACK_REQ_TIMEOUT}s): {e!r}"
                     )
                     self._add_ecu_into_abort_response(
                         response,
