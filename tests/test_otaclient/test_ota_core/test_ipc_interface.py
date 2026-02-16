@@ -90,6 +90,8 @@ class TestOTAClient:
             client_update_control_flags=client_update_control_flags,
             shm_metrics_reader=mocker.MagicMock(),
         )
+        # Mock abort handler (normally created by OTAClient.main())
+        self.ota_client._abort_handler = mocker.MagicMock()
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
         mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
