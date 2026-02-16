@@ -139,7 +139,8 @@ class AbortHandler:
 
     @property
     def state(self) -> AbortState:
-        return self._state
+        with self._cond:
+            return self._state
 
     def set_session(
         self,
