@@ -155,7 +155,8 @@ class AbortHandler:
         self._session_workdir = session_workdir
         self._status_report_queue = status_report_queue
         self._session_id = session_id
-        self._state = AbortState.NONE
+        with self._cond:
+            self._state = AbortState.NONE
 
     def start(self) -> None:
         self._thread = threading.Thread(
