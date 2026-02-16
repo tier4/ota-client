@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import UpdatePhase
+from otaclient._types import AbortState, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -387,6 +387,9 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         except ota_errors.OTAAbortSignal:
             # Abort handler thread is doing (or will do) cleanup.
             # Don't call on_operation_failure — just re-raise.
+            # Session workdir cleanup is skipped: SIGUSR1 will kill the
+            # process, and OTAClient.__init__ unmounts the parent tmpfs
+            # on restart.
             logger.info("OTA update aborted")
             raise
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
@@ -399,8 +402,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
         finally:
-            ensure_umount(self._session_workdir, ignore_error=True)
-            shutil.rmtree(self._session_workdir, ignore_errors=True)
+            if self._abort_handler.state not in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                ensure_umount(self._session_workdir, ignore_error=True)
+                shutil.rmtree(self._session_workdir, ignore_errors=True)
 
 
 class OTAUpdaterForLegacyOTAImageArgs(OTAUpdateInterfaceArgs):

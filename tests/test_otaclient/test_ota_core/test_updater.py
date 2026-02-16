@@ -266,23 +266,17 @@ class TestAbortHandler:
     """Test the AbortHandler state machine and behavior."""
 
     @pytest.fixture(autouse=True)
-    def setup(self, tmp_path: Path):
+    def setup(self):
         self.status_report_queue: Queue[StatusReport] = Queue()
-        self.session_workdir = tmp_path / "session"
-        self.session_workdir.mkdir()
 
     def _make_handler(self, mocker) -> AbortHandler:
         ota_client = mocker.MagicMock()
         ota_client.live_ota_status = OTAStatus.UPDATING
+        ota_client._status_report_queue = self.status_report_queue
         handler = AbortHandler(
             ota_client=ota_client,
         )
-        handler.set_session(
-            boot_controller=mocker.MagicMock(),
-            session_workdir=self.session_workdir,
-            status_report_queue=self.status_report_queue,
-            session_id="test_session",
-        )
+        handler.set_session(session_id="test_session")
         return handler
 
     def _make_abort_request(self) -> AbortRequestV2:
@@ -429,14 +423,12 @@ class TestAbortHandler:
         handler = self._make_handler(mocker)
         # Mock os.kill to prevent process kill
         mocker.patch("otaclient.ota_core._main.os.kill")
-        mocker.patch("otaclient.ota_core._main.ensure_umount")
-        mocker.patch("otaclient.ota_core._main.shutil.rmtree")
 
         handler._state = AbortState.ABORTING
         handler._perform_abort()
 
         assert handler.state == AbortState.ABORTED
-        handler._boot_controller.on_abort.assert_called_once()
+        handler._ota_client.boot_controller.on_abort.assert_called_once()
 
         # Check ABORTING status was reported
         reports = []
