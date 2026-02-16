@@ -103,8 +103,9 @@ class AbortHandler:
     OTA Core process.  Session-specific fields (boot_controller, etc.)
     are set by OTAClient.update() before the update begins.
 
-    The main loop checks OTA status before dispatching.  Abort requests
-    are only dispatched when _live_ota_status == UPDATING.
+    Reads abort requests directly from its own multiprocessing queue
+    (bypassing the main loop).  Checks _live_ota_status via the
+    OTAClient reference to reject aborts when no update is active.
 
     During critical zone, abort is queued (REQUESTED).  When the updater
     calls exit_critical_zone(), it transitions REQUESTED → ABORTING and
@@ -117,13 +118,16 @@ class AbortHandler:
     def __init__(
         self,
         *,
-        resp_queue: mp_queue.Queue[IPCResponse],
+        abort_op_queue: mp_queue.Queue[AbortRequestV2],
+        abort_resp_queue: mp_queue.Queue[IPCResponse],
+        ota_client: OTAClient,
     ) -> None:
         self._thread = None
-        self._resp_queue = resp_queue
-        self._abort_queue: Queue[AbortRequestV2] = Queue()
+        self._abort_op_queue = abort_op_queue
+        self._abort_resp_queue = abort_resp_queue
+        self._ota_client = ota_client
         self._state = AbortState.NONE
-        self._lock = threading.Lock()
+        self._cond = threading.Condition()
 
         # Session-specific fields, set by update() before the update starts.
         self._boot_controller = None
@@ -190,7 +194,7 @@ class AbortHandler:
 
         Raises OTAAbortSignal if abort is in progress.
         """
-        with self._lock:
+        with self._cond:
             if self._state in (AbortState.ABORTING, AbortState.ABORTED):
                 raise ota_errors.OTAAbortSignal(
                     "cannot enter critical zone: abort in progress",
@@ -204,9 +208,10 @@ class AbortHandler:
         REQUESTED → ABORTING → raise OTAAbortSignal.
         The abort handler thread detects ABORTING and runs _perform_abort().
         """
-        with self._lock:
+        with self._cond:
             if self._state == AbortState.REQUESTED:
                 self._state = AbortState.ABORTING
+                self._cond.notify()
             elif self._state in (AbortState.ABORTING, AbortState.ABORTED):
                 raise ota_errors.OTAAbortSignal(
                     "abort in progress",
@@ -227,7 +232,7 @@ class AbortHandler:
 
         Raises OTAAbortSignal if abort is in progress.
         """
-        with self._lock:
+        with self._cond:
             if self._state in (AbortState.ABORTING, AbortState.ABORTED):
                 raise ota_errors.OTAAbortSignal(
                     "cannot enter final phase: abort in progress",
@@ -237,26 +242,34 @@ class AbortHandler:
 
     # --- Abort request handling (abort handler thread) ---
 
-    def submit(self, request: AbortRequestV2) -> None:
-        """Called by main loop to dispatch an abort request."""
-        self._abort_queue.put_nowait(request)
-
     def _run(self) -> None:
         while True:
-            request = self._abort_queue.get()
+            request = self._abort_op_queue.get()
+
+            if self._ota_client.live_ota_status != OTAStatus.UPDATING:
+                self._abort_resp_queue.put_nowait(
+                    IPCResponse(
+                        res=IPCResEnum.REJECT_ABORT,
+                        msg="Cannot abort: no active OTA update in progress",
+                        session_id=request.session_id,
+                    )
+                )
+                continue
+
             self._handle(request)
 
             # If abort was queued during critical zone, wait for
             # exit_critical_zone() to transition REQUESTED → ABORTING.
-            while self._state == AbortState.REQUESTED:
-                time.sleep(1)
+            with self._cond:
+                while self._state == AbortState.REQUESTED:
+                    self._cond.wait()
             if self._state == AbortState.ABORTING:
                 self._perform_abort()
 
     def _handle(self, request: AbortRequestV2) -> None:
-        with self._lock:
+        with self._cond:
             if self._state == AbortState.FINAL_PHASE:
-                self._resp_queue.put_nowait(
+                self._abort_resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_ABORT,
                         msg="Cannot abort: update is in FINAL_PHASE",
@@ -270,7 +283,7 @@ class AbortHandler:
                 AbortState.ABORTED,
                 AbortState.REQUESTED,
             ):
-                self._resp_queue.put_nowait(
+                self._abort_resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
                         msg="Abort already in progress",
@@ -283,7 +296,7 @@ class AbortHandler:
                 # Queue the abort — handler returns to _run() loop and polls.
                 # exit_critical_zone() will transition REQUESTED → ABORTING.
                 self._state = AbortState.REQUESTED
-                self._resp_queue.put_nowait(
+                self._abort_resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
                         msg="Abort queued, will proceed after critical zone exits",
@@ -294,7 +307,7 @@ class AbortHandler:
 
             # state is NONE — accept and proceed immediately
             self._state = AbortState.ABORTING
-            self._resp_queue.put_nowait(
+            self._abort_resp_queue.put_nowait(
                 IPCResponse(
                     res=IPCResEnum.ACCEPT,
                     session_id=request.session_id,
@@ -326,7 +339,6 @@ class OTAClient:
 
         self._shm_metrics_reader = shm_metrics_reader
         self._abort_handler: AbortHandler | None = None
-        self._resp_queue: mp_queue.Queue[IPCResponse] | None = None
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -701,10 +713,15 @@ class OTAClient:
         *,
         req_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        abort_op_queue: mp_queue.Queue[AbortRequestV2],
+        abort_resp_queue: mp_queue.Queue[IPCResponse],
     ) -> NoReturn:
         """Main loop of ota_core process."""
-        self._resp_queue = resp_queue
-        self._abort_handler = AbortHandler(resp_queue=resp_queue)
+        self._abort_handler = AbortHandler(
+            abort_op_queue=abort_op_queue,
+            abort_resp_queue=abort_resp_queue,
+            ota_client=self,
+        )
         self._abort_handler.start()
 
         _allow_request_after = 0
@@ -715,19 +732,7 @@ class OTAClient:
             except Empty:
                 continue
 
-            if isinstance(request, AbortRequestV2):
-                if self._live_ota_status != OTAStatus.UPDATING:
-                    resp_queue.put_nowait(
-                        IPCResponse(
-                            res=IPCResEnum.REJECT_ABORT,
-                            msg="Cannot abort: no active OTA update in progress",
-                            session_id=request.session_id,
-                        )
-                    )
-                else:
-                    self._abort_handler.submit(request)
-
-            elif _now < _allow_request_after or self.is_busy:
+            if _now < _allow_request_after or self.is_busy:
                 _err_msg = (
                     f"otaclient is busy at {self._live_ota_status} or "
                     f"request too quickly({_allow_request_after=}), "
@@ -797,6 +802,8 @@ def ota_core_process(
     ecu_status_flags: MultipleECUStatusFlags,
     op_queue: mp_queue.Queue[IPCRequest],
     resp_queue: mp_queue.Queue[IPCResponse],
+    abort_op_queue: mp_queue.Queue[AbortRequestV2],
+    abort_resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
 ):
@@ -829,4 +836,9 @@ def ota_core_process(
         client_update_control_flags=client_update_control_flags,
         shm_metrics_reader=shm_metrics_reader,
     )
-    _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
+    _ota_core.main(
+        req_queue=op_queue,
+        resp_queue=resp_queue,
+        abort_op_queue=abort_op_queue,
+        abort_resp_queue=abort_resp_queue,
+    )

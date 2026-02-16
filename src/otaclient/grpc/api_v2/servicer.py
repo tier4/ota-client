@@ -45,6 +45,7 @@ from otaclient_api.v2.api_caller import (
 logger = logging.getLogger(__name__)
 
 WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT = 6  # seconds
+WAIT_FOR_ABORT_ACK_TIMEOUT = 3  # seconds
 
 
 class OTAClientAPIServicer:
@@ -59,6 +60,8 @@ class OTAClientAPIServicer:
         ecu_status_storage: ECUStatusStorage,
         op_queue: mp_queue.Queue[IPCRequest],
         resp_queue: mp_queue.Queue[IPCResponse],
+        abort_op_queue: mp_queue.Queue[IPCRequest],
+        abort_resp_queue: mp_queue.Queue[IPCResponse],
         executor: ThreadPoolExecutor,
     ):
         self.sub_ecus = ecu_info.secondaries
@@ -69,6 +72,8 @@ class OTAClientAPIServicer:
 
         self._op_queue = op_queue
         self._resp_queue = resp_queue
+        self._abort_op_queue = abort_op_queue
+        self._abort_resp_queue = abort_resp_queue
 
         self._ecu_status_storage = ecu_status_storage
         self._polling_waiter = self._ecu_status_storage.get_polling_waiter()
@@ -355,9 +360,9 @@ class OTAClientAPIServicer:
         The AbortHandler in OTA Core owns abort state transitions and cleanup.
         """
         logger.info(f"handling abort request: {request}")
-        self._op_queue.put_nowait(request)
+        self._abort_op_queue.put_nowait(request)
         try:
-            _resp = self._resp_queue.get(timeout=WAIT_FOR_LOCAL_ECU_ACK_TIMEOUT)
+            _resp = self._abort_resp_queue.get(timeout=WAIT_FOR_ABORT_ACK_TIMEOUT)
             assert isinstance(_resp, IPCResponse), "unexpected msg"
             assert _resp.session_id == request.session_id, "mismatched session_id"
 
