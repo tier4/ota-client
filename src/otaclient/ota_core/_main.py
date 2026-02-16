@@ -195,7 +195,8 @@ class AbortHandler:
         self._boot_controller.on_abort()
         ensure_umount(self._session_workdir, ignore_error=True)
         shutil.rmtree(self._session_workdir, ignore_errors=True)
-        self._state = AbortState.ABORTED
+        with self._cond:
+            self._state = AbortState.ABORTED
 
         logger.info(f"Sending {ABORT_SIGNAL.name} to terminate OTA Core process")
         os.kill(os.getpid(), ABORT_SIGNAL)
@@ -284,8 +285,8 @@ class AbortHandler:
             with self._cond:
                 while self._state == AbortState.REQUESTED:
                     self._cond.wait()
-            if self._state == AbortState.ABORTING:
-                self._perform_abort()
+                if self._state == AbortState.ABORTING:
+                    self._perform_abort()
 
     def _handle(self, request: AbortRequestV2) -> None:
         with self._cond:
