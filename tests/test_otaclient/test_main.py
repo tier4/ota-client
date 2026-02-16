@@ -174,7 +174,12 @@ class TestMain:
 
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
+            MagicMock(),  # local_abort_op_queue
+            MagicMock(),  # local_abort_resp_queue
+        ]
 
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
@@ -234,7 +239,12 @@ class TestMain:
 
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
+            MagicMock(),  # local_abort_op_queue
+            MagicMock(),  # local_abort_resp_queue
+        ]
 
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update
@@ -294,7 +304,12 @@ class TestMain:
 
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
+            MagicMock(),  # local_abort_op_queue
+            MagicMock(),  # local_abort_resp_queue
+        ]
 
         mock_mp_ctx.Event.side_effect = [
             MagicMock(),  # any_child_ecu_in_update

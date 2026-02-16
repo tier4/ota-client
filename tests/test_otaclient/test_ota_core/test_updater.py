@@ -268,13 +268,20 @@ class TestAbortHandler:
 
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path: Path):
-        self.resp_queue: Queue[IPCResponse] = Queue()
+        self.abort_op_queue: Queue[AbortRequestV2] = Queue()
+        self.abort_resp_queue: Queue[IPCResponse] = Queue()
         self.status_report_queue: Queue[StatusReport] = Queue()
         self.session_workdir = tmp_path / "session"
         self.session_workdir.mkdir()
 
     def _make_handler(self, mocker) -> AbortHandler:
-        handler = AbortHandler(resp_queue=self.resp_queue)
+        ota_client = mocker.MagicMock()
+        ota_client.live_ota_status = OTAStatus.UPDATING
+        handler = AbortHandler(
+            abort_op_queue=self.abort_op_queue,
+            abort_resp_queue=self.abort_resp_queue,
+            ota_client=ota_client,
+        )
         handler.set_session(
             boot_controller=mocker.MagicMock(),
             session_workdir=self.session_workdir,
@@ -328,7 +335,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.ABORTING
-        resp = self.resp_queue.get_nowait()
+        resp = self.abort_resp_queue.get_nowait()
         assert resp.res == IPCResEnum.ACCEPT
         assert resp.session_id == request.session_id
         handler._perform_abort.assert_called_once()
@@ -342,7 +349,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.REQUESTED
-        resp = self.resp_queue.get_nowait()
+        resp = self.abort_resp_queue.get_nowait()
         assert resp.res == IPCResEnum.ACCEPT
         assert "queued" in resp.msg.lower()
 
@@ -357,18 +364,18 @@ class TestAbortHandler:
 
         # Submit abort request — handler sets REQUESTED and returns
         request = self._make_abort_request()
-        handler.submit(request)
+        self.abort_op_queue.put_nowait(request)
 
         import time
 
         time.sleep(0.05)  # let handler thread process request
         assert handler.state == AbortState.REQUESTED
 
-        # exit_critical_zone transitions REQUESTED → ABORTING
+        # exit_critical_zone transitions REQUESTED → ABORTING and notifies
         with pytest.raises(ota_errors.OTAAbortSignal):
             handler.exit_critical_zone()
 
-        time.sleep(1.5)  # let handler thread detect ABORTING (polls every 1s)
+        time.sleep(0.1)  # handler thread wakes immediately from _cond.wait()
         handler._perform_abort.assert_called_once()
 
     def test_abort_handler_rejects_during_final_phase(self, mocker):
@@ -380,7 +387,7 @@ class TestAbortHandler:
         handler._handle(request)
 
         assert handler.state == AbortState.FINAL_PHASE
-        resp = self.resp_queue.get_nowait()
+        resp = self.abort_resp_queue.get_nowait()
         assert resp.res == IPCResEnum.REJECT_ABORT
 
     def test_idempotent_abort_when_already_requested(self, mocker):
@@ -399,8 +406,8 @@ class TestAbortHandler:
         assert handler.state == AbortState.REQUESTED
 
         # Drain first response
-        self.resp_queue.get_nowait()
-        resp2 = self.resp_queue.get_nowait()
+        self.abort_resp_queue.get_nowait()
+        resp2 = self.abort_resp_queue.get_nowait()
         assert resp2.res == IPCResEnum.ACCEPT
         assert "already" in resp2.msg.lower()
 
@@ -412,7 +419,7 @@ class TestAbortHandler:
         request = self._make_abort_request()
         handler._handle(request)
 
-        resp = self.resp_queue.get_nowait()
+        resp = self.abort_resp_queue.get_nowait()
         assert resp.res == IPCResEnum.ACCEPT
         assert "already" in resp.msg.lower()
 
