@@ -170,6 +170,15 @@ class AbortHandler:
         Always called on the abort handler thread with state already set
         to ABORTING.  In Path A (immediate), called directly from _handle().
         In Path B (queued), called after _run() detects ABORTING.
+
+        NOTE: Session workdir cleanup (umount + rmtree) also appears in the
+        update() finally block.  Both locations are necessary:
+          - Path A: SIGUSR1 kills the process before the update thread's
+            finally block runs, so this is the only cleanup.
+          - Path B: Both may run concurrently (abort handler + update
+            thread's finally).  ignore_errors=True makes this safe.
+        Additionally, this method performs ensure_umount which the update()
+        finally block does not.
         """
         self._status_report_queue.put_nowait(
             StatusReport(
