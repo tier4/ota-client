@@ -177,8 +177,6 @@ class TestMain:
         mock_mp_ctx.Queue.side_effect = [
             MagicMock(),  # local_otaclient_op_queue
             MagicMock(),  # local_otaclient_resp_queue
-            MagicMock(),  # local_abort_op_queue
-            MagicMock(),  # local_abort_resp_queue
         ]
 
         mock_mp_ctx.Event.side_effect = [
@@ -242,8 +240,6 @@ class TestMain:
         mock_mp_ctx.Queue.side_effect = [
             MagicMock(),  # local_otaclient_op_queue
             MagicMock(),  # local_otaclient_resp_queue
-            MagicMock(),  # local_abort_op_queue
-            MagicMock(),  # local_abort_resp_queue
         ]
 
         mock_mp_ctx.Event.side_effect = [
@@ -307,8 +303,6 @@ class TestMain:
         mock_mp_ctx.Queue.side_effect = [
             MagicMock(),  # local_otaclient_op_queue
             MagicMock(),  # local_otaclient_resp_queue
-            MagicMock(),  # local_abort_op_queue
-            MagicMock(),  # local_abort_resp_queue
         ]
 
         mock_mp_ctx.Event.side_effect = [

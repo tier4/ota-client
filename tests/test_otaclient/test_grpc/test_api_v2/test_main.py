@@ -113,8 +113,6 @@ class TestGrpcServerLauncher:
                 shm_reader_factory=mock_shm_reader_factory,
                 op_queue=MagicMock(),
                 resp_queue=MagicMock(),
-                abort_op_queue=MagicMock(),
-                abort_resp_queue=MagicMock(),
                 ecu_status_flags=MagicMock(),
             )
 
