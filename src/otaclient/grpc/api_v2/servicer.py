@@ -359,8 +359,24 @@ class OTAClientAPIServicer:
         self._op_queue.put_nowait(request)
         try:
             _resp = self._resp_queue.get(timeout=WAIT_FOR_ABORT_ACK_TIMEOUT)
-            assert isinstance(_resp, IPCResponse), "unexpected msg"
-            assert _resp.session_id == request.session_id, "mismatched session_id"
+
+            if not isinstance(_resp, IPCResponse):
+                logger.error(f"unexpected IPC response type: {type(_resp)}")
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_FAILURE,
+                    message=f"Unexpected response type: {type(_resp).__name__}",
+                )
+            if _resp.session_id != request.session_id:
+                logger.error(
+                    f"session_id mismatch: expected {request.session_id}, "
+                    f"got {_resp.session_id}"
+                )
+                return api_types.AbortResponseEcu(
+                    ecu_id=self.my_ecu_id,
+                    result=api_types.AbortFailureType.ABORT_FAILURE,
+                    message=f"Mismatched session_id: {_resp.session_id}",
+                )
 
             if _resp.res == IPCResEnum.ACCEPT:
                 return api_types.AbortResponseEcu(
@@ -374,13 +390,6 @@ class OTAClientAPIServicer:
                     result=api_types.AbortFailureType.ABORT_FAILURE,
                     message=_resp.msg,
                 )
-        except AssertionError as e:
-            logger.error(f"local otaclient response with unexpected msg: {e!r}")
-            return api_types.AbortResponseEcu(
-                ecu_id=self.my_ecu_id,
-                result=api_types.AbortFailureType.ABORT_FAILURE,
-                message=f"Unexpected response: {e!r}",
-            )
         except Exception as e:
             logger.error(f"failed to dispatch abort request to OTA Core: {e!r}")
             return api_types.AbortResponseEcu(
