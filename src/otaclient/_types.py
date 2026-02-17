@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import ClassVar
 
 from _otaclient_version import __version__
