@@ -34,6 +34,20 @@ async def main(
     req: _types.AbortRequest,
     timeout: int = 10,
 ) -> None:
+    """Call the ECU's v2 abort API with a configurable timeout.
+
+    Args:
+        host: ECU listen IP address.
+        port: ECU listen port.
+        req: Abort request to send to the ECU.
+        timeout: Timeout in seconds for waiting for the ECU's abort response.
+            The default value of 10 seconds is intentionally longer than the
+            previous 3-second default to support the abort queuing behavior
+            in the OTA client: an abort request may be queued until any
+            critical sections have finished before it is processed, so this
+            longer timeout allows those queued aborts to complete before the
+            ECU is treated as non-responsive.
+    """
     try:
         resp = await OTAClientCall.abort_call(
             "not_used",
