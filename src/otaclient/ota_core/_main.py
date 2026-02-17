@@ -143,7 +143,9 @@ class AbortHandler:
         """Set per-session fields and reset state for the current update."""
         with self._cond:
             self._session_id = session_id
-            logger.info(f"abort handler: {self._state} -> {AbortState.NONE} (session reset, {session_id=})")
+            logger.info(
+                f"abort handler: {self._state} -> {AbortState.NONE} (session reset, {session_id=})"
+            )
             self._state = AbortState.NONE
 
     def start(self) -> None:
@@ -207,7 +209,9 @@ class AbortHandler:
         """
         with self._cond:
             if self._state == AbortState.REQUESTED:
-                logger.info(f"abort handler: {self._state} -> {AbortState.ABORTING} (deferred abort)")
+                logger.info(
+                    f"abort handler: {self._state} -> {AbortState.ABORTING} (deferred abort)"
+                )
                 self._state = AbortState.ABORTING
                 self._cond.notify()
             elif self._state in (AbortState.ABORTING, AbortState.ABORTED):
@@ -216,7 +220,9 @@ class AbortHandler:
                     module=__name__,
                 )
             else:
-                logger.info(f"abort handler: {self._state} -> {AbortState.NONE} (exiting critical zone)")
+                logger.info(
+                    f"abort handler: {self._state} -> {AbortState.NONE} (exiting critical zone)"
+                )
                 self._state = AbortState.NONE
                 return
 
@@ -310,7 +316,9 @@ class AbortHandler:
             if self._state == AbortState.CRITICAL_ZONE:
                 # Queue the abort — handler returns to _run() loop and polls.
                 # exit_critical_zone() will transition REQUESTED → ABORTING.
-                logger.info(f"abort handler: {self._state} -> {AbortState.REQUESTED} (abort queued during critical zone)")
+                logger.info(
+                    f"abort handler: {self._state} -> {AbortState.REQUESTED} (abort queued during critical zone)"
+                )
                 self._state = AbortState.REQUESTED
                 self._resp_queue.put_nowait(
                     IPCResponse(
@@ -322,7 +330,9 @@ class AbortHandler:
                 return
 
             # state is NONE — accept and proceed immediately
-            logger.info(f"abort handler: {self._state} -> {AbortState.ABORTING} (immediate abort)")
+            logger.info(
+                f"abort handler: {self._state} -> {AbortState.ABORTING} (immediate abort)"
+            )
             self._state = AbortState.ABORTING
             self._resp_queue.put_nowait(
                 IPCResponse(
