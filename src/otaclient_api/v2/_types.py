@@ -704,7 +704,7 @@ class AbortRequestEcu(MessageWrapper[pb2.AbortRequestEcu]):
     __slots__ = calculate_slots(pb2.AbortRequestEcu)
     ecu_id: str
 
-    def __init__(self, *, ecu_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, *, ecu_id: str | None = ...) -> None: ...
 
 
 class AbortRequest(ECUList[AbortRequestEcu], MessageWrapper[pb2.AbortRequest]):
@@ -715,8 +715,8 @@ class AbortRequest(ECUList[AbortRequestEcu], MessageWrapper[pb2.AbortRequest]):
     def __init__(
         self,
         *,
-        ecu: _Optional[_Iterable[AbortRequestEcu]] = ...,
-        request_id: _Optional[str] = ...,
+        ecu: Iterable[AbortRequestEcu] | None = ...,
+        request_id: str | None = ...,
     ) -> None: ...
 
 
