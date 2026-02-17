@@ -141,8 +141,8 @@ class AbortHandler:
 
     def set_session(self, *, session_id: str) -> None:
         """Set per-session fields and reset state for the current update."""
-        self._session_id = session_id
         with self._cond:
+            self._session_id = session_id
             self._state = AbortState.NONE
 
     def start(self) -> None:
