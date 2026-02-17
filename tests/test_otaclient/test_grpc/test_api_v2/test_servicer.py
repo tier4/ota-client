@@ -527,10 +527,8 @@ class TestOTAClientAPIServicer:
         self.resp_queue.get.assert_called_once()
 
     def test_handle_abort_request_timeout(self):
-        """Test abort request when abort_resp_queue.get raises an exception (timeout)."""
-        self.abort_resp_queue.get.side_effect = Exception(
-            "Timeout waiting for response"
-        )
+        """Test abort request when resp_queue.get raises an exception (timeout)."""
+        self.resp_queue.get.side_effect = Exception("Timeout waiting for response")
 
         request = AbortRequestV2(request_id="test-req", session_id="test-session")
         result = self.servicer._handle_abort_request(request)
