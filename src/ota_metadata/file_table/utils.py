@@ -218,9 +218,12 @@ def _check_base_filetable(db_f: StrOrPath) -> StrOrPath | None:
     if not db_f or not Path(db_f).is_file():
         return
 
-    with contextlib.suppress(Exception), contextlib.closing(
-        sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
-    ) as con:
+    with (
+        contextlib.suppress(Exception),
+        contextlib.closing(
+            sqlite3.connect(f"file:{db_f}?mode=ro&immutable=1", uri=True)
+        ) as con,
+    ):
         if not check_db_integrity(con):
             logger.warning(f"{db_f} fails integrity check")
             return
@@ -254,9 +257,10 @@ def save_fstable(
     dst = Path(dst)
     dst.mkdir(exist_ok=True, parents=True)
 
-    with closing(sqlite3.connect(db_f)) as _fs_conn, closing(
-        sqlite3.connect(dst / saved_name)
-    ) as _dst_conn:
+    with (
+        closing(sqlite3.connect(db_f)) as _fs_conn,
+        closing(sqlite3.connect(dst / saved_name)) as _dst_conn,
+    ):
         with _dst_conn as conn:
             _fs_conn.backup(conn)
 

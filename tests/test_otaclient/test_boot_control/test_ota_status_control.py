@@ -19,7 +19,6 @@ import logging
 import threading
 from functools import partial
 from pathlib import Path
-from typing import Optional
 from unittest.mock import patch
 
 import pytest
@@ -109,7 +108,7 @@ class TestOTAStatusFilesControl:
     def test_ota_status_files_loading(
         self,
         test_case: str,
-        input_slot_a_status: Optional[OTAStatus],
+        input_slot_a_status: OTAStatus | None,
         input_slot_a_slot_in_use: str,
         force_initialize: bool,
         output_slot_a_status: OTAStatus,

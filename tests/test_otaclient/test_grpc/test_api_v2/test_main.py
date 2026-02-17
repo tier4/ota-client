@@ -46,23 +46,24 @@ class TestGrpcServerLauncher:
 
         mock_server = AsyncServerMock()
 
-        with patch(
-            "otaclient.grpc.api_v2.ecu_status.ECUStatusStorage"
-        ) as mock_ecu_status_storage, patch(
-            "otaclient.grpc.api_v2.ecu_tracker.ECUTracker"
-        ) as mock_ecu_tracker, patch(
-            "otaclient.grpc.api_v2.servicer.OTAClientAPIServicer"
-        ) as mock_api_servicer, patch(
-            "otaclient_api.v2.api_stub.OtaClientServiceV2"
-        ) as mock_ota_client_service_v2, patch(
-            "otaclient_api.v2.otaclient_v2_pb2_grpc.add_OtaClientServiceServicer_to_server"
-        ) as mock_add_servicer, patch(
-            "grpc.aio.server", return_value=mock_server
-        ) as mock_grpc_server, patch(
-            "asyncio.sleep"
-        ) as mock_sleep, patch(
-            "otaclient._logging.configure_logging"
-        ) as mock_logging:
+        with (
+            patch(
+                "otaclient.grpc.api_v2.ecu_status.ECUStatusStorage"
+            ) as mock_ecu_status_storage,
+            patch("otaclient.grpc.api_v2.ecu_tracker.ECUTracker") as mock_ecu_tracker,
+            patch(
+                "otaclient.grpc.api_v2.servicer.OTAClientAPIServicer"
+            ) as mock_api_servicer,
+            patch(
+                "otaclient_api.v2.api_stub.OtaClientServiceV2"
+            ) as mock_ota_client_service_v2,
+            patch(
+                "otaclient_api.v2.otaclient_v2_pb2_grpc.add_OtaClientServiceServicer_to_server"
+            ) as mock_add_servicer,
+            patch("grpc.aio.server", return_value=mock_server) as mock_grpc_server,
+            patch("asyncio.sleep") as mock_sleep,
+            patch("otaclient._logging.configure_logging") as mock_logging,
+        ):
 
             # Make asyncio.sleep return immediately to speed up tests
             async def mock_sleep_impl(_):
@@ -92,8 +93,9 @@ class TestGrpcServerLauncher:
             return mock_shm_reader
 
         # Run the server process function with patched asyncio.run
-        with patch("asyncio.run") as mock_run, patch(
-            "time.sleep"
+        with (
+            patch("asyncio.run") as mock_run,
+            patch("time.sleep"),
         ):  # Add patch for time.sleep
 
             def run_and_execute_coroutine(coro):

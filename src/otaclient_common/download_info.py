@@ -13,9 +13,10 @@
 # limitations under the License.
 
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -24,6 +25,6 @@ class DownloadInfo:
     dst: Path
     original_size: int = 0
     """NOTE: we are using transparent decompression, so we always use the original_size."""
-    digest_alg: Optional[str] = None
-    digest: Optional[str] = None
-    compression_alg: Optional[str] = None
+    digest_alg: str | None = None
+    digest: str | None = None
+    compression_alg: str | None = None

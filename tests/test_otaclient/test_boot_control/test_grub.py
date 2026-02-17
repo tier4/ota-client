@@ -19,7 +19,6 @@ import logging
 import os
 import re
 import shutil
-import typing
 from pathlib import Path
 from typing import Any
 
@@ -484,9 +483,7 @@ GRUB_DISABLE_RECOVERY=true
         ),
     ),
 )
-def test_update_grub_default(
-    _input: str, default_entry: typing.Optional[int], expected: str
-):
+def test_update_grub_default(_input: str, default_entry: int | None, expected: str):
     from otaclient.boot_control._grub import GrubHelper
 
     updated = GrubHelper.update_grub_default(_input, default_entry_idx=default_entry)

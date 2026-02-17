@@ -9,11 +9,6 @@ x-common: &_common
     - ./entry_point.sh:/entry_point.sh:ro
 
 services:
-  tester-ubuntu-20.04:
-    image: ghcr.io/tier4/ota-client/test_base:ubuntu_20.04
-    container_name: ota-test_ubuntu2004
-    <<: *_common
-
   tester-ubuntu-22.04:
     image: ghcr.io/tier4/ota-client/test_base:ubuntu_22.04
     container_name: ota-test_ubuntu2204

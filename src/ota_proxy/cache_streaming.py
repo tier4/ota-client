@@ -24,11 +24,10 @@ import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from queue import SimpleQueue
-from typing import Any, AsyncGenerator, Callable, TypeVar
+from typing import Any, AsyncGenerator, Callable, ParamSpec, TypeVar
 
 import anyio
 from anyio.to_thread import run_sync
-from typing_extensions import ParamSpec
 
 from ota_proxy.utils import read_file_once
 from otaclient_common._logging import get_burst_suppressed_logger

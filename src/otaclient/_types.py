@@ -18,7 +18,7 @@ from __future__ import annotations
 import multiprocessing.synchronize as mp_sync
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from _otaclient_version import __version__
 
@@ -148,9 +148,9 @@ class OTAClientStatus:
     ota_status: OTAStatus = OTAStatus.INITIALIZED
     session_id: str = ""
     update_phase: UpdatePhase = UpdatePhase.INITIALIZING
-    update_meta: Optional[UpdateMeta] = None
-    update_progress: Optional[UpdateProgress] = None
-    update_timing: Optional[UpdateTiming] = None
+    update_meta: UpdateMeta | None = None
+    update_progress: UpdateProgress | None = None
+    update_timing: UpdateTiming | None = None
     failure_type: FailureType = FailureType.NO_FAILURE
     failure_reason: str = ""
     failure_traceback: str = ""

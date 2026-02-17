@@ -15,10 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Iterable as _Iterable
-from typing import Mapping as _Mapping
-from typing import Optional as _Optional
-from typing import Union as _Union
+from collections.abc import Iterable, Mapping
 
 from otaclient_common.proto_wrapper import (
     Duration,
@@ -50,11 +47,11 @@ class InnerMessage(MessageWrapper[_pb2.InnerMessage]):
 
     def __init__(
         self,
-        int_field: _Optional[int] = ...,
-        double_field: _Optional[float] = ...,
-        str_field: _Optional[str] = ...,
-        duration_field: _Optional[_Union[Duration, _Mapping]] = ...,
-        enum_field: _Optional[_Union[SampleEnum, str]] = ...,
+        int_field: int | None = ...,
+        double_field: float | None = ...,
+        str_field: str | None = ...,
+        duration_field: Duration | Mapping | None = ...,
+        enum_field: SampleEnum | str | None = ...,
     ) -> None: ...
 
 
@@ -68,11 +65,9 @@ class OuterMessage(MessageWrapper[_pb2.OuterMessage]):
 
     def __init__(
         self,
-        repeated_scalar_field: _Optional[_Iterable[str]] = ...,
-        repeated_composite_field: _Optional[
-            _Iterable[_Union[InnerMessage, _Mapping]]
-        ] = ...,
-        nested_msg: _Optional[_Union[InnerMessage, _Mapping]] = ...,
-        mapping_scalar_field: _Optional[_Mapping[str, str]] = ...,
-        mapping_composite_field: _Optional[_Mapping[int, InnerMessage]] = ...,
+        repeated_scalar_field: Iterable[str] | None = ...,
+        repeated_composite_field: Iterable[InnerMessage | Mapping] | None = ...,
+        nested_msg: InnerMessage | Mapping | None = ...,
+        mapping_scalar_field: Mapping[str, str] | None = ...,
+        mapping_composite_field: Mapping[int, InnerMessage] | None = ...,
     ) -> None: ...

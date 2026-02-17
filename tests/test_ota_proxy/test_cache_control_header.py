@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -57,7 +57,7 @@ def test__parse_header(raw_str, expected):
         ),
     ),
 )
-def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
+def test__export_kwargs_as_header(kwargs: dict[str, Any], expected: str):
     assert OTAFileCacheControl.export_kwargs_as_header(**kwargs) == expected
 
 
@@ -81,5 +81,5 @@ def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
         ),
     ),
 )
-def test__update_header_str(_input: str, kwargs: Dict[str, Any], expected: str):
+def test__update_header_str(_input: str, kwargs: dict[str, Any], expected: str):
     assert OTAFileCacheControl.update_header_str(_input, **kwargs) == expected

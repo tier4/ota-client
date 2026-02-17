@@ -18,7 +18,7 @@ import logging
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
 from multidict import CIMultiDict
 from simple_sqlite3_orm import (
@@ -31,7 +31,6 @@ from simple_sqlite3_orm import (
     gen_sql_stmt,
     utils,
 )
-from typing_extensions import Annotated
 
 from otaclient_common._typing import StrOrPath
 

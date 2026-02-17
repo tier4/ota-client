@@ -20,7 +20,7 @@ The length-delimited stream layout is as follow:
 Which <len> will be 4 bytes unsigned int in big-endian layout.
 """
 
-from typing import BinaryIO, Generic, Iterable, Optional, Type
+from typing import BinaryIO, Generic, Iterable
 
 from otaclient_common.proto_wrapper import MessageType, MessageWrapperType
 
@@ -31,7 +31,7 @@ class Uint32LenDelimitedReader:
     def __init__(self, _read_stream: BinaryIO, /) -> None:
         self._stream = _read_stream
 
-    def read1_data(self) -> Optional[bytes]:
+    def read1_data(self) -> bytes | None:
         """Read one message from the stream."""
         if (
             data_len := int.from_bytes(
@@ -52,7 +52,7 @@ class Uint32LenDelimitedMsgReader(
     Uint32LenDelimitedReader, Generic[MessageWrapperType, MessageType]
 ):
     def __init__(
-        self, _read_stream: BinaryIO, /, wrapper_type: Type[MessageWrapperType]
+        self, _read_stream: BinaryIO, /, wrapper_type: type[MessageWrapperType]
     ) -> None:
         self._wrapper_type = wrapper_type
         self._stream = _read_stream
@@ -89,7 +89,7 @@ class Uint32LenDelimitedMsgWriter(
     Uint32LenDelimitedWriter, Generic[MessageWrapperType, MessageType]
 ):
     def __init__(
-        self, _write_stream: BinaryIO, /, wrapper_type: Type[MessageWrapperType]
+        self, _write_stream: BinaryIO, /, wrapper_type: type[MessageWrapperType]
     ) -> None:
         self._stream = _write_stream
         self._wrapper_type = wrapper_type

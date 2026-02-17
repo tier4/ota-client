@@ -25,9 +25,14 @@ from collections import OrderedDict, deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from queue import Empty, SimpleQueue
-from typing import TYPE_CHECKING, Any, Callable, Generator, Iterable, Optional
-
-from typing_extensions import ParamSpec
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Generator,
+    Iterable,
+    ParamSpec,
+)
 
 from otaclient_common._typing import RT, T
 from otaclient_common.common import wait_with_backoff
@@ -83,11 +88,11 @@ class _ThreadPoolExecutorWithRetry(ThreadPoolExecutor):
     def __init__(
         self,
         max_concurrent: int,
-        max_workers: Optional[int] = None,
-        max_total_retry: Optional[int] = None,
-        max_retry_on_entry: Optional[int] = None,
+        max_workers: int | None = None,
+        max_total_retry: int | None = None,
+        max_retry_on_entry: int | None = None,
         thread_name_prefix: str = "",
-        watchdog_func: Optional[Callable] = None,
+        watchdog_func: Callable | None = None,
         watchdog_check_interval: int = 3,  # seconds
         initializer: Callable[..., Any] | None = None,
         initargs: tuple = (),
@@ -332,11 +337,11 @@ if TYPE_CHECKING:
         def __init__(
             self,
             max_concurrent: int,
-            max_workers: Optional[int] = None,
-            max_total_retry: Optional[int] = None,
-            max_retry_on_entry: Optional[int] = None,
+            max_workers: int | None = None,
+            max_total_retry: int | None = None,
+            max_retry_on_entry: int | None = None,
             thread_name_prefix: str = "",
-            watchdog_func: Optional[Callable] = None,
+            watchdog_func: Callable | None = None,
             watchdog_check_interval: int = 3,  # seconds
             initializer: Callable[..., Any] | None = None,
             initargs: tuple = (),
@@ -347,11 +352,11 @@ if TYPE_CHECKING:
 
             Args:
                 max_concurrent (int): Limit the number pending scheduled tasks.
-                max_workers (Optional[int], optional): Max number of worker threads in the pool. Defaults to None.
-                max_total_retry (Optional[int], optional): Max total retry counts before abort. Defaults to None.
-                max_retry_on_entry (Optional[int]): Max total retry on the same entry. Defaults to None.
+                max_workers (int | None, optional): Max number of worker threads in the pool. Defaults to None.
+                max_total_retry (int | None, optional): Max total retry counts before abort. Defaults to None.
+                max_retry_on_entry (int | None): Max total retry on the same entry. Defaults to None.
                 thread_name_prefix (str, optional): Defaults to "".
-                watchdog_func (Optional[Callable]): A custom func to be called on watchdog thread, when
+                watchdog_func (Callable | None): A custom func to be called on watchdog thread, when
                     this func raises exception, the watchdog will interrupt the tasks execution. Defaults to None.
                 watchdog_check_interval (int): Defaults to 3(seconds).
                 initializer (Callable[..., Any] | None): The same <initializer> param passed through to ThreadPoolExecutor.
