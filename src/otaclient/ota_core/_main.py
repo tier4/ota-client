@@ -167,7 +167,7 @@ class AbortHandler:
         the process, and on restart OTAClient.__init__ unmounts the parent
         tmpfs (_update_session_dir), which wipes all session subdirectories.
         """
-        self._ota_client._status_report_queue.put_nowait(
+        self._ota_client.report_status(
             StatusReport(
                 payload=OTAStatusChangeReport(
                     new_ota_status=OTAStatus.ABORTING,
@@ -280,6 +280,7 @@ class AbortHandler:
     def _handle(self, request: AbortRequestV2) -> None:
         with self._cond:
             if self._ota_client.live_ota_status != OTAStatus.UPDATING:
+                logger.info("abort handler: rejected, no active OTA update in progress")
                 self._resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_ABORT,
@@ -290,6 +291,7 @@ class AbortHandler:
                 return
 
             if self._state == AbortState.FINAL_PHASE:
+                logger.info("abort handler: rejected, update is in FINAL_PHASE")
                 self._resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.REJECT_ABORT,
@@ -304,6 +306,9 @@ class AbortHandler:
                 AbortState.ABORTED,
                 AbortState.REQUESTED,
             ):
+                logger.info(
+                    f"abort handler: accepted (already {self._state}), abort already in progress"
+                )
                 self._resp_queue.put_nowait(
                     IPCResponse(
                         res=IPCResEnum.ACCEPT,
@@ -520,6 +525,10 @@ class OTAClient:
             OTAStatus.CLIENT_UPDATING,
             OTAStatus.ABORTING,
         ]
+
+    def report_status(self, report: StatusReport) -> None:
+        """Submit a status report to the status report queue."""
+        self._status_report_queue.put_nowait(report)
 
     def update(self, request: UpdateRequestV2) -> None:
         """
