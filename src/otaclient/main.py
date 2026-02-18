@@ -427,7 +427,7 @@ def main() -> None:  # pragma: no cover
         )
         _otaproxy_control_t.start()
 
-    from otaclient.ota_core._main import EXIT_CODE_OTA_ABORTED
+    from otaclient.ota_core import EXIT_CODE_OTA_ABORTED
 
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
