@@ -144,7 +144,7 @@ class AbortHandler:
         with self._cond:
             self._session_id = session_id
             logger.info(
-                f"abort handler: {self._state} -> {AbortState.NONE} (session reset, {session_id=})"
+                f"abort handler: {self._state.name} -> {AbortState.NONE.name} (session reset, {session_id=})"
             )
             self._state = AbortState.NONE
 
@@ -179,7 +179,9 @@ class AbortHandler:
         logger.info("Performing abort...")
         self._ota_client.boot_controller.on_abort()
         with self._cond:
-            logger.info(f"abort handler: {self._state} -> {AbortState.ABORTED}")
+            logger.info(
+                f"abort handler: {self._state.name} -> {AbortState.ABORTED.name}"
+            )
             self._state = AbortState.ABORTED
 
         logger.info(f"Sending {ABORT_SIGNAL.name} to terminate OTA Core process")
@@ -198,7 +200,9 @@ class AbortHandler:
                     "cannot enter critical zone: abort in progress",
                     module=__name__,
                 )
-            logger.info(f"abort handler: {self._state} -> {AbortState.CRITICAL_ZONE}")
+            logger.info(
+                f"abort handler: {self._state.name} -> {AbortState.CRITICAL_ZONE.name}"
+            )
             self._state = AbortState.CRITICAL_ZONE
 
     def exit_critical_zone(self) -> None:
@@ -210,7 +214,7 @@ class AbortHandler:
         with self._cond:
             if self._state == AbortState.REQUESTED:
                 logger.info(
-                    f"abort handler: {self._state} -> {AbortState.ABORTING} (deferred abort)"
+                    f"abort handler: {self._state.name} -> {AbortState.ABORTING.name} (deferred abort)"
                 )
                 self._state = AbortState.ABORTING
                 self._cond.notify()
@@ -221,7 +225,7 @@ class AbortHandler:
                 )
             else:
                 logger.info(
-                    f"abort handler: {self._state} -> {AbortState.NONE} (exiting critical zone)"
+                    f"abort handler: {self._state.name} -> {AbortState.NONE.name} (exiting critical zone)"
                 )
                 self._state = AbortState.NONE
                 return
@@ -243,7 +247,9 @@ class AbortHandler:
                     "cannot enter final phase: abort in progress",
                     module=__name__,
                 )
-            logger.info(f"abort handler: {self._state} -> {AbortState.FINAL_PHASE}")
+            logger.info(
+                f"abort handler: {self._state.name} -> {AbortState.FINAL_PHASE.name}"
+            )
             self._state = AbortState.FINAL_PHASE
 
     def submit(self, request: AbortRequestV2) -> None:
@@ -307,7 +313,7 @@ class AbortHandler:
                 AbortState.REQUESTED,
             ):
                 logger.info(
-                    f"abort handler: accepted (already {self._state}), abort already in progress"
+                    f"abort handler: accepted (already {self._state.name}), abort already in progress"
                 )
                 self._resp_queue.put_nowait(
                     IPCResponse(
@@ -322,7 +328,7 @@ class AbortHandler:
                 # Queue the abort — handler returns to _run() loop and polls.
                 # exit_critical_zone() will transition REQUESTED → ABORTING.
                 logger.info(
-                    f"abort handler: {self._state} -> {AbortState.REQUESTED} (abort queued during critical zone)"
+                    f"abort handler: {self._state.name} -> {AbortState.REQUESTED.name} (abort queued during critical zone)"
                 )
                 self._state = AbortState.REQUESTED
                 self._resp_queue.put_nowait(
@@ -336,7 +342,7 @@ class AbortHandler:
 
             # state is NONE — accept and proceed immediately
             logger.info(
-                f"abort handler: {self._state} -> {AbortState.ABORTING} (immediate abort)"
+                f"abort handler: {self._state.name} -> {AbortState.ABORTING.name} (immediate abort)"
             )
             self._state = AbortState.ABORTING
             self._resp_queue.put_nowait(
