@@ -272,7 +272,7 @@ class TestAbortHandler:
     def _make_handler(self, mocker) -> AbortHandler:
         ota_client = mocker.MagicMock()
         ota_client.live_ota_status = OTAStatus.UPDATING
-        ota_client._status_report_queue = self.status_report_queue
+        ota_client.report_status.side_effect = self.status_report_queue.put_nowait
         handler = AbortHandler(
             ota_client=ota_client,
         )
