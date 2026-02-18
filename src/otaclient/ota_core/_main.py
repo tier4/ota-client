@@ -644,13 +644,30 @@ class OTAClient:
             )
             logger.info("OTA update aborted by abort handler")
         except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
-            )
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                self._live_ota_status = OTAStatus.ABORTED
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTED,
+                        ),
+                        session_id=new_session_id,
+                    )
+                )
+                logger.info(
+                    f"OTA update aborted (error during shutdown: {e!r})"
+                )
+            else:
+                self._live_ota_status = OTAStatus.FAILURE
+                self._on_failure(
+                    e,
+                    ota_status=OTAStatus.FAILURE,
+                    failure_reason=e.get_failure_reason(),
+                    failure_type=e.failure_type,
+                )
         finally:
             if self._abort_handler.state not in (
                 AbortState.ABORTING,
