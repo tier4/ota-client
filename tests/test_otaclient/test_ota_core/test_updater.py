@@ -261,6 +261,29 @@ class TestOTAUpdaterWithAbortHandler:
 
         self.mock_boot_controller.on_operation_failure.assert_called_once()
 
+    def test_ota_error_during_abort_raises_abort_signal(
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Test that OTAError during abort is converted to OTAAbortSignal."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(
+            mock_updater,
+            "_in_update",
+            side_effect=ota_errors.UpdateDeltaGenerationFailed(
+                "interpreter shutdown", module=__name__
+            ),
+        )
+        mock_abort_handler.state = AbortState.ABORTING
+
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            mock_updater.execute()
+
+        self.mock_boot_controller.on_operation_failure.assert_not_called()
+
 
 class TestAbortHandler:
     """Test the AbortHandler state machine and behavior."""
