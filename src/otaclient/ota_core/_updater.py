@@ -394,10 +394,26 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             raise
         # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
+                raise ota_errors.OTAAbortSignal(
+                    "abort in progress", module=__name__
+                ) from e
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
             raise  # do not cover the OTA error again
         except Exception as e:
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
+                raise ota_errors.OTAAbortSignal(
+                    "abort in progress", module=__name__
+                ) from e
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
