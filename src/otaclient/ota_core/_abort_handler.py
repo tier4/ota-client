@@ -305,6 +305,7 @@ class AbortHandler:
             self._resp_queue.put_nowait(
                 IPCResponse(
                     res=IPCResEnum.ACCEPT,
+                    msg="Abort accepted, aborting update immediately",
                     session_id=request.session_id,
                 )
             )
