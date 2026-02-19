@@ -52,6 +52,7 @@ from otaclient_common import (
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
+from ._abort_handler import AbortHandler
 from ._update_libs import (
     DeltaCalculator,
     process_persistents,
@@ -78,9 +79,9 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self,
         *,
         boot_controller: BootControllerProtocol,
-        abort_handler,
+        abort_handler: AbortHandler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         super().__init__(**kwargs)
         self._abort_handler = abort_handler
         self._boot_controller = boot_controller
@@ -98,7 +99,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
 
-    def _pre_update(self):
+    def _pre_update(self) -> None:
         """Pre-Update: Setting up boot control and preparing slots before OTA."""
         logger.info("enter local OTA update...")
         # NOTE(20250905): if ota_resources dir on active slot presented,
@@ -161,7 +162,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self._metrics.standby_firmware_version = standby_firmware_version
         logger.info(f"standby_firmware_version: {standby_firmware_version}")
 
-    def _in_update(self):
+    def _in_update(self) -> None:
         """In-Update: delta calculation, resources downloading and apply updates to standby slot."""
         logger.info("start to calculate delta ...")
         assert self._fst_db_helper
@@ -238,7 +239,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 f"failed to apply update to standby slot: {e!r}", module=__name__
             ) from e
 
-    def _preserve_ota_image_meta_at_post_update(self):
+    def _preserve_ota_image_meta_at_post_update(self) -> None:
         self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
         # after update_slot finished, we can finally remove the previous base file_table.
         shutil.rmtree(self._ota_meta_store_base_on_standby, ignore_errors=True)
@@ -436,9 +437,9 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         *,
         ca_chains_store: CAChainStore,
         boot_controller: BootControllerProtocol,
-        abort_handler,
+        abort_handler: AbortHandler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
@@ -457,7 +458,7 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         self._fst_db_helper = self._ota_metadata.file_table_helper
         self._iter_persists_func = self._ota_metadata.iter_persist_entries
 
-    def _nvidia_jetson_check_bsp_legacy(self):
+    def _nvidia_jetson_check_bsp_legacy(self) -> None:
         _bootloader = self._boot_controller
         assert isinstance(_bootloader, JetsonUEFIBootControl)
 
@@ -494,10 +495,10 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         *,
         ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
-        abort_handler,
+        abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
@@ -508,7 +509,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
             ca_store=ca_store, image_identifier=image_identifier
         )
 
-    def _nvidia_jetson_check_bsp(self, _bsp_ver_str: str):
+    def _nvidia_jetson_check_bsp(self, _bsp_ver_str: str) -> None:
         _bootloader = self._boot_controller
         assert isinstance(_bootloader, JetsonUEFIBootControl)
 
@@ -522,7 +523,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
                 _err_msg, module=__name__
             )
 
-    def _process_metadata(self, only_metadata_verification: bool = False):
+    def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         super()._process_metadata(only_metadata_verification)
 
         image_config = self._ota_image_helper.image_config

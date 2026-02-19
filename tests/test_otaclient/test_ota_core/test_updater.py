@@ -29,7 +29,7 @@ from otaclient._types import (
     OTAStatus,
 )
 from otaclient.ota_core import _updater
-from otaclient.ota_core._main import AbortHandler
+from otaclient.ota_core._abort_handler import AbortHandler
 
 OTA_UPDATER_MODULE = _updater.__name__
 
