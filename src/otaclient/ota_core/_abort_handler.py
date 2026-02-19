@@ -97,7 +97,7 @@ class AbortHandler:
         with self._cond:
             self._session_id = session_id
             logger.info(
-                f"abort handler: {self._state.name} -> {AbortState.NONE.name} (session reset, {session_id=})"
+                f"abort handler: {self._state} -> {AbortState.NONE} (session reset, {session_id=})"
             )
             self._state = AbortState.NONE
 
@@ -133,7 +133,7 @@ class AbortHandler:
         self._ota_client.boot_controller.on_abort()
         with self._cond:
             logger.info(
-                f"abort handler: {self._state.name} -> {AbortState.ABORTED.name}"
+                f"abort handler: {self._state} -> {AbortState.ABORTED}"
             )
             self._state = AbortState.ABORTED
 
@@ -154,7 +154,7 @@ class AbortHandler:
                     module=__name__,
                 )
             logger.info(
-                f"abort handler: {self._state.name} -> {AbortState.CRITICAL_ZONE.name}"
+                f"abort handler: {self._state} -> {AbortState.CRITICAL_ZONE}"
             )
             self._state = AbortState.CRITICAL_ZONE
 
@@ -167,7 +167,7 @@ class AbortHandler:
         with self._cond:
             if self._state == AbortState.REQUESTED:
                 logger.info(
-                    f"abort handler: {self._state.name} -> {AbortState.ABORTING.name} (deferred abort)"
+                    f"abort handler: {self._state} -> {AbortState.ABORTING} (deferred abort)"
                 )
                 self._state = AbortState.ABORTING
                 self._cond.notify()
@@ -178,7 +178,7 @@ class AbortHandler:
                 )
             else:
                 logger.info(
-                    f"abort handler: {self._state.name} -> {AbortState.NONE.name} (exiting critical zone)"
+                    f"abort handler: {self._state} -> {AbortState.NONE} (exiting critical zone)"
                 )
                 self._state = AbortState.NONE
                 return
@@ -201,7 +201,7 @@ class AbortHandler:
                     module=__name__,
                 )
             logger.info(
-                f"abort handler: {self._state.name} -> {AbortState.FINAL_PHASE.name}"
+                f"abort handler: {self._state} -> {AbortState.FINAL_PHASE}"
             )
             self._state = AbortState.FINAL_PHASE
 
@@ -266,7 +266,7 @@ class AbortHandler:
                 AbortState.REQUESTED,
             ):
                 logger.info(
-                    f"abort handler: accepted (already {self._state.name}), abort already in progress"
+                    f"abort handler: accepted (already {self._state}), abort already in progress"
                 )
                 self._resp_queue.put_nowait(
                     IPCResponse(
@@ -281,7 +281,7 @@ class AbortHandler:
                 # Queue the abort — handler returns to _run() loop and polls.
                 # exit_critical_zone() will transition REQUESTED → ABORTING.
                 logger.info(
-                    f"abort handler: {self._state.name} -> {AbortState.REQUESTED.name} (abort queued during critical zone)"
+                    f"abort handler: {self._state} -> {AbortState.REQUESTED} (abort queued during critical zone)"
                 )
                 self._state = AbortState.REQUESTED
                 self._resp_queue.put_nowait(
@@ -295,7 +295,7 @@ class AbortHandler:
 
             # state is NONE — accept and proceed immediately
             logger.info(
-                f"abort handler: {self._state.name} -> {AbortState.ABORTING.name} (immediate abort)"
+                f"abort handler: {self._state} -> {AbortState.ABORTING} (immediate abort)"
             )
             self._state = AbortState.ABORTING
             self._resp_queue.put_nowait(
