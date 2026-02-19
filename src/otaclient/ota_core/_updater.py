@@ -371,11 +371,8 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             # boot control. Aborting mid-way could leave the system in an
             # inconsistent state. Abort requests arriving during this phase
             # are queued (REQUESTED) and executed when the zone exits.
-            self._abort_handler.enter_critical_zone()
-            try:
+            with self._abort_handler.critical_zone():
                 self._pre_update()
-            finally:
-                self._abort_handler.exit_critical_zone()
 
             self._in_update()
 

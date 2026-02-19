@@ -19,8 +19,9 @@ import os
 import signal
 import sys
 import threading
+from contextlib import contextmanager
 from queue import Empty, Queue
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generator
 
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
@@ -184,6 +185,15 @@ class AbortHandler:
             "abort queued during critical zone, now executing",
             module=__name__,
         )
+
+    @contextmanager
+    def critical_zone(self) -> Generator[None, None, None]:
+        """Context manager for the critical zone."""
+        self.enter_critical_zone()
+        try:
+            yield
+        finally:
+            self.exit_critical_zone()
 
     def enter_final_phase(self) -> None:
         """NONE → FINAL_PHASE.
