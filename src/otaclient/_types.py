@@ -92,7 +92,9 @@ class AbortState(StrEnum):
     """
 
     NONE = "NONE"
-    REQUESTED = "REQUESTED"  # abort requested during critical zone, queued until zone exits
+    REQUESTED = (
+        "REQUESTED"  # abort requested during critical zone, queued until zone exits
+    )
     ABORTING = "ABORTING"
     ABORTED = "ABORTED"
     FINAL_PHASE = "FINAL_PHASE"

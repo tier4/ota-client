@@ -132,9 +132,7 @@ class AbortHandler:
         logger.info("Performing abort...")
         self._ota_client.boot_controller.on_abort()
         with self._cond:
-            logger.info(
-                f"abort handler: {self._state} -> {AbortState.ABORTED}"
-            )
+            logger.info(f"abort handler: {self._state} -> {AbortState.ABORTED}")
             self._state = AbortState.ABORTED
 
         logger.info(f"Sending {ABORT_SIGNAL.name} to terminate OTA Core process")
@@ -153,9 +151,7 @@ class AbortHandler:
                     "cannot enter critical zone: abort in progress",
                     module=__name__,
                 )
-            logger.info(
-                f"abort handler: {self._state} -> {AbortState.CRITICAL_ZONE}"
-            )
+            logger.info(f"abort handler: {self._state} -> {AbortState.CRITICAL_ZONE}")
             self._state = AbortState.CRITICAL_ZONE
 
     def exit_critical_zone(self) -> None:
@@ -200,9 +196,7 @@ class AbortHandler:
                     "cannot enter final phase: abort in progress",
                     module=__name__,
                 )
-            logger.info(
-                f"abort handler: {self._state} -> {AbortState.FINAL_PHASE}"
-            )
+            logger.info(f"abort handler: {self._state} -> {AbortState.FINAL_PHASE}")
             self._state = AbortState.FINAL_PHASE
 
     def submit(self, request: AbortRequestV2) -> None:

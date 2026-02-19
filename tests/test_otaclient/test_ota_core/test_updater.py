@@ -299,8 +299,8 @@ class TestOTAUpdaterWithAbortHandler:
         mock_ensure_umount = mocker.patch(f"{OTA_UPDATER_MODULE}.ensure_umount")
         mock_rmtree = mocker.patch(f"{OTA_UPDATER_MODULE}.shutil.rmtree")
 
-        mock_abort_handler.enter_critical_zone.side_effect = (
-            ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+        mock_abort_handler.enter_critical_zone.side_effect = ota_errors.OTAAbortSignal(
+            "abort in progress", module=__name__
         )
 
         with pytest.raises(ota_errors.OTAAbortSignal):
@@ -309,9 +309,7 @@ class TestOTAUpdaterWithAbortHandler:
         mock_ensure_umount.assert_called_once_with(
             self.session_workdir, ignore_error=True
         )
-        mock_rmtree.assert_called_once_with(
-            self.session_workdir, ignore_errors=True
-        )
+        mock_rmtree.assert_called_once_with(self.session_workdir, ignore_errors=True)
 
     def test_session_workdir_cleaned_up_on_success(
         self,
@@ -333,9 +331,7 @@ class TestOTAUpdaterWithAbortHandler:
         mock_ensure_umount.assert_called_once_with(
             self.session_workdir, ignore_error=True
         )
-        mock_rmtree.assert_called_once_with(
-            self.session_workdir, ignore_errors=True
-        )
+        mock_rmtree.assert_called_once_with(self.session_workdir, ignore_errors=True)
 
 
 class TestAbortHandler:
