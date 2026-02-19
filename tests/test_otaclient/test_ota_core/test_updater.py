@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from queue import Queue
 
@@ -95,15 +96,18 @@ class TestOTAUpdaterWithAbortHandler:
         mock_abort_handler,
         mocker: pytest_mock.MockerFixture,
     ):
-        """Test that enter/exit_critical_zone is called around _pre_update."""
+        """Test that critical_zone context manager wraps _pre_update."""
         call_order = []
 
-        mock_abort_handler.enter_critical_zone.side_effect = lambda: call_order.append(
-            "enter_critical_zone"
-        )
-        mock_abort_handler.exit_critical_zone.side_effect = lambda: call_order.append(
-            "exit_critical_zone"
-        )
+        @contextmanager
+        def tracking_critical_zone():
+            call_order.append("enter_critical_zone")
+            try:
+                yield
+            finally:
+                call_order.append("exit_critical_zone")
+
+        mock_abort_handler.critical_zone = tracking_critical_zone
         mock_abort_handler.enter_final_phase.side_effect = lambda: call_order.append(
             "enter_final_phase"
         )
@@ -152,16 +156,19 @@ class TestOTAUpdaterWithAbortHandler:
         mock_abort_handler,
         mocker: pytest_mock.MockerFixture,
     ):
-        """Test that OTAAbortSignal from enter_critical_zone propagates correctly."""
+        """Test that OTAAbortSignal from critical_zone entry propagates correctly."""
         mocker.patch.object(mock_updater, "_process_metadata")
         mocker.patch.object(mock_updater, "_pre_update")
         mocker.patch.object(mock_updater, "_in_update")
         mocker.patch.object(mock_updater, "_post_update")
         mocker.patch.object(mock_updater, "_finalize_update")
 
-        mock_abort_handler.enter_critical_zone.side_effect = ota_errors.OTAAbortSignal(
-            "abort in progress", module=__name__
-        )
+        @contextmanager
+        def raising_on_enter():
+            raise ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+            yield  # pragma: no cover
+
+        mock_abort_handler.critical_zone = raising_on_enter
 
         with pytest.raises(ota_errors.OTAAbortSignal):
             mock_updater.execute()
@@ -175,16 +182,23 @@ class TestOTAUpdaterWithAbortHandler:
         mock_abort_handler,
         mocker: pytest_mock.MockerFixture,
     ):
-        """Test that OTAAbortSignal from exit_critical_zone propagates correctly."""
+        """Test that OTAAbortSignal from critical_zone exit propagates correctly."""
         mocker.patch.object(mock_updater, "_process_metadata")
         mocker.patch.object(mock_updater, "_pre_update")
         mocker.patch.object(mock_updater, "_in_update")
         mocker.patch.object(mock_updater, "_post_update")
         mocker.patch.object(mock_updater, "_finalize_update")
 
-        mock_abort_handler.exit_critical_zone.side_effect = ota_errors.OTAAbortSignal(
-            "queued abort executing", module=__name__
-        )
+        @contextmanager
+        def raising_on_exit():
+            try:
+                yield
+            finally:
+                raise ota_errors.OTAAbortSignal(
+                    "queued abort executing", module=__name__
+                )
+
+        mock_abort_handler.critical_zone = raising_on_exit
 
         with pytest.raises(ota_errors.OTAAbortSignal):
             mock_updater.execute()
@@ -299,9 +313,12 @@ class TestOTAUpdaterWithAbortHandler:
         mock_ensure_umount = mocker.patch(f"{OTA_UPDATER_MODULE}.ensure_umount")
         mock_rmtree = mocker.patch(f"{OTA_UPDATER_MODULE}.shutil.rmtree")
 
-        mock_abort_handler.enter_critical_zone.side_effect = ota_errors.OTAAbortSignal(
-            "abort in progress", module=__name__
-        )
+        @contextmanager
+        def raising_on_enter():
+            raise ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+            yield  # pragma: no cover
+
+        mock_abort_handler.critical_zone = raising_on_enter
 
         with pytest.raises(ota_errors.OTAAbortSignal):
             mock_updater.execute()
