@@ -44,6 +44,7 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
 )
 from otaclient.configs.cfg import cfg
+from otaclient.ota_core import EXIT_CODE_OTA_ABORTED
 from otaclient_common import replace_root
 from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import (
@@ -426,8 +427,6 @@ def main() -> None:  # pragma: no cover
             name="otaclient_otaproxy_control_t",
         )
         _otaproxy_control_t.start()
-
-    from otaclient.ota_core import EXIT_CODE_OTA_ABORTED
 
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
