@@ -284,6 +284,59 @@ class TestOTAUpdaterWithAbortHandler:
 
         self.mock_boot_controller.on_operation_failure.assert_not_called()
 
+    def test_session_workdir_cleaned_up_on_abort(
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Test that session workdir is cleaned up even during abort."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+        mock_ensure_umount = mocker.patch(f"{OTA_UPDATER_MODULE}.ensure_umount")
+        mock_rmtree = mocker.patch(f"{OTA_UPDATER_MODULE}.shutil.rmtree")
+
+        mock_abort_handler.enter_critical_zone.side_effect = (
+            ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+        )
+
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            mock_updater.execute()
+
+        mock_ensure_umount.assert_called_once_with(
+            self.session_workdir, ignore_error=True
+        )
+        mock_rmtree.assert_called_once_with(
+            self.session_workdir, ignore_errors=True
+        )
+
+    def test_session_workdir_cleaned_up_on_success(
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Test that session workdir is cleaned up on successful execution."""
+        mocker.patch.object(mock_updater, "_process_metadata")
+        mocker.patch.object(mock_updater, "_pre_update")
+        mocker.patch.object(mock_updater, "_in_update")
+        mocker.patch.object(mock_updater, "_post_update")
+        mocker.patch.object(mock_updater, "_finalize_update")
+        mock_ensure_umount = mocker.patch(f"{OTA_UPDATER_MODULE}.ensure_umount")
+        mock_rmtree = mocker.patch(f"{OTA_UPDATER_MODULE}.shutil.rmtree")
+
+        mock_updater.execute()
+
+        mock_ensure_umount.assert_called_once_with(
+            self.session_workdir, ignore_error=True
+        )
+        mock_rmtree.assert_called_once_with(
+            self.session_workdir, ignore_errors=True
+        )
+
 
 class TestAbortHandler:
     """Test the AbortHandler state machine and behavior."""

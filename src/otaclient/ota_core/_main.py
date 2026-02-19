@@ -402,11 +402,7 @@ class OTAClient:
                     failure_type=e.failure_type,
                 )
         finally:
-            if self._abort_handler.state not in (
-                AbortState.ABORTING,
-                AbortState.ABORTED,
-            ):
-                shutil.rmtree(session_wd, ignore_errors=True)
+            shutil.rmtree(session_wd, ignore_errors=True)
             try:
                 if self._shm_metrics_reader:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()

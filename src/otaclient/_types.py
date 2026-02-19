@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
 from dataclasses import dataclass
-from enum import IntEnum
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
@@ -74,11 +73,11 @@ class FailureType(StrEnum):
 #
 
 
-class AbortState(IntEnum):
+class AbortState(StrEnum):
     """States for the OTA abort state machine.
 
-    The AbortHandler in ota_core._main owns this state as a plain instance
-    variable protected by threading.Lock (no shared memory needed).
+    The AbortHandler in ota_core._abort_handler owns this state as a plain
+    instance variable protected by threading.Lock (no shared memory needed).
 
     Transitions:
         NONE → CRITICAL_ZONE                (AbortHandler: updater entering critical zone)
@@ -92,12 +91,12 @@ class AbortState(IntEnum):
         FINAL_PHASE → [reject abort]       (AbortHandler: abort rejected during final phase)
     """
 
-    NONE = 0
-    REQUESTED = 1  # abort requested during critical zone, queued until zone exits
-    ABORTING = 2
-    ABORTED = 3
-    FINAL_PHASE = 4
-    CRITICAL_ZONE = 5
+    NONE = "NONE"
+    REQUESTED = "REQUESTED"  # abort requested during critical zone, queued until zone exits
+    ABORTING = "ABORTING"
+    ABORTED = "ABORTED"
+    FINAL_PHASE = "FINAL_PHASE"
+    CRITICAL_ZONE = "CRITICAL_ZONE"
 
 
 #
