@@ -362,8 +362,8 @@ class OTAClientAPIServicer:
         The AbortHandler in OTA Core owns abort state transitions and cleanup.
         """
         logger.info(f"handling abort request: {request}")
-        self._op_queue.put_nowait(request)
         try:
+            self._op_queue.put_nowait(request)
             _resp = self._resp_queue.get(timeout=WAIT_FOR_ABORT_ACK_TIMEOUT)
 
             if not isinstance(_resp, IPCResponse):
