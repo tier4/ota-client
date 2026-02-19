@@ -268,6 +268,7 @@ class OTAClientStatusCollector:
         # ------ update otaclient meta ------ #
         if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
+            return True
 
         # ------ on session start/end ------ #
         if isinstance(payload, OTAStatusChangeReport):
