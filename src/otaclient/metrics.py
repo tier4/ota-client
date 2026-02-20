@@ -27,6 +27,13 @@ from otaclient.configs.cfg import ecu_info
 logger = logging.getLogger(__name__)
 
 
+class OTAMetricsType(str, Enum):
+    """OTA metrics types."""
+
+    REQUEST = "request"
+    UPDATE = "update"
+
+
 class OTAImageFormat(str, Enum):
     """OTA image format types."""
 
@@ -55,6 +62,9 @@ class OTAMetricsData:
     These data are collected during the OTA update process, converted to JSON, and expected to be used in subscription filters.
     Thus, flatten structure is used for easy access.
     """
+
+    # Type
+    metrics_type: str = ""
 
     # Date
     initializing_start_timestamp: int = 0
@@ -113,7 +123,7 @@ class OTAMetricsData:
 
     def __post_init__(self):
         # this variable will not be included in data fields
-        self._already_published = False
+        self._already_published: dict[OTAMetricsType, bool] = {}
 
     def shm_merge(self, shm_data: OTAMetricsSharedMemoryData | None) -> None:
         """
@@ -131,16 +141,17 @@ class OTAMetricsData:
         except Exception as e:
             logger.warning(f"Failed to read from shared memory: {e}")
 
-    def publish(self):
+    def publish(self, metrics_type: OTAMetricsType):
         """
         Publishes the metrics data to the metrics server.
         """
-        if self._already_published:
+        if self._already_published.get(metrics_type, False):
             # metrics data has already been published.
             return
 
         try:
+            self.metrics_type = metrics_type.value
             logger.info(json.dumps(asdict(self)), extra={"log_type": LogType.METRICS})
-            self._already_published = True
+            self._already_published[metrics_type] = True
         except Exception as e:
             logger.error(f"Failed to publish metrics: {e}")
