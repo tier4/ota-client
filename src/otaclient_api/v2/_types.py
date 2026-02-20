@@ -715,7 +715,7 @@ class AbortRequest(ECUList[AbortRequestEcu], MessageWrapper[pb2.AbortRequest]):
     def __init__(
         self,
         *,
-        ecu: Iterable[AbortRequestEcu] | None = ...,
+        ecu: _Iterable[AbortRequestEcu] | None = ...,
         request_id: str | None = ...,
     ) -> None: ...
 
