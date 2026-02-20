@@ -8,7 +8,7 @@ requires = [
 
 [project]
 name = "otaclient-pb2"
-version = "0.8.0"
+version = "0.9.0"
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -52,7 +52,7 @@ sources = [
 
 [tool.hatch.build.hooks.custom]
 proto_builds = [
-  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.2.0" },
+  { proto_file = "otaclient_v2.proto", output_package = "otaclient_pb2/v2", api_version = "2.3.0" },
 ]
 
 [tool.black]
