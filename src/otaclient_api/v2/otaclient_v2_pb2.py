@@ -29,7 +29,7 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n#otaclient_pb2/v2/
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
-_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'otaclient_pb2.v2.otaclient_v2_pb2', _globals)
+_builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'otaclient_api.v2.otaclient_v2_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\242\002\003OTA'
