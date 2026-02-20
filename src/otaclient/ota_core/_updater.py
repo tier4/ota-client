@@ -373,12 +373,18 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             # are queued (REQUESTED) and executed when the zone exits.
             with self._abort_handler.critical_zone():
                 self._pre_update()
+                logger.warning("TEST CODE: 120 second sleep in critical zone for testing abort during critical zone")
+                time.sleep(120)
 
             self._in_update()
 
             # Close the abort window before entering final phases.
             # If abort is in progress, this raises OTAAbortSignal.
+            logger.warning("TEST CODE: 120 second sleep BEFORE entering final phase for testing abort during final phase")
+            time.sleep(120)
             self._abort_handler.enter_final_phase()
+            logger.warning("TEST CODE: 120 second sleep AFTER final phase for testing final phase")
+            time.sleep(120)
             self._post_update()
             self._finalize_update()
 
