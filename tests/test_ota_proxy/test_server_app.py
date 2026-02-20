@@ -21,19 +21,25 @@ Test focus:
   4. HTTP handler routing logic
   5. Error handling for all exception types from ota_cache
   6. Data-streaming paths (_pull_data_and_send)
+  7. uvicorn integration: verify the App works end-to-end with a real
+     uvicorn.Server instance using our production configuration.
 
-The tests use a mocked OTACache so no real network or filesystem access is
-required.  All async helpers needed by the ASGI protocol are implemented as
-minimal in-process stubs.
+The unit tests (1-6) use a mocked OTACache so no real network or filesystem
+access is required.  The integration tests (7) spin up a real uvicorn server
+in-process and make actual HTTP requests through it.
 """
 
 from __future__ import annotations
 
+import asyncio
+import socket
 from http import HTTPStatus
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
+import pytest
+import uvicorn
 from multidict import CIMultiDict
 
 from ota_proxy._consts import (
@@ -753,3 +759,167 @@ class TestASGIResponseFormatCompliance:
 
         starts = [m for m in sent if m.get("type") == "http.response.start"]
         assert len(starts) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Tests: uvicorn integration (version-upgrade compatibility)
+# --------------------------------------------------------------------------- #
+
+
+def _find_free_port() -> int:
+    """Return an available TCP port on localhost."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class TestUvicornCompatibility:
+    """End-to-end tests that run a real uvicorn.Server with our App.
+
+    These tests validate that our production uvicorn usage does not break
+    across version upgrades.  Key configuration under test:
+
+        uvicorn.Config(app, lifespan="on", loop="uvloop", http="h11")
+        uvicorn.Server(config).serve()   (awaited as a coroutine)
+
+    Requests are sent via aiohttp using the HTTP proxy protocol
+    (absolute-form URI target), which is exactly how otaclient uses otaproxy.
+    """
+
+    # --- fixture ------------------------------------------------------------ #
+
+    @pytest.fixture
+    async def live_server(self):
+        """Start uvicorn in-process and yield (server, port, mock_cache).
+
+        loop="none" keeps uvicorn on the current event loop so that the fixture
+        can co-exist with pytest-asyncio's event loop.  The lifespan="on" and
+        http="h11" settings mirror the production configuration in __init__.py.
+        """
+        content = b"test-payload"
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (
+            content,
+            CIMultiDict({HEADER_CONTENT_TYPE: "application/octet-stream"}),
+        )
+        app = App(mock_cache)
+        port = _find_free_port()
+
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            lifespan="on",
+            loop="none",  # reuse pytest-asyncio's event loop
+            http="h11",  # required for HTTP proxy (absolute-form URI)
+        )
+        server = uvicorn.Server(config)
+        serve_task = asyncio.create_task(server.serve())
+
+        # Poll until uvicorn signals it has finished startup
+        for _ in range(50):
+            if server.started:
+                break
+            await asyncio.sleep(0.1)
+        else:
+            server.should_exit = True
+            await serve_task
+            pytest.fail("uvicorn did not start within 5 s")
+
+        try:
+            yield server, port, mock_cache, content
+        finally:
+            server.should_exit = True
+            await serve_task
+
+    # --- config-only tests (no server needed) ------------------------------- #
+
+    def test_production_config_params_are_accepted(self):
+        """uvicorn.Config must not raise with our production parameter set.
+
+        This test validates that the uvicorn version installed in the project
+        still accepts loop="uvloop", http="h11", and lifespan="on".
+        """
+        mock_cache = _make_ota_cache_mock()
+        app = App(mock_cache)
+        # Must not raise regardless of uvicorn version
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=_find_free_port(),
+            log_level="error",
+            lifespan="on",
+            loop="uvloop",
+            http="h11",
+        )
+        assert config.lifespan == "on"
+        assert config.http == "h11"
+
+    # --- lifespan integration tests ---------------------------------------- #
+
+    async def test_lifespan_startup_triggers_app_start(self, live_server):
+        """uvicorn's lifespan handling must call App.start() on startup."""
+        _server, _port, mock_cache, _content = live_server
+        mock_cache.start.assert_awaited_once()
+
+    async def test_lifespan_shutdown_triggers_app_stop(self, live_server):
+        """uvicorn's lifespan handling must call App.stop() on shutdown."""
+        server, _port, mock_cache, _content = live_server
+        # Trigger shutdown by setting should_exit; the fixture teardown awaits it
+        server.should_exit = True
+        # Give the server a moment to process the shutdown
+        for _ in range(30):
+            if not server.started:
+                break
+            await asyncio.sleep(0.1)
+        mock_cache.close.assert_awaited_once()
+
+    # --- HTTP request integration tests ------------------------------------ #
+
+    async def test_proxy_get_returns_200_and_body(self, live_server):
+        """A proxy-style GET must return 200 and the file content."""
+        _server, port, _mock_cache, content = live_server
+        proxy_url = f"http://127.0.0.1:{port}"
+        target_url = "http://ota-image.example.com/data/firmware.bin"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(target_url, proxy=proxy_url) as resp:
+                assert resp.status == HTTPStatus.OK
+                body = await resp.read()
+
+        assert body == content
+
+    async def test_proxy_get_forwards_request_url_to_ota_cache(self, live_server):
+        """The URL seen by OTACache.retrieve_file must match the original target."""
+        _server, port, mock_cache, _content = live_server
+        proxy_url = f"http://127.0.0.1:{port}"
+        target_url = "http://ota-image.example.com/data/firmware.bin"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(target_url, proxy=proxy_url) as resp:
+                assert resp.status == HTTPStatus.OK
+
+        called_url = mock_cache.retrieve_file.call_args[0][0]
+        assert called_url == target_url
+
+    async def test_proxy_non_get_returns_400(self, live_server):
+        """A non-GET request through the proxy must be rejected with 400."""
+        _server, port, _mock_cache, _content = live_server
+        proxy_url = f"http://127.0.0.1:{port}"
+        target_url = "http://ota-image.example.com/data/firmware.bin"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(target_url, proxy=proxy_url) as resp:
+                assert resp.status == HTTPStatus.BAD_REQUEST
+
+    async def test_content_type_header_forwarded_to_client(self, live_server):
+        """The Content-Type header returned by OTACache must reach the client."""
+        _server, port, _mock_cache, _content = live_server
+        proxy_url = f"http://127.0.0.1:{port}"
+        target_url = "http://ota-image.example.com/data/firmware.bin"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(target_url, proxy=proxy_url) as resp:
+                assert resp.status == HTTPStatus.OK
+                assert "application/octet-stream" in resp.content_type
