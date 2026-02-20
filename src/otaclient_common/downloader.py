@@ -400,12 +400,9 @@ class Downloader:
         digestobj = self.hash_func()
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
-        with (
-            self._session.get(
-                prepared_url, stream=True, headers=prepared_headers, timeout=timeout
-            ) as resp,
-            open(dst, "wb") as dst_fp,
-        ):
+        with self._session.get(
+            prepared_url, stream=True, headers=prepared_headers, timeout=timeout
+        ) as resp, open(dst, "wb") as dst_fp:
             dst_fd = dst_fp.fileno()
             os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
             resp.raise_for_status()

@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json. For config options, see the
 // README at: https://github.com/devcontainers/templates/tree/main/src/ubuntu
 {
-	"name": "otaclient dev environment - Python 3.10",
+	"name": "otaclient dev environment - Python 3.8",
 	// Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
 	"image": "mcr.microsoft.com/devcontainers/base:jammy",
 
@@ -10,7 +10,7 @@
 		// for running tests with docker inside devcontainer
 		"ghcr.io/devcontainers/features/docker-in-docker:2": { },
 		"ghcr.io/devcontainers/features/git:1": { },
-		"ghcr.io/devcontainers/features/python:1": { "version": "3.10", "toolsToInstall": "uv,ruff" }
+		"ghcr.io/devcontainers/features/python:1": { "version": "3.8", "toolsToInstall": "uv,ruff" }
 
 	},
 

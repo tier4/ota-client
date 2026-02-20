@@ -19,7 +19,7 @@ import logging
 import warnings
 from functools import cached_property
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Optional
 
 import yaml
 from pydantic import AliasChoices, AnyHttpUrl, Field, IPvAnyAddress
@@ -51,7 +51,7 @@ class ProxyInfo(BaseFixedConfig):
     format_version: int = 1
     # NOTE(20221219): the default values for the following settings
     #                 now align with v2.5.4
-    upper_ota_proxy: AnyHttpUrl | None = None
+    upper_ota_proxy: Optional[AnyHttpUrl] = None
     enable_local_ota_proxy: bool = Field(
         default=False,
         # NOTE(20240126): "enable_ota_proxy" is superseded by "enable_local_ota_proxy".
@@ -75,16 +75,16 @@ class ProxyInfo(BaseFixedConfig):
     # NOTE: when logging_server is not configured, it implicitly means the logging server
     #       is located at localhost.
     #       check roles/ota_client/templates/run.sh.j2 in ecu_setup repo.
-    logging_server: AnyHttpUrl | None = AnyHttpUrl(
+    logging_server: Optional[AnyHttpUrl] = AnyHttpUrl(
         f"http://127.0.0.1:{LOGGING_SERVER_PORT}"
     )
 
     LOGGING_SERVER_GRPC_PORT: ClassVar[int] = 8084
-    logging_server_grpc: AnyHttpUrl | None = AnyHttpUrl(
+    logging_server_grpc: Optional[AnyHttpUrl] = AnyHttpUrl(
         f"http://127.0.0.1:{LOGGING_SERVER_GRPC_PORT}"
     )
 
-    external_nfs_cache_mnt_point: StrOrPath | None = None
+    external_nfs_cache_mnt_point: Optional[StrOrPath] = None
     """The mount point of a pre-mounted external NFS cache storage.
     This should be set to the mount point of a pre-mounted NFS drive to be used as cache.
     If None, no external NFS cache is used.

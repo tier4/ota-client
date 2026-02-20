@@ -19,7 +19,7 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Dict, Iterable
 
 from cryptography.x509 import Certificate, Name, load_pem_x509_certificate
 from ota_image_libs._crypto.x509_utils import CACertStore
@@ -40,7 +40,7 @@ CERT_NAME_PA = re.compile(r"(?P<chain>[\w\-]+)\.[\w\-]+\.pem")
 class CACertStoreInvalid(Exception): ...
 
 
-class CAChain(dict[Name, Certificate]):
+class CAChain(Dict[Name, Certificate]):
     """A dict that stores all the CA certs of a cert chains.
 
     The key is the cert's subject, value is the cert itself.
@@ -102,7 +102,7 @@ class CAChain(dict[Name, Certificate]):
         raise ValueError(f"failed to verify {cert} against chain {self.chain_prefix}")
 
 
-class CAChainStore(dict[str, CAChain]):
+class CAChainStore(Dict[str, CAChain]):
     """A dict that stores CA chain name and CACertChains mapping."""
 
     def add_chain(self, chain: CAChain) -> None:
@@ -189,7 +189,7 @@ def load_ca_cert_chains(cert_dir: StrOrPath) -> CAChainStore:
     return ca_chains
 
 
-class CAStoreMap(dict[str, CACertStore]):
+class CAStoreMap(Dict[str, CACertStore]):
     """A dict of CACertStore with name."""
 
     def add_ca_store(self, name: str, store: CACertStore) -> None:

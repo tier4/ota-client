@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal
+from typing import Dict, Literal
 
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,7 +39,7 @@ class _OTAClientSettings(BaseModel):
     # ------ logging settings ------ #
     #
     DEFAULT_LOG_LEVEL: LOG_LEVEL_LITERAL = "INFO"
-    LOG_LEVEL_TABLE: dict[str, LOG_LEVEL_LITERAL] = {
+    LOG_LEVEL_TABLE: Dict[str, LOG_LEVEL_LITERAL] = {
         "ota_metadata": "INFO",
         "otaclient": "INFO",
         "otaclient_api": "INFO",

@@ -28,6 +28,7 @@ from hashlib import sha256
 from multiprocessing.context import SpawnProcess
 from multiprocessing.synchronize import Event
 from pathlib import Path
+from typing import Optional
 from urllib.parse import quote, unquote, urljoin
 
 import aiohttp
@@ -60,9 +61,9 @@ CLIENTS_NUM = 3
 class RegularInf:
     compressed_alg: str
     gid: int
-    inode: int | None
+    inode: Optional[int]
     mode: int
-    nlink: int | None
+    nlink: Optional[int]
     path: str
     sha256hash: bytes
     size: int

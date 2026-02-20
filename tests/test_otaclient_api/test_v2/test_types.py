@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from typing import Type
+
 import pytest
 from google.protobuf.duration_pb2 import Duration as _Duration
 
@@ -139,7 +141,7 @@ from tests.utils import compare_message
 def test_convert_message(
     origin_msg,
     converted_msg: api_types.MessageWrapper,
-    wrapper_type: type[api_types.MessageWrapper],
+    wrapper_type: Type[api_types.MessageWrapper],
 ):
     # ------ converting message ------ #
     _converted = wrapper_type.convert(origin_msg)

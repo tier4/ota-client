@@ -1,6 +1,14 @@
 # compose file for building the test base images
 
 services:
+  tester-ubuntu-20.04:
+    build:
+      context: .
+      args:
+        UBUNTU_BASE: ubuntu:20.04
+    pull_policy: never
+    image: ghcr.io/tier4/ota-client/test_base:ubuntu_20.04
+
   tester-ubuntu-22.04:
     build:
       context: .

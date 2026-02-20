@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import random
-from typing import Annotated, Any, ClassVar, Generator, Literal, Optional
+from typing import Any, ClassVar, Generator, Literal, Optional
 
 from pydantic import SkipValidation
 from simple_sqlite3_orm import (
@@ -26,7 +26,7 @@ from simple_sqlite3_orm import (
     ORMThreadPoolBase,
     TableSpec,
 )
-from typing_extensions import Self
+from typing_extensions import Annotated, Self
 
 RSTABLE_NAME = "rs_table"
 

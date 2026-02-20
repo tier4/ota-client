@@ -141,9 +141,7 @@ class TestLogClient:
         # Restore the original logging configuration
         logging.root.handlers = original_handlers
         logging.root.level = original_level
-        for handler, formatter in zip(
-            logging.root.handlers, original_formatters, strict=True
-        ):
+        for handler, formatter in zip(logging.root.handlers, original_formatters):
             handler.setFormatter(formatter)
 
     @pytest.mark.parametrize(

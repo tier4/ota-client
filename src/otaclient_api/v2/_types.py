@@ -16,10 +16,18 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Iterable, Iterator, Mapping
 from copy import deepcopy
 from functools import cached_property
-from typing import Any, Protocol, TypeVar
+from typing import Any
+from typing import Iterable as _Iterable
+from typing import Iterator as _Iterator
+from typing import List as _List
+from typing import Mapping as _Mapping
+from typing import Optional as _Optional
+from typing import Protocol as _Protocol
+from typing import Set as _Set
+from typing import TypeVar as _TypeVar
+from typing import Union as _Union
 
 from typing_extensions import Self
 
@@ -36,17 +44,17 @@ from otaclient_common.proto_wrapper import (
 # protocols
 
 
-class ECU(Protocol):
+class ECU(_Protocol):
     ecu_id: str
 
 
-ECUType = TypeVar("ECUType", bound=ECU)
+ECUType = _TypeVar("ECUType", bound=ECU)
 
 
-class ECUList(Protocol[ECUType]):
+class ECUList(_Protocol[ECUType]):
     """A type of message that contains a list of ECUType."""
 
-    ecu: list[ECUType]
+    ecu: _List[ECUType]
 
     def add_ecu(self, ecu: ECUType):
         self.ecu.append(ecu)
@@ -54,20 +62,20 @@ class ECUList(Protocol[ECUType]):
     def if_contains_ecu(self, ecu_id: str) -> bool:
         return self.find_ecu(ecu_id) is not None
 
-    def find_ecu(self, ecu_id: str) -> ECUType | None:
+    def find_ecu(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu:
             if ecu.ecu_id == ecu_id:
                 return ecu
         return None
 
-    def iter_ecu(self) -> Iterator[ECUType]:
+    def iter_ecu(self) -> _Iterator[ECUType]:
         yield from self.ecu
 
 
-class ECUV2List(Protocol[ECUType]):
+class ECUV2List(_Protocol[ECUType]):
     """A type of message that contains a list of ECUType."""
 
-    ecu_v2: list[ECUType]
+    ecu_v2: _List[ECUType]
 
     @abstractmethod
     def add_ecu(self, ecu: ECUType):
@@ -76,17 +84,17 @@ class ECUV2List(Protocol[ECUType]):
     def if_contains_ecu_v2(self, ecu_id: str) -> bool:
         return self.find_ecu_v2(ecu_id) is not None
 
-    def find_ecu_v2(self, ecu_id: str) -> ECUType | None:
+    def find_ecu_v2(self, ecu_id: str) -> _Optional[ECUType]:
         for ecu in self.ecu_v2:
             if ecu.ecu_id == ecu_id:
                 return ecu
         return None
 
-    def iter_ecu_v2(self) -> Iterable[ECUType]:
+    def iter_ecu_v2(self) -> _Iterable[ECUType]:
         yield from self.ecu_v2
 
 
-class ECUStatusSummary(Protocol):
+class ECUStatusSummary(_Protocol):
     """Common status summary protocol for StatusResponseEcu and StatusResponseEcuV2."""
 
     @property
@@ -175,7 +183,7 @@ class RollbackRequestEcu(MessageWrapper[pb2.RollbackRequestEcu]):
     __slots__ = calculate_slots(pb2.RollbackRequestEcu)
     ecu_id: str
 
-    def __init__(self, *, ecu_id: str | None = ...) -> None: ...
+    def __init__(self, *, ecu_id: _Optional[str] = ...) -> None: ...
 
 
 class RollbackRequest(ECUList[RollbackRequestEcu], MessageWrapper[pb2.RollbackRequest]):
@@ -186,8 +194,8 @@ class RollbackRequest(ECUList[RollbackRequestEcu], MessageWrapper[pb2.RollbackRe
     def __init__(
         self,
         *,
-        ecu: Iterable[RollbackRequestEcu] | None = ...,
-        request_id: str | None = ...,
+        ecu: _Optional[_Iterable[RollbackRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -200,9 +208,9 @@ class RollbackResponseEcu(MessageWrapper[pb2.RollbackResponseEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        result: FailureType | str | None = ...,
-        message: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[FailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -212,9 +220,11 @@ class RollbackResponse(
     __slots__ = calculate_slots(pb2.RollbackResponse)
     ecu: RepeatedCompositeContainer[RollbackResponseEcu]
 
-    def __init__(self, *, ecu: Iterable[RollbackResponseEcu] | None = ...) -> None: ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[RollbackResponseEcu]] = ...
+    ) -> None: ...
 
-    def merge_from(self, rollback_response: Self | pb2.RollbackResponse):
+    def merge_from(self, rollback_response: _Union[Self, pb2.RollbackResponse]):
         if isinstance(rollback_response, pb2.RollbackResponse):
             rollback_response = self.__class__.convert(rollback_response)
         # NOTE, TODO: duplication check is not done
@@ -246,22 +256,22 @@ class StatusProgress(MessageWrapper[pb2.StatusProgress]):
     def __init__(
         self,
         *,
-        phase: StatusProgressPhase | str | None = ...,
-        total_regular_files: int | None = ...,
-        regular_files_processed: int | None = ...,
-        files_processed_copy: int | None = ...,
-        files_processed_link: int | None = ...,
-        files_processed_download: int | None = ...,
-        file_size_processed_copy: int | None = ...,
-        file_size_processed_link: int | None = ...,
-        file_size_processed_download: int | None = ...,
-        elapsed_time_copy: Duration | None = ...,
-        elapsed_time_link: Duration | None = ...,
-        elapsed_time_download: Duration | None = ...,
-        errors_download: int | None = ...,
-        total_regular_file_size: int | None = ...,
-        total_elapsed_time: Duration | None = ...,
-        download_bytes: int | None = ...,
+        phase: _Optional[_Union[StatusProgressPhase, str]] = ...,
+        total_regular_files: _Optional[int] = ...,
+        regular_files_processed: _Optional[int] = ...,
+        files_processed_copy: _Optional[int] = ...,
+        files_processed_link: _Optional[int] = ...,
+        files_processed_download: _Optional[int] = ...,
+        file_size_processed_copy: _Optional[int] = ...,
+        file_size_processed_link: _Optional[int] = ...,
+        file_size_processed_download: _Optional[int] = ...,
+        elapsed_time_copy: _Optional[Duration] = ...,
+        elapsed_time_link: _Optional[Duration] = ...,
+        elapsed_time_download: _Optional[Duration] = ...,
+        errors_download: _Optional[int] = ...,
+        total_regular_file_size: _Optional[int] = ...,
+        total_elapsed_time: _Optional[Duration] = ...,
+        download_bytes: _Optional[int] = ...,
     ) -> None: ...
 
     def get_snapshot(self) -> Self:
@@ -283,11 +293,11 @@ class Status(MessageWrapper[pb2.Status]):
     def __init__(
         self,
         *,
-        status: StatusOta | str | None = ...,
-        failure: FailureType | str | None = ...,
-        failure_reason: str | None = ...,
-        version: str | None = ...,
-        progress: StatusProgress | None = ...,
+        status: _Optional[_Union[StatusOta, str]] = ...,
+        failure: _Optional[_Union[FailureType, str]] = ...,
+        failure_reason: _Optional[str] = ...,
+        version: _Optional[str] = ...,
+        progress: _Optional[StatusProgress] = ...,
     ) -> None: ...
 
 
@@ -304,9 +314,9 @@ class StatusResponseEcu(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu])
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        result: FailureType | str | None = ...,
-        status: Status | None = ...,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[FailureType, str]] = ...,
+        status: _Optional[Status] = ...,
     ) -> None: ...
 
     @property
@@ -372,25 +382,25 @@ class UpdateStatus(MessageWrapper[pb2.UpdateStatus]):
 
     def __init__(
         self,
-        update_firmware_version: str | None = ...,
-        total_files_size_uncompressed: int | None = ...,
-        total_files_num: int | None = ...,
-        update_start_timestamp: int | None = ...,
-        phase: UpdatePhase | str | None = ...,
-        total_download_files_num: int | None = ...,
-        total_download_files_size: int | None = ...,
-        downloaded_files_num: int | None = ...,
-        downloaded_bytes: int | None = ...,
-        downloaded_files_size: int | None = ...,
-        downloading_errors: int | None = ...,
-        total_remove_files_num: int | None = ...,
-        removed_files_num: int | None = ...,
-        processed_files_num: int | None = ...,
-        processed_files_size: int | None = ...,
-        total_elapsed_time: Duration | Mapping | None = ...,
-        delta_generating_elapsed_time: Duration | Mapping | None = ...,
-        downloading_elapsed_time: Duration | Mapping | None = ...,
-        update_applying_elapsed_time: Duration | Mapping | None = ...,
+        update_firmware_version: _Optional[str] = ...,
+        total_files_size_uncompressed: _Optional[int] = ...,
+        total_files_num: _Optional[int] = ...,
+        update_start_timestamp: _Optional[int] = ...,
+        phase: _Optional[_Union[UpdatePhase, str]] = ...,
+        total_download_files_num: _Optional[int] = ...,
+        total_download_files_size: _Optional[int] = ...,
+        downloaded_files_num: _Optional[int] = ...,
+        downloaded_bytes: _Optional[int] = ...,
+        downloaded_files_size: _Optional[int] = ...,
+        downloading_errors: _Optional[int] = ...,
+        total_remove_files_num: _Optional[int] = ...,
+        removed_files_num: _Optional[int] = ...,
+        processed_files_num: _Optional[int] = ...,
+        processed_files_size: _Optional[int] = ...,
+        total_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
+        delta_generating_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
+        downloading_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
+        update_applying_elapsed_time: _Optional[_Union[Duration, _Mapping]] = ...,
     ) -> None: ...
 
     def get_snapshot(self) -> Self:
@@ -449,14 +459,14 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
 
     def __init__(
         self,
-        ecu_id: str | None = ...,
-        firmware_version: str | None = ...,
-        otaclient_version: str | None = ...,
-        ota_status: StatusOta | str | None = ...,
-        failure_type: FailureType | str | None = ...,
-        failure_reason: str | None = ...,
-        failure_traceback: str | None = ...,
-        update_status: UpdateStatus | Mapping | None = ...,
+        ecu_id: _Optional[str] = ...,
+        firmware_version: _Optional[str] = ...,
+        otaclient_version: _Optional[str] = ...,
+        ota_status: _Optional[_Union[StatusOta, str]] = ...,
+        failure_type: _Optional[_Union[FailureType, str]] = ...,
+        failure_reason: _Optional[str] = ...,
+        failure_traceback: _Optional[str] = ...,
+        update_status: _Optional[_Union[UpdateStatus, _Mapping]] = ...,
     ) -> None: ...
 
     def convert_to_v1(self) -> StatusResponseEcu:
@@ -510,9 +520,9 @@ class StatusResponse(
 
     def __init__(
         self,
-        ecu: Iterable[StatusResponseEcu | Mapping] | None = ...,
-        available_ecu_ids: Iterable[str] | None = ...,
-        ecu_v2: Iterable[StatusResponseEcuV2 | Mapping] | None = ...,
+        ecu: _Optional[_Iterable[_Union[StatusResponseEcu, _Mapping]]] = ...,
+        available_ecu_ids: _Optional[_Iterable[str]] = ...,
+        ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
     ) -> None: ...
 
     def add_ecu(self, _response_ecu: Any):
@@ -532,7 +542,7 @@ class StatusResponse(
         else:
             raise TypeError
 
-    def merge_from(self, status_resp: Self | pb2.StatusResponse):
+    def merge_from(self, status_resp: _Union[Self, pb2.StatusResponse]):
         if isinstance(status_resp, pb2.StatusResponse):
             status_resp = self.__class__.convert(status_resp)
         # merge ecu only, don't merge available_ecu_ids!
@@ -554,10 +564,10 @@ class UpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        version: str | None = ...,
-        url: str | None = ...,
-        cookies: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        version: _Optional[str] = ...,
+        url: _Optional[str] = ...,
+        cookies: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -569,8 +579,8 @@ class UpdateRequest(ECUList[UpdateRequestEcu], MessageWrapper[pb2.UpdateRequest]
     def __init__(
         self,
         *,
-        ecu: Iterable[UpdateRequestEcu] | None = ...,
-        request_id: str | None = ...,
+        ecu: _Optional[_Iterable[UpdateRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -583,9 +593,9 @@ class UpdateResponseEcu(MessageWrapper[pb2.UpdateResponseEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        result: FailureType | str | None = ...,
-        message: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[FailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -593,17 +603,19 @@ class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[pb2.UpdateRespon
     __slots__ = calculate_slots(pb2.UpdateResponse)
     ecu: RepeatedCompositeContainer[UpdateResponseEcu]
 
-    def __init__(self, *, ecu: Iterable[UpdateResponseEcu] | None = ...) -> None: ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[UpdateResponseEcu]] = ...
+    ) -> None: ...
 
     @cached_property
-    def ecus_acked_update(self) -> set[str]:
+    def ecus_acked_update(self) -> _Set[str]:
         return {
             ecu_resp.ecu_id
             for ecu_resp in self.ecu
             if ecu_resp.result is FailureType.NO_FAILURE
         }
 
-    def merge_from(self, update_response: Self | pb2.UpdateResponse):
+    def merge_from(self, update_response: _Union[Self, pb2.UpdateResponse]):
         if isinstance(update_response, pb2.UpdateResponse):
             update_response = self.__class__.convert(update_response)
         # NOTE, TODO: duplication check is not done
@@ -623,10 +635,10 @@ class ClientUpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        version: str | None = ...,
-        url: str | None = ...,
-        cookies: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        version: _Optional[str] = ...,
+        url: _Optional[str] = ...,
+        cookies: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -640,8 +652,8 @@ class ClientUpdateRequest(
     def __init__(
         self,
         *,
-        ecu: Iterable[ClientUpdateRequestEcu] | None = ...,
-        request_id: str | None = ...,
+        ecu: _Optional[_Iterable[ClientUpdateRequestEcu]] = ...,
+        request_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -654,9 +666,9 @@ class ClientUpdateResponseEcu(MessageWrapper[pb2.UpdateResponseEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        result: FailureType | str | None = ...,
-        message: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[FailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -667,18 +679,18 @@ class ClientUpdateResponse(
     ecu: RepeatedCompositeContainer[ClientUpdateResponseEcu]
 
     def __init__(
-        self, *, ecu: Iterable[ClientUpdateResponseEcu] | None = ...
+        self, *, ecu: _Optional[_Iterable[ClientUpdateResponseEcu]] = ...
     ) -> None: ...
 
     @cached_property
-    def ecus_acked_update(self) -> set[str]:
+    def ecus_acked_update(self) -> _Set[str]:
         return {
             ecu_resp.ecu_id
             for ecu_resp in self.ecu
             if ecu_resp.result is FailureType.NO_FAILURE
         }
 
-    def merge_from(self, update_response: Self | pb2.UpdateResponse):
+    def merge_from(self, update_response: _Union[Self, pb2.UpdateResponse]):
         if isinstance(update_response, pb2.UpdateResponse):
             update_response = self.__class__.convert(update_response)
         # NOTE, TODO: duplication check is not done
@@ -703,9 +715,9 @@ class AbortResponseEcu(MessageWrapper[pb2.AbortResponseEcu]):
     def __init__(
         self,
         *,
-        ecu_id: str | None = ...,
-        result: AbortFailureType | str | None = ...,
-        message: str | None = ...,
+        ecu_id: _Optional[str] = ...,
+        result: _Optional[_Union[AbortFailureType, str]] = ...,
+        message: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -713,9 +725,11 @@ class AbortResponse(ECUList[AbortResponseEcu], MessageWrapper[pb2.AbortResponse]
     __slots__ = calculate_slots(pb2.AbortResponse)
     ecu: RepeatedCompositeContainer[AbortResponseEcu]
 
-    def __init__(self, *, ecu: Iterable[AbortResponseEcu] | None = ...) -> None: ...
+    def __init__(
+        self, *, ecu: _Optional[_Iterable[AbortResponseEcu]] = ...
+    ) -> None: ...
 
-    def merge_from(self, abort_response: Self | pb2.AbortResponse):
+    def merge_from(self, abort_response: _Union[Self, pb2.AbortResponse]):
         if isinstance(abort_response, pb2.AbortResponse):
             abort_response = self.__class__.convert(abort_response)
         # NOTE, TODO: duplication check is not done

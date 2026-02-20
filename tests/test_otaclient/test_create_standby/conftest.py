@@ -63,10 +63,9 @@ def fst_db_helper(
     ft_dbf = image_meta_d / "file_table.sqlite3"
     rst_dbf = image_meta_d / "resource_table.sqlite3"
 
-    with (
-        closing(sqlite3.connect(ft_dbf)) as fst_conn,
-        closing(sqlite3.connect(rst_dbf)) as rst_conn,
-    ):
+    with closing(sqlite3.connect(ft_dbf)) as fst_conn, closing(
+        sqlite3.connect(rst_dbf)
+    ) as rst_conn:
         # ------ bootstrap each tables in the file_table database ------ #
         ft_regular_orm = FileTableRegularORM(fst_conn)
         ft_regular_orm.orm_bootstrap_db()

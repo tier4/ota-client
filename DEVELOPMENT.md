@@ -32,7 +32,7 @@ The built package will be placed under `./dist` folder.
 ### Running Tests with Docker Compose
 
 Test containers are defined in `docker/test_base/docker-compose_tests.yml`.
-Containers for Ubuntu 22.04 and 24.04 are available.
+Containers for Ubuntu 20.04, 22.04, and 24.04 are available.
 
 The `./docker/test_base/entry_point.sh` script is mounted as the entrypoint and can be customized as needed.
 
@@ -40,14 +40,14 @@ The `./docker/test_base/entry_point.sh` script is mounted as the entrypoint and 
 
 ```bash
 # At project root directory
-docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-22.04
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04
 ```
 
 #### Run specific tests
 
 ```bash
 # At project root directory
-docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-22.04 \
+docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubuntu-20.04 \
    tests/<specific_test_file> [<test_file_2> [...]]
 ```
 
@@ -55,7 +55,7 @@ docker compose -f docker/test_base/docker-compose_tests.yml run --rm tester-ubun
 
 ```bash
 # At project root directory
-docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-22.04
+docker compose -f docker/test_base/docker-compose_tests.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-20.04
 ```
 
 ### Performance tests

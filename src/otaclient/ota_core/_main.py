@@ -25,7 +25,7 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from queue import Empty, Queue
-from typing import Callable, NoReturn
+from typing import Callable, NoReturn, Optional
 
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
@@ -91,7 +91,7 @@ class OTAClient:
         self,
         *,
         ecu_status_flags: MultipleECUStatusFlags,
-        proxy: str | None = None,
+        proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
         critical_zone_flag: CriticalZoneFlag,

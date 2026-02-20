@@ -12,11 +12,13 @@ license = "Apache-2.0"
 license-files = [
   "LICENSE",
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: Unix",
   "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -105,10 +107,10 @@ markers = [
 [tool.black]
 line-length = 88
 target-version = [
+  'py38',
+  'py39',
   'py310',
   'py311',
-  'py312',
-  'py313',
 ]
 extend-exclude = '''(
   ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
@@ -166,11 +168,11 @@ ignore = [
   "**/*_pb2_grpc.py*",
 ]
 typeCheckingMode = "standard"
-pythonVersion = "3.10"
+pythonVersion = "3.8"
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
