@@ -1,7 +1,7 @@
 [build-system]
 build-backend = "hatchling.build"
 requires = [
-  "grpcio-tools<1.79,>=1.57",
+  "grpcio-tools>=1.57,<1.70",
   "hatch-vcs",
   "hatchling>=1.20",
 ]
