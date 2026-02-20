@@ -45,7 +45,7 @@ ABORT_SIGNAL = signal.SIGUSR1
 EXIT_CODE_OTA_ABORTED = 79
 
 
-def _abort_signal_handler(signum: int, frame: object) -> None:
+def _abort_signal_handler(_signum: int, _frame: object) -> None:  # pragma: no cover
     sys.exit(EXIT_CODE_OTA_ABORTED)
 
 
