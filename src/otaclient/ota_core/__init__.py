@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from ._abort_handler import EXIT_CODE_OTA_ABORTED
 from ._client_updater import OTAClientUpdater
 from ._main import OTAClient, ota_core_process
 from ._updater import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from ._updater_base import OTAUpdateInitializer
 
 __all__ = [
+    "EXIT_CODE_OTA_ABORTED",
     "ota_core_process",
     "OTAClient",
     "OTAUpdateInitializer",

@@ -80,9 +80,22 @@ class BootControllerBase(ABC):
 
     def on_operation_failure(self):
         """Cleanup by boot_control implementation when OTA failed."""
-        logger.warning("on failure try to unmounting standby slot...")
+        logger.warning("on failure trying to unmount standby slot...")
         self._ota_status_control.on_failure()
         self._mp_control.umount_all(ignore_error=True)
+
+    def on_abort(self):
+        """Persist ABORTED status to disk.
+
+        Standby slot unmount is skipped here because SIGUSR1 terminates the
+        process immediately after, and on restart OTAClient.__init__ handles
+        mount cleanup.  Attempting to unmount while the updater thread is
+        still active can block for up to 12s (busy mount retries), during
+        which the updater may call on_operation_failure() and overwrite the
+        ABORTED status with FAILURE.
+        """
+        logger.info("on abort: persisting ABORTED status to disk")
+        self._ota_status_control.on_abort()
 
     # ====== Template Method pattern for update flow ======
 

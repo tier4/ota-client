@@ -34,9 +34,7 @@ from typing import NoReturn
 
 from otaclient import __version__
 from otaclient._types import (
-    AbortOTAFlag,
     ClientUpdateControlFlags,
-    CriticalZoneFlag,
     MultipleECUStatusFlags,
 )
 from otaclient._utils import (
@@ -46,6 +44,7 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
 )
 from otaclient.configs.cfg import cfg
+from otaclient.ota_core import EXIT_CODE_OTA_ABORTED
 from otaclient_common import replace_root
 from otaclient_common._typing import StrOrPath
 from otaclient_common.cmdhelper import (
@@ -374,8 +373,6 @@ def main() -> None:  # pragma: no cover
         notify_data_ready_event=mp_ctx.Event(),
         request_shutdown_event=mp_ctx.Event(),
     )
-    critical_zone_flag = CriticalZoneFlag(lock=mp_ctx.Lock())
-    abort_ota_flag = AbortOTAFlag(shutdown_requested=mp_ctx.Event())
 
     _ota_core_p = mp_ctx.Process(
         target=partial(
@@ -391,7 +388,6 @@ def main() -> None:  # pragma: no cover
             resp_queue=local_otaclient_resp_queue,
             max_traceback_size=MAX_TRACEBACK_SIZE,
             client_update_control_flags=client_update_control_flags,
-            critical_zone_flag=critical_zone_flag,
         ),
         name="otaclient_ota_core",
     )
@@ -406,8 +402,6 @@ def main() -> None:  # pragma: no cover
             op_queue=local_otaclient_op_queue,
             resp_queue=local_otaclient_resp_queue,
             ecu_status_flags=ecu_status_flags,
-            critical_zone_flag=critical_zone_flag,
-            abort_ota_flag=abort_ota_flag,
         ),
         name="otaclient_api_server",
     )
@@ -437,20 +431,22 @@ def main() -> None:  # pragma: no cover
     while True:
         time.sleep(HEALTH_CHECK_INTERVAL)
 
-        if abort_ota_flag.shutdown_requested.is_set():
-            logger.info(
-                f"Received abort request. Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
-            )
-            time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
-            return _on_shutdown()
-
         if not _ota_core_p.is_alive():
-            logger.error(
-                "ota_core process is dead! "
-                f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
-            )
-            time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
-            return _on_shutdown()
+            _exit_code = _ota_core_p.exitcode
+            if _exit_code == EXIT_CODE_OTA_ABORTED:
+                logger.info(
+                    "OTA abort completed. "
+                    f"Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
+                )
+                time.sleep(SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
+                return _on_shutdown()
+            else:
+                logger.error(
+                    f"ota_core process exited with code {_exit_code}! "
+                    f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
+                )
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+                return _on_shutdown()
 
         if not _grpc_server_p.is_alive():
             logger.error(

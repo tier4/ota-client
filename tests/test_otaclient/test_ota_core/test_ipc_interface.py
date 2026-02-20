@@ -56,8 +56,6 @@ class TestOTAClient:
             return_value=False
         )
         client_update_control_flags = mocker.MagicMock()
-        critical_zone_flag = mocker.MagicMock()
-
         # --- mock setup --- #
         self.control_flags = ecu_status_flags
         self.ota_updater = mocker.MagicMock(spec=OTAUpdaterForLegacyOTAImage)
@@ -90,9 +88,10 @@ class TestOTAClient:
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
             client_update_control_flags=client_update_control_flags,
-            critical_zone_flag=critical_zone_flag,
             shm_metrics_reader=mocker.MagicMock(),
         )
+        # Mock abort handler (normally created by OTAClient.main())
+        self.ota_client._abort_handler = mocker.MagicMock()
 
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
         mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")

@@ -19,6 +19,7 @@ import atexit
 import logging
 import multiprocessing.queues as mp_queue
 import shutil
+import signal
 import threading
 import time
 from functools import partial
@@ -43,9 +44,10 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import (
+    AbortRequestV2,
+    AbortState,
     ClientUpdateControlFlags,
     ClientUpdateRequestV2,
-    CriticalZoneFlag,
     FailureType,
     IPCRequest,
     IPCResEnum,
@@ -71,6 +73,11 @@ from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
 from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
 
+from ._abort_handler import (
+    ABORT_SIGNAL,
+    AbortHandler,
+    _abort_signal_handler,
+)
 from ._client_updater import OTAClientUpdater
 from ._common import handle_upper_proxy
 
@@ -94,7 +101,6 @@ class OTAClient:
         proxy: Optional[str] = None,
         status_report_queue: Queue[StatusReport],
         client_update_control_flags: ClientUpdateControlFlags,
-        critical_zone_flag: CriticalZoneFlag,
         shm_metrics_reader: SharedOTAClientMetricsReader,
     ) -> None:
         self.my_ecu_id = ecu_info.ecu_id
@@ -103,9 +109,9 @@ class OTAClient:
 
         self._status_report_queue = status_report_queue
         self._client_update_control_flags = client_update_control_flags
-        self._critical_zone_flag = critical_zone_flag
 
         self._shm_metrics_reader = shm_metrics_reader
+        self._abort_handler = AbortHandler(ota_client=self)
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
@@ -258,7 +264,12 @@ class OTAClient:
             OTAStatus.UPDATING,
             OTAStatus.ROLLBACKING,
             OTAStatus.CLIENT_UPDATING,
+            OTAStatus.ABORTING,
         ]
+
+    def report_status(self, report: StatusReport) -> None:
+        """Submit a status report to the status report queue."""
+        self._status_report_queue.put_nowait(report)
 
     def update(self, request: UpdateRequestV2) -> None:
         """
@@ -270,6 +281,13 @@ class OTAClient:
         logger.info(
             f"start new OTA update request:{request_id}, session: {new_session_id=}"
         )
+
+        session_wd = self._update_session_dir / new_session_id
+
+        # Configure abort handler before setting UPDATING status so that
+        # session fields are populated before the abort handler would
+        # accept any requests (it checks live_ota_status == UPDATING).
+        self._abort_handler.set_session(session_id=new_session_id)
 
         # NOTE(20250916): set OTA update status before ensuring upper otaproxy
         #                 as local otaproxy needs OTA update status to start.
@@ -286,7 +304,6 @@ class OTAClient:
         if self.proxy:
             handle_upper_proxy(self.proxy)
 
-        session_wd = self._update_session_dir / new_session_id
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
 
@@ -298,6 +315,7 @@ class OTAClient:
             chunk_size=cfg.CHUNK_SIZE,
         )
         url_base = request.url_base
+
         try:
             logger.info("[update] entering local update...")
             _common_args = OTAUpdateInterfaceArgs(
@@ -331,7 +349,7 @@ class OTAClient:
 
                 OTAUpdaterForOTAImageV1(
                     ca_store=self.ca_store,
-                    critical_zone_flag=self._critical_zone_flag,
+                    abort_handler=self._abort_handler,
                     boot_controller=self.boot_controller,
                     image_identifier=image_id,
                     **_common_args,
@@ -345,18 +363,44 @@ class OTAClient:
                     )
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
-                    critical_zone_flag=self._critical_zone_flag,
+                    abort_handler=self._abort_handler,
                     boot_controller=self.boot_controller,
                     **_common_args,
                 ).execute()
-        except ota_errors.OTAError as e:
-            self._live_ota_status = OTAStatus.FAILURE
-            self._on_failure(
-                e,
-                ota_status=OTAStatus.FAILURE,
-                failure_reason=e.get_failure_reason(),
-                failure_type=e.failure_type,
+        except ota_errors.OTAAbortSignal:
+            self._live_ota_status = OTAStatus.ABORTED
+            self._status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=OTAStatus.ABORTED,
+                    ),
+                    session_id=new_session_id,
+                )
             )
+            logger.info("OTA update aborted by abort handler")
+        except ota_errors.OTAError as e:
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                self._live_ota_status = OTAStatus.ABORTED
+                self._status_report_queue.put_nowait(
+                    StatusReport(
+                        payload=OTAStatusChangeReport(
+                            new_ota_status=OTAStatus.ABORTED,
+                        ),
+                        session_id=new_session_id,
+                    )
+                )
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
+            else:
+                self._live_ota_status = OTAStatus.FAILURE
+                self._on_failure(
+                    e,
+                    ota_status=OTAStatus.FAILURE,
+                    failure_reason=e.get_failure_reason(),
+                    failure_type=e.failure_type,
+                )
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
@@ -461,12 +505,26 @@ class OTAClient:
         resp_queue: mp_queue.Queue[IPCResponse],
     ) -> NoReturn:
         """Main loop of ota_core process."""
+        self._abort_handler.start()
+
         _allow_request_after = 0
         while True:
             _now = int(time.time())
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
+                continue
+
+            if isinstance(request, AbortRequestV2):
+                self._abort_handler.submit(request)
+                _resp = self._abort_handler.get_response()
+                if _resp is None:
+                    _resp = IPCResponse(
+                        res=IPCResEnum.REJECT_ABORT,
+                        msg="abort handler did not respond in time",
+                        session_id=request.session_id,
+                    )
+                resp_queue.put_nowait(_resp)
                 continue
 
             if _now < _allow_request_after or self.is_busy:
@@ -519,6 +577,7 @@ class OTAClient:
                 _allow_request_after = (
                     _now + HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST
                 )
+
             else:
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
                 logger.error(_err_msg)
@@ -540,12 +599,16 @@ def ota_core_process(
     resp_queue: mp_queue.Queue[IPCResponse],
     max_traceback_size: int,  # in bytes
     client_update_control_flags: ClientUpdateControlFlags,
-    critical_zone_flag: CriticalZoneFlag,
 ):
     from otaclient._logging import configure_logging
     from otaclient.configs.cfg import proxy_info
 
     configure_logging()
+
+    # Register signal handler for abort-triggered process termination.
+    # SIGUSR1 handler calls sys.exit(EXIT_CODE_OTA_ABORTED) which propagates
+    # cleanly as SystemExit in the main thread; daemon threads die automatically.
+    signal.signal(ABORT_SIGNAL, _abort_signal_handler)
 
     shm_writer = shm_writer_factory()
     shm_metrics_reader = shm_metrics_reader_factory()
@@ -564,7 +627,9 @@ def ota_core_process(
         proxy=proxy_info.get_proxy_for_local_ota(),
         status_report_queue=_local_status_report_queue,
         client_update_control_flags=client_update_control_flags,
-        critical_zone_flag=critical_zone_flag,
         shm_metrics_reader=shm_metrics_reader,
     )
-    _ota_core.main(req_queue=op_queue, resp_queue=resp_queue)
+    _ota_core.main(
+        req_queue=op_queue,
+        resp_queue=resp_queue,
+    )

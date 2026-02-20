@@ -132,7 +132,7 @@ def _on_session_finished(
         status_storage.failure_type = payload.failure_type
         status_storage.failure_reason = payload.failure_reason
         status_storage.failure_traceback = payload.failure_traceback
-    else:
+    else:  # SUCCESS, ABORTED, etc.
         status_storage.failure_type = FailureType.NO_FAILURE
         status_storage.failure_reason = ""
         status_storage.failure_traceback = ""
@@ -285,6 +285,9 @@ class OTAClientStatusCollector:
             ]:
                 status_storage.session_id = report.session_id
                 return _on_new_ota_session(status_storage, payload)
+            if new_ota_status == OTAStatus.ABORTING:
+                status_storage.ota_status = new_ota_status
+                return True
             status_storage.session_id = ""  # clear session if we are not in an OTA
             return _on_session_finished(status_storage, payload)
 
@@ -305,7 +308,7 @@ class OTAClientStatusCollector:
 
     def _status_collector_thread(self) -> None:
         """Main entry of status monitor working thread."""
-        next_shm_push, lastest_changes_pushed = 0, False
+        next_shm_push, latest_status_pushed = 0, False
         while True:
             _now = time.perf_counter()
 
@@ -319,7 +322,7 @@ class OTAClientStatusCollector:
 
                 if self.load_report(_report):  # valid report
                     report = _report
-                    lastest_changes_pushed = False
+                    latest_status_pushed = False
             except queue.Empty:
                 time.sleep(self.min_collect_interval)
 
@@ -327,13 +330,13 @@ class OTAClientStatusCollector:
             # NOTE: always push OTAStatus change report
             # NOTE: for every push interval, push only when we have status updated
             if self._status and (
-                (_now > next_shm_push and not lastest_changes_pushed)
+                (_now > next_shm_push and not latest_status_pushed)
                 or (report and isinstance(report.payload, OTAStatusChangeReport))
             ):
                 try:
                     self._shm_status.write_msg(self._status)
                     next_shm_push = _now + self.shm_push_interval
-                    lastest_changes_pushed = True
+                    latest_status_pushed = True
                 except Exception as e:
                     burst_suppressed_logger.debug(
                         f"failed to push status to shm: {e!r}"

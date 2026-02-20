@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import CriticalZoneFlag, UpdatePhase
+from otaclient._types import AbortState, UpdatePhase
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -52,8 +52,9 @@ from otaclient_common import (
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
+from ._abort_handler import AbortHandler
 from ._update_libs import (
-    DeltaCalCulator,
+    DeltaCalculator,
     process_persistents,
 )
 from ._updater_base import (
@@ -78,11 +79,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self,
         *,
         boot_controller: BootControllerProtocol,
-        critical_zone_flag: CriticalZoneFlag,
+        abort_handler: AbortHandler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         super().__init__(**kwargs)
-        self.critical_zone_flag = critical_zone_flag
+        self._abort_handler = abort_handler
         self._boot_controller = boot_controller
         self._can_use_in_place_mode = False
 
@@ -98,7 +99,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:
         """Download all the resources needed for the OTA update."""
 
-    def _pre_update(self):
+    def _pre_update(self) -> None:
         """Pre-Update: Setting up boot control and preparing slots before OTA."""
         logger.info("enter local OTA update...")
         # NOTE(20250905): if ota_resources dir on active slot presented,
@@ -161,11 +162,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self._metrics.standby_firmware_version = standby_firmware_version
         logger.info(f"standby_firmware_version: {standby_firmware_version}")
 
-    def _in_update(self):
-        """In-Update: delta calculation, resources downloading and appply updates to standby slot."""
+    def _in_update(self) -> None:
+        """In-Update: delta calculation, resources downloading and apply updates to standby slot."""
         logger.info("start to calculate delta ...")
         assert self._fst_db_helper
-        _delta_digests = DeltaCalCulator(
+        _delta_digests = DeltaCalculator(
             file_table_db_helper=self._fst_db_helper,
             standby_slot_mp=self._standby_slot_mp,
             active_slot_mp=self._active_slot_mp,
@@ -231,12 +232,14 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 resource_dir=self._resource_dir_on_standby,
             )
             standby_slot_creator.update_slot()
+        except ota_errors.OTAAbortSignal:
+            raise
         except Exception as e:
             raise ota_errors.ApplyOTAUpdateFailed(
                 f"failed to apply update to standby slot: {e!r}", module=__name__
             ) from e
 
-    def _preserve_ota_image_meta_at_post_update(self):
+    def _preserve_ota_image_meta_at_post_update(self) -> None:
         self._ota_meta_store_on_standby.mkdir(exist_ok=True, parents=True)
         # after update_slot finished, we can finally remove the previous base file_table.
         shutil.rmtree(self._ota_meta_store_base_on_standby, ignore_errors=True)
@@ -312,7 +315,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
     def _finalize_update(self) -> None:
         """Finalize-Update: wait for all sub ECUs, and then reboot."""
-        logger.info("local update finished, wait on all subecs...")
+        logger.info("local update finished, wait on all sub ECUs...")
         _current_finalizing_time = int(time.time())
         self._status_report_queue.put_nowait(
             StatusReport(
@@ -356,42 +359,59 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         """Main entry for executing local OTA update.
 
         Handles OTA failure and logging/finalizing on failure.
+        Abort is handled by the AbortHandler thread. The updater calls
+        zone transition methods (enter/exit_critical_zone, enter_final_phase)
+        which raise OTAAbortSignal if abort is in progress.
         """
         logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
         try:
             self._process_metadata()
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during pre-update phase, as OTA is already aborting"
-                    )
-                    raise ota_errors.OTAAbortRequested(module=__name__)
 
-                logger.info("Entering critical zone for OTA update: pre-update phase")
-
+            # Critical zone: _pre_update formats/mounts slots and sets up
+            # boot control. Aborting mid-way could leave the system in an
+            # inconsistent state. Abort requests arriving during this phase
+            # are queued (REQUESTED) and executed when the zone exits.
+            with self._abort_handler.critical_zone():
                 self._pre_update()
 
             self._in_update()
 
-            with self.critical_zone_flag.acquire_lock_with_release() as _lock_acquired:
-                if not _lock_acquired:
-                    logger.error(
-                        "Unable to acquire critical zone lock during post-update and finalize-update phases, as OTA is already aborting"
-                    )
-                    raise ota_errors.OTAAbortRequested(module=__name__)
+            # Close the abort window before entering final phases.
+            # If abort is in progress, this raises OTAAbortSignal.
+            self._abort_handler.enter_final_phase()
+            self._post_update()
+            self._finalize_update()
 
-                logger.info(
-                    "Entering critical zone for OTA update: post-update and finalize-update phases"
-                )
-                self._post_update()
-                self._finalize_update()
-
-            # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
+        except ota_errors.OTAAbortSignal:
+            # Abort handler thread is doing (or will do) cleanup.
+            # Don't call on_operation_failure — just re-raise.
+            # Session workdir cleanup is skipped: SIGUSR1 will kill the
+            # process, and OTAClient.__init__ unmounts the parent tmpfs
+            # on restart.
+            logger.info("OTA update aborted")
+            raise
+        # NOTE(20250818): not delete the OTA resource dir to speed up next OTA
         except ota_errors.OTAError as e:
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
+                raise ota_errors.OTAAbortSignal(
+                    "abort in progress", module=__name__
+                ) from e
             logger.error(f"update failed: {e!r}")
             self._boot_controller.on_operation_failure()
             raise  # do not cover the OTA error again
         except Exception as e:
+            if self._abort_handler.state in (
+                AbortState.ABORTING,
+                AbortState.ABORTED,
+            ):
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
+                raise ota_errors.OTAAbortSignal(
+                    "abort in progress", module=__name__
+                ) from e
             _err_msg = f"unspecific error, update failed: {e!r}"
             self._boot_controller.on_operation_failure()
             raise ota_errors.ApplyOTAUpdateFailed(_err_msg, module=__name__) from e
@@ -410,13 +430,13 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         *,
         ca_chains_store: CAChainStore,
         boot_controller: BootControllerProtocol,
-        critical_zone_flag: CriticalZoneFlag,
+        abort_handler: AbortHandler,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
-            critical_zone_flag=critical_zone_flag,
+            abort_handler=abort_handler,
             **kwargs,
         )
         self.setup_ota_image_support(ca_chains_store=ca_chains_store)
@@ -431,7 +451,7 @@ class OTAUpdaterForLegacyOTAImage(LegacyOTAImageSupportMixin, OTAUpdaterBase):
         self._fst_db_helper = self._ota_metadata.file_table_helper
         self._iter_persists_func = self._ota_metadata.iter_persist_entries
 
-    def _nvidia_jetson_check_bsp_legacy(self):
+    def _nvidia_jetson_check_bsp_legacy(self) -> None:
         _bootloader = self._boot_controller
         assert isinstance(_bootloader, JetsonUEFIBootControl)
 
@@ -468,21 +488,21 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
         *,
         ca_store: CAStoreMap,
         boot_controller: BootControllerProtocol,
-        critical_zone_flag: CriticalZoneFlag,
+        abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
-    ):
+    ) -> None:
         OTAUpdaterBase.__init__(
             self,
             boot_controller=boot_controller,
-            critical_zone_flag=critical_zone_flag,
+            abort_handler=abort_handler,
             **kwargs,
         )
         self.setup_ota_image_support(
             ca_store=ca_store, image_identifier=image_identifier
         )
 
-    def _nvidia_jetson_check_bsp(self, _bsp_ver_str: str):
+    def _nvidia_jetson_check_bsp(self, _bsp_ver_str: str) -> None:
         _bootloader = self._boot_controller
         assert isinstance(_bootloader, JetsonUEFIBootControl)
 
@@ -496,7 +516,7 @@ class OTAUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdaterBase):
                 _err_msg, module=__name__
             )
 
-    def _process_metadata(self, only_metadata_verification: bool = False):
+    def _process_metadata(self, only_metadata_verification: bool = False) -> None:
         super()._process_metadata(only_metadata_verification)
 
         image_config = self._ota_image_helper.image_config

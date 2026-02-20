@@ -193,6 +193,7 @@ class UpdateStandbySlot:
                     if self._interrupted.is_set():
                         logger.error("detect worker failed, abort!")
                         return
+
                     self._se.acquire()
 
                     _digest = _entry.digest

@@ -74,7 +74,7 @@ DOWNLOAD_STATS_REPORT_BATCH = 300
 DOWNLOAD_REPORT_INTERVAL = 1  # second
 
 
-class DeltaCalCulator:
+class DeltaCalculator:
     def __init__(
         self,
         *,
