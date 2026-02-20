@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from pprint import pformat
 from subprocess import CalledProcessError
-from typing import ClassVar, NoReturn
+from typing import ClassVar, Dict, List, NoReturn, Optional, Tuple
 
 from otaclient import errors as ota_errors
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
@@ -130,7 +130,7 @@ class GrubHelper:
     INITRD_OTA = f"{INITRD}{FNAME_VER_SPLITTER}{SUFFIX_OTA}"
     INITRD_OTA_STANDBY = f"{INITRD}{FNAME_VER_SPLITTER}{SUFFIX_OTA_STANDBY}"
 
-    grub_default_options: ClassVar[dict[str, str]] = {
+    grub_default_options: ClassVar[Dict[str, str]] = {
         "GRUB_TIMEOUT_STYLE": "menu",
         "GRUB_TIMEOUT": "0",
         "GRUB_DISABLE_SUBMENU": "y",
@@ -146,7 +146,7 @@ class GrubHelper:
         kernel_ver: str,
         rootfs_str: str,
         start: int = 0,
-    ) -> str | None:
+    ) -> Optional[str]:
         """Read in grub_cfg, update matched kernel entries' rootfs with <rootfs_str>,
             and then return the updated one.
 
@@ -156,7 +156,7 @@ class GrubHelper:
             rootfs_str: a str that indicates which rootfs device to use,
                 like root=UUID=<uuid>
         """
-        new_entry_block: str | None = None
+        new_entry_block: Optional[str] = None
         entry_l, entry_r = None, None
 
         # loop over normal entry, find the target entry,
@@ -195,7 +195,7 @@ class GrubHelper:
             return grub_cfg
 
     @classmethod
-    def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> tuple[int, _GrubMenuEntry]:
+    def get_entry(cls, grub_cfg: str, *, kernel_ver: str) -> Tuple[int, _GrubMenuEntry]:
         """Find the FIRST entry that matches the <kernel_ver>.
 
         NOTE: assume that the FIRST matching entry is the normal entry,
@@ -213,7 +213,7 @@ class GrubHelper:
 
     @classmethod
     def update_grub_default(
-        cls, grub_default: str, *, default_entry_idx: int | None = None
+        cls, grub_default: str, *, default_entry_idx: Optional[int] = None
     ) -> str:
         """Read in grub_default str and return updated one.
 
@@ -228,7 +228,7 @@ class GrubHelper:
         if default_entry_idx is not None:
             default_kvp["GRUB_DEFAULT"] = f"{default_entry_idx}"
 
-        res_kvp: dict[str, str] = {}
+        res_kvp: Dict[str, str] = {}
         for option_line in grub_default.splitlines():
             # NOTE: skip empty or commented lines
             if not option_line or option_line.startswith("#"):
@@ -355,7 +355,7 @@ class GrubABPartitionDetector:
         logger.error(_err_msg)
         raise ValueError(_err_msg)
 
-    def _detect_active_slot(self) -> tuple[str, str]:
+    def _detect_active_slot(self) -> Tuple[str, str]:
         """Get active slot's slot_id.
 
         Returns:
@@ -380,7 +380,7 @@ class GrubABPartitionDetector:
         slot_name = f"{self.SLOT_NAME_PREFIX}{_pid}"
         return slot_name, dev_path
 
-    def _detect_standby_slot(self, active_dev: str) -> tuple[str, str]:
+    def _detect_standby_slot(self, active_dev: str) -> Tuple[str, str]:
         """Get standby slot's slot_id.
 
         Returns:
@@ -766,7 +766,7 @@ class GrubController(BootControllerBase):
             r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
         )
 
-        def read_fstab_dict(fstab_path: Path) -> dict[str, re.Match]:
+        def read_fstab_dict(fstab_path: Path) -> Dict[str, re.Match]:
             """Return {mount_point: match} for valid fstab entries only"""
             entries = {}
             for line in read_str_from_file(fstab_path).splitlines():
@@ -777,7 +777,7 @@ class GrubController(BootControllerBase):
         active_dict = read_fstab_dict(active_slot_fstab)
         standby_dict = read_fstab_dict(standby_slot_fstab)
 
-        merged: list[str] = []
+        merged: List[str] = []
 
         # These special base mount points(/, /boot, /boot/efi) are created by USB Installer and not in project settings,
         # so we need to preserve them from active slot's fstab.

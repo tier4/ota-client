@@ -21,7 +21,7 @@ import shutil
 import threading
 import time
 from pathlib import Path
-from typing import AsyncGenerator, Mapping, cast
+from typing import AsyncGenerator, Mapping, Optional, cast
 
 import aiohttp
 import anyio
@@ -125,8 +125,8 @@ class OTACache:
         *,
         cache_enabled: bool,
         init_cache: bool,
-        base_dir: StrOrPath | None = None,
-        db_file: StrOrPath | None = None,
+        base_dir: Optional[StrOrPath] = None,
+        db_file: Optional[StrOrPath] = None,
         upper_proxy: str = "",
         enable_https: bool = False,
         external_cache_mnt_point: str | None = None,

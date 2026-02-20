@@ -18,7 +18,9 @@ from __future__ import annotations
 import os
 from math import ceil
 from pathlib import Path
-from typing import Literal
+from typing import Optional
+
+from typing_extensions import Literal
 
 _MultiUnits = Literal["GiB", "MiB", "KiB", "Bytes", "KB", "MB", "GB"]
 # fmt: off
@@ -32,7 +34,7 @@ _multiplier: dict[_MultiUnits, int] = {
 
 def get_file_size(
     swapfile_fpath: str | Path, units: _MultiUnits = "Bytes"
-) -> int | None:
+) -> Optional[int]:
     """Helper for get file size with <units>."""
     swapfile_fpath = Path(swapfile_fpath)
     if swapfile_fpath.is_file():

@@ -233,10 +233,9 @@ def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):
     _ft_db = tmp_path / "file_table.sqlite3"
     _rs_db = tmp_path / "resource_table.sqlite3"
 
-    with (
-        closing(sqlite3.connect(_ft_db)) as fst_conn,
-        closing(sqlite3.connect(_rs_db)) as rst_conn,
-    ):
+    with closing(sqlite3.connect(_ft_db)) as fst_conn, closing(
+        sqlite3.connect(_rs_db)
+    ) as rst_conn:
         ft_regular_orm = FileTableRegularORM(fst_conn)
         ft_regular_orm.orm_bootstrap_db()
         ft_dir_orm = FileTableDirORM(fst_conn)

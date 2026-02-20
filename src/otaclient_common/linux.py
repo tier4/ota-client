@@ -22,6 +22,7 @@ import stat
 import subprocess
 from pathlib import Path
 from subprocess import check_call
+from typing import Optional
 
 from otaclient_common._env import RUN_AS_PYINSTALLER_BUNDLE
 from otaclient_common._typing import StrOrPath, copy_callable_typehint
@@ -207,8 +208,8 @@ def subprocess_run_wrapper(
     check_output: bool,
     chroot: StrOrPath | None = None,
     set_host_mnt_ns: bool = False,
-    env: dict[str, str] | None = None,
-    timeout: float | None = None,
+    env: Optional[dict[str, str]] = None,
+    timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """A wrapper for subprocess.run method.
 
@@ -225,7 +226,7 @@ def subprocess_run_wrapper(
         check_output (bool): if True, the UTF-8 decoded stdout will be returned.
         chroot (StrOrPath | None): if set, will do a chroot to <chroot> before subprocess exec.
         set_host_mnt_ns (bool): if set to True, will do a setns to host mount ns before subprocess exec.
-        timeout (float | None, optional): timeout for execution. Defaults to None.
+        timeout (Optional[float], optional): timeout for execution. Defaults to None.
 
     Returns:
         subprocess.CompletedProcess[bytes]: the result of the execution.

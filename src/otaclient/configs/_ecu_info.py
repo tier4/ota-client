@@ -18,10 +18,11 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import Annotated
+from typing import List
 
 import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
+from typing_extensions import Annotated
 
 from otaclient.configs._common import BaseFixedConfig
 from otaclient_common._typing import (
@@ -96,8 +97,8 @@ class ECUInfo(BaseFixedConfig):
         AfterValidator(BootloaderType.deprecation_validator),
         Field(validate_default=False),
     ] = BootloaderType.AUTO_DETECT
-    available_ecu_ids: list[str] = Field(default_factory=list)
-    secondaries: list[ECUContact] = Field(default_factory=list)
+    available_ecu_ids: List[str] = Field(default_factory=list)
+    secondaries: List[ECUContact] = Field(default_factory=list)
 
     def get_available_ecu_ids(self) -> list[str]:
         """

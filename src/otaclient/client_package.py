@@ -23,7 +23,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
 
 from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient import __version__
@@ -42,9 +42,9 @@ logger = logging.getLogger(__name__)
 class OTAClientPackageDownloadInfo:
     url: str
     dst: Path
-    filename: str | None = None
-    type: str | None = None
-    checksum: str | None = None
+    filename: Optional[str] = None
+    type: Optional[str] = None
+    checksum: Optional[str] = None
 
 
 class OTAClientPackageDownloader:

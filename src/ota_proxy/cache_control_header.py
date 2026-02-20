@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from io import StringIO
-from typing import ClassVar, TypedDict
+from typing import ClassVar, Optional, TypedDict
 
 from typing_extensions import Unpack
 
@@ -36,8 +36,8 @@ class OTAFileCacheDirTypedDict(TypedDict, total=False):
     no_cache: bool
     retry_caching: bool
     # added in revision 2:
-    file_sha256: str | None
-    file_compression_alg: str | None
+    file_sha256: Optional[str]
+    file_compression_alg: Optional[str]
 
 
 def parse_header(_input: str) -> OTAFileCacheControl:
@@ -123,8 +123,8 @@ class OTAFileCacheControl:
     no_cache: bool = False
     retry_caching: bool = False
     # added in revision 2:
-    file_sha256: str | None = None
-    file_compression_alg: str | None = None
+    file_sha256: Optional[str] = None
+    file_compression_alg: Optional[str] = None
 
     # TODO: (20250618): to not change the callers of these methods,
     #                   currently just register these methods under OTAFileCacheControl class.

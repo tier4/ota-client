@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Optional
 
 from otaclient import errors as ota_errors
 from otaclient.boot_control._firmware_package import (
@@ -79,7 +79,7 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
 
     @classmethod
     def mark_boot_successful(
-        cls, slot_id: SlotID, *, target: NVBootctrlTarget | None = None
+        cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
     ) -> None:  # pragma: no cover
         """Mark current slot as GOOD."""
         cmd = "mark-boot-successful"
@@ -96,7 +96,7 @@ class NVBootctrlJetsonCBOOT(NVBootctrlCommon):
 
     @classmethod
     def set_slot_as_unbootable(
-        cls, slot_id: SlotID, *, target: NVBootctrlTarget | None = None
+        cls, slot_id: SlotID, *, target: Optional[NVBootctrlTarget] = None
     ) -> None:  # pragma: no cover
         """Mark SLOT as invalid."""
         cmd = "set-slot-as-unbootable"

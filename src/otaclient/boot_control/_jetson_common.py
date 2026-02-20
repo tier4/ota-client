@@ -23,10 +23,10 @@ import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Any, Literal, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 from pydantic import BeforeValidator, PlainSerializer
-from typing_extensions import Self
+from typing_extensions import Annotated, Literal, Self
 
 from otaclient_common import cmdhelper, replace_root
 from otaclient_common._io import write_str_to_file_atomic
@@ -144,11 +144,11 @@ class NVBootctrlCommon:
     def _nvbootctrl(
         cls,
         _cmd: str,
-        _slot_id: SlotID | None = None,
+        _slot_id: Optional[SlotID] = None,
         *,
         check_output: bool,
-        target: NVBootctrlTarget | None = None,
-        chroot: StrOrPath | None = None,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> Any:  # pragma: no cover
         """
         Raises:
@@ -174,8 +174,8 @@ class NVBootctrlCommon:
     def get_current_slot(
         cls,
         *,
-        target: NVBootctrlTarget | None = None,
-        chroot: StrOrPath | None = None,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> SlotID:  # pragma: no cover
         """Prints currently running SLOT.
 
@@ -193,8 +193,8 @@ class NVBootctrlCommon:
     def get_standby_slot(
         cls,
         *,
-        target: NVBootctrlTarget | None = None,
-        chroot: StrOrPath | None = None,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> SlotID:  # pragma: no cover
         """Prints standby SLOT.
 
@@ -211,8 +211,8 @@ class NVBootctrlCommon:
         cls,
         slot_id: SlotID,
         *,
-        target: NVBootctrlTarget | None = None,
-        chroot: StrOrPath | None = None,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> None:  # pragma: no cover
         """On next boot, load and execute SLOT.
 
@@ -231,8 +231,8 @@ class NVBootctrlCommon:
     def dump_slots_info(
         cls,
         *,
-        target: NVBootctrlTarget | None = None,
-        chroot: StrOrPath | None = None,
+        target: Optional[NVBootctrlTarget] = None,
+        chroot: Optional[StrOrPath] = None,
     ) -> str:  # pragma: no cover
         """Prints info for slots.
 

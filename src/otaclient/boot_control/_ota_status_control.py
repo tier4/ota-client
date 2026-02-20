@@ -18,7 +18,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional, Union
 
 from otaclient._types import OTAStatus
 from otaclient.configs.cfg import cfg
@@ -47,8 +47,8 @@ class OTAStatusFilesControl:
         *,
         active_slot: str,
         standby_slot: str,
-        current_ota_status_dir: str | Path,
-        standby_ota_status_dir: str | Path,
+        current_ota_status_dir: Union[str, Path],
+        standby_ota_status_dir: Union[str, Path],
         finalize_switching_boot: FinalizeSwitchBootFunc,
         force_initialize: bool = False,
     ) -> None:
@@ -179,7 +179,7 @@ class OTAStatusFilesControl:
             self.standby_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _slot
         )
 
-    def _load_current_slot_in_use(self) -> str | None:
+    def _load_current_slot_in_use(self) -> Optional[str]:
         if res := read_str_from_file(
             self.current_ota_status_dir / cfg.SLOT_IN_USE_FNAME, _default=""
         ):
@@ -197,7 +197,7 @@ class OTAStatusFilesControl:
             self.standby_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
 
-    def _load_current_status(self) -> OTAStatus | None:
+    def _load_current_status(self) -> Optional[OTAStatus]:
         if _status_str := read_str_from_file(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _default=""
         ).upper():

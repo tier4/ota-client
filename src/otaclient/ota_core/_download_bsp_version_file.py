@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import time
 from http import HTTPStatus
+from typing import Optional
 from urllib.parse import urlsplit
 
 from otaclient.boot_control.configs import JetsonBootCommon
@@ -32,7 +33,7 @@ RETRY_INTERVAL = 1  # second
 
 
 # API function
-def download(base_url: str, *, downloader_pool: DownloaderPool) -> str | None:
+def download(base_url: str, *, downloader_pool: DownloaderPool) -> Optional[str]:
     """Download BSP version file content."""
     logger.info("perform BSP version compatibility check ...")
     _downloader = downloader_pool.get_instance()
