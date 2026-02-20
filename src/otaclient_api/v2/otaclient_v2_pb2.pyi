@@ -1,12 +1,9 @@
-import datetime
-
 from google.protobuf import duration_pb2 as _duration_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -217,7 +214,7 @@ class StatusProgress(_message.Message):
     total_regular_file_size: int
     total_elapsed_time: _duration_pb2.Duration
     download_bytes: int
-    def __init__(self, phase: _Optional[_Union[StatusProgressPhase, str]] = ..., total_regular_files: _Optional[int] = ..., regular_files_processed: _Optional[int] = ..., files_processed_copy: _Optional[int] = ..., files_processed_link: _Optional[int] = ..., files_processed_download: _Optional[int] = ..., file_size_processed_copy: _Optional[int] = ..., file_size_processed_link: _Optional[int] = ..., file_size_processed_download: _Optional[int] = ..., elapsed_time_copy: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., elapsed_time_link: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., elapsed_time_download: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., errors_download: _Optional[int] = ..., total_regular_file_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., download_bytes: _Optional[int] = ...) -> None: ...
+    def __init__(self, phase: _Optional[_Union[StatusProgressPhase, str]] = ..., total_regular_files: _Optional[int] = ..., regular_files_processed: _Optional[int] = ..., files_processed_copy: _Optional[int] = ..., files_processed_link: _Optional[int] = ..., files_processed_download: _Optional[int] = ..., file_size_processed_copy: _Optional[int] = ..., file_size_processed_link: _Optional[int] = ..., file_size_processed_download: _Optional[int] = ..., elapsed_time_copy: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., elapsed_time_link: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., elapsed_time_download: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., errors_download: _Optional[int] = ..., total_regular_file_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., download_bytes: _Optional[int] = ...) -> None: ...
 
 class Status(_message.Message):
     __slots__ = ("status", "failure", "failure_reason", "version", "progress")
@@ -313,4 +310,4 @@ class UpdateStatus(_message.Message):
     delta_generating_elapsed_time: _duration_pb2.Duration
     downloading_elapsed_time: _duration_pb2.Duration
     update_applying_elapsed_time: _duration_pb2.Duration
-    def __init__(self, update_firmware_version: _Optional[str] = ..., total_files_size_uncompressed: _Optional[int] = ..., total_files_num: _Optional[int] = ..., update_start_timestamp: _Optional[int] = ..., phase: _Optional[_Union[UpdatePhase, str]] = ..., total_download_files_num: _Optional[int] = ..., total_download_files_size: _Optional[int] = ..., downloaded_files_num: _Optional[int] = ..., downloaded_bytes: _Optional[int] = ..., downloaded_files_size: _Optional[int] = ..., downloading_errors: _Optional[int] = ..., total_remove_files_num: _Optional[int] = ..., removed_files_num: _Optional[int] = ..., processed_files_num: _Optional[int] = ..., processed_files_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., delta_generating_elapsed_time: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., downloading_elapsed_time: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., update_applying_elapsed_time: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ...) -> None: ...
+    def __init__(self, update_firmware_version: _Optional[str] = ..., total_files_size_uncompressed: _Optional[int] = ..., total_files_num: _Optional[int] = ..., update_start_timestamp: _Optional[int] = ..., phase: _Optional[_Union[UpdatePhase, str]] = ..., total_download_files_num: _Optional[int] = ..., total_download_files_size: _Optional[int] = ..., downloaded_files_num: _Optional[int] = ..., downloaded_bytes: _Optional[int] = ..., downloaded_files_size: _Optional[int] = ..., downloading_errors: _Optional[int] = ..., total_remove_files_num: _Optional[int] = ..., removed_files_num: _Optional[int] = ..., processed_files_num: _Optional[int] = ..., processed_files_size: _Optional[int] = ..., total_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., delta_generating_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., downloading_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ..., update_applying_elapsed_time: _Optional[_Union[_duration_pb2.Duration, _Mapping]] = ...) -> None: ...
