@@ -13,8 +13,6 @@
 # limitations under the License.
 
 
-from unittest import mock
-
 import grpc
 import pytest
 import pytest_asyncio
@@ -360,19 +358,19 @@ class TestOTAClientCall:
                 timeout=1,
             )
 
-    async def test_abort_call_generic_exception(self):
+    async def test_abort_call_generic_exception(self, mocker):
         """Non-gRPC exceptions are caught by the generic except branch."""
         _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
-        with mock.patch(
+        mocker.patch(
             "grpc.aio.insecure_channel",
             side_effect=RuntimeError("unexpected"),
+        )
+        with pytest.raises(
+            ECUNoResponse, match="failed to respond to abort request on-time"
         ):
-            with pytest.raises(
-                ECUNoResponse, match="failed to respond to abort request on-time"
-            ):
-                await OTAClientCall.abort_call(
-                    ecu_id=self.DUMMY_ECU_ID,
-                    ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-                    ecu_port=self.OTA_CLIENT_SERVICE_PORT,
-                    request=_req,
-                )
+            await OTAClientCall.abort_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+            )
