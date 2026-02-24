@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from unittest import mock
+
 import grpc
 import pytest
 import pytest_asyncio
@@ -20,7 +22,11 @@ import pytest_asyncio
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2 import otaclient_v2_pb2 as v2
 from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
-from otaclient_api.v2.api_caller import ECUNoResponse, OTAClientCall
+from otaclient_api.v2.api_caller import (
+    ECUAbortNotSupported,
+    ECUNoResponse,
+    OTAClientCall,
+)
 from tests.utils import compare_message
 
 
@@ -121,6 +127,40 @@ class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):
         return _res
 
 
+DUMMY_ABORT_REQUEST = v2.AbortRequest(ecu=[v2.AbortRequestEcu(ecu_id="autoware")])
+DUMMY_ABORT_RESPONSE = v2.AbortResponse(
+    ecu=[
+        v2.AbortResponseEcu(
+            ecu_id="autoware",
+            result=v2.ABORT_NO_FAILURE,
+        ),
+    ]
+)
+
+
+class _SuccessAbortService(v2_grpc.OtaClientServiceServicer):
+    """Servicer that successfully handles Abort requests."""
+
+    async def Abort(self, request, context):
+        _res = v2.AbortResponse()
+        _res.CopyFrom(DUMMY_ABORT_RESPONSE)
+        return _res
+
+
+class _DeadlineExceededAbortService(v2_grpc.OtaClientServiceServicer):
+    """Servicer that returns DEADLINE_EXCEEDED for Abort requests."""
+
+    async def Abort(self, request, context):
+        await context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "deadline exceeded")
+
+
+class _InternalErrorAbortService(v2_grpc.OtaClientServiceServicer):
+    """Servicer that returns INTERNAL error for Abort requests."""
+
+    async def Abort(self, request, context):
+        await context.abort(grpc.StatusCode.INTERNAL, "internal error")
+
+
 class TestOTAClientCall:
     OTA_CLIENT_SERVICE_PORT = 50051
     OTA_CLIENT_SERVICE_IP = "127.0.0.1"
@@ -217,3 +257,122 @@ class TestOTAClientCall:
                 request=_req,
                 timeout=1,
             )
+
+    # ------ abort_call tests ------ #
+
+    @pytest_asyncio.fixture
+    async def abort_service(self):
+        server = grpc.aio.server()
+        v2_grpc.add_OtaClientServiceServicer_to_server(_SuccessAbortService(), server)
+        server.add_insecure_port(
+            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
+        )
+        try:
+            await server.start()
+            yield
+        finally:
+            await server.stop(None)
+
+    @pytest_asyncio.fixture
+    async def deadline_exceeded_abort_service(self):
+        server = grpc.aio.server()
+        v2_grpc.add_OtaClientServiceServicer_to_server(
+            _DeadlineExceededAbortService(), server
+        )
+        server.add_insecure_port(
+            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
+        )
+        try:
+            await server.start()
+            yield
+        finally:
+            await server.stop(None)
+
+    @pytest_asyncio.fixture
+    async def internal_error_abort_service(self):
+        server = grpc.aio.server()
+        v2_grpc.add_OtaClientServiceServicer_to_server(
+            _InternalErrorAbortService(), server
+        )
+        server.add_insecure_port(
+            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
+        )
+        try:
+            await server.start()
+            yield
+        finally:
+            await server.stop(None)
+
+    async def test_abort_call(self, abort_service):
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        _response = await OTAClientCall.abort_call(
+            ecu_id=self.DUMMY_ECU_ID,
+            ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            request=_req,
+        )
+        compare_message(_response.export_pb(), DUMMY_ABORT_RESPONSE)
+
+    async def test_abort_call_unimplemented(self, dummy_ota_client_service):
+        """UNIMPLEMENTED is raised when the servicer doesn't implement Abort."""
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        with pytest.raises(ECUAbortNotSupported):
+            await OTAClientCall.abort_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+            )
+
+    async def test_abort_call_deadline_exceeded(self, deadline_exceeded_abort_service):
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        with pytest.raises(
+            ECUNoResponse, match="failed to respond to abort request on-time"
+        ):
+            await OTAClientCall.abort_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+            )
+
+    async def test_abort_call_grpc_error(self, internal_error_abort_service):
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        with pytest.raises(
+            ECUNoResponse, match="abort request failed with gRPC error code"
+        ):
+            await OTAClientCall.abort_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+            )
+
+    async def test_abort_call_no_response(self):
+        """No server running - connection fails, raises ECUNoResponse."""
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        with pytest.raises(ECUNoResponse):
+            await OTAClientCall.abort_call(
+                ecu_id=self.DUMMY_ECU_ID,
+                ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                request=_req,
+                timeout=1,
+            )
+
+    async def test_abort_call_generic_exception(self):
+        """Non-gRPC exceptions are caught by the generic except branch."""
+        _req = api_types.AbortRequest.convert(DUMMY_ABORT_REQUEST)
+        with mock.patch(
+            "grpc.aio.insecure_channel",
+            side_effect=RuntimeError("unexpected"),
+        ):
+            with pytest.raises(
+                ECUNoResponse, match="failed to respond to abort request on-time"
+            ):
+                await OTAClientCall.abort_call(
+                    ecu_id=self.DUMMY_ECU_ID,
+                    ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
+                    ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                    request=_req,
+                )
