@@ -61,7 +61,7 @@ from otaclient._utils import (
 )
 from otaclient.boot_control import get_boot_controller
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
-from otaclient.metrics import OTAImageFormat, OTAMetricsData
+from otaclient.metrics import OTAImageFormat, OTAMetricsData, OTAMetricsType
 from otaclient.ota_core._common import create_downloader_pool
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
@@ -282,13 +282,14 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
+        self._metrics.request_id = request_id
+        self._metrics.session_id = new_session_id
+        self._metrics.publish(OTAMetricsType.REQUEST)
 
         if self.proxy:
             handle_upper_proxy(self.proxy)
 
         session_wd = self._update_session_dir / new_session_id
-        self._metrics.request_id = request_id
-        self._metrics.session_id = new_session_id
 
         download_pool = create_downloader_pool(
             request.cookies_json,
@@ -365,7 +366,7 @@ class OTAClient:
                     self._metrics.shm_merge(_shm_metrics)
             except Exception as e:
                 logger.error(f"failed to merge metrics: {e!r}")
-            self._metrics.publish()
+            self._metrics.publish(OTAMetricsType.UPDATE)
 
             self._exit_from_dynamic_client()
 
