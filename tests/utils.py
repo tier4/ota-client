@@ -116,14 +116,6 @@ def compare_dir(left: Path, right: Path):
 
 
 class DummySubECU:
-    SUCCESS_RESPONSE = api_types.Status(
-        status=api_types.StatusOta.SUCCESS,
-        failure=api_types.FailureType.NO_FAILURE,
-    )
-    UPDATING_RESPONSE = api_types.Status(
-        status=api_types.StatusOta.UPDATING,
-        failure=api_types.FailureType.NO_FAILURE,
-    )
     UPDATE_TIME_COST = 6
     REBOOT_TIME_COST = 1
 
@@ -131,6 +123,20 @@ class DummySubECU:
         self._receive_update_time = None
         self._update_succeeded = False
         self.ecu_id = ecu_id
+
+    def _make_response(
+        self, ota_status: api_types.StatusOta
+    ) -> api_types.StatusResponse:
+        return api_types.StatusResponse(
+            available_ecu_ids=[self.ecu_id],
+            ecu_v2=[
+                api_types.StatusResponseEcuV2(
+                    ecu_id=self.ecu_id,
+                    ota_status=ota_status,
+                    failure_type=api_types.FailureType.NO_FAILURE,
+                )
+            ],
+        )
 
     def start(self):
         logger.debug(f"dummy subecu: start update at {time.time()=}")
@@ -141,16 +147,7 @@ class DummySubECU:
         # update not yet started
         if self._receive_update_time is None:
             logger.debug(f"{self.ecu_id=}, update not yet started")
-            res = api_types.StatusResponse(
-                ecu=[
-                    api_types.StatusResponseEcu(
-                        ecu_id=self.ecu_id,
-                        status=self.SUCCESS_RESPONSE,
-                    )
-                ],
-                available_ecu_ids=[self.ecu_id],
-            )
-            return res
+            return self._make_response(api_types.StatusOta.SUCCESS)
         # update finished
         if time.time() >= (
             self._receive_update_time + self.UPDATE_TIME_COST + self.REBOOT_TIME_COST
@@ -158,33 +155,15 @@ class DummySubECU:
             logger.debug(
                 f"update finished for {self.ecu_id=}, {self._receive_update_time=}, {time.time()=}"
             )
-            res = api_types.StatusResponse(
-                ecu=[
-                    api_types.StatusResponseEcu(
-                        ecu_id=self.ecu_id,
-                        status=self.SUCCESS_RESPONSE,
-                    )
-                ],
-                available_ecu_ids=[self.ecu_id],
-            )
             self._update_succeeded = True
-            return res
+            return self._make_response(api_types.StatusOta.SUCCESS)
         # rebooting
         if time.time() >= (self._receive_update_time + self.UPDATE_TIME_COST):
             logger.debug(f"{self.ecu_id=}, rebooting")
             return None
         # updating
         logger.debug(f"{self.ecu_id=}, updating")
-        res = api_types.StatusResponse(
-            ecu=[
-                api_types.StatusResponseEcu(
-                    ecu_id=self.ecu_id,
-                    status=self.UPDATING_RESPONSE,
-                )
-            ],
-            available_ecu_ids=[self.ecu_id],
-        )
-        return res
+        return self._make_response(api_types.StatusOta.UPDATING)
 
 
 def zstd_compress_file(src: Union[str, Path], dst: Union[str, Path]):
