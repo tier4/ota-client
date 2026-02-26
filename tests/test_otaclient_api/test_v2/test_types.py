@@ -75,6 +75,13 @@ def test_convert_message(
     compare_message(origin_msg, _exported)
 
 
+def test_status_response_add_ecu_from_pb2():
+    """StatusResponse.add_ecu accepts a raw pb2.StatusResponseEcuV2 instance."""
+    resp = api_types.StatusResponse()
+    resp.add_ecu(v2.StatusResponseEcuV2(ecu_id="ecu_1", ota_status=v2.SUCCESS))
+    assert resp.find_ecu_v2("ecu_1") is not None
+
+
 class Test_enum_wrapper_cooperate:
     def test_direct_compare(self):
         """protobuf enum and wrapper enum can compare directly."""
