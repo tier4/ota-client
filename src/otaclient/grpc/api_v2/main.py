@@ -49,12 +49,12 @@ def grpc_server_process(
 
     async def _grpc_server_launcher():
         import grpc.aio
+        from otaclient_pb2.v2 import otaclient_v2_pb2_grpc as v2_grpc
 
         from otaclient.configs.cfg import cfg, ecu_info
         from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
         from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
         from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
-        from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
         from otaclient_api.v2.api_stub import OtaClientServiceV2
 
         ecu_status_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)

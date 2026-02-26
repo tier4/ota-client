@@ -55,7 +55,7 @@ class TestGrpcServerLauncher:
         ) as mock_api_servicer, patch(
             "otaclient_api.v2.api_stub.OtaClientServiceV2"
         ) as mock_ota_client_service_v2, patch(
-            "otaclient_api.v2.otaclient_v2_pb2_grpc.add_OtaClientServiceServicer_to_server"
+            "otaclient_pb2.v2.otaclient_v2_pb2_grpc.add_OtaClientServiceServicer_to_server"
         ) as mock_add_servicer, patch(
             "grpc.aio.server", return_value=mock_server
         ) as mock_grpc_server, patch(

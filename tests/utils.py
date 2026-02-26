@@ -28,9 +28,9 @@ from typing import Union
 import grpc
 import zstandard
 from google.protobuf.message import Message as _Message
+from otaclient_pb2.v2 import otaclient_v2_pb2_grpc as v2_grpc
 
 from otaclient_api.v2 import _types as api_types
-from otaclient_api.v2 import otaclient_v2_pb2_grpc as v2_grpc
 from otaclient_common._io import file_sha256
 
 logger = logging.getLogger(__name__)
