@@ -97,6 +97,15 @@ class TestBootControllerBase:
         controller._ota_status_control.on_failure.assert_called_once()
         controller._mp_control.umount_all.assert_called_once()
 
+    def test_on_abort(self):
+        """Test that on_abort persists ABORTED status without unmounting."""
+        controller = ConcreteBootController()
+
+        controller.on_abort()
+
+        controller._ota_status_control.on_abort.assert_called_once()
+        controller._mp_control.umount_all.assert_not_called()
+
     def test_pre_update_success(self):
         """Test pre_update template method with successful execution."""
         controller = ConcreteBootController()

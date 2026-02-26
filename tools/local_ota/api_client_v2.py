@@ -75,7 +75,7 @@ async def main(
     port: int,
     *,
     req: _types.ClientUpdateRequest,
-    timeout: int = 3,
+    timeout: int = 10,
 ) -> None:
     try:
         resp = await OTAClientCall.client_update_call(
@@ -87,7 +87,7 @@ async def main(
         )
         logger.info(f"update response: {resp}")
     except ECUNoResponse as e:
-        _err_msg = f"ECU doesn't response to the request on-time({timeout=}): {e}"
+        _err_msg = f"ECU did not respond to the request on-time({timeout=}): {e}"
         logger.error(_err_msg)
 
 

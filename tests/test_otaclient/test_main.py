@@ -168,34 +168,25 @@ class TestMain:
             return_value=mock_client_update_flags,
         )
 
-        # Mock CriticalZoneFlag and AbortOTAFlag
-        mock_critical_zone_flag = mocker.MagicMock()
-        mock_critical_zone_flag.acquire.return_value = True
-        mock_critical_zone_flag_class = mocker.MagicMock(
-            return_value=mock_critical_zone_flag
-        )
-        mocker.patch(f"{MAIN_MODULE}.CriticalZoneFlag", mock_critical_zone_flag_class)
-
-        mock_abort_ota_flag = mocker.MagicMock()
-        mock_abort_ota_flag.return_value = False
-        mock_abort_ota_flag_class = mocker.MagicMock(return_value=mock_abort_ota_flag)
-        mocker.patch(f"{MAIN_MODULE}.AbortOTAFlag", mock_abort_ota_flag_class)
-
         # Create mock for otaproxy thread
         mock_thread = mocker.MagicMock()
         mocker.patch(f"{MAIN_MODULE}.threading.Thread", return_value=mock_thread)
 
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
-        mock_mp_ctx.Event.side_effect = [
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
         ]
+
+        mock_mp_ctx.Event.side_effect = [
+            MagicMock(),  # any_child_ecu_in_update
+            MagicMock(),  # any_requires_network
+            MagicMock(),  # all_success
+            MagicMock(),  # notify_data_ready_event
+            MagicMock(),  # request_shutdown_event
+        ]
+
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -246,15 +237,19 @@ class TestMain:
 
         # Mock multiprocessing context and processes
         mock_mp_ctx = mocker.MagicMock()
-        mock_mp_ctx.Queue.side_effect = [MagicMock(), MagicMock()]
-        mock_mp_ctx.Event.side_effect = [
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
         ]
+
+        mock_mp_ctx.Event.side_effect = [
+            MagicMock(),  # any_child_ecu_in_update
+            MagicMock(),  # any_requires_network
+            MagicMock(),  # all_success
+            MagicMock(),  # notify_data_ready_event
+            MagicMock(),  # request_shutdown_event
+        ]
+
         mock_mp_ctx.Process.side_effect = [
             self.mock_ota_core_p,
             self.mock_grpc_server_p,
@@ -276,6 +271,71 @@ class TestMain:
         main.main()
 
         # Verify _on_shutdown was called because grpc server died
+        mock_on_shutdown.assert_called_once()
+
+    @patch("otaclient._logging.configure_logging")
+    def test_main_abort_shutdown(self, mock_logging, mocker: pytest_mock.MockerFixture):
+        """Test main function shutdown when ota_core exits with EXIT_CODE_OTA_ABORTED."""
+        # Mock the modules and functions imported in main()
+        mocker.patch("otaclient._otaproxy_ctx.otaproxy_control_thread")
+        mocker.patch("otaclient.grpc.api_v2.main.grpc_server_process")
+        mocker.patch("otaclient.ota_core.ota_core_process")
+
+        # Mock os.execve to prevent process replacement
+        mocker.patch(f"{MAIN_MODULE}.os.execve")
+
+        # Mock _env.is_dynamic_client_preparing and running to control flow
+        mocker.patch(
+            "otaclient_common._env.is_dynamic_client_running", return_value=False
+        )
+
+        # Mock ClientUpdateControlFlags
+        mock_client_update_flags = mocker.MagicMock()
+        mock_client_update_flags.notify_data_ready_event.is_set.return_value = False
+        mock_client_update_flags.request_shutdown_event.is_set.return_value = False
+        mocker.patch(
+            f"{MAIN_MODULE}.ClientUpdateControlFlags",
+            return_value=mock_client_update_flags,
+        )
+
+        # Mock multiprocessing context and processes
+        mock_mp_ctx = mocker.MagicMock()
+        mock_mp_ctx.Queue.side_effect = [
+            MagicMock(),  # local_otaclient_op_queue
+            MagicMock(),  # local_otaclient_resp_queue
+        ]
+
+        mock_mp_ctx.Event.side_effect = [
+            MagicMock(),  # any_child_ecu_in_update
+            MagicMock(),  # any_requires_network
+            MagicMock(),  # all_success
+            MagicMock(),  # notify_data_ready_event
+            MagicMock(),  # request_shutdown_event
+        ]
+
+        mock_mp_ctx.Process.side_effect = [
+            self.mock_ota_core_p,
+            self.mock_grpc_server_p,
+        ]
+        mocker.patch(f"{MAIN_MODULE}.mp.get_context", return_value=mock_mp_ctx)
+
+        # Mock time.sleep to prevent real delays
+        mock_sleep = mocker.patch(f"{MAIN_MODULE}.time.sleep")
+
+        # Mock _on_shutdown to prevent SystemExit
+        mock_on_shutdown = mocker.patch(f"{MAIN_MODULE}._on_shutdown")
+
+        # Simulate ota_core exiting with EXIT_CODE_OTA_ABORTED (79)
+        self.mock_ota_core_p.is_alive.return_value = False
+        self.mock_ota_core_p.exitcode = 79  # EXIT_CODE_OTA_ABORTED
+
+        # Execute main()
+        main.main()
+
+        # Verify the sleep before shutdown was called with the correct duration
+        mock_sleep.assert_any_call(main.SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED)
+
+        # Verify _on_shutdown was called
         mock_on_shutdown.assert_called_once()
 
     @patch("otaclient._logging.configure_logging")

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""A simple tool to abort an OTA locally, for API version 2."""
+"""A simple tool to query OTA status locally, for API version 2."""
 
 from __future__ import annotations
 
@@ -31,32 +31,18 @@ async def main(
     host: str,
     port: int,
     *,
-    req: _types.AbortRequest,
+    req: _types.StatusRequest,
     timeout: int = 10,
 ) -> None:
-    """Call the ECU's v2 abort API with a configurable timeout.
-
-    Args:
-        host: ECU listen IP address.
-        port: ECU listen port.
-        req: Abort request to send to the ECU.
-        timeout: Timeout in seconds for waiting for the ECU's abort response.
-            The default value of 10 seconds is intentionally longer than the
-            previous 3-second default to support the abort queuing behavior
-            in the OTA client: an abort request may be queued until any
-            critical sections have finished before it is processed, so this
-            longer timeout allows those queued aborts to complete before the
-            ECU is treated as non-responsive.
-    """
     try:
-        resp = await OTAClientCall.abort_call(
+        resp = await OTAClientCall.status_call(
             "not_used",
             host,
             port,
             request=req,
             timeout=timeout,
         )
-        logger.info(f"abort response: {resp}")
+        logger.info(f"status response: {resp}")
     except ECUNoResponse as e:
         _err_msg = f"ECU did not respond to the request on-time({timeout=}): {e}"
         logger.error(_err_msg)
@@ -66,7 +52,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Calling ECU's abort API, API version v2",
+        description="Calling ECU's status API, API version v2",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -86,11 +72,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    abort_request = _types.AbortRequest()
+    status_request = _types.StatusRequest()
     asyncio.run(
         main(
             args.host,
             args.port,
-            req=abort_request,
+            req=status_request,
         )
     )

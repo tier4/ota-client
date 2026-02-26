@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import ClassVar, Optional
 
@@ -74,27 +73,32 @@ class FailureType(StrEnum):
 #
 
 
-class CriticalZoneFlag:
-    def __init__(self, lock: mp_sync.Lock):
-        self._lock = lock
+class AbortState(StrEnum):
+    """States for the OTA abort state machine.
 
-    @contextmanager
-    def acquire_lock_no_release(self):
-        yield self._lock.acquire(block=False)
+    The AbortHandler in ota_core._abort_handler owns this state as a plain
+    instance variable protected by threading.Lock (no shared memory needed).
 
-    @contextmanager
-    def acquire_lock_with_release(self):
-        acquired = self._lock.acquire(block=False)
-        try:
-            yield acquired
-        finally:
-            if acquired:
-                self._lock.release()
+    Transitions:
+        NONE → CRITICAL_ZONE                (AbortHandler: updater entering critical zone)
+        NONE → FINAL_PHASE                  (AbortHandler: updater entering final phase)
+        NONE → ABORTING                     (AbortHandler: abort accepted immediately)
+        CRITICAL_ZONE → NONE               (AbortHandler: updater exiting critical zone normally)
+        CRITICAL_ZONE → REQUESTED          (AbortHandler: abort RPC during critical zone, queued)
+        REQUESTED → ABORTING               (AbortHandler: exit_critical_zone drives queued abort)
+        ABORTING → ABORTED                 (AbortHandler: cleanup done)
+        ABORTED → [process exit]           (AbortHandler: SIGUSR1 sent, process exits)
+        FINAL_PHASE → [reject abort]       (AbortHandler: abort rejected during final phase)
+    """
 
-
-@dataclass
-class AbortOTAFlag:
-    shutdown_requested: mp_sync.Event
+    NONE = "NONE"
+    REQUESTED = (
+        "REQUESTED"  # abort requested during critical zone, queued until zone exits
+    )
+    ABORTING = "ABORTING"
+    ABORTED = "ABORTED"
+    FINAL_PHASE = "FINAL_PHASE"
+    CRITICAL_ZONE = "CRITICAL_ZONE"
 
 
 #
@@ -180,6 +184,8 @@ class IPCResEnum(StrEnum):
     ACCEPT = "ACCEPT"
     REJECT_BUSY = "REJECT_BUSY"
     """The request has been rejected due to otaclient is busy."""
+    REJECT_ABORT = "REJECT_ABORT"
+    """The abort request has been rejected."""
     REJECT_OTHER = "REJECT_OTHER"
     """The request has been rejected for other reason."""
 
