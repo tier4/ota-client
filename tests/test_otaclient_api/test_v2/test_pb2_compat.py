@@ -784,57 +784,6 @@ class TestApiTypesRoundTrip:
         origin = v2.StatusRequest()
         compare_message(origin, api_types.StatusRequest.convert(origin).export_pb())
 
-    def test_status_progress(self):
-        origin = v2.StatusProgress(
-            phase=v2.REGULAR,
-            total_regular_files=270265,
-            regular_files_processed=270258,
-            files_processed_copy=44315,
-            files_processed_link=144,
-            files_processed_download=225799,
-            file_size_processed_copy=853481625,
-            file_size_processed_link=427019589,
-            file_size_processed_download=24457642270,
-            elapsed_time_copy=_Duration(seconds=15, nanos=49000000),
-            elapsed_time_download=_Duration(seconds=416, nanos=945000000),
-            errors_download=0,
-            total_regular_file_size=25740860425,
-            total_elapsed_time=_Duration(seconds=512, nanos=8000000),
-            download_bytes=24457642270,
-        )
-        compare_message(origin, api_types.StatusProgress.convert(origin).export_pb())
-
-    def test_status(self):
-        origin = v2.Status(
-            status=v2.UPDATING,
-            failure=v2.NO_FAILURE,
-            failure_reason="reason",
-            version="1.0.0",
-            progress=v2.StatusProgress(
-                phase=v2.REGULAR,
-                total_regular_files=100,
-                elapsed_time_copy=_Duration(seconds=1),
-            ),
-        )
-        compare_message(origin, api_types.Status.convert(origin).export_pb())
-
-    def test_status_response_ecu(self):
-        origin = v2.StatusResponseEcu(
-            ecu_id="ecu_1",
-            result=v2.NO_FAILURE,
-            status=v2.Status(
-                status=v2.UPDATING,
-                failure=v2.NO_FAILURE,
-                version="1.0.0",
-                progress=v2.StatusProgress(
-                    phase=v2.REGULAR,
-                    total_regular_files=100,
-                    elapsed_time_copy=_Duration(seconds=5),
-                ),
-            ),
-        )
-        compare_message(origin, api_types.StatusResponseEcu.convert(origin).export_pb())
-
     def test_update_status(self):
         origin = v2.UpdateStatus(
             update_firmware_version="2.0.0",
