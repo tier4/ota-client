@@ -29,9 +29,9 @@ from typing import Set as _Set
 from typing import TypeVar as _TypeVar
 from typing import Union as _Union
 
+from otaclient_pb2.v2 import otaclient_v2_pb2 as pb2
 from typing_extensions import Self
 
-from otaclient_api.v2 import otaclient_v2_pb2 as pb2
 from otaclient_common.proto_wrapper import (
     Duration,
     EnumWrapper,

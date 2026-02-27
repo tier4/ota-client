@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 import grpc.aio
+from otaclient_pb2.v2 import otaclient_v2_pb2_grpc as pb2_grpc
 
 from otaclient_api.v2 import _types
-from otaclient_api.v2 import otaclient_v2_pb2_grpc as pb2_grpc
 
 
 class ECUNoResponse(Exception):
