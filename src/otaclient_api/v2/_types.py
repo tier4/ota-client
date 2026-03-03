@@ -78,8 +78,7 @@ class ECUV2List(_Protocol[ECUType]):
     ecu_v2: _List[ECUType]
 
     @abstractmethod
-    def add_ecu(self, ecu: ECUType):
-        """NOTE: add_ecu method should also support adding ecu_v1 inst."""
+    def add_ecu(self, ecu: ECUType): ...
 
     def if_contains_ecu_v2(self, ecu_id: str) -> bool:
         return self.find_ecu_v2(ecu_id) is not None
@@ -341,11 +340,11 @@ class StatusResponse(
         ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
     ) -> None: ...
 
-    def add_ecu(self, _response_ecu: Any):
-        if isinstance(_response_ecu, StatusResponseEcuV2):
-            self.ecu_v2.append(_response_ecu)
-        elif isinstance(_response_ecu, pb2.StatusResponseEcuV2):
-            self.ecu_v2.append(StatusResponseEcuV2.convert(_response_ecu))
+    def add_ecu(self, ecu: Any):
+        if isinstance(ecu, StatusResponseEcuV2):
+            self.ecu_v2.append(ecu)
+        elif isinstance(ecu, pb2.StatusResponseEcuV2):
+            self.ecu_v2.append(ecu)
         else:
             raise TypeError
 
