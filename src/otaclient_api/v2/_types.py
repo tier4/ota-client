@@ -330,7 +330,6 @@ class StatusResponse(
     ECUV2List[StatusResponseEcuV2],
     MessageWrapper[pb2.StatusResponse],
 ):
-    __slots__ = calculate_slots(pb2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
     ecu_v2: RepeatedCompositeContainer[StatusResponseEcuV2]
 

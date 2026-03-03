@@ -638,10 +638,6 @@ class MessageWrapper(WrapperBase[MessageType]):
             _slots = set(cls.__slots__)
             for _fn in cls._fields:
                 _slots.discard(_get_field_attrn(_fn))
-            # also allow slots for proto fields not annotated in Python
-            # (e.g., deprecated fields still present in the proto schema)
-            for _fn in cls._proto_class.DESCRIPTOR.fields_by_name:
-                _slots.discard(_get_field_attrn(_fn))
             if _slots:
                 raise ValueError(
                     f"invalid slots detected: {_slots},"
