@@ -43,7 +43,6 @@ import logging
 import math
 import time
 from dataclasses import dataclass, field
-from itertools import chain
 
 from otaclient._types import MultipleECUStatusFlags, OTAClientStatus
 from otaclient.configs.cfg import cfg, ecu_info
@@ -77,9 +76,6 @@ class ECUStatusState:
 
     # ECU status dictionaries
     all_ecus_status_v2: dict[str, api_types.StatusResponseEcuV2] = field(
-        default_factory=dict
-    )
-    all_ecus_status_v1: dict[str, api_types.StatusResponseEcu] = field(
         default_factory=dict
     )
     all_ecus_last_contact_timestamp: dict[str, int] = field(default_factory=dict)
@@ -165,10 +161,7 @@ class ECUStatusStorage:
         _old_in_update_ecus_id = self._state.in_update_ecus_id
         self._state.in_update_ecus_id = in_update_ecus_id = {
             status.ecu_id
-            for status in chain(
-                self._state.all_ecus_status_v2.values(),
-                self._state.all_ecus_status_v1.values(),
-            )
+            for status in self._state.all_ecus_status_v2.values()
             if status.ecu_id in self._state.available_ecu_ids
             and (status.is_in_update or status.is_in_client_update)
             and status.ecu_id not in lost_ecus
@@ -189,10 +182,7 @@ class ECUStatusStorage:
         _old_failed_ecus_id = self._state.failed_ecus_id
         self._state.failed_ecus_id = {
             status.ecu_id
-            for status in chain(
-                self._state.all_ecus_status_v2.values(),
-                self._state.all_ecus_status_v1.values(),
-            )
+            for status in self._state.all_ecus_status_v2.values()
             if status.ecu_id in self._state.available_ecu_ids
             and status.is_failed
             and status.ecu_id not in lost_ecus
@@ -208,10 +198,7 @@ class ECUStatusStorage:
         if any(
             (
                 status.requires_network
-                for status in chain(
-                    self._state.all_ecus_status_v2.values(),
-                    self._state.all_ecus_status_v1.values(),
-                )
+                for status in self._state.all_ecus_status_v2.values()
                 if status.ecu_id in self._state.available_ecu_ids
                 and status.ecu_id not in lost_ecus
             )
@@ -226,10 +213,7 @@ class ECUStatusStorage:
 
         self._state.success_ecus_id = {
             status.ecu_id
-            for status in chain(
-                self._state.all_ecus_status_v2.values(),
-                self._state.all_ecus_status_v1.values(),
-            )
+            for status in self._state.all_ecus_status_v2.values()
             if status.ecu_id in self._state.available_ecu_ids
             and status.is_success
             and status.ecu_id not in lost_ecus
@@ -285,26 +269,10 @@ class ECUStatusStorage:
                 time.time()
             )
 
-            # NOTE: use v2 if v2 is available, but explicitly support v1 format
-            #       for backward-compatible with old otaclient
-            # NOTE: edge condition of ECU doing OTA downgrade to old image with old otaclient,
-            #       this ECU will report status in v1 when downgrade is finished! So if we use
-            #       v1 status report, we should remove the entry in v2, vice versa.
-            _processed_ecus_id = set()
             for ecu_status_v2 in status_resp.iter_ecu_v2():
                 ecu_id = ecu_status_v2.ecu_id
                 self._state.all_ecus_status_v2[ecu_id] = ecu_status_v2
                 self._state.all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
-                self._state.all_ecus_status_v1.pop(ecu_id, None)
-                _processed_ecus_id.add(ecu_id)
-
-            for ecu_status_v1 in status_resp.iter_ecu():
-                ecu_id = ecu_status_v1.ecu_id
-                if ecu_id in _processed_ecus_id:
-                    continue  # use v2 in prior
-                self._state.all_ecus_status_v1[ecu_id] = ecu_status_v1
-                self._state.all_ecus_last_contact_timestamp[ecu_id] = cur_timestamp
-                self._state.all_ecus_status_v2.pop(ecu_id, None)
 
     async def update_from_local_ecu(self, local_status: OTAClientStatus):
         """Update ECU status storage with local ECU's status report(StatusResponseEcuV2)."""
@@ -394,9 +362,6 @@ class ECUStatusStorage:
     async def export(self) -> api_types.StatusResponse:
         """Export the contents of this storage to an instance of StatusResponse.
 
-        NOTE: wrapper.StatusResponse's add_ecu method already takes care of
-              v1 format backward-compatibility(input v2 format will result in
-              v1 format and v2 format in the StatusResponse).
         NOTE: to align with preivous behavior that disconnected ECU should have no
               entry in status API response, simulate this behavior by skipping
               disconnected ECU's status report entry.
@@ -408,8 +373,6 @@ class ECUStatusStorage:
 
             # NOTE(20230802): export all reachable ECUs' status, no matter they are in
             #                 active OTA or not.
-            # NOTE: ECU status for specific ECU will not appear at both v1 and v2 list,
-            #       this is guaranteed by the update_from_child_ecu API method.
             for ecu_id in self._state.all_ecus_last_contact_timestamp:
                 # NOTE: skip this ECU if it doesn't respond recently enough,
                 #       to signal the agent that this ECU doesn't respond.
@@ -420,9 +383,7 @@ class ECUStatusStorage:
                 if self._state.storage_last_updated_timestamp > _timout:
                     continue
 
-                _ecu_status_rep = self._state.all_ecus_status_v2.get(
-                    ecu_id, self._state.all_ecus_status_v1.get(ecu_id)
-                )
+                _ecu_status_rep = self._state.all_ecus_status_v2.get(ecu_id)
                 if _ecu_status_rep:
                     res.add_ecu(_ecu_status_rep)
             return res

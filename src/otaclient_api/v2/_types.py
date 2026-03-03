@@ -78,8 +78,7 @@ class ECUV2List(_Protocol[ECUType]):
     ecu_v2: _List[ECUType]
 
     @abstractmethod
-    def add_ecu(self, ecu: ECUType):
-        """NOTE: add_ecu method should also support adding ecu_v1 inst."""
+    def add_ecu(self, ecu: ECUType): ...
 
     def if_contains_ecu_v2(self, ecu_id: str) -> bool:
         return self.find_ecu_v2(ecu_id) is not None
@@ -95,7 +94,7 @@ class ECUV2List(_Protocol[ECUType]):
 
 
 class ECUStatusSummary(_Protocol):
-    """Common status summary protocol for StatusResponseEcu and StatusResponseEcuV2."""
+    """Common status summary protocol for StatusResponseEcuV2."""
 
     @property
     @abstractmethod
@@ -150,16 +149,6 @@ class StatusOta(EnumWrapper):
     CLIENT_UPDATING = pb2.CLIENT_UPDATING
     ABORTING = pb2.ABORTING
     ABORTED = pb2.ABORTED
-
-
-class StatusProgressPhase(EnumWrapper):
-    INITIAL = pb2.INITIAL
-    METADATA = pb2.METADATA
-    DIRECTORY = pb2.DIRECTORY
-    SYMLINK = pb2.SYMLINK
-    REGULAR = pb2.REGULAR
-    PERSISTENT = pb2.PERSISTENT
-    POST_PROCESSING = pb2.POST_PROCESSING
 
 
 class UpdatePhase(EnumWrapper):
@@ -234,128 +223,11 @@ class RollbackResponse(
 # status API
 
 
-class StatusProgress(MessageWrapper[pb2.StatusProgress]):
-    __slots__ = calculate_slots(pb2.StatusProgress)
-    download_bytes: int
-    elapsed_time_copy: Duration
-    elapsed_time_download: Duration
-    elapsed_time_link: Duration
-    errors_download: int
-    file_size_processed_copy: int
-    file_size_processed_download: int
-    file_size_processed_link: int
-    files_processed_copy: int
-    files_processed_download: int
-    files_processed_link: int
-    phase: StatusProgressPhase
-    regular_files_processed: int
-    total_elapsed_time: Duration
-    total_regular_file_size: int
-    total_regular_files: int
-
-    def __init__(
-        self,
-        *,
-        phase: _Optional[_Union[StatusProgressPhase, str]] = ...,
-        total_regular_files: _Optional[int] = ...,
-        regular_files_processed: _Optional[int] = ...,
-        files_processed_copy: _Optional[int] = ...,
-        files_processed_link: _Optional[int] = ...,
-        files_processed_download: _Optional[int] = ...,
-        file_size_processed_copy: _Optional[int] = ...,
-        file_size_processed_link: _Optional[int] = ...,
-        file_size_processed_download: _Optional[int] = ...,
-        elapsed_time_copy: _Optional[Duration] = ...,
-        elapsed_time_link: _Optional[Duration] = ...,
-        elapsed_time_download: _Optional[Duration] = ...,
-        errors_download: _Optional[int] = ...,
-        total_regular_file_size: _Optional[int] = ...,
-        total_elapsed_time: _Optional[Duration] = ...,
-        download_bytes: _Optional[int] = ...,
-    ) -> None: ...
-
-    def get_snapshot(self) -> Self:
-        return deepcopy(self)
-
-    def add_elapsed_time(self, _field_name: str, _value: int):
-        _field: Duration = getattr(self, _field_name)
-        _field.add_nanoseconds(_value)
-
-
-class Status(MessageWrapper[pb2.Status]):
-    __slots__ = calculate_slots(pb2.Status)
-    failure: FailureType
-    failure_reason: str
-    progress: StatusProgress
-    status: StatusOta
-    version: str
-
-    def __init__(
-        self,
-        *,
-        status: _Optional[_Union[StatusOta, str]] = ...,
-        failure: _Optional[_Union[FailureType, str]] = ...,
-        failure_reason: _Optional[str] = ...,
-        version: _Optional[str] = ...,
-        progress: _Optional[StatusProgress] = ...,
-    ) -> None: ...
-
-
 class StatusRequest(MessageWrapper[pb2.StatusRequest]):
     __slots__ = calculate_slots(pb2.StatusRequest)
 
 
-class StatusResponseEcu(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu]):
-    __slots__ = calculate_slots(pb2.StatusResponseEcu)
-    ecu_id: str
-    result: FailureType
-    status: Status
-
-    def __init__(
-        self,
-        *,
-        ecu_id: _Optional[str] = ...,
-        result: _Optional[_Union[FailureType, str]] = ...,
-        status: _Optional[Status] = ...,
-    ) -> None: ...
-
-    @property
-    def is_in_update(self) -> bool:
-        return self.status.status is StatusOta.UPDATING
-
-    @property
-    def is_in_client_update(self) -> bool:
-        return self.status.status is StatusOta.CLIENT_UPDATING
-
-    @property
-    def is_failed(self) -> bool:
-        return self.status.status is StatusOta.FAILURE
-
-    @property
-    def is_success(self) -> bool:
-        return self.status.status is StatusOta.SUCCESS
-
-    @property
-    def requires_network(self) -> bool:
-        return (
-            self.status.status is StatusOta.UPDATING
-            and self.status.progress.phase < StatusProgressPhase.POST_PROCESSING
-        )
-
-
 # status response format v2
-
-# backward compatibility
-V2_V1_PHASE_MAPPING = {
-    UpdatePhase.INITIALIZING: StatusProgressPhase.INITIAL,
-    UpdatePhase.PROCESSING_METADATA: StatusProgressPhase.METADATA,
-    UpdatePhase.CALCULATING_DELTA: StatusProgressPhase.REGULAR,
-    UpdatePhase.DOWNLOADING_OTA_FILES: StatusProgressPhase.REGULAR,
-    UpdatePhase.APPLYING_UPDATE: StatusProgressPhase.REGULAR,
-    UpdatePhase.PROCESSING_POSTUPDATE: StatusProgressPhase.POST_PROCESSING,
-    UpdatePhase.FINALIZING_UPDATE: StatusProgressPhase.POST_PROCESSING,
-    UpdatePhase.DOWNLOADING_OTA_CLIENT: StatusProgressPhase.INITIAL,
-}
 
 
 class UpdateStatus(MessageWrapper[pb2.UpdateStatus]):
@@ -406,45 +278,6 @@ class UpdateStatus(MessageWrapper[pb2.UpdateStatus]):
     def get_snapshot(self) -> Self:
         return deepcopy(self)
 
-    def convert_to_v1_StatusProgress(self) -> StatusProgress:
-        _snapshot = self.get_snapshot()
-        _res = StatusProgress(
-            phase=V2_V1_PHASE_MAPPING[_snapshot.phase],
-            total_regular_files=_snapshot.total_files_num,
-            regular_files_processed=_snapshot.processed_files_num,
-            total_regular_file_size=_snapshot.total_files_size_uncompressed,
-            elapsed_time_download=_snapshot.downloading_elapsed_time,
-            elapsed_time_copy=_snapshot.update_applying_elapsed_time,
-            errors_download=_snapshot.downloading_errors,
-            total_elapsed_time=_snapshot.total_elapsed_time,
-            download_bytes=_snapshot.downloaded_bytes,
-        )
-        # NOTE: for agent implementation with v1 status,
-        #       - total processed files size is calculated by sum(<file_size_processed_*>)
-        #       - (https://github.com/tier4/FMSAutowareAdapter/blob/develop/AutowareT4beta/edge/edge-core/application/domain/ota/firmware_deployment_status.py#L258)
-        #         transfer rate is calculated by dividing sum(<files_processed_*>) with elapsed update time,
-        #       - (https://github.com/tier4/FMSAutowareAdapter/blob/80be3f96223db3df20eb946f32120c0295957eef/AutowareT4beta/edge/edge-core/application/domain/ota/firmware_deployment_status.py#L411)
-        #         remained time is calculated by the diff between sum(<file_size_processed_*>) and <total_file_size>,
-        #         and then divided by the transfer rate.
-        #
-        #       In v2, <processed_files_num> is corresponding to v1's sum(<files_processed_*>),
-        #       <processed_files_size> is corresponding to v1's sum(<file_size_processed_*>.
-
-        # processed files num
-        _res.files_processed_download = _snapshot.downloaded_files_num
-        # simply round all negative to 0
-        _res.files_processed_copy = max(
-            0, _snapshot.processed_files_num - _snapshot.downloaded_files_num
-        )
-
-        # processed files size
-        _res.file_size_processed_download = _snapshot.downloaded_files_size
-        _res.file_size_processed_copy = max(
-            0, self.processed_files_size - _snapshot.downloaded_files_size
-        )
-
-        return _res
-
 
 class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcuV2]):
     __slots__ = calculate_slots(pb2.StatusResponseEcuV2)
@@ -468,21 +301,6 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
         failure_traceback: _Optional[str] = ...,
         update_status: _Optional[_Union[UpdateStatus, _Mapping]] = ...,
     ) -> None: ...
-
-    def convert_to_v1(self) -> StatusResponseEcu:
-        """Convert and export as StatusResponseEcu(v1)."""
-
-        return StatusResponseEcu(
-            ecu_id=self.ecu_id,
-            result=FailureType.NO_FAILURE,
-            status=Status(
-                failure=self.failure_type,
-                failure_reason=self.failure_reason,
-                status=self.ota_status,
-                version=self.firmware_version,
-                progress=self.update_status.convert_to_v1_StatusProgress(),
-            ),
-        )
 
     @property
     def is_in_update(self) -> bool:
@@ -510,35 +328,22 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
 
 class StatusResponse(
     ECUV2List[StatusResponseEcuV2],
-    ECUList[StatusResponseEcu],
     MessageWrapper[pb2.StatusResponse],
 ):
-    __slots__ = calculate_slots(pb2.StatusResponse)
     available_ecu_ids: RepeatedScalarContainer[str]
-    ecu: RepeatedCompositeContainer[StatusResponseEcu]
     ecu_v2: RepeatedCompositeContainer[StatusResponseEcuV2]
 
     def __init__(
         self,
-        ecu: _Optional[_Iterable[_Union[StatusResponseEcu, _Mapping]]] = ...,
         available_ecu_ids: _Optional[_Iterable[str]] = ...,
         ecu_v2: _Optional[_Iterable[_Union[StatusResponseEcuV2, _Mapping]]] = ...,
     ) -> None: ...
 
-    def add_ecu(self, _response_ecu: Any):
-        # v2
-        if isinstance(_response_ecu, StatusResponseEcuV2):
-            self.ecu_v2.append(_response_ecu)
-            self.ecu.append(_response_ecu.convert_to_v1())  # v1 compat
-        elif isinstance(_response_ecu, pb2.StatusResponseEcuV2):
-            _converted = StatusResponseEcuV2.convert(_response_ecu)
-            self.ecu_v2.append(_response_ecu)
-            self.ecu.append(_converted.convert_to_v1())  # v1 compat
-        # v1
-        elif isinstance(_response_ecu, StatusResponseEcu):
-            self.ecu.append(_response_ecu)
-        elif isinstance(_response_ecu, pb2.StatusResponseEcu):
-            self.ecu.append(StatusResponseEcu.convert(_response_ecu))
+    def add_ecu(self, ecu: Any):
+        if isinstance(ecu, StatusResponseEcuV2):
+            self.ecu_v2.append(ecu)
+        elif isinstance(ecu, pb2.StatusResponseEcuV2):
+            self.ecu_v2.append(ecu)
         else:
             raise TypeError
 
@@ -547,7 +352,6 @@ class StatusResponse(
             status_resp = self.__class__.convert(status_resp)
         # merge ecu only, don't merge available_ecu_ids!
         # NOTE, TODO: duplication check is not done
-        self.ecu.extend(status_resp.ecu)
         self.ecu_v2.extend(status_resp.ecu_v2)
 
 
