@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv sync*)",
+      "Bash(uv build*)",
+      "Bash(pre-commit run*)",
+      "Bash(docker compose -f docker/test_base/docker-compose_tests_py313.yml *)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git status*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh repo view *)",
+      "Bash(which *)",
+      "Bash(yq *)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Bash(rm -rf*)"
+    ]
+  }
+}
