@@ -22,6 +22,9 @@ from typing_extensions import Self
 from _otaclient_version import version
 from otaclient_common._typing import StrEnum
 
+VMLINUZ_SUFFIX = "vmlinuz-"
+INITRD_SUFFIX = "initrd.img-"
+
 GRUB_DEFAULT_OPTIONS = {
     "GRUB_TIMEOUT_STYLE": "menu",
     "GRUB_TIMEOUT": "0",
