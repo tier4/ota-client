@@ -30,6 +30,24 @@ class GrubControlConfig:
     BOOT_OTA_PARTITION_FILE = "ota-partition"
 
 
+class GrubControlNewConfig:
+    """x86-64 platform, with grub as bootloader."""
+
+    BOOTLOADER = BootloaderType.GRUB
+
+    FSTAB_FILE_PATH = "/etc/fstab"
+
+    GRUB_DIR = "/boot/grub"
+    GRUB_CFG_FNAME = "grub.cfg"
+    OTA_SLOT_BOOT_BASE_FNAME = "ota-boot.cfg"
+
+    DEFAULT_GRUB_PATH = "/etc/default/grub"
+    GRUB_HOOKS_DPATH = "/etc/grub.d"
+    OTA_GRUB_HOOK_FNAME = "30_ota"
+
+    OTA_SLOT_BASE_DPATH = "/boot/ota-slot"
+
+
 class JetsonBootCommon:
     # ota_status related
     OTA_STATUS_DIR = "/boot/ota-status"
