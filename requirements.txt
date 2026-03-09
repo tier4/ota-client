@@ -28,7 +28,7 @@ attrs==25.3.0 ; python_full_version < '3.9'
     # via aiohttp
 attrs==25.4.0 ; python_full_version >= '3.9'
     # via aiohttp
-certifi==2026.1.4
+certifi==2026.2.25
     # via requests
 cffi==1.17.1 ; python_full_version < '3.9'
     # via
@@ -36,7 +36,7 @@ cffi==1.17.1 ; python_full_version < '3.9'
     #   zstandard
 cffi==2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'
     # via cryptography
-charset-normalizer==3.4.4
+charset-normalizer==3.4.5
     # via requests
 click==8.1.8 ; python_full_version < '3.10'
     # via uvicorn
@@ -62,7 +62,7 @@ frozenlist==1.8.0 ; python_full_version >= '3.9'
     #   aiosignal
 grpcio==1.70.0 ; python_full_version < '3.9'
     # via otaclient
-grpcio==1.78.1 ; python_full_version >= '3.9'
+grpcio==1.78.0 ; python_full_version >= '3.9'
     # via otaclient
 h11==0.16.0
     # via uvicorn
@@ -145,7 +145,11 @@ python-dotenv==1.0.1 ; python_full_version < '3.9'
     # via
     #   pydantic-settings
     #   uvicorn
-python-dotenv==1.2.1 ; python_full_version >= '3.9'
+python-dotenv==1.2.1 ; python_full_version == '3.9.*'
+    # via
+    #   pydantic-settings
+    #   uvicorn
+python-dotenv==1.2.2 ; python_full_version >= '3.10'
     # via
     #   pydantic-settings
     #   uvicorn
@@ -226,7 +230,9 @@ websockets==16.0 ; python_full_version >= '3.10'
     # via uvicorn
 yarl==1.15.2 ; python_full_version < '3.9'
     # via aiohttp
-yarl==1.22.0 ; python_full_version >= '3.9'
+yarl==1.22.0 ; python_full_version == '3.9.*'
+    # via aiohttp
+yarl==1.23.0 ; python_full_version >= '3.10'
     # via aiohttp
 zstandard==0.23.0 ; python_full_version < '3.9'
     # via
