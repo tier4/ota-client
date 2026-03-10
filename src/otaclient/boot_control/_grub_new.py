@@ -44,6 +44,10 @@ For entry name starts with `-`, it means the entry must be REMOVED.
 """
 
 
+class GrubBootControllerError(Exception):
+    """Grub boot controller internal used exception."""
+
+
 @dataclass
 class OTAManagedCfg:
     """Represents an OTA managed configuration file.
@@ -167,18 +171,6 @@ class OTASlotBootID(StrEnum):
 
     def get_suffix(self) -> str:
         return f"_{self.rsplit('_', 1)[-1]}"
-
-
-@dataclass
-class _ABPartition:
-    boot_efi_partition_uuid: str
-    boot_partition_uuid: str
-    slot_a_uuid: str
-    slot_b_uuid: str
-
-    @classmethod
-    def detect_ab_partition(cls) -> Self:
-        return cls()
 
 
 MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
@@ -334,3 +326,43 @@ class _BootMenuEntry:
             slot_boot_id=slot_boot_id,
             kernel_ver=kernel_ver,
         )
+
+
+@dataclass
+class _SlotInfo:
+    slot_id: OTASlotBootID
+    dev: str
+    uuid: str
+
+
+@dataclass
+class _ABPartition:
+    """
+    Supported partition layout:
+        (system boots with UEFI)
+        /dev/<main_boot_disk>
+            - p1: /boot/uefi
+            - p2: /boot
+            - p3: ota-slot_a
+            - p4: ota-slot_b
+    """
+
+    boot_partition: _SlotInfo
+    slot_a: _SlotInfo
+    slot_b: _SlotInfo
+    current_slot: OTASlotBootID
+
+    # fmt: off
+    @property
+    def current_slot_info(self) -> _SlotInfo:
+        return self.slot_a if self.current_slot == OTASlotBootID.slot_a else self.slot_b
+
+    @property
+    def standby_slot_info(self) -> _SlotInfo:
+        return self.slot_b if self.current_slot == OTASlotBootID.slot_a else self.slot_a
+
+    @property
+    def standby_slot(self) -> OTASlotBootID:
+        return OTASlotBootID.slot_b if self.current_slot == OTASlotBootID.slot_a else OTASlotBootID.slot_a
+    # fmt: on
+
