@@ -34,18 +34,34 @@ class GrubControlNewConfig:
     """x86-64 platform, with grub as bootloader."""
 
     BOOTLOADER = BootloaderType.GRUB
+    BOOT_DPATH = "/boot"
 
     FSTAB_FILE_PATH = "/etc/fstab"
 
     GRUB_DIR = "/boot/grub"
     GRUB_CFG_FNAME = "grub.cfg"
-    OTA_SLOT_BOOT_BASE_FNAME = "ota-boot.cfg"
+    SLOT_BOOT_CFG_SUFFIX = ".cfg"
+    """The config file will be `ota-slot_<a/b>.cfg`."""
 
     DEFAULT_GRUB_PATH = "/etc/default/grub"
     GRUB_HOOKS_DPATH = "/etc/grub.d"
-    OTA_GRUB_HOOK_FNAME = "30_ota"
 
-    OTA_SLOT_BASE_DPATH = "/boot/ota-slot"
+    OTA_BOOT_SLOT_BASE = "ota-slot"
+    SLOT_A_SUFFIX = "_a"
+    SLOT_B_SUFFIX = "_b"
+    OTA_GRUB_HOOK_FNAME = "30_ota"
+    OTA_GRUB_HOOK = r"""\
+#!/bin/sh
+cat <<EOF
+if [ -f \${config_directory}/ota-slot_a.cfg ]; then
+    source \${config_directory}/ota-slot_a.cfg
+fi
+
+if [ -f \${config_directory}/ota-slot_b.cfg ]; then
+    source \${config_directory}/ota-slot_b.cfg
+fi
+EOF
+"""
 
 
 class JetsonBootCommon:
@@ -107,6 +123,7 @@ class RPIBootControlConfig:
 
 
 grub_cfg = GrubControlConfig()
+grub_new_cfg = GrubControlNewConfig()
 
 jetson_common_cfg = JetsonBootCommon()
 cboot_cfg = JetsonCBootControlConfig()
