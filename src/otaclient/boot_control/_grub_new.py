@@ -56,16 +56,20 @@ GRUB_DEFAULT_OPTIONS = {
     "GRUB_DISABLE_OS_PROBER": "true",
     "GRUB_DISABLE_RECOVERY": "true",
     "GRUB_DEFAULT": "saved",
-    "-GRUB_SAVEDEFAULT": "",
 }
-"""The required grub options for OTA grub boot control.
-
-For entry name starts with `-`, it means the entry must be REMOVED.
-"""
+"""The required grub options for OTA grub boot control."""
+GRUB_BLACKLIST_OPTIONS = ["GRUB_SAVEDEFAULT"]
+"""The grub options that MUST be stripped away."""
 
 
 class GrubBootControllerError(Exception):
     """Grub boot controller internal used exception."""
+
+
+OTA_MANAGED_CFG_HEADER = (
+    "# OTAClient managed configuration file, DO NOT EDIT!\n"
+    "# Manual edits to this file will NOT be preserved across OTA!\n"
+)
 
 
 @dataclass
@@ -94,10 +98,7 @@ class OTAManagedCfg:
     ```
     """
 
-    HEADER: ClassVar[str] = (
-        "# OTAClient managed configuration file, DO NOT EDIT!\n"
-        "# Manual edits to this file will NOT be preserved across OTA!\n"
-    )
+    HEADER: ClassVar[str] = OTA_MANAGED_CFG_HEADER
     FOOTER_HEAD: ClassVar[str] = "# ------ OTA managed metadata ------ #\n"
     FOOTER_TAIL: ClassVar[str] = "# ------ End of OTA managed metadata ------ #\n"
 
@@ -650,6 +651,40 @@ class _GrubBootControl:
 
         # write to standby fstab
         write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
+
+    def _update_grub_default(self, _in: str) -> str:
+        """Read in grub_default str and return updated one.
+
+        Update rules:
+        1. predefined default_kvp has the highest priority, and overrides any
+           presented options in the original grub_default,
+        2. option that specified multiple times will be merged into one,
+           and the latest specified value will be used, or predefined default value will
+           be used if such value defined.
+        """
+        res_kvp: dict[str, str] = {}
+        for option_line in _in.splitlines():
+            # NOTE: skip empty or commented lines
+            if not option_line or option_line.startswith("#"):
+                continue
+
+            # NOTE(20230619): skip illegal option that is not in key=value form
+            _raw_split = option_line.strip().split("=", maxsplit=1)
+            if len(_raw_split) == 2:
+                option_name, option_value = _raw_split[0].strip(), _raw_split[1].strip()
+                res_kvp[option_name] = option_value
+
+        # merge pre-set default value into the result
+        # NOTE(20230830): pre-set default has the highest priority over
+        #                 any already set options
+        res_kvp.update(GRUB_DEFAULT_OPTIONS)
+        for _blacklist_option in GRUB_BLACKLIST_OPTIONS:
+            res_kvp.pop(_blacklist_option, None)
+
+        res = [OTA_MANAGED_CFG_HEADER]
+        res.extend(f"{k}={v}" for k, v in res_kvp.items())
+        res.append("")  # add a new line at the end of the file
+        return "\n".join(res)
 
     def _grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
