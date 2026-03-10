@@ -17,10 +17,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import ClassVar, Generator, Optional
+from typing import ClassVar, Generator, NoReturn, Optional
 
 from typing_extensions import Self
 
@@ -30,8 +31,12 @@ from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
-from otaclient_common import _env, cmdhelper
-from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common import _env, cmdhelper, replace_root
+from otaclient_common._io import (
+    read_str_from_file,
+    remove_file,
+    write_str_to_file_atomic,
+)
 from otaclient_common._typing import StrEnum
 from otaclient_common.linux import subprocess_run_wrapper
 
@@ -512,6 +517,7 @@ class _GrubBootControl:
 
     def __init__(self) -> None:
         self.boot_slots = ABPartitionDetector.detect_boot_slots()
+        self.initialized = False
 
     def _grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
@@ -528,7 +534,7 @@ class _GrubBootControl:
                 f"`grub-reboot {_standby_slot}` failed"
             ) from None
 
-    def _finalize_slot_switch(self) -> None:
+    def finalize_update_switch_boot(self):
         _current_slot = self.boot_slots.current_slot
         try:
             subprocess_run_wrapper(
@@ -537,6 +543,7 @@ class _GrubBootControl:
                 check_output=True,
                 chroot=_env.get_dynamic_client_chroot_path(),
             )
+            return True
         except CalledProcessError:
             logger.exception(f"failed to grub-reboot to {_current_slot}")
             raise GrubBootControllerError(
@@ -544,3 +551,146 @@ class _GrubBootControl:
             ) from None
 
 
+class GrubBootController(BootControllerBase):
+    def __init__(self) -> None:
+        try:
+            self._boot_control = _GrubBootControl()
+            self._boot_slots = boot_slots = self._boot_control.boot_slots
+
+            # NOTE: boot slot dir stores both boot files and OTA status files.
+            self._current_boot_slot = (
+                Path(boot_cfg.BOOT_DPATH) / boot_slots.current_slot
+            )
+            self._standby_boot_slot = (
+                Path(boot_cfg.BOOT_DPATH) / boot_slots.standby_slot
+            )
+
+            self._mp_control = SlotMountHelper(
+                standby_slot_dev=boot_slots.standby_slot_info.dev,
+                standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
+                active_rootfs=cfg.ACTIVE_ROOT,
+                active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
+            )
+            self._ota_status_control = OTAStatusFilesControl(
+                active_slot=boot_slots.current_slot,
+                standby_slot=boot_slots.standby_slot,
+                current_ota_status_dir=self._current_boot_slot,
+                standby_ota_status_dir=self._standby_boot_slot,
+                finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
+                # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
+                #                 force initialize the ota_status files.
+                force_initialize=self._boot_control.initialized,
+            )
+        except Exception as e:
+            _err_msg = f"failed on start grub boot controller: {e!r}"
+            logger.error(_err_msg)
+            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
+
+    def _post_update_update_fstab(
+        self, *, active_slot_fstab: Path, standby_slot_fstab: Path
+    ):
+        """Rebuild standby fstab using valid mount entries only.
+
+        - Keep only valid mount entries (skip comments, invalid or broken lines)
+        - Always include '/', '/boot', and '/boot/efi' from active slot
+        - Replace root ('/') UUID with standby slot UUID
+        - Drop all other comments or extra metadata lines
+        """
+        standby_slot_uuid = self._boot_slots.standby_slot_info.uuid
+        standby_uuid_str = f"UUID={standby_slot_uuid}"
+
+        # Strictly match valid fstab entry lines
+        fstab_entry_pa = re.compile(
+            r"^\s*(?P<file_system>\S+)\s+"
+            r"(?P<mount_point>\S+)\s+"
+            r"(?P<type>\S+)\s+"
+            r"(?P<options>\S+)\s+"
+            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
+        )
+
+        def read_fstab_dict(fstab_path: Path) -> dict[str, re.Match]:
+            """Return {mount_point: match} for valid fstab entries only"""
+            entries = {}
+            for line in read_str_from_file(fstab_path).splitlines():
+                if m := fstab_entry_pa.match(line):
+                    entries[m.group("mount_point")] = m
+            return entries
+
+        active_dict = read_fstab_dict(active_slot_fstab)
+        standby_dict = read_fstab_dict(standby_slot_fstab)
+
+        merged: list[str] = []
+
+        # These special base mount points(/, /boot, /boot/efi) are created by USB Installer and not in project settings,
+        # so we need to preserve them from active slot's fstab.
+        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
+
+        # Always include root ("/") from active fstab with standby UUID
+        if cfg.CANONICAL_ROOT in active_dict:
+            ma = active_dict[cfg.CANONICAL_ROOT]
+            merged.append("\t".join([standby_uuid_str] + list(ma.groups())[1:]))
+        else:
+            raise GrubBootControllerError("No root ('/') entry found in active fstab")
+
+        # Add /boot and /boot/efi from active if available
+        for mp in (cfg.BOOT_DPATH, cfg.EFI_DPATH):
+            if mp in active_dict:
+                merged.append("\t".join(active_dict[mp].groups()))
+
+        # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
+        for mp, ma in standby_dict.items():
+            if mp not in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
+                merged.append("\t".join(ma.groups()))
+
+        merged.append("")  # add a new line at the end of file
+
+        # write to standby fstab
+        write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
+
+    def _post_update_copy_boot_files(self) -> None:
+        """Copy boot files under <standby_slot_mp>/boot to standby boot slot folder."""
+        for f in (self._mp_control.standby_slot_mount_point / "boot").iterdir():
+            if f.is_file() and not f.is_symlink():
+                shutil.copy(f, self._standby_boot_slot)
+
+    # API
+
+    @property
+    def bootloader_type(self) -> str:
+        return boot_cfg.BOOTLOADER
+
+    def _pre_update_prepare_standby(self, *, erase_standby: bool) -> None:
+        self._mp_control.prepare_standby_dev(
+            erase_standby=erase_standby,
+            fsuuid=self._boot_slots.standby_slot_info.uuid,
+        )
+
+    def _pre_update_platform_specific(
+        self, *, standby_as_ref: bool, erase_standby: bool
+    ) -> None:
+        """GRUB-specific pre-update: cleanup standby ota_partition folder."""
+        remove_file(self._standby_boot_slot)
+        self._standby_boot_slot.mkdir(parents=True)
+
+    def _post_update_platform_specific(self, *, update_version: str) -> None:
+        """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
+        active_fstab = replace_root(
+            boot_cfg.FSTAB_FILE_PATH,
+            cfg.CANONICAL_ROOT,
+            self._mp_control.active_slot_mount_point,
+        )
+        standby_fstab = replace_root(
+            boot_cfg.FSTAB_FILE_PATH,
+            cfg.CANONICAL_ROOT,
+            self._mp_control.standby_slot_mount_point,
+        )
+        self._post_update_update_fstab(
+            standby_slot_fstab=Path(standby_fstab),
+            active_slot_fstab=Path(active_fstab),
+        )
+
+        self._post_update_copy_boot_files()
+        self._boot_control._grub_reboot_to_standby()
+
+    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
+        cmdhelper.reboot(chroot=chroot)
