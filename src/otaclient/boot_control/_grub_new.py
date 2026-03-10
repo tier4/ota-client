@@ -59,12 +59,9 @@ class OTAManagedCfg:
     The file layout is:
 
     ```
-    <HEADER>
-
-
+    # OTAClient managed configuration file, DO NOT EDIT!
+    # Manual edits to this file will NOT be preserved across OTA!
     <raw_contents>
-
-
     # ------ OTA managed metadata ------ #
     # otaclient_version: vx.xx.x
     # grub_version: x.xx
