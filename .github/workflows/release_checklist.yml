@@ -1,0 +1,47 @@
+name: Add Release Checklist
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: "Release ID to append checklist (for testing)"
+        required: true
+        type: string
+
+jobs:
+  add-checklist:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: append checklist to release body
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const checklist = [
+              '',
+              '## Release Checklist',
+              '',
+              '- [ ] CI tests are passing',
+              '- Test on x86_64',
+              '  - [ ] Multiple ECUs OTA update was successful',
+              '- Test on Jetson UEFI (only when there are changes for Bootcontrol)',
+              '  - [ ] OTA update was successful',
+            ].join('\n');
+
+            const release_id = context.payload.release?.id ?? Number(context.payload.inputs.release_id);
+            const { data: release } = await github.rest.repos.getRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release_id,
+            });
+            const body = (release.body || '') + checklist;
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release_id,
+              body: body,
+            });
