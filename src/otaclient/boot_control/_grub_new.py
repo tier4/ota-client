@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import ClassVar, Generator
 
 from typing_extensions import Self
 
@@ -99,39 +99,60 @@ class _ABPartition:
         return cls()
 
 
+MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
+LINUX_PA_MULTILINE = re.compile(r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE)
+LINUX_VERSION_PA = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
+INITRD_PA_MULTILINE = re.compile(r"^\s*initrd\s*(?P<initrd_fpath>[^\s]+)", re.MULTILINE)
+MENUENTRY_TITLE_PA = re.compile(
+    r"""^\s*menuentry\s+(?P<entry_title>(?:"[^"]*"|'[^']*'|[^\s]+))"""
+)
+MENUENTRY_ID_PA = re.compile(
+    r"""^\s*menuentry.*?\$menuentry_id_option\s+(?P<entry_id>(?:"[^"]*"|'[^']*'|[^\s]+))"""
+)
+
+
+def _iter_menuentries(_in: str) -> Generator[str]:
+    """Extract all menuentry blocks from grub-mkconfig output.
+
+    Uses brace-depth counting to correctly handle nested {} blocks
+    (e.g. if/fi statements with braces) within menuentry bodies.
+
+    Raises:
+        ValueError: If a menuentry has no opening brace or unclosed braces.
+    """
+    for ma in MENUENTRY_HEAD_PA.finditer(_in):
+        # find the opening brace after "menuentry ..."
+        _brace_start = _in.find("{", ma.start())
+        if _brace_start < 0:
+            raise ValueError(f"menuentry at offset {ma.start()} has no opening brace")
+
+        _depth = 0
+        for i in range(_brace_start, len(_in)):
+            if _in[i] == "{":
+                _depth += 1
+            elif _in[i] == "}":
+                _depth -= 1
+                if _depth == 0:
+                    yield _in[ma.start() : i + 1]
+                    break
+        else:
+            raise ValueError(f"menuentry at offset {ma.start()} has unclosed braces")
+
+
 @dataclass
 class _BootMenuEntry:
-    MENUENTRY_PA: ClassVar[re.Pattern] = re.compile(
-        r"^\s*menuentry[^\{]+\{[^\}]*\}",
-        re.MULTILINE | re.DOTALL,
-    )
-    LINUX_PA_MULTILINE: ClassVar[re.Pattern] = re.compile(
-        r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE
-    )
-    LINUX_VERSION_PA: ClassVar[re.Pattern] = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
-    INITRD_PA_MULTILINE: ClassVar[re.Pattern] = re.compile(
-        r"^\s*initrd\s*(?P<initrd_fpath>[^\s]+)", re.MULTILINE
-    )
-    MENUENTRY_TITLE_PA: ClassVar[re.Pattern] = re.compile(
-        r"""^\s*menuentry\s+(?P<entry_title>(?:"[^"]*"|'[^']*'|[^\s]+))"""
-    )
-    MENUENTRY_ID_PA: ClassVar[re.Pattern] = re.compile(
-        r"""^\s*menuentry.*?\$menuentry_id_option\s+(?P<entry_id>(?:"[^"]*"|'[^']*'|[^\s]+))"""
-    )
-
     raw_entry: str
     slot_boot_id: OTASlotBootID
     kernel_ver: str
 
     @classmethod
-    def find_menuentry(
-        cls, _in: str, *, slot_boot_id: OTASlotBootID, kernel_ver: str
-    ) -> Self:
-        # NOTE: for specific kernel version, we should have exactly one
-        #       boot entry(non-recovery entry) for it.
-        _found: str
-        for _found in cls.MENUENTRY_PA.findall(_in):
-            _linux_dir_ma = cls.LINUX_PA_MULTILINE.search(_found)
+    def _find_menuentry(cls, _in: str, *, kernel_ver: str) -> str:
+        """Find a raw menuentry block from the input with matching kernel version.
+
+        The recovery entry for the same kernel will be filtered.
+        """
+        for _found in _iter_menuentries(_in):
+            _linux_dir_ma = LINUX_PA_MULTILINE.search(_found)
             if not _linux_dir_ma:
                 continue  # not a linux boot menuentry
 
@@ -139,45 +160,65 @@ class _BootMenuEntry:
             if _linux_dir.find("recovery") >= 0:
                 continue  # skip recovery entry
 
-            _linux_ver_ma = cls.LINUX_VERSION_PA.search(_linux_dir)
+            _linux_ver_ma = LINUX_VERSION_PA.search(_linux_dir)
             if not _linux_ver_ma:
                 continue  # invalid linux entry
 
             if _linux_ver_ma.group("ver") != kernel_ver:
                 continue  # not the entry we are looking for
-            break  # found one
-        else:
-            raise ValueError("failed to find any matching entry from the input")
+            return _found
 
-        #
-        # ------ fix up the found entry ------ #
-        #
-        # fix up the menuentry title
-        _found = cls.MENUENTRY_TITLE_PA.sub(
+        raise ValueError(f"failed to find menuentry for kernel version {kernel_ver!r}")
+
+    @classmethod
+    def _fixup_menuentry(cls, _entry: str, *, slot_boot_id: OTASlotBootID) -> str:
+        """Fix up the found entry.
+
+        1. fix up menuentry title and id to `slot_boot_id`.
+        2. fix up the linux and initrd path to prefix `/boot/<slot_boot_id>`.
+        """
+        _entry = MENUENTRY_TITLE_PA.sub(
             lambda ma: ma.group().replace(ma.group("entry_title"), slot_boot_id, 1),
-            _found,
+            _entry,
         )
-        # fix up the menuentry id
-        _found = cls.MENUENTRY_ID_PA.sub(
+        _entry = MENUENTRY_ID_PA.sub(
             lambda ma: ma.group().replace(ma.group("entry_id"), slot_boot_id, 1),
-            _found,
+            _entry,
         )
-        # fix up vmlinuz and initrd fpath
-        _found = cls.LINUX_PA_MULTILINE.sub(
+
+        _entry = LINUX_PA_MULTILINE.sub(
             lambda ma: ma.group().replace(
-                ma.group("linux_fpath"),
-                f"/{slot_boot_id}{ma.group('linux_fpath')}",
-                1,
+                ma.group("linux_fpath"), f"/{slot_boot_id}{ma.group('linux_fpath')}", 1
             ),
-            _found,
+            _entry,
         )
-        _found = cls.INITRD_PA_MULTILINE.sub(
+        _entry = INITRD_PA_MULTILINE.sub(
             lambda ma: ma.group().replace(
                 ma.group("initrd_fpath"),
                 f"/{slot_boot_id}{ma.group('initrd_fpath')}",
                 1,
             ),
-            _found,
+            _entry,
         )
+        return _entry
 
-        return cls(raw_entry=_found, slot_boot_id=slot_boot_id, kernel_ver=kernel_ver)
+    @classmethod
+    def generate_menuentry(
+        cls, _in: str, *, slot_boot_id: OTASlotBootID, kernel_ver: str
+    ) -> Self:
+        """Generate a menuentry block for `slot_boot_id` with matching the given kernel version.
+
+        This searches through all menuentry blocks in grub-mkconfig output
+        and returns the first non-recovery entry whose linux kernel version
+        matches <kernel_ver>.
+        """
+        # NOTE: for specific kernel version, we should have exactly one
+        #       boot entry(non-recovery entry) for it.
+        return cls(
+            raw_entry=cls._fixup_menuentry(
+                cls._find_menuentry(_in, kernel_ver=kernel_ver),
+                slot_boot_id=slot_boot_id,
+            ),
+            slot_boot_id=slot_boot_id,
+            kernel_ver=kernel_ver,
+        )
