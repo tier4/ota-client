@@ -763,9 +763,13 @@ class GrubBootController(BootControllerBase):
         _kernel_ver = self._boot_control._detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
         )
+        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
+        #                 the boot files to the root of /boot folder.
+        #                 This is for old grub boot control bootstraps itself.
         for f in (_standby_slot_mp / "boot").glob(f"*{_kernel_ver}"):
             if f.is_file() and not f.is_symlink():
-                shutil.copy(f, self._standby_boot_slot_dir)
+                copyfile_atomic(f, self._standby_boot_slot_dir)
+                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
 
         # update the standby slot fstab
         active_fstab = replace_root(
