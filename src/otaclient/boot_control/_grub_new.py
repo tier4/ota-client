@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from typing import ClassVar, Generator
@@ -43,35 +44,119 @@ For entry name starts with `-`, it means the entry must be REMOVED.
 """
 
 
-OTA_MANAGED_CFG_HEADER = """\
-# OTAClient managed configuration file, DO NOT EDIT!
-#
-# Manual edits to this file will NOT be preserved across OTA!
-"""
-
-
 @dataclass
 class OTAManagedCfg:
-    """
-    Example:
+    """Represents an OTA managed configuration file.
+
+    OTA managed boot cfg files (e.g. grub.cfg) are generated and maintained by
+    otaclient. Each file includes a header identifying it as OTA managed, and a
+    footer containing metadata (otaclient version, grub version, and a checksum).
+
+    Use `validate_managed_config` to check whether an existing config file is a
+    valid OTA managed config. If validation passes, the config does not need to
+    be regenerated. Use `export` to render the instance back into a file string.
+
+    The file layout is:
 
     ```
+    <HEADER>
+
+
+    <raw_contents>
+
+
     # ------ OTA managed metadata ------ #
-    # OTAClient_version: vx.xx.x
+    # otaclient_version: vx.xx.x
     # grub_version: x.xx
     # checksum: sha256:xxxxxxx
     # ------ End of OTA managed metadata ------ #
     ```
     """
 
-    FOOTER_HEAD: ClassVar[str] = "# ------ OTA managed metadata ------ #"
-    FOOTER_TAIL: ClassVar[str] = "# ------ End of OTA managed metadata ------ #"
+    HEADER: ClassVar[str] = (
+        "# OTAClient managed configuration file, DO NOT EDIT!\n"
+        "# Manual edits to this file will NOT be preserved across OTA!\n"
+    )
+    FOOTER_HEAD: ClassVar[str] = "# ------ OTA managed metadata ------ #\n"
+    FOOTER_TAIL: ClassVar[str] = "# ------ End of OTA managed metadata ------ #\n"
 
     raw_contents: str
-
     grub_version: str
     checksum: str
     otaclient_version: str = version
+
+    def __post_init__(self) -> None:
+        self.raw_contents = self.raw_contents.strip()
+
+    @staticmethod
+    def _parse_footer(_footer: str) -> dict[str, str]:
+        _res: dict[str, str] = {}
+        for _line in _footer.splitlines():
+            if _line.startswith("# ------"):
+                continue
+            _line = _line.strip()
+            if not _line.startswith("#"):
+                raise ValueError
+
+            _line = _line.lstrip("#").strip()
+            _k, _, _v = _line.partition(":")
+            _res[_k.strip()] = _v.strip()
+        return _res
+
+    @classmethod
+    def validate_managed_config(cls, _in: str) -> Self | None:
+        if not _in.startswith(cls.HEADER):
+            return
+        _in = _in[len(cls.HEADER) :]
+
+        _footer_start, _footer_end = (
+            _in.find(cls.FOOTER_HEAD),
+            _in.find(cls.FOOTER_TAIL),
+        )
+        if _footer_start < 0 or _footer_end < 0:
+            return
+
+        try:
+            metadata = cls._parse_footer(
+                _in[_footer_start : _footer_end + len(cls.FOOTER_TAIL)]
+            )
+        except ValueError:
+            return
+
+        checksum = metadata.get("checksum")
+        grub_version = metadata.get("grub_version")
+        otaclient_version = metadata.get("otaclient_version")
+        if not (checksum and grub_version and otaclient_version):
+            return
+
+        content = _in[:_footer_start].strip()
+        _algorithm, _expected_digest = checksum.split(":", 1)
+        try:
+            _hasher = hashlib.new(_algorithm, content.encode())
+        except ValueError:
+            return
+
+        if _hasher.hexdigest() != _expected_digest:
+            return
+
+        return cls(
+            raw_contents=content,
+            grub_version=grub_version,
+            checksum=checksum,
+            otaclient_version=otaclient_version,
+        )
+
+    def export(self, *, hash_algorithm: str = "sha256") -> str:
+        _content = self.raw_contents
+        _digest = hashlib.new(hash_algorithm, _content.encode()).hexdigest()
+        _footer = (
+            f"{self.FOOTER_HEAD}"
+            f"# otaclient_version: {self.otaclient_version}\n"
+            f"# grub_version: {self.grub_version}\n"
+            f"# checksum: {hash_algorithm}:{_digest}\n"
+            f"{self.FOOTER_TAIL}"
+        )
+        return f"{self.HEADER}{_content}{_footer}"
 
 
 class OTASlotSuffix(StrEnum):
