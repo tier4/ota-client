@@ -362,10 +362,12 @@ class _SlotInfo:
 @dataclass
 class _ABPartition:
     is_uefi: bool
+
     boot_partition: _SlotInfo
     slot_a: _SlotInfo
     slot_b: _SlotInfo
     current_slot: OTASlotBootID
+    efi_partition: Optional[_SlotInfo] = None
 
     # fmt: off
     @property
@@ -484,6 +486,7 @@ class ABPartitionDetector:
             # fmt: off
             return _ABPartition(
                 is_uefi=True,
+                efi_partition=_SlotInfo.from_partinfo(_partitions["1"]),
                 boot_partition=_SlotInfo.from_partinfo(_partitions["2"]),
                 slot_a=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
                 slot_b=_SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
@@ -633,9 +636,20 @@ class GrubBootController(BootControllerBase):
             raise GrubBootControllerError("No root ('/') entry found in active fstab")
 
         # Add /boot and /boot/efi from active if available
-        for mp in (cfg.BOOT_DPATH, cfg.EFI_DPATH):
-            if mp in active_dict:
-                merged.append("\t".join(active_dict[mp].groups()))
+        # NOTE: order matters! /boot MUST be mounted before /boot/efi mounted!
+        if (_boot_mp := cfg.BOOT_DPATH) in active_dict:
+            merged.append("\t".join(active_dict[_boot_mp].groups()))
+        else:
+            boot_part_uuid_str = f"UUID={self._boot_slots.boot_partition.uuid}"
+            merged.append(f"{boot_part_uuid_str}\t/boot\text4\tdefaults\t0\t1")
+
+        # no nned to add EFI mount for non-UEFI system
+        if self._boot_slots.efi_partition:
+            if (_boot_eif_mp := cfg.EFI_DPATH) in active_dict:
+                merged.append("\t".join(active_dict[_boot_eif_mp].groups()))
+            else:
+                efi_part_uuid_str = f"UUID={self._boot_slots.efi_partition.uuid}"
+                merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
 
         # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
         for mp, ma in standby_dict.items():
@@ -671,6 +685,7 @@ class GrubBootController(BootControllerBase):
         """GRUB-specific pre-update: cleanup standby ota_partition folder."""
         remove_file(self._standby_boot_slot)
         self._standby_boot_slot.mkdir(parents=True)
+        Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
