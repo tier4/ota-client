@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import re
@@ -44,8 +45,8 @@ from .configs import grub_new_cfg as boot_cfg
 
 logger = logging.getLogger(__name__)
 
-VMLINUZ_SUFFIX = "vmlinuz-"
-INITRD_SUFFIX = "initrd.img-"
+VMLINUZ_PREFIX = "vmlinuz-"
+INITRD_PREFIX = "initrd.img-"
 
 GRUB_DEFAULT_OPTIONS = {
     "GRUB_TIMEOUT_STYLE": "menu",
@@ -515,12 +516,72 @@ class ABPartitionDetector:
             # fmt: on
 
 
+@contextlib.contextmanager
+def _prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
+    mounts: dict[Path, str] = {
+        target_slot_mp / "proc": "/proc",
+        target_slot_mp / "sys": "/sys",
+        target_slot_mp / "dev": "/dev",
+        target_slot_mp / "boot": boot_source,
+    }
+    try:
+        for _mp, _src in mounts.items():
+            cmdhelper.mount(_src, _mp, options=["bind"])
+        yield
+        # NOTE: passthrough the mount failure to caller
+    finally:
+        for _mp in mounts:
+            cmdhelper.umount(_mp, raise_exception=False)
+
+
 class _GrubBootControl:
     """Low-level boot control implementation for jetson-uefi."""
 
     def __init__(self) -> None:
         self.boot_slots = ABPartitionDetector.detect_boot_slots()
+        if self.boot_slots.is_uefi:
+            Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
+
+        self._current_boot_slot_dir = (
+            Path(boot_cfg.BOOT_DPATH) / self.boot_slots.current_slot
+        )
+        self._standby_boot_slot_dir = (
+            Path(boot_cfg.BOOT_DPATH) / self.boot_slots.standby_slot
+        )
+
+        # TODO: recovery and migration
         self.initialized = False
+
+    def _detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
+        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
+
+        Expect only one version of kernel installed.
+        If multiple kernel version found, will pick the first found one.
+        """
+        _slot_boot = _slot_mp / "boot"
+        for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
+            _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
+
+            if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
+                return _kernel_ver
+        else:
+            raise GrubBootControllerError(
+                f"no kernel installation found from {_slot_mp}!"
+            )
+
+    def _grub_mkconfig_on_mp(self, _slot_mp: Path, _boot_source: str) -> str:
+        with _prepare_chroot_env(_slot_mp, boot_source=_boot_source):
+            try:
+                _res = subprocess_run_wrapper(
+                    ["grub-mkconfig"], check=True, check_output=True, chroot=_slot_mp
+                )
+
+                return _res.stdout.decode()
+            except CalledProcessError as e:
+                logger.exception(f"grub-mkconfig on {_slot_mp=} failed")
+                raise GrubBootControllerError(
+                    f"grub-mkconfig on {_slot_mp=} failed"
+                ) from e
 
     def _grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
@@ -559,14 +620,8 @@ class GrubBootController(BootControllerBase):
         try:
             self._boot_control = _GrubBootControl()
             self._boot_slots = boot_slots = self._boot_control.boot_slots
-
-            # NOTE: boot slot dir stores both boot files and OTA status files.
-            self._current_boot_slot = (
-                Path(boot_cfg.BOOT_DPATH) / boot_slots.current_slot
-            )
-            self._standby_boot_slot = (
-                Path(boot_cfg.BOOT_DPATH) / boot_slots.standby_slot
-            )
+            self._current_boot_slot_dir = self._boot_control._current_boot_slot_dir
+            self._standby_boot_slot_dir = self._boot_control._standby_boot_slot_dir
 
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=boot_slots.standby_slot_info.dev,
@@ -574,11 +629,12 @@ class GrubBootController(BootControllerBase):
                 active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
+            # NOTE: boot slot dir stores both boot files and OTA status files.
             self._ota_status_control = OTAStatusFilesControl(
                 active_slot=boot_slots.current_slot,
                 standby_slot=boot_slots.standby_slot,
-                current_ota_status_dir=self._current_boot_slot,
-                standby_ota_status_dir=self._standby_boot_slot,
+                current_ota_status_dir=self._current_boot_slot_dir,
+                standby_ota_status_dir=self._standby_boot_slot_dir,
                 finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
                 # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
                 #                 force initialize the ota_status files.
@@ -661,11 +717,13 @@ class GrubBootController(BootControllerBase):
         # write to standby fstab
         write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
 
-    def _post_update_copy_boot_files(self) -> None:
+    def _post_update_copy_boot_files(self, _kernel_ver: str) -> None:
         """Copy boot files under <standby_slot_mp>/boot to standby boot slot folder."""
-        for f in (self._mp_control.standby_slot_mount_point / "boot").iterdir():
+        for f in (self._mp_control.standby_slot_mount_point / "boot").glob(
+            f"*{_kernel_ver}"
+        ):
             if f.is_file() and not f.is_symlink():
-                shutil.copy(f, self._standby_boot_slot)
+                shutil.copy(f, self._standby_boot_slot_dir)
 
     # API
 
@@ -683,9 +741,8 @@ class GrubBootController(BootControllerBase):
         self, *, standby_as_ref: bool, erase_standby: bool
     ) -> None:
         """GRUB-specific pre-update: cleanup standby ota_partition folder."""
-        remove_file(self._standby_boot_slot)
-        self._standby_boot_slot.mkdir(parents=True)
-        Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
+        remove_file(self._standby_boot_slot_dir)
+        self._standby_boot_slot_dir.mkdir(parents=True)
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
@@ -704,7 +761,11 @@ class GrubBootController(BootControllerBase):
             active_slot_fstab=Path(active_fstab),
         )
 
-        self._post_update_copy_boot_files()
+        _standby_slot_kernel_ver = self._boot_control._detect_slot_kernel_ver(
+            self._mp_control.standby_slot_mount_point
+        )
+        self._post_update_copy_boot_files(_standby_slot_kernel_ver)
+
         self._boot_control._grub_reboot_to_standby()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
