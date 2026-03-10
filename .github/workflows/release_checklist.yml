@@ -24,11 +24,13 @@ jobs:
               '',
               '## Release Checklist',
               '',
-              '- [ ] CI tests are passing',
-              '- Test on x86_64',
-              '  - [ ] Multiple ECUs OTA update was successful',
-              '- Test on Jetson UEFI (only when there are changes for Bootcontrol)',
-              '  - [ ] OTA update was successful',
+              '- [ ] CI tests passed',
+              '- Integration Test',
+              '  - [ ] Tested with the Web Auto Agent',
+              '- x86_64',
+              '  - [ ] Multiple ECUs OTA update succeeded',
+              '- Jetson UEFI *(skip if no Bootcontrol changes)*',
+              '  - [ ] OTA update succeeded',
             ].join('\n');
 
             const release_id = context.payload.release?.id ?? Number(context.payload.inputs.release_id);
