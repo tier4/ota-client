@@ -19,7 +19,6 @@ import hashlib
 import logging
 import os
 import re
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -35,6 +34,7 @@ from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper, replace_root
 from otaclient_common._io import (
+    copyfile_atomic,
     read_str_from_file,
     remove_file,
     write_str_to_file_atomic,
@@ -535,19 +535,32 @@ class _GrubBootControl:
     """Low-level boot control implementation for grub boot control."""
 
     def __init__(self) -> None:
-        self.boot_slots = ABPartitionDetector.detect_boot_slots()
-        if self.boot_slots.is_uefi:
+        self.boot_slots = boot_slots = ABPartitionDetector.detect_boot_slots()
+        if boot_slots.is_uefi:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
         self._current_boot_slot_dir = (
-            Path(boot_cfg.BOOT_DPATH) / self.boot_slots.current_slot
+            Path(boot_cfg.BOOT_DPATH) / boot_slots.current_slot
         )
         self._standby_boot_slot_dir = (
-            Path(boot_cfg.BOOT_DPATH) / self.boot_slots.standby_slot
+            Path(boot_cfg.BOOT_DPATH) / boot_slots.standby_slot
+        )
+
+        self._current_slot_boot_cfg = (
+            Path(boot_cfg.BOOT_DPATH)
+            / f"{boot_slots.current_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+        )
+        self._standby_slot_boot_cfg = (
+            Path(boot_cfg.BOOT_DPATH)
+            / f"{boot_slots.standby_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
         )
 
         # TODO: recovery and migration
-        self.initialized = False
+        _require_resetup = not self._detect_boot_control_setup()
+        if _require_resetup:
+            pass
+
+        self.initialized = _require_resetup
 
     def _detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
         """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
@@ -565,6 +578,15 @@ class _GrubBootControl:
             raise GrubBootControllerError(
                 f"no kernel installation found from {_slot_mp}!"
             )
+
+    def _detect_boot_control_setup(self) -> bool:
+        """Detect whether the ECU has grub boot control properly setup."""
+        _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
+        if _grub_cfg.is_symlink():
+            return False  # old grub boot control setup
+        if not OTAManagedCfg.validate_managed_config(read_str_from_file(_grub_cfg)):
+            return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
+        return True
 
     def _grub_mkconfig_on_mp(self, _slot_mp: Path, _boot_source: str) -> str:
         with _prepare_chroot_env(_slot_mp, boot_source=_boot_source):
@@ -723,15 +745,6 @@ class GrubBootController(BootControllerBase):
         try:
             self._boot_control = _GrubBootControl()
             self._boot_slots = boot_slots = self._boot_control.boot_slots
-            self._current_slot_boot_cfg = (
-                Path(boot_cfg.BOOT_DPATH)
-                / f"{boot_slots.current_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-            )
-            self._standby_slot_boot_cfg = (
-                Path(boot_cfg.BOOT_DPATH)
-                / f"{boot_slots.standby_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-            )
-
             self._current_boot_slot_dir = self._boot_control._current_boot_slot_dir
             self._standby_boot_slot_dir = self._boot_control._standby_boot_slot_dir
 
@@ -757,12 +770,9 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _post_update_prepare_standby_slot(self) -> None:
+    def _post_update_prepare_standby_slot(self, _kernel_ver: str) -> None:
         # prepare the boot slot dir
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
-        _kernel_ver = self._boot_control._detect_slot_kernel_ver(
-            self._mp_control.standby_slot_mount_point
-        )
         # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
         #                 the boot files to the root of /boot folder.
         #                 This is for old grub boot control bootstraps itself.
@@ -802,22 +812,23 @@ class GrubBootController(BootControllerBase):
             boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, _standby_slot_mp
         )
         _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
-        write_str_to_file_atomic(
-            _hook_fpath, boot_cfg.OTA_GRUB_HOOK, follow_symlink=False
-        )
+        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
         os.chmod(_hook_fpath, 0o750)
 
-    def _post_update_generate_standby_slot_boot_cfg(self) -> None:
+    def _post_update_generate_standby_slot_boot_cfg(self, _kernel_ver: str) -> None:
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
         _slot_id = self._boot_slots.standby_slot
 
         _boot_cfg_fpath = (
             Path(boot_cfg.GRUB_DIR) / f"{_slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
         )
-        _boot_cfg = self._boot_control._grub_mkconfig_on_mp(
+        _raw_grub_mkconfig = self._boot_control._grub_mkconfig_on_mp(
             _standby_slot_mp, str(self._standby_boot_slot_dir)
         )
-        write_str_to_file_atomic(_boot_cfg_fpath, _boot_cfg, follow_symlink=False)
+        _boot_cfg = _BootMenuEntry.generate_menuentry(
+            _raw_grub_mkconfig, slot_boot_id=_slot_id, kernel_ver=_kernel_ver
+        )
+        write_str_to_file_atomic(_boot_cfg_fpath, _boot_cfg.raw_entry)
 
     # API
 
@@ -840,8 +851,11 @@ class GrubBootController(BootControllerBase):
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
-        self._post_update_prepare_standby_slot()
-        self._post_update_generate_standby_slot_boot_cfg()
+        _kernel_ver = self._boot_control._detect_slot_kernel_ver(
+            self._mp_control.standby_slot_mount_point
+        )
+        self._post_update_prepare_standby_slot(_kernel_ver)
+        self._post_update_generate_standby_slot_boot_cfg(_kernel_ver)
 
         self._boot_control._grub_reboot_to_standby()
 
