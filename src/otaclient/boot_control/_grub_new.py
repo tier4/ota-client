@@ -15,16 +15,21 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass
-from typing import ClassVar, Generator
+from typing import ClassVar, Generator, Optional
 
 from typing_extensions import Self
 
 from _otaclient_version import version
+from otaclient.configs.cfg import cfg
+from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrEnum
 
 from .configs import grub_new_cfg
+
+logger = logging.getLogger(__name__)
 
 VMLINUZ_SUFFIX = "vmlinuz-"
 INITRD_SUFFIX = "initrd.img-"
@@ -330,23 +335,20 @@ class _BootMenuEntry:
 
 @dataclass
 class _SlotInfo:
-    slot_id: OTASlotBootID
     dev: str
     uuid: str
+    slot_id: Optional[OTASlotBootID] = None
+
+    @classmethod
+    def from_partinfo(
+        cls, _partinfo: _PartitionInfo, _slot_id: OTASlotBootID | None = None
+    ) -> Self:
+        return cls(slot_id=_slot_id, dev=_partinfo.dev, uuid=_partinfo.uuid)
 
 
 @dataclass
 class _ABPartition:
-    """
-    Supported partition layout:
-        (system boots with UEFI)
-        /dev/<main_boot_disk>
-            - p1: /boot/uefi
-            - p2: /boot
-            - p3: ota-slot_a
-            - p4: ota-slot_b
-    """
-
+    is_uefi: bool
     boot_partition: _SlotInfo
     slot_a: _SlotInfo
     slot_b: _SlotInfo
@@ -366,3 +368,132 @@ class _ABPartition:
         return OTASlotBootID.slot_b if self.current_slot == OTASlotBootID.slot_a else OTASlotBootID.slot_a
     # fmt: on
 
+
+DEV_PATH_PA = re.compile(r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$")
+EFI_PARTTYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+
+
+@dataclass
+class _PartitionInfo:
+    dev: str
+    uuid: str
+    parttype: str
+
+
+class ABPartitionDetector:
+    """Detected A/B partition layout for OTA grub boot control.
+
+    Supported partition layouts:
+
+        UEFI (first partition is vfat):
+            /dev/<disk>
+                - p1: EFI system partition (vfat)
+                - p2: /boot (ext4)
+                - p3: ota-slot_a
+                - p4: ota-slot_b
+
+        Legacy BIOS (first partition is ext4):
+            /dev/<disk>
+                - p1: /boot (ext4)
+                - p2: ota-slot_a
+                - p3: ota-slot_b
+    """
+
+    @staticmethod
+    def _detect_rootfs_dev() -> tuple[str, str]:
+        try:
+            _dev_path = cmdhelper.get_current_rootfs_dev(
+                active_root=cfg.CANONICAL_ROOT,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+            assert _dev_path
+        except Exception as e:
+            _err_msg = f"failed to detect current rootfs dev: {e!r}"
+            logger.error(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
+
+        if not (_ma := DEV_PATH_PA.match(_dev_path)):
+            raise GrubBootControllerError(f"unexpected rootfs dev: {_dev_path}")
+        return _dev_path, _ma.group("partition_id")
+
+    @staticmethod
+    def _list_partitions(rootfs_dev: str) -> dict[str, _PartitionInfo]:
+        _parts: dict[str, _PartitionInfo] = {}
+        _lsblk_pa = re.compile(
+            r'NAME="(?P<dev_name>[^"]+)"\s+FSTYPE="(?P<fstype>[^"]*)"\s+UUID="(?P<uuid>[^"]*)"\s+PARTTYPE="(?P<parttype>[^"]*)"'
+        )
+        _lsblk_cmd = ["lsblk", "-Ppo", "NAME,FSTYPE,UUID,PARTTYPE"]
+        try:
+            _parent_dev = cmdhelper.get_parent_dev(rootfs_dev)
+            _output = cmdhelper.subprocess_check_output(
+                [*_lsblk_cmd, _parent_dev], raise_exception=True
+            )
+
+            # skip the first line (parent device itself)
+            for _entry in _output.splitlines()[1:]:
+                if not (_entry_ma := _lsblk_pa.search(_entry)):
+                    continue
+                _dev_name = _entry_ma.group("dev_name")
+
+                _dev_path_ma = DEV_PATH_PA.search(_dev_name)
+                assert _dev_path_ma
+                _part_id = _dev_path_ma.group("partition_id")
+
+                _parts[_part_id] = _PartitionInfo(
+                    dev=_dev_name,
+                    uuid=_entry_ma.group("uuid"),
+                    parttype=_entry_ma.group("parttype"),
+                )
+            return _parts
+        except Exception as e:
+            _err_msg = f"failed to detect boot device family tree: {e!r}"
+            logger.error(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
+
+    @classmethod
+    def detect_boot_slots(cls) -> _ABPartition:
+        _rootfs_dev, _active_partid = cls._detect_rootfs_dev()
+        _partitions = cls._list_partitions(_rootfs_dev)
+
+        if "1" not in _partitions:
+            raise GrubBootControllerError(f"missing first partition: {_partitions=}")
+        if _partitions["1"].parttype.lower() == EFI_PARTTYPE:
+            if not all(str(_pid) in _partitions for _pid in range(1, 5)):
+                raise GrubBootControllerError(
+                    f"unexpected layout for UEFI booted system: {_partitions=}"
+                )
+
+            if _active_partid not in ["3", "4"]:
+                raise GrubBootControllerError(
+                    f"booted from unexpected partition: {_active_partid=}"
+                )
+
+            # fmt: off
+            return _ABPartition(
+                is_uefi=True,
+                boot_partition=_SlotInfo.from_partinfo(_partitions["2"]),
+                slot_a=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
+                slot_b=_SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
+                current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
+            )
+            # fmt: on
+        else:  # legacy BIOS system
+            if not all(str(_pid) in _partitions for _pid in range(1, 4)):
+                raise GrubBootControllerError(
+                    f"unexpected layout for legacy BIOS booted system: {_partitions}"
+                )
+
+            if _active_partid not in ["2", "3"]:
+                raise GrubBootControllerError(
+                    f"booted from unexpected partition: {_active_partid=}"
+                )
+
+            # fmt: off
+            return _ABPartition(
+                is_uefi=False,
+                boot_partition=_SlotInfo.from_partinfo(_partitions["1"]),
+                slot_a=_SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
+                slot_b=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
+                current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
+            )
+            # fmt: on
