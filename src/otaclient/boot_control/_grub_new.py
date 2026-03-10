@@ -723,6 +723,15 @@ class GrubBootController(BootControllerBase):
         try:
             self._boot_control = _GrubBootControl()
             self._boot_slots = boot_slots = self._boot_control.boot_slots
+            self._current_slot_boot_cfg = (
+                Path(boot_cfg.BOOT_DPATH)
+                / f"{boot_slots.current_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+            )
+            self._standby_slot_boot_cfg = (
+                Path(boot_cfg.BOOT_DPATH)
+                / f"{boot_slots.standby_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+            )
+
             self._current_boot_slot_dir = self._boot_control._current_boot_slot_dir
             self._standby_boot_slot_dir = self._boot_control._standby_boot_slot_dir
 
@@ -748,85 +757,63 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _post_update_update_fstab(
-        self, *, active_slot_fstab: Path, standby_slot_fstab: Path
-    ):
-        """Rebuild standby fstab using valid mount entries only.
-
-        - Keep only valid mount entries (skip comments, invalid or broken lines)
-        - Always include '/', '/boot', and '/boot/efi' from active slot
-        - Replace root ('/') UUID with standby slot UUID
-        - Drop all other comments or extra metadata lines
-        """
-        standby_slot_uuid = self._boot_slots.standby_slot_info.uuid
-        standby_uuid_str = f"UUID={standby_slot_uuid}"
-
-        # Strictly match valid fstab entry lines
-        fstab_entry_pa = re.compile(
-            r"^\s*(?P<file_system>\S+)\s+"
-            r"(?P<mount_point>\S+)\s+"
-            r"(?P<type>\S+)\s+"
-            r"(?P<options>\S+)\s+"
-            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
+    def _post_update_prepare_standby_slot(self) -> None:
+        # prepare the boot slot dir
+        _standby_slot_mp = self._mp_control.standby_slot_mount_point
+        _kernel_ver = self._boot_control._detect_slot_kernel_ver(
+            self._mp_control.standby_slot_mount_point
         )
-
-        def read_fstab_dict(fstab_path: Path) -> dict[str, re.Match]:
-            """Return {mount_point: match} for valid fstab entries only"""
-            entries = {}
-            for line in read_str_from_file(fstab_path).splitlines():
-                if m := fstab_entry_pa.match(line):
-                    entries[m.group("mount_point")] = m
-            return entries
-
-        active_dict = read_fstab_dict(active_slot_fstab)
-        standby_dict = read_fstab_dict(standby_slot_fstab)
-
-        merged: list[str] = []
-
-        # These special base mount points(/, /boot, /boot/efi) are created by USB Installer and not in project settings,
-        # so we need to preserve them from active slot's fstab.
-        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
-
-        # Always include root ("/") from active fstab with standby UUID
-        if cfg.CANONICAL_ROOT in active_dict:
-            ma = active_dict[cfg.CANONICAL_ROOT]
-            merged.append("\t".join([standby_uuid_str] + list(ma.groups())[1:]))
-        else:
-            raise GrubBootControllerError("No root ('/') entry found in active fstab")
-
-        # Add /boot and /boot/efi from active if available
-        # NOTE: order matters! /boot MUST be mounted before /boot/efi mounted!
-        if (_boot_mp := cfg.BOOT_DPATH) in active_dict:
-            merged.append("\t".join(active_dict[_boot_mp].groups()))
-        else:
-            boot_part_uuid_str = f"UUID={self._boot_slots.boot_partition.uuid}"
-            merged.append(f"{boot_part_uuid_str}\t/boot\text4\tdefaults\t0\t1")
-
-        # no nned to add EFI mount for non-UEFI system
-        if self._boot_slots.efi_partition:
-            if (_boot_eif_mp := cfg.EFI_DPATH) in active_dict:
-                merged.append("\t".join(active_dict[_boot_eif_mp].groups()))
-            else:
-                efi_part_uuid_str = f"UUID={self._boot_slots.efi_partition.uuid}"
-                merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
-
-        # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
-        for mp, ma in standby_dict.items():
-            if mp not in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
-                merged.append("\t".join(ma.groups()))
-
-        merged.append("")  # add a new line at the end of file
-
-        # write to standby fstab
-        write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
-
-    def _post_update_copy_boot_files(self, _kernel_ver: str) -> None:
-        """Copy boot files under <standby_slot_mp>/boot to standby boot slot folder."""
-        for f in (self._mp_control.standby_slot_mount_point / "boot").glob(
-            f"*{_kernel_ver}"
-        ):
+        for f in (_standby_slot_mp / "boot").glob(f"*{_kernel_ver}"):
             if f.is_file() and not f.is_symlink():
                 shutil.copy(f, self._standby_boot_slot_dir)
+
+        # update the standby slot fstab
+        active_fstab = replace_root(
+            boot_cfg.FSTAB_FILE_PATH,
+            cfg.CANONICAL_ROOT,
+            self._mp_control.active_slot_mount_point,
+        )
+        standby_fstab = replace_root(
+            boot_cfg.FSTAB_FILE_PATH,
+            cfg.CANONICAL_ROOT,
+            self._mp_control.standby_slot_mount_point,
+        )
+        self._boot_control._update_fstab(
+            standby_slot_fstab=Path(standby_fstab), active_slot_fstab=Path(active_fstab)
+        )
+
+        # update the /etc/default/grub
+        _grub_default_fpath = replace_root(
+            boot_cfg.DEFAULT_GRUB_PATH, cfg.CANONICAL_ROOT, _standby_slot_mp
+        )
+        write_str_to_file_atomic(
+            _grub_default_fpath,
+            self._boot_control._update_grub_default(
+                read_str_from_file(_grub_default_fpath)
+            ),
+        )
+
+        # inject the /etc/grub.d/30_ota hook and set it as executable
+        _hook_dpath = replace_root(
+            boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, _standby_slot_mp
+        )
+        _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
+        write_str_to_file_atomic(
+            _hook_fpath, boot_cfg.OTA_GRUB_HOOK, follow_symlink=False
+        )
+        os.chmod(_hook_fpath, 0o750)
+
+    def _post_update_generate_standby_slot_boot_cfg(self) -> None:
+        _standby_slot_mp = self._mp_control.standby_slot_mount_point
+        _slot_id = self._boot_slots.standby_slot
+
+        _boot_cfg_fpath = (
+            Path(boot_cfg.GRUB_DIR) / f"{_slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+        )
+        _boot_cfg = self._boot_control._grub_mkconfig_on_mp(
+            _standby_slot_mp, str(self._standby_boot_slot_dir)
+        )
+        write_str_to_file_atomic(_boot_cfg_fpath, _boot_cfg, follow_symlink=False)
 
     # API
 
@@ -849,25 +836,8 @@ class GrubBootController(BootControllerBase):
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
-        active_fstab = replace_root(
-            boot_cfg.FSTAB_FILE_PATH,
-            cfg.CANONICAL_ROOT,
-            self._mp_control.active_slot_mount_point,
-        )
-        standby_fstab = replace_root(
-            boot_cfg.FSTAB_FILE_PATH,
-            cfg.CANONICAL_ROOT,
-            self._mp_control.standby_slot_mount_point,
-        )
-        self._post_update_update_fstab(
-            standby_slot_fstab=Path(standby_fstab),
-            active_slot_fstab=Path(active_fstab),
-        )
-
-        _standby_slot_kernel_ver = self._boot_control._detect_slot_kernel_ver(
-            self._mp_control.standby_slot_mount_point
-        )
-        self._post_update_copy_boot_files(_standby_slot_kernel_ver)
+        self._post_update_prepare_standby_slot()
+        self._post_update_generate_standby_slot_boot_cfg()
 
         self._boot_control._grub_reboot_to_standby()
 
