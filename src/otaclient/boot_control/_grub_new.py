@@ -149,7 +149,19 @@ class _BootMenuEntry:
     def _find_menuentry(cls, _in: str, *, kernel_ver: str) -> str:
         """Find a raw menuentry block from the input with matching kernel version.
 
-        The recovery entry for the same kernel will be filtered.
+        Iterates all menuentry blocks in the grub-mkconfig output, skipping
+        recovery entries and entries without a valid linux directive, and
+        returns the first entry whose kernel version matches.
+
+        Args:
+            _in (str): The full grub-mkconfig output string.
+            kernel_ver (str): The kernel version to match (e.g. "5.19.0-50-generic").
+
+        Returns:
+            str: The raw menuentry block string.
+
+        Raises:
+            ValueError: If no matching non-recovery menuentry is found.
         """
         for _found in _iter_menuentries(_in):
             _linux_dir_ma = LINUX_PA_MULTILINE.search(_found)
@@ -172,10 +184,18 @@ class _BootMenuEntry:
 
     @classmethod
     def _fixup_menuentry(cls, _entry: str, *, slot_boot_id: OTASlotBootID) -> str:
-        """Fix up the found entry.
+        """Fix up a raw menuentry block for OTA slot boot.
 
-        1. fix up menuentry title and id to `slot_boot_id`.
-        2. fix up the linux and initrd path to prefix `/boot/<slot_boot_id>`.
+        Performs the following rewrites on the menuentry block:
+            1. Replaces the menuentry title and id with `slot_boot_id`.
+            2. Prefixes the linux and initrd file paths with `/<slot_boot_id>/`.
+
+        Args:
+            _entry (str): The raw menuentry block string to fix up.
+            slot_boot_id (OTASlotBootID): The OTA slot boot identifier to apply.
+
+        Returns:
+            str: The rewritten menuentry block string.
         """
         _entry = MENUENTRY_TITLE_PA.sub(
             lambda ma: ma.group().replace(ma.group("entry_title"), slot_boot_id, 1),
@@ -206,11 +226,21 @@ class _BootMenuEntry:
     def generate_menuentry(
         cls, _in: str, *, slot_boot_id: OTASlotBootID, kernel_ver: str
     ) -> Self:
-        """Generate a menuentry block for `slot_boot_id` with matching the given kernel version.
+        """Generate an OTA-ready menuentry from grub-mkconfig output.
 
-        This searches through all menuentry blocks in grub-mkconfig output
-        and returns the first non-recovery entry whose linux kernel version
-        matches <kernel_ver>.
+        Finds the menuentry block matching `kernel_ver`, then rewrites its
+        title, id, and file paths for the given `slot_boot_id`.
+
+        Args:
+            _in (str): The full grub-mkconfig output string.
+            slot_boot_id (OTASlotBootID): The OTA slot boot identifier to apply.
+            kernel_ver (str): The kernel version to match (e.g. "5.19.0-50-generic").
+
+        Returns:
+            _BootMenuEntry: A `_BootMenuEntry` instance with the fixed-up menuentry.
+
+        Raises:
+            ValueError: If no matching non-recovery menuentry is found.
         """
         # NOTE: for specific kernel version, we should have exactly one
         #       boot entry(non-recovery entry) for it.
