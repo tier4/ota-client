@@ -18,16 +18,24 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+from subprocess import CalledProcessError
 from typing import ClassVar, Generator, Optional
 
 from typing_extensions import Self
 
 from _otaclient_version import version
+from otaclient import errors as ota_errors
+from otaclient.boot_control._base import BootControllerBase
+from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
+from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper
+from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 from otaclient_common._typing import StrEnum
+from otaclient_common.linux import subprocess_run_wrapper
 
-from .configs import grub_new_cfg
+from .configs import grub_new_cfg as boot_cfg
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +179,8 @@ class OTASlotSuffix(StrEnum):
 
 
 class OTASlotBootID(StrEnum):
-    slot_a = f"{grub_new_cfg.OTA_BOOT_SLOT}_a"
-    slot_b = f"{grub_new_cfg.OTA_BOOT_SLOT}_b"
+    slot_a = f"{boot_cfg.OTA_BOOT_SLOT}_a"
+    slot_b = f"{boot_cfg.OTA_BOOT_SLOT}_b"
 
     def get_suffix(self) -> str:
         return f"_{self.rsplit('_', 1)[-1]}"
@@ -497,3 +505,42 @@ class ABPartitionDetector:
                 current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
             )
             # fmt: on
+
+
+class _GrubBootControl:
+    """Low-level boot control implementation for jetson-uefi."""
+
+    def __init__(self) -> None:
+        self.boot_slots = ABPartitionDetector.detect_boot_slots()
+
+    def _grub_reboot_to_standby(self) -> None:
+        _standby_slot = self.boot_slots.standby_slot
+        try:
+            subprocess_run_wrapper(
+                ["grub-reboot", _standby_slot],
+                check=True,
+                check_output=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {_standby_slot}")
+            raise GrubBootControllerError(
+                f"`grub-reboot {_standby_slot}` failed"
+            ) from None
+
+    def _finalize_slot_switch(self) -> None:
+        _current_slot = self.boot_slots.current_slot
+        try:
+            subprocess_run_wrapper(
+                ["grub-set-default", _current_slot],
+                check=True,
+                check_output=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+        except CalledProcessError:
+            logger.exception(f"failed to grub-reboot to {_current_slot}")
+            raise GrubBootControllerError(
+                f"`grub-set-default {_current_slot}` failed"
+            ) from None
+
+
