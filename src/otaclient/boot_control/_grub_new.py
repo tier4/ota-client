@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import logging
+import os
 import re
 import shutil
 from dataclasses import dataclass
@@ -179,14 +180,9 @@ class OTAManagedCfg:
         return f"{self.HEADER}{_content}{_footer}"
 
 
-class OTASlotSuffix(StrEnum):
-    slot_a = "_a"
-    slot_b = "_b"
-
-
 class OTASlotBootID(StrEnum):
-    slot_a = f"{boot_cfg.OTA_BOOT_SLOT}_a"
-    slot_b = f"{boot_cfg.OTA_BOOT_SLOT}_b"
+    slot_a = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_A_SUFFIX}"
+    slot_b = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_B_SUFFIX}"
 
     def get_suffix(self) -> str:
         return f"_{self.rsplit('_', 1)[-1]}"
@@ -535,7 +531,7 @@ def _prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
 
 
 class _GrubBootControl:
-    """Low-level boot control implementation for jetson-uefi."""
+    """Low-level boot control implementation for grub boot control."""
 
     def __init__(self) -> None:
         self.boot_slots = ABPartitionDetector.detect_boot_slots()
@@ -582,6 +578,78 @@ class _GrubBootControl:
                 raise GrubBootControllerError(
                     f"grub-mkconfig on {_slot_mp=} failed"
                 ) from e
+
+    def _update_fstab(
+        self, *, active_slot_fstab: Path, standby_slot_fstab: Path
+    ) -> None:
+        """Rebuild standby fstab using valid mount entries only.
+
+        - Keep only valid mount entries (skip comments, invalid or broken lines)
+        - Always include '/', '/boot', and '/boot/efi' from active slot
+        - Replace root ('/') UUID with standby slot UUID
+        - Drop all other comments or extra metadata lines
+        """
+        standby_slot_uuid = self.boot_slots.standby_slot_info.uuid
+        standby_uuid_str = f"UUID={standby_slot_uuid}"
+
+        # Strictly match valid fstab entry lines
+        fstab_entry_pa = re.compile(
+            r"^\s*(?P<file_system>\S+)\s+"
+            r"(?P<mount_point>\S+)\s+"
+            r"(?P<type>\S+)\s+"
+            r"(?P<options>\S+)\s+"
+            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
+        )
+
+        def read_fstab_dict(fstab_path: Path) -> dict[str, re.Match]:
+            """Return {mount_point: match} for valid fstab entries only"""
+            entries = {}
+            for line in read_str_from_file(fstab_path).splitlines():
+                if m := fstab_entry_pa.match(line):
+                    entries[m.group("mount_point")] = m
+            return entries
+
+        active_dict = read_fstab_dict(active_slot_fstab)
+        standby_dict = read_fstab_dict(standby_slot_fstab)
+
+        merged: list[str] = []
+
+        # These special base mount points(/, /boot, /boot/efi) are created by USB Installer and not in project settings,
+        # so we need to preserve them from active slot's fstab.
+        # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
+
+        # Always include root ("/") from active fstab with standby UUID
+        if cfg.CANONICAL_ROOT in active_dict:
+            ma = active_dict[cfg.CANONICAL_ROOT]
+            merged.append("\t".join([standby_uuid_str] + list(ma.groups())[1:]))
+        else:
+            raise GrubBootControllerError("No root ('/') entry found in active fstab")
+
+        # Add /boot and /boot/efi from active if available
+        # NOTE: order matters! /boot MUST be mounted before /boot/efi mounted!
+        if (_boot_mp := cfg.BOOT_DPATH) in active_dict:
+            merged.append("\t".join(active_dict[_boot_mp].groups()))
+        else:
+            boot_part_uuid_str = f"UUID={self.boot_slots.boot_partition.uuid}"
+            merged.append(f"{boot_part_uuid_str}\t/boot\text4\tdefaults\t0\t1")
+
+        # no nned to add EFI mount for non-UEFI system
+        if self.boot_slots.efi_partition:
+            if (_boot_eif_mp := cfg.EFI_DPATH) in active_dict:
+                merged.append("\t".join(active_dict[_boot_eif_mp].groups()))
+            else:
+                efi_part_uuid_str = f"UUID={self.boot_slots.efi_partition.uuid}"
+                merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
+
+        # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
+        for mp, ma in standby_dict.items():
+            if mp not in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
+                merged.append("\t".join(ma.groups()))
+
+        merged.append("")  # add a new line at the end of file
+
+        # write to standby fstab
+        write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
 
     def _grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
