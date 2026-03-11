@@ -15,19 +15,17 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
-from typing import ClassVar, Generator, Literal, NoReturn, Optional
+from typing import Generator, Literal, NoReturn
 
 from typing_extensions import Self
 
-from _otaclient_version import version
 from otaclient import errors as ota_errors
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
@@ -40,9 +38,18 @@ from otaclient_common._io import (
     remove_file,
     write_str_to_file_atomic,
 )
-from otaclient_common._typing import StrEnum
 from otaclient_common.linux import subprocess_run_wrapper
 
+from ._grub_common import (
+    OTA_MANAGED_CFG_HEADER,
+    ABPartition,
+    BootFiles,
+    GrubBootControllerError,
+    OTAManagedCfg,
+    OTASlotBootID,
+    PartitionInfo,
+    SlotInfo,
+)
 from .configs import grub_new_cfg as boot_cfg
 
 logger = logging.getLogger(__name__)
@@ -62,132 +69,6 @@ GRUB_DEFAULT_OPTIONS = {
 GRUB_BLACKLIST_OPTIONS = ["GRUB_SAVEDEFAULT"]
 """The grub options that MUST be stripped away."""
 
-
-class GrubBootControllerError(Exception):
-    """Grub boot controller internal used exception."""
-
-
-OTA_MANAGED_CFG_HEADER = (
-    "# OTAClient managed configuration file, DO NOT EDIT!\n"
-    "# Manual edits to this file will NOT be preserved across OTA!\n"
-)
-
-
-@dataclass
-class OTAManagedCfg:
-    """Represents an OTA managed configuration file.
-
-    OTA managed boot cfg files (e.g. grub.cfg) are generated and maintained by
-    otaclient. Each file includes a header identifying it as OTA managed, and a
-    footer containing metadata (otaclient version, grub version, and a checksum).
-
-    Use `validate_managed_config` to check whether an existing config file is a
-    valid OTA managed config. If validation passes, the config does not need to
-    be regenerated. Use `export` to render the instance back into a file string.
-
-    The file layout is:
-
-    ```
-    # OTAClient managed configuration file, DO NOT EDIT!
-    # Manual edits to this file will NOT be preserved across OTA!
-    <raw_contents>
-    # ------ OTA managed metadata ------ #
-    # otaclient_version: vx.xx.x
-    # grub_version: x.xx
-    # checksum: sha256:xxxxxxx
-    # ------ End of OTA managed metadata ------ #
-    ```
-    """
-
-    HEADER: ClassVar[str] = OTA_MANAGED_CFG_HEADER
-    FOOTER_HEAD: ClassVar[str] = "# ------ OTA managed metadata ------ #\n"
-    FOOTER_TAIL: ClassVar[str] = "# ------ End of OTA managed metadata ------ #\n"
-
-    raw_contents: str
-    grub_version: str
-    checksum: str = field(init=False)
-    otaclient_version: str = version
-
-    def __post_init__(self) -> None:
-        self.raw_contents = self.raw_contents.strip()
-        self.checksum = (
-            f"sha256:{hashlib.sha256(self.raw_contents.encode()).hexdigest()}"
-        )
-
-    @staticmethod
-    def _parse_footer(_footer: str) -> dict[str, str]:
-        _res: dict[str, str] = {}
-        for _line in _footer.splitlines():
-            if _line.startswith("# ------"):
-                continue
-            _line = _line.strip()
-            if not _line.startswith("#"):
-                raise ValueError
-
-            _line = _line.lstrip("#").strip()
-            _k, _, _v = _line.partition(":")
-            _res[_k.strip()] = _v.strip()
-        return _res
-
-    @classmethod
-    def validate_managed_config(cls, _in: str) -> Self | None:
-        if not _in.startswith(cls.HEADER):
-            return
-        _in = _in[len(cls.HEADER) :]
-
-        _footer_start = _in.find(cls.FOOTER_HEAD)
-        _footer_end = _in.find(cls.FOOTER_TAIL)
-        if _footer_start < 0 or _footer_end < 0:
-            return
-
-        try:
-            metadata = cls._parse_footer(
-                _in[_footer_start : _footer_end + len(cls.FOOTER_TAIL)]
-            )
-        except ValueError:
-            return
-
-        checksum = metadata.get("checksum")
-        grub_version = metadata.get("grub_version")
-        otaclient_version = metadata.get("otaclient_version")
-        if not (checksum and grub_version and otaclient_version):
-            return
-
-        content = _in[:_footer_start].strip()
-        _algorithm, _expected_digest = checksum.split(":", 1)
-        try:
-            _hasher = hashlib.new(_algorithm, content.encode())
-        except ValueError:
-            return
-
-        if _hasher.hexdigest() != _expected_digest:
-            return
-
-        return cls(
-            raw_contents=content,
-            grub_version=grub_version,
-            otaclient_version=otaclient_version,
-        )
-
-    def export(self) -> str:
-        _footer = (
-            f"{self.FOOTER_HEAD}"
-            f"# otaclient_version: {self.otaclient_version}\n"
-            f"# grub_version: {self.grub_version}\n"
-            f"# checksum: {self.checksum}\n"
-            f"{self.FOOTER_TAIL}"
-        )
-        return f"{self.HEADER}{self.raw_contents}{_footer}"
-
-
-class OTASlotBootID(StrEnum):
-    slot_a = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_A_SUFFIX}"
-    slot_b = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_B_SUFFIX}"
-
-    def get_suffix(self) -> str:
-        return f"_{self.rsplit('_', 1)[-1]}"
-
-
 MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
 LINUX_PA_MULTILINE = re.compile(r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE)
 LINUX_VERSION_PA = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
@@ -199,8 +80,29 @@ MENUENTRY_ID_PA = re.compile(
     r"""^\s*menuentry.*?\$menuentry_id_option\s+(?P<entry_id>(?:"[^"]*"|'[^']*'|[^\s]+))"""
 )
 
+DEV_PATH_PA = re.compile(r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$")
+EFI_PARTTYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 
-def _iter_menuentries(_in: str) -> Generator[str]:
+
+@contextlib.contextmanager
+def prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
+    mounts: dict[Path, str] = {
+        target_slot_mp / "proc": "/proc",
+        target_slot_mp / "sys": "/sys",
+        target_slot_mp / "dev": "/dev",
+        target_slot_mp / "boot": boot_source,
+    }
+    try:
+        for _mp, _src in mounts.items():
+            cmdhelper.mount(_src, _mp, options=["bind"])
+        yield
+        # NOTE: passthrough the mount failure to caller
+    finally:
+        for _mp in mounts:
+            cmdhelper.umount(_mp, raise_exception=False)
+
+
+def iter_menuentries(_in: str) -> Generator[str]:
     """Extract all menuentry blocks from grub-mkconfig output.
 
     Uses brace-depth counting to correctly handle nested {} blocks
@@ -252,7 +154,7 @@ class _BootMenuEntry:
         Raises:
             ValueError: If no matching non-recovery menuentry is found.
         """
-        for _found in _iter_menuentries(_in):
+        for _found in iter_menuentries(_in):
             _linux_dir_ma = LINUX_PA_MULTILINE.search(_found)
             if not _linux_dir_ma:
                 continue  # not a linux boot menuentry
@@ -343,42 +245,6 @@ class _BootMenuEntry:
         )
 
 
-@dataclass
-class _SlotInfo:
-    dev: str
-    uuid: str
-    slot_id: Optional[OTASlotBootID] = None
-
-    @classmethod
-    def from_partinfo(
-        cls, _partinfo: _PartitionInfo, _slot_id: OTASlotBootID | None = None
-    ) -> Self:
-        return cls(slot_id=_slot_id, dev=_partinfo.dev, uuid=_partinfo.uuid)
-
-
-@dataclass
-class _ABPartition:
-    is_uefi: bool
-
-    boot_partition: _SlotInfo
-    slot_a: _SlotInfo
-    slot_b: _SlotInfo
-    current_slot: OTASlotBootID
-    standby_slot: OTASlotBootID
-    efi_partition: Optional[_SlotInfo] = None
-
-
-DEV_PATH_PA = re.compile(r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$")
-EFI_PARTTYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
-
-
-@dataclass
-class _PartitionInfo:
-    dev: str
-    uuid: str
-    parttype: str
-
-
 class ABPartitionDetector:
     """Detected A/B partition layout for OTA grub boot control.
 
@@ -416,8 +282,8 @@ class ABPartitionDetector:
         return _dev_path, _ma.group("partition_id")
 
     @staticmethod
-    def _list_partitions(rootfs_dev: str) -> dict[str, _PartitionInfo]:
-        _parts: dict[str, _PartitionInfo] = {}
+    def _list_partitions(rootfs_dev: str) -> dict[str, PartitionInfo]:
+        _parts: dict[str, PartitionInfo] = {}
         _lsblk_pa = re.compile(
             r'NAME="(?P<dev_name>[^"]+)"\s+FSTYPE="(?P<fstype>[^"]*)"\s+UUID="(?P<uuid>[^"]*)"\s+PARTTYPE="(?P<parttype>[^"]*)"'
         )
@@ -438,7 +304,7 @@ class ABPartitionDetector:
                 assert _dev_path_ma
                 _part_id = _dev_path_ma.group("partition_id")
 
-                _parts[_part_id] = _PartitionInfo(
+                _parts[_part_id] = PartitionInfo(
                     dev=_dev_name,
                     uuid=_entry_ma.group("uuid"),
                     parttype=_entry_ma.group("parttype"),
@@ -450,7 +316,7 @@ class ABPartitionDetector:
             raise GrubBootControllerError(_err_msg) from e
 
     @classmethod
-    def detect_boot_slots(cls) -> _ABPartition:
+    def detect_boot_slots(cls) -> ABPartition:
         _rootfs_dev, _active_partid = cls._detect_rootfs_dev()
         _partitions = cls._list_partitions(_rootfs_dev)
 
@@ -468,12 +334,12 @@ class ABPartitionDetector:
                 )
 
             # fmt: off
-            return _ABPartition(
+            return ABPartition(
                 is_uefi=True,
-                efi_partition=_SlotInfo.from_partinfo(_partitions["1"]),
-                boot_partition=_SlotInfo.from_partinfo(_partitions["2"]),
-                slot_a=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
-                slot_b=_SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
+                efi_partition=SlotInfo.from_partinfo(_partitions["1"]),
+                boot_partition=SlotInfo.from_partinfo(_partitions["2"]),
+                slot_a=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
+                slot_b=SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
                 standby_slot=OTASlotBootID.slot_a if _active_partid == "4" else OTASlotBootID.slot_b,
             )
@@ -490,40 +356,15 @@ class ABPartitionDetector:
                 )
 
             # fmt: off
-            return _ABPartition(
+            return ABPartition(
                 is_uefi=False,
-                boot_partition=_SlotInfo.from_partinfo(_partitions["1"]),
-                slot_a=_SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
-                slot_b=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
+                boot_partition=SlotInfo.from_partinfo(_partitions["1"]),
+                slot_a=SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
+                slot_b=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
                 standby_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
             )
             # fmt: on
-
-
-@contextlib.contextmanager
-def _prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
-    mounts: dict[Path, str] = {
-        target_slot_mp / "proc": "/proc",
-        target_slot_mp / "sys": "/sys",
-        target_slot_mp / "dev": "/dev",
-        target_slot_mp / "boot": boot_source,
-    }
-    try:
-        for _mp, _src in mounts.items():
-            cmdhelper.mount(_src, _mp, options=["bind"])
-        yield
-        # NOTE: passthrough the mount failure to caller
-    finally:
-        for _mp in mounts:
-            cmdhelper.umount(_mp, raise_exception=False)
-
-
-@dataclass
-class _BootFiles:
-    kernel_ver: str
-    kernel: Path
-    initrd: Path
 
 
 class _GrubBootControl:
@@ -541,7 +382,7 @@ class _GrubBootControl:
             self._bootstrap_boot_control()
         self.initialized = _require_resetup
 
-    def _bootstrap_retrieve_booted_kernel_initramfs(self) -> _BootFiles:
+    def _bootstrap_retrieve_booted_kernel_initramfs(self) -> BootFiles:
         """Detect the current booted kernel and initramfs.
 
         We assume that the initramfs lives under the same folder of kernel.
@@ -562,9 +403,9 @@ class _GrubBootControl:
         if not _initrd_image.is_file():
             raise GrubBootControllerError(f"initramfs for {_kernel_ver=} not found!")
 
-        return _BootFiles(_kernel_ver, _boot_image, _initrd_image)
+        return BootFiles(_kernel_ver, _boot_image, _initrd_image)
 
-    def _bootstrap_setup_boot_slot_dir(self, _boot_files: _BootFiles) -> None:
+    def _bootstrap_setup_boot_slot_dir(self, _boot_files: BootFiles) -> None:
         """Setup the boot slot dir for the target slot."""
         _slot_boot_dir = self.get_boot_slot_dir(self.boot_slots.current_slot)
         remove_file(_slot_boot_dir)
@@ -580,7 +421,7 @@ class _GrubBootControl:
             slot_fsuuid=_current_slot_info.uuid, slot_mp=slot_mp
         )
 
-    def _bootstrap_setup_boot_cfg(self, _boot_files: _BootFiles, slot_mp: Path) -> None:
+    def _bootstrap_setup_boot_cfg(self, _boot_files: BootFiles, slot_mp: Path) -> None:
         """Generate and write the boot cfg for current slot."""
         self.setup_ota_boot_cfg_for_slot(
             _boot_files.kernel_ver,
@@ -617,16 +458,16 @@ class _GrubBootControl:
 
         with TemporaryDirectory(
             cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
-        ) as slop_mp:
+        ) as slot_mp:
             _current_root_mp = _env.get_dynamic_client_chroot_path() or "/"
-            cmdhelper.bind_mount_rw(_current_root_mp, slop_mp)
+            cmdhelper.bind_mount_rw(_current_root_mp, slot_mp)
 
-            slop_mp = Path(slop_mp)
-            self._bootstrap_setup_rootfs_for_ota_boot(slop_mp)
-            self._bootstrap_setup_boot_cfg(_boot_files, slop_mp)
+            slot_mp = Path(slot_mp)
+            self._bootstrap_setup_rootfs_for_ota_boot(slot_mp)
+            self._bootstrap_setup_boot_cfg(_boot_files, slot_mp)
 
-            # with base grub.cfg written, offically switch to OTA managed boot control
-            self._bootstrap_base_grub_cfg(slop_mp)
+            # with base grub.cfg written, officially switch to OTA managed boot control
+            self._bootstrap_base_grub_cfg(slot_mp)
 
     @staticmethod
     def _read_fstab_dict(_in: str) -> dict[str, re.Match]:
@@ -678,7 +519,7 @@ class _GrubBootControl:
         return True
 
     def _grub_mkconfig_on_mp(self, _slot_mp: Path, _boot_source: str) -> str:
-        with _prepare_chroot_env(_slot_mp, boot_source=_boot_source):
+        with prepare_chroot_env(_slot_mp, boot_source=_boot_source):
             try:
                 _res = subprocess_run_wrapper(
                     ["grub-mkconfig"], check=True, check_output=True, chroot=_slot_mp
@@ -733,8 +574,8 @@ class _GrubBootControl:
 
         # no need to add EFI mount for non-UEFI system
         if self.boot_slots.efi_partition:
-            if reference_dict and (_boot_eif_mp := cfg.EFI_DPATH) in reference_dict:
-                merged.append("\t".join(reference_dict[_boot_eif_mp].groups()))
+            if reference_dict and (_boot_efi_mp := cfg.EFI_DPATH) in reference_dict:
+                merged.append("\t".join(reference_dict[_boot_efi_mp].groups()))
             else:
                 efi_part_uuid_str = f"UUID={self.boot_slots.efi_partition.uuid}"
                 merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
@@ -783,7 +624,7 @@ class _GrubBootControl:
 
     # API
 
-    def get_slot_info(self, slot_id: OTASlotBootID) -> _SlotInfo:
+    def get_slot_info(self, slot_id: OTASlotBootID) -> SlotInfo:
         return (
             self.boot_slots.slot_a
             if slot_id == OTASlotBootID.slot_a
@@ -887,10 +728,7 @@ class _GrubBootControl:
         _boot_cfg = _BootMenuEntry.generate_menuentry(
             _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
         )
-        write_str_to_file_atomic(
-            Path(boot_cfg.GRUB_DIR) / f"{slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}",
-            _boot_cfg.raw_entry,
-        )
+        write_str_to_file_atomic(self.get_boot_cfg_fpath(slot_id), _boot_cfg.raw_entry)
 
     def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
