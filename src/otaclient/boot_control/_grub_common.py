@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Optional
@@ -189,3 +190,21 @@ class BootFiles:
     kernel_ver: str
     kernel: Path
     initrd: Path
+
+
+def read_fstab_dict(_in: str) -> dict[str, re.Match]:
+    """Return {mount_point: match} for valid fstab entries only"""
+    # Strictly match valid fstab entry lines
+    fstab_entry_pa = re.compile(
+        r"^\s*(?P<file_system>\S+)\s+"
+        r"(?P<mount_point>\S+)\s+"
+        r"(?P<type>\S+)\s+"
+        r"(?P<options>\S+)\s+"
+        r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
+    )
+
+    entries = {}
+    for line in _in.splitlines():
+        if m := fstab_entry_pa.match(line):
+            entries[m.group("mount_point")] = m
+    return entries

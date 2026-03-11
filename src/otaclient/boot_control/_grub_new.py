@@ -49,6 +49,7 @@ from ._grub_common import (
     OTASlotBootID,
     PartitionInfo,
     SlotInfo,
+    read_fstab_dict,
 )
 from .configs import grub_new_cfg as boot_cfg
 
@@ -486,24 +487,6 @@ class _GrubBootControl:
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
-    @staticmethod
-    def _read_fstab_dict(_in: str) -> dict[str, re.Match]:
-        """Return {mount_point: match} for valid fstab entries only"""
-        # Strictly match valid fstab entry lines
-        fstab_entry_pa = re.compile(
-            r"^\s*(?P<file_system>\S+)\s+"
-            r"(?P<mount_point>\S+)\s+"
-            r"(?P<type>\S+)\s+"
-            r"(?P<options>\S+)\s+"
-            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
-        )
-
-        entries = {}
-        for line in _in.splitlines():
-            if m := fstab_entry_pa.match(line):
-                entries[m.group("mount_point")] = m
-        return entries
-
     def _detect_grub_version(self, _slot_mp: Path) -> str:
         """Detect the installed grub version from `_slot_mp`."""
         _res = subprocess_run_wrapper(
@@ -564,11 +547,9 @@ class _GrubBootControl:
         slot_uuid_str = f"UUID={slot_fsuuid}"
 
         # active_dict
-        reference_dict = (
-            self._read_fstab_dict(reference_fstab) if reference_fstab else None
-        )
+        reference_dict = read_fstab_dict(reference_fstab) if reference_fstab else None
         # standby_dict
-        base_dict = self._read_fstab_dict(base_fstab)
+        base_dict = read_fstab_dict(base_fstab)
 
         merged: list[str] = []
 
