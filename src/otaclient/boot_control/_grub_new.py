@@ -567,90 +567,23 @@ class _GrubBootControl:
         1.
         """
 
-    def _setup_slot_for_ota_boot(
-        self, _kernel_ver: str, *, slot_mp: Path, reference_fstab: str | None = None
-    ) -> None:
-        """Prepare the slot for OTA boot at `slot_mp` with `_kernel_ver`.
-
-        Things to do:
-        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from standby slot.
-        2. update fstab at standby slot rootfs.
-        3. update /etc/default/grub at standby slot rootfs.
-        4. inject /etc/grub.d/30_ota hook at standby slot rootfs.
-        """
-        # prepare the boot slot dir
-        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
-        #                 the boot files to the root of /boot folder.
-        #                 This is for old grub boot control bootstraps itself.
-        for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
-            if f.is_file() and not f.is_symlink():
-                copyfile_atomic(f, self._standby_boot_slot_dir)
-                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
-
-        # update the fstab
-        _fstab_fpath = replace_root(
-            boot_cfg.FSTAB_FILE_PATH, cfg.CANONICAL_ROOT, slot_mp
-        )
-        write_str_to_file_atomic(
-            _fstab_fpath,
-            self._update_fstab(
-                read_str_from_file(_fstab_fpath), reference_fstab=reference_fstab
-            ),
+    @staticmethod
+    def _read_fstab_dict(_in: str) -> dict[str, re.Match]:
+        """Return {mount_point: match} for valid fstab entries only"""
+        # Strictly match valid fstab entry lines
+        fstab_entry_pa = re.compile(
+            r"^\s*(?P<file_system>\S+)\s+"
+            r"(?P<mount_point>\S+)\s+"
+            r"(?P<type>\S+)\s+"
+            r"(?P<options>\S+)\s+"
+            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
         )
 
-        # update the /etc/default/grub
-        _grub_default_fpath = replace_root(
-            boot_cfg.DEFAULT_GRUB_PATH, cfg.CANONICAL_ROOT, slot_mp
-        )
-        write_str_to_file_atomic(
-            _grub_default_fpath,
-            self._update_grub_default(read_str_from_file(_grub_default_fpath)),
-        )
-
-        # inject the /etc/grub.d/30_ota hook and set it as executable
-        _hook_dpath = replace_root(
-            boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, slot_mp
-        )
-        _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
-        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
-        os.chmod(_hook_fpath, 0o750)
-
-    def _setup_boot_cfg_for_slot(
-        self,
-        _kernel_ver: str,
-        *,
-        boot_cfg_fpath: Path,
-        slot_mp: Path,
-        slot_id: OTASlotBootID,
-    ) -> None:
-        """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
-
-        This method should be called AFTER `_setup_slot_for_ota_boot`.
-        """
-        _raw_grub_mkconfig = self._grub_mkconfig_on_mp(
-            slot_mp, str(self._standby_boot_slot_dir)
-        )
-        _boot_cfg = _BootMenuEntry.generate_menuentry(
-            _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
-        )
-        write_str_to_file_atomic(boot_cfg_fpath, _boot_cfg.raw_entry)
-
-    def _detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
-        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
-
-        Expect only one version of kernel installed.
-        If multiple kernel version found, will pick the first found one.
-        """
-        _slot_boot = _slot_mp / "boot"
-        for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
-            _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
-
-            if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
-                return _kernel_ver
-        else:
-            raise GrubBootControllerError(
-                f"no kernel installation found from {_slot_mp}!"
-            )
+        entries = {}
+        for line in _in.splitlines():
+            if m := fstab_entry_pa.match(line):
+                entries[m.group("mount_point")] = m
+        return entries
 
     def _detect_grub_version(self, _slot_mp: Path) -> str:
         """Detect the installed grub version from `_slot_mp`."""
@@ -697,9 +630,9 @@ class _GrubBootControl:
                     f"grub-mkconfig on {_slot_mp=} failed"
                 ) from e
 
-    def _update_fstab(
-        self, *, active_slot_fstab: Path, standby_slot_fstab: Path
-    ) -> None:
+    def _generate_fstab(
+        self, _base_fstab: str, reference_fstab: str | None = None
+    ) -> str:
         """Rebuild standby fstab using valid mount entries only.
 
         - Keep only valid mount entries (skip comments, invalid or broken lines)
@@ -710,25 +643,12 @@ class _GrubBootControl:
         standby_slot_uuid = self.boot_slots.standby_slot_info.uuid
         standby_uuid_str = f"UUID={standby_slot_uuid}"
 
-        # Strictly match valid fstab entry lines
-        fstab_entry_pa = re.compile(
-            r"^\s*(?P<file_system>\S+)\s+"
-            r"(?P<mount_point>\S+)\s+"
-            r"(?P<type>\S+)\s+"
-            r"(?P<options>\S+)\s+"
-            r"(?P<dump>\d+)\s+(?P<pass>\d+)\s*$"
+        # active_dict
+        reference_dict = (
+            self._read_fstab_dict(reference_fstab) if reference_fstab else {}
         )
-
-        def read_fstab_dict(fstab_path: Path) -> dict[str, re.Match]:
-            """Return {mount_point: match} for valid fstab entries only"""
-            entries = {}
-            for line in read_str_from_file(fstab_path).splitlines():
-                if m := fstab_entry_pa.match(line):
-                    entries[m.group("mount_point")] = m
-            return entries
-
-        active_dict = read_fstab_dict(active_slot_fstab)
-        standby_dict = read_fstab_dict(standby_slot_fstab)
+        # standby_dict
+        base_dict = self._read_fstab_dict(_base_fstab)
 
         merged: list[str] = []
 
@@ -737,37 +657,35 @@ class _GrubBootControl:
         # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
 
         # Always include root ("/") from active fstab with standby UUID
-        if cfg.CANONICAL_ROOT in active_dict:
-            ma = active_dict[cfg.CANONICAL_ROOT]
+        if cfg.CANONICAL_ROOT in reference_dict:
+            ma = reference_dict[cfg.CANONICAL_ROOT]
             merged.append("\t".join([standby_uuid_str] + list(ma.groups())[1:]))
         else:
             raise GrubBootControllerError("No root ('/') entry found in active fstab")
 
         # Add /boot and /boot/efi from active if available
         # NOTE: order matters! /boot MUST be mounted before /boot/efi mounted!
-        if (_boot_mp := cfg.BOOT_DPATH) in active_dict:
-            merged.append("\t".join(active_dict[_boot_mp].groups()))
+        if (_boot_mp := cfg.BOOT_DPATH) in reference_dict:
+            merged.append("\t".join(reference_dict[_boot_mp].groups()))
         else:
             boot_part_uuid_str = f"UUID={self.boot_slots.boot_partition.uuid}"
             merged.append(f"{boot_part_uuid_str}\t/boot\text4\tdefaults\t0\t1")
 
         # no nned to add EFI mount for non-UEFI system
         if self.boot_slots.efi_partition:
-            if (_boot_eif_mp := cfg.EFI_DPATH) in active_dict:
-                merged.append("\t".join(active_dict[_boot_eif_mp].groups()))
+            if (_boot_eif_mp := cfg.EFI_DPATH) in reference_dict:
+                merged.append("\t".join(reference_dict[_boot_eif_mp].groups()))
             else:
                 efi_part_uuid_str = f"UUID={self.boot_slots.efi_partition.uuid}"
                 merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
 
         # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
-        for mp, ma in standby_dict.items():
+        for mp, ma in base_dict.items():
             if mp not in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
                 merged.append("\t".join(ma.groups()))
 
         merged.append("")  # add a new line at the end of file
-
-        # write to standby fstab
-        write_str_to_file_atomic(standby_slot_fstab, "\n".join(merged))
+        return "\n".join(merged)
 
     def _update_grub_default(self, _in: str) -> str:
         """Read in grub_default str and return updated one.
@@ -803,7 +721,96 @@ class _GrubBootControl:
         res.append("")  # add a new line at the end of the file
         return "\n".join(res)
 
-    def _grub_reboot_to_standby(self) -> None:
+    # API
+
+    def detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
+        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
+
+        Expect only one version of kernel installed.
+        If multiple kernel version found, will pick the first found one.
+        """
+        _slot_boot = _slot_mp / "boot"
+        for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
+            _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
+
+            if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
+                return _kernel_ver
+        else:
+            raise GrubBootControllerError(
+                f"no kernel installation found from {_slot_mp}!"
+            )
+
+    def setup_slot_for_ota_boot(
+        self, _kernel_ver: str, *, slot_mp: Path, reference_fstab: str | None = None
+    ) -> None:
+        """Prepare the slot for OTA boot at `slot_mp` with `_kernel_ver`.
+
+        Things to do:
+        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from the slot.
+        2. update fstab at the slot rootfs.
+        3. update /etc/default/grub at the slot rootfs.
+        4. inject /etc/grub.d/30_ota hook at the slot rootfs.
+        """
+        # prepare the boot slot dir
+        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
+        #                 the boot files to the root of /boot folder.
+        #                 This is for old grub boot control bootstraps itself.
+        for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
+            if f.is_file() and not f.is_symlink():
+                copyfile_atomic(f, self._standby_boot_slot_dir)
+                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
+
+        # update the fstab, base_fstab will be the slot we update,
+        #   reference_fstab will be from the silibing slot.
+        # e.g., base_fstab(standby_slot), reference_fstab(active_slot) when doing OTA.
+        _fstab_fpath = replace_root(
+            boot_cfg.FSTAB_FILE_PATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        write_str_to_file_atomic(
+            _fstab_fpath,
+            self._generate_fstab(
+                read_str_from_file(_fstab_fpath), reference_fstab=reference_fstab
+            ),
+        )
+
+        # update the /etc/default/grub
+        _grub_default_fpath = replace_root(
+            boot_cfg.DEFAULT_GRUB_PATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        write_str_to_file_atomic(
+            _grub_default_fpath,
+            self._update_grub_default(read_str_from_file(_grub_default_fpath)),
+        )
+
+        # inject the /etc/grub.d/30_ota hook and set it as executable
+        _hook_dpath = replace_root(
+            boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
+        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
+        os.chmod(_hook_fpath, 0o750)
+
+    def setup_boot_cfg_for_slot(
+        self,
+        _kernel_ver: str,
+        *,
+        boot_cfg_fpath: Path,
+        slot_mp: Path,
+        slot_id: OTASlotBootID,
+    ) -> None:
+        """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
+
+        This method should be called AFTER `_setup_slot_for_ota_boot`.
+        """
+        _raw_grub_mkconfig = self._grub_mkconfig_on_mp(
+            slot_mp, str(self._standby_boot_slot_dir)
+        )
+        _boot_cfg = _BootMenuEntry.generate_menuentry(
+            _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
+        )
+        write_str_to_file_atomic(boot_cfg_fpath, _boot_cfg.raw_entry)
+
+    def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
         try:
             subprocess_run_wrapper(
@@ -865,75 +872,6 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _post_update_prepare_standby_slot(self, _kernel_ver: str) -> None:
-        """Prepare the standby slot for OTA switch boot.
-
-        Things to do:
-        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from standby slot.
-        2. update fstab at standby slot rootfs.
-        3. update /etc/default/grub at standby slot rootfs.
-        4. inject /etc/grub.d/30_ota hook at standby slot rootfs.
-        """
-        # prepare the boot slot dir
-        _standby_slot_mp = self._mp_control.standby_slot_mount_point
-        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
-        #                 the boot files to the root of /boot folder.
-        #                 This is for old grub boot control bootstraps itself.
-        for f in (_standby_slot_mp / "boot").glob(f"*{_kernel_ver}"):
-            if f.is_file() and not f.is_symlink():
-                copyfile_atomic(f, self._standby_boot_slot_dir)
-                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
-
-        # update the standby slot fstab
-        active_fstab = replace_root(
-            boot_cfg.FSTAB_FILE_PATH,
-            cfg.CANONICAL_ROOT,
-            self._mp_control.active_slot_mount_point,
-        )
-        standby_fstab = replace_root(
-            boot_cfg.FSTAB_FILE_PATH,
-            cfg.CANONICAL_ROOT,
-            self._mp_control.standby_slot_mount_point,
-        )
-        self._boot_control._update_fstab(
-            standby_slot_fstab=Path(standby_fstab), active_slot_fstab=Path(active_fstab)
-        )
-
-        # update the /etc/default/grub
-        _grub_default_fpath = replace_root(
-            boot_cfg.DEFAULT_GRUB_PATH, cfg.CANONICAL_ROOT, _standby_slot_mp
-        )
-        write_str_to_file_atomic(
-            _grub_default_fpath,
-            self._boot_control._update_grub_default(
-                read_str_from_file(_grub_default_fpath)
-            ),
-        )
-
-        # inject the /etc/grub.d/30_ota hook and set it as executable
-        _hook_dpath = replace_root(
-            boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, _standby_slot_mp
-        )
-        _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
-        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
-        os.chmod(_hook_fpath, 0o750)
-
-    def _post_update_generate_standby_slot_boot_cfg(self, _kernel_ver: str) -> None:
-        """After _post_update_prepare_standby_slot, generate boot cfg for standby slot."""
-        _standby_slot_mp = self._mp_control.standby_slot_mount_point
-        _slot_id = self._boot_slots.standby_slot
-
-        _boot_cfg_fpath = (
-            Path(boot_cfg.GRUB_DIR) / f"{_slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-        )
-        _raw_grub_mkconfig = self._boot_control._grub_mkconfig_on_mp(
-            _standby_slot_mp, str(self._standby_boot_slot_dir)
-        )
-        _boot_cfg = _BootMenuEntry.generate_menuentry(
-            _raw_grub_mkconfig, slot_boot_id=_slot_id, kernel_ver=_kernel_ver
-        )
-        write_str_to_file_atomic(_boot_cfg_fpath, _boot_cfg.raw_entry)
-
     # API
 
     @property
@@ -958,13 +896,33 @@ class GrubBootController(BootControllerBase):
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
-        _kernel_ver = self._boot_control._detect_slot_kernel_ver(
+        _kernel_ver = self._boot_control.detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
         )
-        self._post_update_prepare_standby_slot(_kernel_ver)
-        self._post_update_generate_standby_slot_boot_cfg(_kernel_ver)
+        _standby_slot_mp = self._mp_control.standby_slot_mount_point
+        _slot_id = self._boot_slots.standby_slot
 
-        self._boot_control._grub_reboot_to_standby()
+        self._boot_control.setup_slot_for_ota_boot(
+            _kernel_ver,
+            slot_mp=_standby_slot_mp,
+            reference_fstab=read_str_from_file(
+                replace_root(
+                    boot_cfg.FSTAB_FILE_PATH,
+                    cfg.CANONICAL_ROOT,
+                    self._mp_control.active_slot_mount_point,
+                )
+            ),
+        )
+        self._boot_control.setup_boot_cfg_for_slot(
+            _kernel_ver,
+            slot_mp=_standby_slot_mp,
+            slot_id=_slot_id,
+            boot_cfg_fpath=(
+                Path(boot_cfg.GRUB_DIR) / f"{_slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+            ),
+        )
+
+        self._boot_control.grub_reboot_to_standby()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)
