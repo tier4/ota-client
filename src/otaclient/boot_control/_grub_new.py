@@ -568,11 +568,12 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             slot_mp=slot_mp,
         )
 
-    def _bootstrap_base_grub_cfg(self, slot_mp: Path) -> None:
+    def _bootstrap_manage_boot_control(self, slot_mp: Path) -> None:
         """Switch the system to use OTA managed boot.
 
         Must be called AFTER all other bootstrap functions called!
         """
+        _current_slot_id = self.boot_slots.current_slot
         with TemporaryDirectory(
             dir=boot_cfg.BOOT_DPATH, prefix="._ota_bootstrap"
         ) as _boot_source:
@@ -587,6 +588,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 raw_contents=_raw_grub_mkconfig,
                 grub_version=self._detect_grub_version(slot_mp),
             )
+            self._grub_set_default(_current_slot_id)
             write_str_to_file_atomic(
                 boot_cfg.GRUB_CFG_FPATH, _managed_grub_cfg.export()
             )
@@ -628,7 +630,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
 
                 # with base grub.cfg written, officially switch to OTA managed boot control
                 logger.info("write /boot/grub.cfg and finish up bootstrapping ...")
-                self._bootstrap_base_grub_cfg(slot_mp)
+                self._bootstrap_manage_boot_control(slot_mp)
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
