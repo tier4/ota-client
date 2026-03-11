@@ -604,7 +604,7 @@ class _GrubBootControl:
         if _ma := re.search(r"\(GRUB\)\s+(?P<ver>[\w.\-]+)", _stdout):
             return _ma.group("ver")
 
-        logger.warning(f"irregulate grub version string: {_stdout=}")
+        logger.warning(f"irregular grub version string: {_stdout=}")
         return _stdout
 
     def _detect_boot_control_setup(self) -> bool:
@@ -670,7 +670,7 @@ class _GrubBootControl:
             boot_part_uuid_str = f"UUID={self.boot_slots.boot_partition.uuid}"
             merged.append(f"{boot_part_uuid_str}\t/boot\text4\tdefaults\t0\t1")
 
-        # no nned to add EFI mount for non-UEFI system
+        # no need to add EFI mount for non-UEFI system
         if self.boot_slots.efi_partition:
             if reference_dict and (_boot_eif_mp := cfg.EFI_DPATH) in reference_dict:
                 merged.append("\t".join(reference_dict[_boot_eif_mp].groups()))
@@ -761,11 +761,11 @@ class _GrubBootControl:
         #                 This is for old grub boot control bootstraps itself.
         for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
             if f.is_file() and not f.is_symlink():
-                copyfile_atomic(f, self._standby_boot_slot_dir)
-                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
+                copyfile_atomic(f, self._standby_boot_slot_dir / f.name)
+                copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
 
         # update the fstab, base_fstab will be the slot we update,
-        #   reference_fstab will be from the silibing slot.
+        #   reference_fstab will be from the sibling slot.
         # e.g., base_fstab(standby_slot), reference_fstab(active_slot) when doing OTA.
         _fstab_fpath = replace_root(
             boot_cfg.FSTAB_FILE_PATH, cfg.CANONICAL_ROOT, slot_mp
@@ -800,21 +800,22 @@ class _GrubBootControl:
         self,
         _kernel_ver: str,
         *,
-        boot_cfg_fpath: Path,
         slot_mp: Path,
         slot_id: OTASlotBootID,
     ) -> None:
         """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
 
-        This method should be called AFTER `_setup_slot_for_ota_boot`.
+        This method should be called AFTER `setup_slot_for_ota_boot`.
         """
-        _raw_grub_mkconfig = self._grub_mkconfig_on_mp(
-            slot_mp, str(self._standby_boot_slot_dir)
-        )
+        _slot_boot_dir = Path(boot_cfg.BOOT_DPATH) / slot_id
+        _raw_grub_mkconfig = self._grub_mkconfig_on_mp(slot_mp, str(_slot_boot_dir))
         _boot_cfg = _BootMenuEntry.generate_menuentry(
             _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
         )
-        write_str_to_file_atomic(boot_cfg_fpath, _boot_cfg.raw_entry)
+        write_str_to_file_atomic(
+            Path(boot_cfg.GRUB_DIR) / f"{slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}",
+            _boot_cfg.raw_entry,
+        )
 
     def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
@@ -842,7 +843,7 @@ class _GrubBootControl:
             )
             return True
         except CalledProcessError:
-            logger.exception(f"failed to grub-reboot to {_current_slot}")
+            logger.exception(f"failed to grub-set-default to {_current_slot}")
             raise GrubBootControllerError(
                 f"`grub-set-default {_current_slot}` failed"
             ) from None
@@ -921,12 +922,7 @@ class GrubBootController(BootControllerBase):
             ),
         )
         self._boot_control.setup_ota_boot_cfg_for_slot(
-            _kernel_ver,
-            slot_mp=_standby_slot_mp,
-            slot_id=_slot_id,
-            boot_cfg_fpath=(
-                Path(boot_cfg.GRUB_DIR) / f"{_slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-            ),
+            _kernel_ver, slot_mp=_standby_slot_mp, slot_id=_slot_id
         )
 
         self._boot_control.grub_reboot_to_standby()

@@ -39,7 +39,7 @@ class GrubControlNewConfig:
     FSTAB_FILE_PATH = "/etc/fstab"
 
     GRUB_DIR = "/boot/grub"
-    GRUB_CFG_FNAME = "grub.cfg"
+    GRUB_CFG_FPATH = "/boot/grub/grub.cfg"
     SLOT_BOOT_CFG_SUFFIX = ".cfg"
     """The config file will be `ota-slot_<a/b>.cfg`."""
 
