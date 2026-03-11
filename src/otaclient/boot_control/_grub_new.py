@@ -363,21 +363,8 @@ class _ABPartition:
     slot_a: _SlotInfo
     slot_b: _SlotInfo
     current_slot: OTASlotBootID
+    standby_slot: OTASlotBootID
     efi_partition: Optional[_SlotInfo] = None
-
-    # fmt: off
-    @property
-    def current_slot_info(self) -> _SlotInfo:
-        return self.slot_a if self.current_slot == OTASlotBootID.slot_a else self.slot_b
-
-    @property
-    def standby_slot_info(self) -> _SlotInfo:
-        return self.slot_b if self.current_slot == OTASlotBootID.slot_a else self.slot_a
-
-    @property
-    def standby_slot(self) -> OTASlotBootID:
-        return OTASlotBootID.slot_b if self.current_slot == OTASlotBootID.slot_a else OTASlotBootID.slot_a
-    # fmt: on
 
 
 DEV_PATH_PA = re.compile(r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$")
@@ -487,6 +474,7 @@ class ABPartitionDetector:
                 slot_a=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
                 slot_b=_SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
+                standby_slot=OTASlotBootID.slot_a if _active_partid == "4" else OTASlotBootID.slot_b,
             )
             # fmt: on
         else:  # legacy BIOS system
@@ -507,6 +495,7 @@ class ABPartitionDetector:
                 slot_a=_SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
                 slot_b=_SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
+                standby_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
             )
             # fmt: on
 
@@ -536,13 +525,6 @@ class _GrubBootControl:
         self.boot_slots = boot_slots = ABPartitionDetector.detect_boot_slots()
         if boot_slots.is_uefi:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
-
-        self._current_boot_slot_dir = (
-            Path(boot_cfg.BOOT_DPATH) / boot_slots.current_slot
-        )
-        self._standby_boot_slot_dir = (
-            Path(boot_cfg.BOOT_DPATH) / boot_slots.standby_slot
-        )
 
         # TODO: recovery and migration
         _require_resetup = not self._detect_boot_control_setup()
@@ -713,6 +695,21 @@ class _GrubBootControl:
 
     # API
 
+    def get_slot_info(self, slot_id: OTASlotBootID) -> _SlotInfo:
+        return (
+            self.boot_slots.slot_a
+            if slot_id == OTASlotBootID.slot_a
+            else self.boot_slots.slot_b
+        )
+
+    def get_boot_cfg_fpath(self, slot_id: OTASlotBootID) -> Path:
+        """`/boot/grub/ota-slot_<a/b>.cfg`"""
+        return Path(boot_cfg.GRUB_DIR) / f"{slot_id}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
+
+    def get_boot_slot_dir(self, slot_id: OTASlotBootID) -> Path:
+        """`/boot/ota-slot_<a/b>`"""
+        return Path(boot_cfg.BOOT_DPATH) / slot_id
+
     def detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
         """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
 
@@ -795,12 +792,15 @@ class _GrubBootControl:
         _kernel_ver: str,
         *,
         slot_mp: Path,
-        slot_id: OTASlotBootID,
+        slot_info: _SlotInfo,
     ) -> None:
         """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
 
         This method should be called AFTER `setup_slot_for_ota_boot`.
         """
+        slot_id = slot_info.slot_id
+        assert slot_id
+
         _slot_boot_dir = Path(boot_cfg.BOOT_DPATH) / slot_id
         _raw_grub_mkconfig = self._grub_mkconfig_on_mp(slot_mp, str(_slot_boot_dir))
         _boot_cfg = _BootMenuEntry.generate_menuentry(
@@ -846,23 +846,24 @@ class _GrubBootControl:
 class GrubBootController(BootControllerBase):
     def __init__(self) -> None:
         try:
-            self._boot_control = _GrubBootControl()
-            self._boot_slots = boot_slots = self._boot_control.boot_slots
-            self._current_boot_slot_dir = self._boot_control._current_boot_slot_dir
-            self._standby_boot_slot_dir = self._boot_control._standby_boot_slot_dir
+            self._boot_control = boot_control = _GrubBootControl()
+
+            self._boot_slots = boot_slots = boot_control.boot_slots
+            self._current_slot = current_slot = boot_slots.current_slot
+            self._standby_slot = standby_slot = boot_slots.standby_slot
 
             self._mp_control = SlotMountHelper(
-                standby_slot_dev=boot_slots.standby_slot_info.dev,
+                standby_slot_dev=boot_control.get_slot_info(standby_slot).dev,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
             )
             # NOTE: boot slot dir stores both boot files and OTA status files.
             self._ota_status_control = OTAStatusFilesControl(
-                active_slot=boot_slots.current_slot,
-                standby_slot=boot_slots.standby_slot,
-                current_ota_status_dir=self._current_boot_slot_dir,
-                standby_ota_status_dir=self._standby_boot_slot_dir,
+                active_slot=current_slot,
+                standby_slot=standby_slot,
+                current_ota_status_dir=boot_control.get_boot_slot_dir(current_slot),
+                standby_ota_status_dir=boot_control.get_boot_slot_dir(standby_slot),
                 finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
                 # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
                 #                 force initialize the ota_status files.
@@ -883,17 +884,19 @@ class GrubBootController(BootControllerBase):
         """
         Override the base's `_pre_update_prepare_standby`.
         """
+        _standby_slot_info = self._boot_control.get_slot_info(self._standby_slot)
         self._mp_control.prepare_standby_dev(
             erase_standby=erase_standby,
-            fsuuid=self._boot_slots.standby_slot_info.uuid,
+            fsuuid=_standby_slot_info.uuid,
         )
 
     def _pre_update_platform_specific(
         self, *, standby_as_ref: bool, erase_standby: bool
     ) -> None:
         """GRUB-specific pre-update: cleanup standby ota_partition folder."""
-        remove_file(self._standby_boot_slot_dir)
-        self._standby_boot_slot_dir.mkdir(parents=True)
+        _boot_slot_dir = self._boot_control.get_boot_slot_dir(self._standby_slot)
+        remove_file(_boot_slot_dir)
+        _boot_slot_dir.mkdir(parents=True)
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
@@ -901,11 +904,12 @@ class GrubBootController(BootControllerBase):
             self._mp_control.standby_slot_mount_point
         )
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
+        _standby_slot_info = self._boot_control.get_slot_info(self._standby_slot)
 
         self._boot_control.setup_slot_for_ota_boot(
             _kernel_ver,
-            slot_info=self._boot_slots.standby_slot_info,
             slot_mp=_standby_slot_mp,
+            slot_info=_standby_slot_info,
             reference_fstab=read_str_from_file(
                 replace_root(
                     boot_cfg.FSTAB_FILE_PATH,
@@ -915,7 +919,7 @@ class GrubBootController(BootControllerBase):
             ),
         )
         self._boot_control.setup_ota_boot_cfg_for_slot(
-            _kernel_ver, slot_mp=_standby_slot_mp, slot_id=self._boot_slots.standby_slot
+            _kernel_ver, slot_mp=_standby_slot_mp, slot_info=_standby_slot_info
         )
 
         self._boot_control.grub_reboot_to_standby()
