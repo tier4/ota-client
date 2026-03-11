@@ -445,6 +445,11 @@ def main() -> None:  # pragma: no cover
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():
+            if _ota_core_p.exitcode == 0:
+                logger.info("ota_core shutdown on OTA SUCCESS")
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+                return _on_shutdown(sys_exit=0)
+
             logger.error(
                 "ota_core process is dead! "
                 f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
