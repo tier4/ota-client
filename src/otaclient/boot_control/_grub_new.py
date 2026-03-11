@@ -631,7 +631,7 @@ class _GrubBootControl:
                 ) from e
 
     def _generate_fstab(
-        self, _base_fstab: str, reference_fstab: str | None = None
+        self, *, base_fstab: str, reference_fstab: str | None = None, slot_fsuuid: str
     ) -> str:
         """Rebuild standby fstab using valid mount entries only.
 
@@ -640,15 +640,14 @@ class _GrubBootControl:
         - Replace root ('/') UUID with standby slot UUID
         - Drop all other comments or extra metadata lines
         """
-        standby_slot_uuid = self.boot_slots.standby_slot_info.uuid
-        standby_uuid_str = f"UUID={standby_slot_uuid}"
+        slot_uuid_str = f"UUID={slot_fsuuid}"
 
         # active_dict
         reference_dict = (
-            self._read_fstab_dict(reference_fstab) if reference_fstab else {}
+            self._read_fstab_dict(reference_fstab) if reference_fstab else None
         )
         # standby_dict
-        base_dict = self._read_fstab_dict(_base_fstab)
+        base_dict = self._read_fstab_dict(base_fstab)
 
         merged: list[str] = []
 
@@ -656,16 +655,16 @@ class _GrubBootControl:
         # so we need to preserve them from active slot's fstab.
         # Reference: https://tier4.atlassian.net/browse/T4DEV-39187
 
-        # Always include root ("/") from active fstab with standby UUID
-        if cfg.CANONICAL_ROOT in reference_dict:
+        # Always include root ("/")
+        if reference_dict and cfg.CANONICAL_ROOT in reference_dict:
             ma = reference_dict[cfg.CANONICAL_ROOT]
-            merged.append("\t".join([standby_uuid_str] + list(ma.groups())[1:]))
+            merged.append("\t".join([slot_uuid_str] + list(ma.groups())[1:]))
         else:
-            raise GrubBootControllerError("No root ('/') entry found in active fstab")
+            merged.append(f"{slot_uuid_str}\t/\text4\terrors=remount-ro\t0\t1")
 
         # Add /boot and /boot/efi from active if available
         # NOTE: order matters! /boot MUST be mounted before /boot/efi mounted!
-        if (_boot_mp := cfg.BOOT_DPATH) in reference_dict:
+        if reference_dict and (_boot_mp := cfg.BOOT_DPATH) in reference_dict:
             merged.append("\t".join(reference_dict[_boot_mp].groups()))
         else:
             boot_part_uuid_str = f"UUID={self.boot_slots.boot_partition.uuid}"
@@ -673,7 +672,7 @@ class _GrubBootControl:
 
         # no nned to add EFI mount for non-UEFI system
         if self.boot_slots.efi_partition:
-            if (_boot_eif_mp := cfg.EFI_DPATH) in reference_dict:
+            if reference_dict and (_boot_eif_mp := cfg.EFI_DPATH) in reference_dict:
                 merged.append("\t".join(reference_dict[_boot_eif_mp].groups()))
             else:
                 efi_part_uuid_str = f"UUID={self.boot_slots.efi_partition.uuid}"
@@ -741,7 +740,12 @@ class _GrubBootControl:
             )
 
     def setup_slot_for_ota_boot(
-        self, _kernel_ver: str, *, slot_mp: Path, reference_fstab: str | None = None
+        self,
+        _kernel_ver: str,
+        *,
+        slot_fsuuid: str,
+        slot_mp: Path,
+        reference_fstab: str | None = None,
     ) -> None:
         """Prepare the slot for OTA boot at `slot_mp` with `_kernel_ver`.
 
@@ -769,7 +773,9 @@ class _GrubBootControl:
         write_str_to_file_atomic(
             _fstab_fpath,
             self._generate_fstab(
-                read_str_from_file(_fstab_fpath), reference_fstab=reference_fstab
+                base_fstab=read_str_from_file(_fstab_fpath),
+                reference_fstab=reference_fstab,
+                slot_fsuuid=slot_fsuuid,
             ),
         )
 
@@ -790,7 +796,7 @@ class _GrubBootControl:
         write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
         os.chmod(_hook_fpath, 0o750)
 
-    def setup_boot_cfg_for_slot(
+    def setup_ota_boot_cfg_for_slot(
         self,
         _kernel_ver: str,
         *,
@@ -904,6 +910,7 @@ class GrubBootController(BootControllerBase):
 
         self._boot_control.setup_slot_for_ota_boot(
             _kernel_ver,
+            slot_fsuuid=self._boot_slots.standby_slot_info.uuid,
             slot_mp=_standby_slot_mp,
             reference_fstab=read_str_from_file(
                 replace_root(
@@ -913,7 +920,7 @@ class GrubBootController(BootControllerBase):
                 )
             ),
         )
-        self._boot_control.setup_boot_cfg_for_slot(
+        self._boot_control.setup_ota_boot_cfg_for_slot(
             _kernel_ver,
             slot_mp=_standby_slot_mp,
             slot_id=_slot_id,
