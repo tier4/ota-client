@@ -520,6 +520,7 @@ def _prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
 
 @dataclass
 class _BootFiles:
+    kernel_ver: str
     kernel: Path
     initrd: Path
 
@@ -559,7 +560,7 @@ class _GrubBootControl:
         if not _initrd_image.is_file():
             raise GrubBootControllerError(f"initramfs for {_kernel_ver=} not found!")
 
-        return _BootFiles(_boot_image, _initrd_image)
+        return _BootFiles(_kernel_ver, _boot_image, _initrd_image)
 
     def _bootstrap_setup_boot_slot_dir(
         self, _boot_files: _BootFiles, slot_id: OTASlotBootID
@@ -573,6 +574,18 @@ class _GrubBootControl:
         copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
         copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
 
+    def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path):
+        _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)
+        self.setup_slot_rootfs_for_ota_boot(
+            slot_fsuuid=_current_slot_info.uuid, slot_mp=slot_mp
+        )
+
+    def _bootstrap_setup_boot_cfg(self, _boot_files: _BootFiles, slot_mp: Path):
+        self.setup_ota_boot_cfg_for_slot(
+            _boot_files.kernel_ver,
+            slot_id=self.boot_slots.current_slot,
+            slot_mp=slot_mp,
+        )
     def _bootstrap_boot_control(self):
         """Bootstrap(migrate) from non-OTA setup system.
 
