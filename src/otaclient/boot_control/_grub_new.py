@@ -461,13 +461,15 @@ class _GrubBootControl:
         ) as slot_mp:
             _current_root_mp = _env.get_dynamic_client_chroot_path() or "/"
             cmdhelper.bind_mount_rw(_current_root_mp, slot_mp)
+            try:
+                slot_mp = Path(slot_mp)
+                self._bootstrap_setup_rootfs_for_ota_boot(slot_mp)
+                self._bootstrap_setup_boot_cfg(_boot_files, slot_mp)
 
-            slot_mp = Path(slot_mp)
-            self._bootstrap_setup_rootfs_for_ota_boot(slot_mp)
-            self._bootstrap_setup_boot_cfg(_boot_files, slot_mp)
-
-            # with base grub.cfg written, officially switch to OTA managed boot control
-            self._bootstrap_base_grub_cfg(slot_mp)
+                # with base grub.cfg written, officially switch to OTA managed boot control
+                self._bootstrap_base_grub_cfg(slot_mp)
+            finally:
+                cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
     @staticmethod
     def _read_fstab_dict(_in: str) -> dict[str, re.Match]:
