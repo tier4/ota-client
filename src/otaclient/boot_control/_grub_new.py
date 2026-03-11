@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
-from typing import ClassVar, Generator, NoReturn, Optional
+from typing import ClassVar, Generator, Literal, NoReturn, Optional
 
 from typing_extensions import Self
 
@@ -527,8 +527,7 @@ class _GrubBootControl:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
         # TODO: recovery and migration
-        _require_resetup = not self._detect_boot_control_setup()
-        if _require_resetup:
+        if _require_resetup := not self._detect_boot_control_setup():
             pass
 
         self.initialized = _require_resetup
@@ -727,34 +726,30 @@ class _GrubBootControl:
                 f"no kernel installation found from {_slot_mp}!"
             )
 
-    def setup_slot_for_ota_boot(
-        self,
-        _kernel_ver: str,
-        *,
-        slot_info: _SlotInfo,
-        slot_mp: Path,
-        reference_fstab: str | None = None,
+    def setup_boot_slot_dir(
+        self, _kernel_ver: str, *, slot_id: OTASlotBootID, slot_mp: Path
     ) -> None:
-        """Prepare the slot for OTA boot at `slot_mp` with `_kernel_ver`.
-
-        Things to do:
-        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from the slot.
-        2. update fstab at the slot rootfs.
-        3. update /etc/default/grub at the slot rootfs.
-        4. inject /etc/grub.d/30_ota hook at the slot rootfs.
-        """
-        assert slot_info.slot_id  # for slot, slot_id must be presented
-
+        """Copy the boot files from slot rootfs to boot slot dir."""
         # prepare the boot slot dir
         # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
         #                 the boot files to the root of /boot folder.
         #                 This is for old grub boot control bootstraps itself.
-        _boot_slot_dir = Path(boot_cfg.BOOT_DPATH) / slot_info.slot_id
+        _boot_slot_dir = self.get_boot_slot_dir(slot_id)
         for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
             if f.is_file() and not f.is_symlink():
                 copyfile_atomic(f, _boot_slot_dir / f.name)
                 copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
 
+    def setup_slot_rootfs_for_ota_boot(
+        self, *, slot_fsuuid: str, slot_mp: Path, reference_fstab: str | None = None
+    ) -> None:
+        """Prepare the slot for OTA boot at `slot_mp`.
+
+        Things to do:
+        1. update fstab at the slot rootfs.
+        2. update /etc/default/grub at the slot rootfs.
+        3. inject /etc/grub.d/30_ota hook at the slot rootfs.
+        """
         # update the fstab, base_fstab will be the slot we update,
         #   reference_fstab will be from the sibling slot.
         # e.g., base_fstab(standby_slot), reference_fstab(active_slot) when doing OTA.
@@ -766,7 +761,7 @@ class _GrubBootControl:
             self._generate_fstab(
                 base_fstab=read_str_from_file(_fstab_fpath),
                 reference_fstab=reference_fstab,
-                slot_fsuuid=slot_info.uuid,
+                slot_fsuuid=slot_fsuuid,
             ),
         )
 
@@ -791,16 +786,13 @@ class _GrubBootControl:
         self,
         _kernel_ver: str,
         *,
+        slot_id: OTASlotBootID,
         slot_mp: Path,
-        slot_info: _SlotInfo,
     ) -> None:
         """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
 
-        This method should be called AFTER `setup_slot_for_ota_boot`.
+        This method should be called AFTER `setup_boot_slot_dir` and `setup_slot_rootfs_for_ota_boot`.
         """
-        slot_id = slot_info.slot_id
-        assert slot_id
-
         _slot_boot_dir = Path(boot_cfg.BOOT_DPATH) / slot_id
         _raw_grub_mkconfig = self._grub_mkconfig_on_mp(slot_mp, str(_slot_boot_dir))
         _boot_cfg = _BootMenuEntry.generate_menuentry(
@@ -826,7 +818,7 @@ class _GrubBootControl:
                 f"`grub-reboot {_standby_slot}` failed"
             ) from None
 
-    def finalize_update_switch_boot(self):
+    def finalize_update_switch_boot(self) -> Literal[True]:
         _current_slot = self.boot_slots.current_slot
         try:
             subprocess_run_wrapper(
@@ -905,11 +897,15 @@ class GrubBootController(BootControllerBase):
         )
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
         _standby_slot_info = self._boot_control.get_slot_info(self._standby_slot)
+        _standby_slot_id = self._boot_slots.standby_slot
 
-        self._boot_control.setup_slot_for_ota_boot(
-            _kernel_ver,
+        # NOTE: order of function calls matters!
+        self._boot_control.setup_boot_slot_dir(
+            _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
+        )
+        self._boot_control.setup_slot_rootfs_for_ota_boot(
+            slot_fsuuid=_standby_slot_info.uuid,
             slot_mp=_standby_slot_mp,
-            slot_info=_standby_slot_info,
             reference_fstab=read_str_from_file(
                 replace_root(
                     boot_cfg.FSTAB_FILE_PATH,
@@ -919,7 +915,7 @@ class GrubBootController(BootControllerBase):
             ),
         )
         self._boot_control.setup_ota_boot_cfg_for_slot(
-            _kernel_ver, slot_mp=_standby_slot_mp, slot_info=_standby_slot_info
+            _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
         )
 
         self._boot_control.grub_reboot_to_standby()
