@@ -579,6 +579,21 @@ class _GrubBootControl:
                 f"no kernel installation found from {_slot_mp}!"
             )
 
+    def _detect_grub_version(self, _slot_mp: Path) -> str:
+        """Detect the installed grub version from `_slot_mp`."""
+        _res = subprocess_run_wrapper(
+            ["grub-mkconfig", "--version"],
+            check=False,
+            check_output=True,
+            chroot=_slot_mp,
+        )
+        if _res.returncode != 0:
+            logger.warning(
+                f"failed to detect grub installation version: {_res.stderr.decode()=}"
+            )
+            return "unknown_grub_version"
+        return _res.stdout.decode()
+
     def _detect_boot_control_setup(self) -> bool:
         """Detect whether the ECU has grub boot control properly setup."""
         _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
