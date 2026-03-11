@@ -131,10 +131,8 @@ class OTAManagedCfg:
             return
         _in = _in[len(cls.HEADER) :]
 
-        _footer_start, _footer_end = (
-            _in.find(cls.FOOTER_HEAD),
-            _in.find(cls.FOOTER_TAIL),
-        )
+        _footer_start = _in.find(cls.FOOTER_HEAD)
+        _footer_end = _in.find(cls.FOOTER_TAIL)
         if _footer_start < 0 or _footer_end < 0:
             return
 
@@ -587,12 +585,19 @@ class _GrubBootControl:
             check_output=True,
             chroot=_slot_mp,
         )
-        if _res.returncode != 0:
+
+        if _res.returncode != 0 or not (_stdout := _res.stdout.decode()):
             logger.warning(
                 f"failed to detect grub installation version: {_res.stderr.decode()=}"
             )
             return "unknown_grub_version"
-        return _res.stdout.decode()
+
+        # e.g. "grub-mkconfig (GRUB) 2.12-1ubuntu7.3"
+        if _ma := re.search(r"\(GRUB\)\s+(?P<ver>[\w.\-]+)", _stdout):
+            return _ma.group("ver")
+
+        logger.warning(f"irregulate grub version string: {_stdout=}")
+        return _stdout
 
     def _detect_boot_control_setup(self) -> bool:
         """Detect whether the ECU has grub boot control properly setup."""
