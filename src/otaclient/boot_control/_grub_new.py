@@ -547,6 +547,13 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
         copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
 
+        # NOTE(20260311): IMPORTANT! For backward compatibility, also copy
+        #                 the boot files to the root of /boot folder.
+        #                 This is for old grub boot control bootstraps itself.
+        _boot_dir = Path(boot_cfg.BOOT_DPATH)
+        copyfile_atomic(_kernel, _boot_dir / _kernel.name)
+        copyfile_atomic(_initrd, _boot_dir / _initrd.name)
+
     def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path) -> None:
         _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)
         self.setup_slot_rootfs_for_ota_boot(
@@ -585,6 +592,21 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             )
 
     def _bootstrap_boot_control(self) -> None:
+        """Bootstrap OTA boot control on a system not yet managed by OTA.
+
+        1. Detecting the running kernel and initramfs from /proc/cmdline.
+        2. Copying them into the current slot's boot dir (/boot/ota-slot_<current>/).
+        3. Bind-mounting the current rootfs to a temp dir and preparing it for
+           OTA boot:
+           - Rewriting /etc/fstab with the current slot's UUID.
+           - Rewriting /etc/default/grub with required OTA grub options.
+           - Injecting the /etc/grub.d/30_ota hook that sources per-slot configs.
+        4. Generating the per-slot boot config (/boot/grub/ota-slot_<current>.cfg)
+           via grub-mkconfig with chroot to current slot mount point.
+        5. Generating the OTA-managed master /boot/grub/grub.cfg with integrity
+           metadata with chroot to current slot mount point, officially switching
+           the system to OTA-managed boot.
+        """
         _slot_id = self.boot_slots.current_slot
         logger.info(f"bootstrap OTA boot control for active slot({_slot_id=}) ...")
 
