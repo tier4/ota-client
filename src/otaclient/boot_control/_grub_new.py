@@ -518,6 +518,12 @@ def _prepare_chroot_env(target_slot_mp: Path, *, boot_source: str):
             cmdhelper.umount(_mp, raise_exception=False)
 
 
+@dataclass
+class _BootFiles:
+    kernel: Path
+    initrd: Path
+
+
 class _GrubBootControl:
     """Low-level boot control implementation for grub boot control."""
 
@@ -531,6 +537,41 @@ class _GrubBootControl:
             pass
 
         self.initialized = _require_resetup
+
+    def _bootstrap_retrieve_booted_kernel_initramfs(self) -> _BootFiles:
+        """Detect the current booted kernel and initramfs.
+
+        We assume that the initramfs lives under the same folder of kernel.
+        """
+        _boot_image_ma = re.search(
+            r"BOOT_IMAGE=(?P<kernel>[^\s]+)", read_str_from_file("/proc/cmdline")
+        )
+        if not _boot_image_ma:
+            raise GrubBootControllerError(
+                "failed to bootstrap: cannot find the booted kernel"
+            )
+
+        _boot_image = _boot_image_ma.group("kernel").strip()
+        _boot_image = Path(_boot_image).resolve()
+        _kernel_ver = _boot_image.name.replace(VMLINUZ_PREFIX, "", 1)
+
+        _initrd_image = _boot_image.parent / f"{INITRD_PREFIX}{_kernel_ver}"
+        if not _initrd_image.is_file():
+            raise GrubBootControllerError(f"initramfs for {_kernel_ver=} not found!")
+
+        return _BootFiles(_boot_image, _initrd_image)
+
+    def _bootstrap_setup_boot_slot_dir(
+        self, _boot_files: _BootFiles, slot_id: OTASlotBootID
+    ) -> None:
+        """Setup the boot slot dir for the target slot."""
+        _slot_boot_dir = self.get_boot_slot_dir(slot_id)
+        remove_file(_slot_boot_dir)
+
+        _slot_boot_dir.mkdir(exist_ok=True)
+        _kernel, _initrd = _boot_files.kernel, _boot_files.initrd
+        copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
+        copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
 
     def _bootstrap_boot_control(self):
         """Bootstrap(migrate) from non-OTA setup system.
