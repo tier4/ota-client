@@ -560,6 +560,81 @@ class _GrubBootControl:
 
         self.initialized = _require_resetup
 
+    def _bootstrap_boot_control(self):
+        """Bootstrap(migrate) from non-OTA setup system.
+
+        Things to do:
+        1.
+        """
+
+    def _setup_slot_for_ota_boot(
+        self, _kernel_ver: str, *, slot_mp: Path, reference_fstab: str | None = None
+    ) -> None:
+        """Prepare the slot for OTA boot at `slot_mp` with `_kernel_ver`.
+
+        Things to do:
+        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from standby slot.
+        2. update fstab at standby slot rootfs.
+        3. update /etc/default/grub at standby slot rootfs.
+        4. inject /etc/grub.d/30_ota hook at standby slot rootfs.
+        """
+        # prepare the boot slot dir
+        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
+        #                 the boot files to the root of /boot folder.
+        #                 This is for old grub boot control bootstraps itself.
+        for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
+            if f.is_file() and not f.is_symlink():
+                copyfile_atomic(f, self._standby_boot_slot_dir)
+                copyfile_atomic(f, boot_cfg.BOOT_DPATH)
+
+        # update the fstab
+        _fstab_fpath = replace_root(
+            boot_cfg.FSTAB_FILE_PATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        write_str_to_file_atomic(
+            _fstab_fpath,
+            self._update_fstab(
+                read_str_from_file(_fstab_fpath), reference_fstab=reference_fstab
+            ),
+        )
+
+        # update the /etc/default/grub
+        _grub_default_fpath = replace_root(
+            boot_cfg.DEFAULT_GRUB_PATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        write_str_to_file_atomic(
+            _grub_default_fpath,
+            self._update_grub_default(read_str_from_file(_grub_default_fpath)),
+        )
+
+        # inject the /etc/grub.d/30_ota hook and set it as executable
+        _hook_dpath = replace_root(
+            boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, slot_mp
+        )
+        _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
+        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
+        os.chmod(_hook_fpath, 0o750)
+
+    def _setup_boot_cfg_for_slot(
+        self,
+        _kernel_ver: str,
+        *,
+        boot_cfg_fpath: Path,
+        slot_mp: Path,
+        slot_id: OTASlotBootID,
+    ) -> None:
+        """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
+
+        This method should be called AFTER `_setup_slot_for_ota_boot`.
+        """
+        _raw_grub_mkconfig = self._grub_mkconfig_on_mp(
+            slot_mp, str(self._standby_boot_slot_dir)
+        )
+        _boot_cfg = _BootMenuEntry.generate_menuentry(
+            _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
+        )
+        write_str_to_file_atomic(boot_cfg_fpath, _boot_cfg.raw_entry)
+
     def _detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
         """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
 
