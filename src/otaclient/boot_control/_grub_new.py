@@ -374,7 +374,130 @@ class ABPartitionDetector:
             # fmt: on
 
 
-class _GrubBootControl:
+class _GrubBootHelperFuncs:
+    @staticmethod
+    def _detect_grub_version(_slot_mp: Path) -> str:
+        """Detect the installed grub version from `_slot_mp`."""
+        _res = subprocess_run_wrapper(
+            ["grub-mkconfig", "--version"],
+            check=False,
+            check_output=True,
+            chroot=_slot_mp,
+        )
+
+        if _res.returncode != 0 or not (_stdout := _res.stdout.decode()):
+            logger.warning(
+                f"failed to detect grub installation version: {_res.stderr.decode()=}"
+            )
+            return "unknown_grub_version"
+
+        # e.g. "grub-mkconfig (GRUB) 2.12-1ubuntu7.3"
+        if _ma := re.search(r"\(GRUB\)\s+(?P<ver>[\w.\-]+)", _stdout):
+            return _ma.group("ver")
+
+        logger.warning(f"irregular grub version string: {_stdout=}")
+        return _stdout
+
+    @staticmethod
+    def _detect_boot_control_setup() -> bool:
+        """Detect whether the ECU has grub boot control properly setup."""
+        _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
+        if _grub_cfg.is_symlink():
+            return False  # old grub boot control setup
+        if not _grub_cfg.exists():
+            return False  # how is it possible?
+        if not OTAManagedCfg.validate_managed_config(read_str_from_file(_grub_cfg)):
+            return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
+        return True
+
+    @staticmethod
+    def _grub_mkconfig_on_mp(_slot_mp: Path, _boot_source: str) -> str:
+        with prepare_chroot_env(_slot_mp, boot_source=_boot_source):
+            try:
+                _res = subprocess_run_wrapper(
+                    ["grub-mkconfig"], check=True, check_output=True, chroot=_slot_mp
+                )
+
+                return _res.stdout.decode()
+            except CalledProcessError as e:
+                logger.exception(f"grub-mkconfig on {_slot_mp=} failed")
+                raise GrubBootControllerError(
+                    f"grub-mkconfig on {_slot_mp=} failed"
+                ) from e
+
+    @staticmethod
+    def _update_grub_default(_in: str) -> str:
+        """Read in grub_default str and return updated one.
+
+        Update rules:
+        1. predefined default_kvp has the highest priority, and overrides any
+           presented options in the original grub_default,
+        2. option that specified multiple times will be merged into one,
+           and the latest specified value will be used, or predefined default value will
+           be used if such value defined.
+        """
+        res_kvp: dict[str, str] = {}
+        for option_line in _in.splitlines():
+            # NOTE: skip empty or commented lines
+            if not option_line or option_line.startswith("#"):
+                continue
+
+            # NOTE(20230619): skip illegal option that is not in key=value form
+            _raw_split = option_line.strip().split("=", maxsplit=1)
+            if len(_raw_split) == 2:
+                option_name, option_value = _raw_split[0].strip(), _raw_split[1].strip()
+                res_kvp[option_name] = option_value
+
+        # merge pre-set default value into the result
+        # NOTE(20230830): pre-set default has the highest priority over
+        #                 any already set options
+        res_kvp.update(GRUB_DEFAULT_OPTIONS)
+        for _blacklist_option in GRUB_BLACKLIST_OPTIONS:
+            res_kvp.pop(_blacklist_option, None)
+
+        res = [OTA_MANAGED_CFG_HEADER]
+        res.extend(f"{k}={v}" for k, v in res_kvp.items())
+        res.append("")  # add a new line at the end of the file
+        return "\n".join(res)
+
+    @staticmethod
+    def _grub_set_default(slot_id: OTASlotBootID):
+        subprocess_run_wrapper(
+            ["grub-set-default", slot_id],
+            check=True,
+            check_output=True,
+            chroot=_env.get_dynamic_client_chroot_path(),
+        )
+
+    @staticmethod
+    def _grub_reboot(slot_id: OTASlotBootID):
+        subprocess_run_wrapper(
+            ["grub-reboot", slot_id],
+            check=True,
+            check_output=True,
+            chroot=_env.get_dynamic_client_chroot_path(),
+        )
+
+    @staticmethod
+    def detect_slot_kernel_ver(_slot_mp: Path) -> str:
+        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
+
+        Expect only one version of kernel installed.
+        If multiple kernel version found, will pick the first found one.
+        """
+        _slot_boot = _slot_mp / "boot"
+        for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
+            _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
+
+            if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
+                return _kernel_ver
+        else:
+            raise GrubBootControllerError(
+                f"no kernel installation found from {_slot_mp}!"
+            )
+
+
+class _GrubBootControl(_GrubBootHelperFuncs):
     """Low-level boot control implementation for grub boot control."""
 
     def __init__(self) -> None:
@@ -487,53 +610,6 @@ class _GrubBootControl:
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
-    def _detect_grub_version(self, _slot_mp: Path) -> str:
-        """Detect the installed grub version from `_slot_mp`."""
-        _res = subprocess_run_wrapper(
-            ["grub-mkconfig", "--version"],
-            check=False,
-            check_output=True,
-            chroot=_slot_mp,
-        )
-
-        if _res.returncode != 0 or not (_stdout := _res.stdout.decode()):
-            logger.warning(
-                f"failed to detect grub installation version: {_res.stderr.decode()=}"
-            )
-            return "unknown_grub_version"
-
-        # e.g. "grub-mkconfig (GRUB) 2.12-1ubuntu7.3"
-        if _ma := re.search(r"\(GRUB\)\s+(?P<ver>[\w.\-]+)", _stdout):
-            return _ma.group("ver")
-
-        logger.warning(f"irregular grub version string: {_stdout=}")
-        return _stdout
-
-    def _detect_boot_control_setup(self) -> bool:
-        """Detect whether the ECU has grub boot control properly setup."""
-        _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
-        if _grub_cfg.is_symlink():
-            return False  # old grub boot control setup
-        if not _grub_cfg.exists():
-            return False  # how is it possible?
-        if not OTAManagedCfg.validate_managed_config(read_str_from_file(_grub_cfg)):
-            return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
-        return True
-
-    def _grub_mkconfig_on_mp(self, _slot_mp: Path, _boot_source: str) -> str:
-        with prepare_chroot_env(_slot_mp, boot_source=_boot_source):
-            try:
-                _res = subprocess_run_wrapper(
-                    ["grub-mkconfig"], check=True, check_output=True, chroot=_slot_mp
-                )
-
-                return _res.stdout.decode()
-            except CalledProcessError as e:
-                logger.exception(f"grub-mkconfig on {_slot_mp=} failed")
-                raise GrubBootControllerError(
-                    f"grub-mkconfig on {_slot_mp=} failed"
-                ) from e
-
     def _generate_fstab(
         self, *, base_fstab: str, reference_fstab: str | None = None, slot_fsuuid: str
     ) -> str:
@@ -588,40 +664,6 @@ class _GrubBootControl:
         merged.append("")  # add a new line at the end of file
         return "\n".join(merged)
 
-    def _update_grub_default(self, _in: str) -> str:
-        """Read in grub_default str and return updated one.
-
-        Update rules:
-        1. predefined default_kvp has the highest priority, and overrides any
-           presented options in the original grub_default,
-        2. option that specified multiple times will be merged into one,
-           and the latest specified value will be used, or predefined default value will
-           be used if such value defined.
-        """
-        res_kvp: dict[str, str] = {}
-        for option_line in _in.splitlines():
-            # NOTE: skip empty or commented lines
-            if not option_line or option_line.startswith("#"):
-                continue
-
-            # NOTE(20230619): skip illegal option that is not in key=value form
-            _raw_split = option_line.strip().split("=", maxsplit=1)
-            if len(_raw_split) == 2:
-                option_name, option_value = _raw_split[0].strip(), _raw_split[1].strip()
-                res_kvp[option_name] = option_value
-
-        # merge pre-set default value into the result
-        # NOTE(20230830): pre-set default has the highest priority over
-        #                 any already set options
-        res_kvp.update(GRUB_DEFAULT_OPTIONS)
-        for _blacklist_option in GRUB_BLACKLIST_OPTIONS:
-            res_kvp.pop(_blacklist_option, None)
-
-        res = [OTA_MANAGED_CFG_HEADER]
-        res.extend(f"{k}={v}" for k, v in res_kvp.items())
-        res.append("")  # add a new line at the end of the file
-        return "\n".join(res)
-
     # API
 
     def get_slot_info(self, slot_id: OTASlotBootID) -> SlotInfo:
@@ -638,23 +680,6 @@ class _GrubBootControl:
     def get_boot_slot_dir(self, slot_id: OTASlotBootID) -> Path:
         """`/boot/ota-slot_<a/b>`"""
         return Path(boot_cfg.BOOT_DPATH) / slot_id
-
-    def detect_slot_kernel_ver(self, _slot_mp: Path) -> str:
-        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
-
-        Expect only one version of kernel installed.
-        If multiple kernel version found, will pick the first found one.
-        """
-        _slot_boot = _slot_mp / "boot"
-        for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
-            _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
-
-            if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
-                return _kernel_ver
-        else:
-            raise GrubBootControllerError(
-                f"no kernel installation found from {_slot_mp}!"
-            )
 
     def setup_boot_slot_dir(
         self, _kernel_ver: str, *, slot_id: OTASlotBootID, slot_mp: Path
@@ -733,12 +758,7 @@ class _GrubBootControl:
     def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
         try:
-            subprocess_run_wrapper(
-                ["grub-reboot", _standby_slot],
-                check=True,
-                check_output=True,
-                chroot=_env.get_dynamic_client_chroot_path(),
-            )
+            self._grub_reboot(_standby_slot)
         except CalledProcessError:
             logger.exception(f"failed to grub-reboot to {_standby_slot}")
             raise GrubBootControllerError(
@@ -748,12 +768,7 @@ class _GrubBootControl:
     def finalize_update_switch_boot(self) -> Literal[True]:
         _current_slot = self.boot_slots.current_slot
         try:
-            subprocess_run_wrapper(
-                ["grub-set-default", _current_slot],
-                check=True,
-                check_output=True,
-                chroot=_env.get_dynamic_client_chroot_path(),
-            )
+            self._grub_set_default(_current_slot)
             return True
         except CalledProcessError:
             logger.exception(f"failed to grub-set-default to {_current_slot}")
