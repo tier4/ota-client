@@ -378,12 +378,14 @@ class _GrubBootControl:
 
     def __init__(self) -> None:
         self.boot_slots = boot_slots = ABPartitionDetector.detect_boot_slots()
+        logger.info(f"A/B partition detect finished: {boot_slots=}")
+
         if boot_slots.is_uefi:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
         if _require_resetup := not self._detect_boot_control_setup():
             logger.warning(
-                "detect OTA boot control unmanaged system, bootstrapping boot control ..."
+                "detect OTA boot control unmanaged system, bootstrap boot control now!"
             )
             self._bootstrap_boot_control()
         self.initialized = _require_resetup
@@ -459,9 +461,13 @@ class _GrubBootControl:
             )
 
     def _bootstrap_boot_control(self) -> None:
-        _boot_files = self._bootstrap_retrieve_booted_kernel_initramfs()
-        self._bootstrap_setup_boot_slot_dir(_boot_files)
+        _slot_id = self.boot_slots.current_slot
+        logger.info(f"bootstrap OTA boot control for active slot({_slot_id=}) ...")
 
+        _boot_files = self._bootstrap_retrieve_booted_kernel_initramfs()
+        logger.info(f"system booted with {_boot_files=}")
+
+        self._bootstrap_setup_boot_slot_dir(_boot_files)
         with TemporaryDirectory(
             cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
         ) as slot_mp:
@@ -469,10 +475,13 @@ class _GrubBootControl:
             cmdhelper.bind_mount_rw(_current_root_mp, slot_mp)
             try:
                 slot_mp = Path(slot_mp)
+                logger.info(f"setup {_slot_id} rootfs for OTA boot ...")
                 self._bootstrap_setup_rootfs_for_ota_boot(slot_mp)
+                logger.info(f"setup boot cfg for {_slot_id} at /boot/grub ...")
                 self._bootstrap_setup_boot_cfg(_boot_files, slot_mp)
 
                 # with base grub.cfg written, officially switch to OTA managed boot control
+                logger.info("write /boot/grub.cfg and finish up bootstrapping ...")
                 self._bootstrap_base_grub_cfg(slot_mp)
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
@@ -798,6 +807,7 @@ class GrubBootController(BootControllerBase):
                 #                 force initialize the ota_status files.
                 force_initialize=self._boot_control.initialized,
             )
+            logger.info("grub boot control start up finished")
         except Exception as e:
             _err_msg = f"failed on start grub boot controller: {e!r}"
             logger.error(_err_msg)
@@ -837,9 +847,11 @@ class GrubBootController(BootControllerBase):
         _standby_slot_id = self._boot_slots.standby_slot
 
         # NOTE: order of function calls matters!
+        logger.info(f"setup boot slot dir for standby slot({_standby_slot_id=}) ...")
         self._boot_control.setup_boot_slot_dir(
             _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
         )
+        logger.info(f"setup standby slot({_standby_slot_id=}) rootfs for OTA boot ...")
         self._boot_control.setup_slot_rootfs_for_ota_boot(
             slot_fsuuid=_standby_slot_info.uuid,
             slot_mp=_standby_slot_mp,
@@ -851,10 +863,12 @@ class GrubBootController(BootControllerBase):
                 )
             ),
         )
+        logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
         self._boot_control.setup_ota_boot_cfg_for_slot(
             _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
         )
 
+        logger.info(f"configure grub-reboot to standby slot({_standby_slot_id=}) ...")
         self._boot_control.grub_reboot_to_standby()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
