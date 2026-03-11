@@ -173,6 +173,14 @@ class _BootMenuEntry:
 
         raise ValueError(f"failed to find menuentry for kernel version {kernel_ver!r}")
 
+    @staticmethod
+    def _replace_group(ma: re.Match, group_name: str, replacement: str) -> str:
+        """Replace a named capture group within a match by position, not substring search."""
+        s = ma.group()
+        start = ma.start(group_name) - ma.start()
+        end = ma.end(group_name) - ma.start()
+        return s[:start] + replacement + s[end:]
+
     @classmethod
     def _fixup_menuentry(cls, _entry: str, *, slot_boot_id: OTASlotBootID) -> str:
         """Fix up a raw menuentry block for OTA slot boot.
@@ -189,25 +197,23 @@ class _BootMenuEntry:
             str: The rewritten menuentry block string.
         """
         _entry = MENUENTRY_TITLE_PA.sub(
-            lambda ma: ma.group().replace(ma.group("entry_title"), slot_boot_id, 1),
+            lambda ma: cls._replace_group(ma, "entry_title", slot_boot_id),
             _entry,
         )
         _entry = MENUENTRY_ID_PA.sub(
-            lambda ma: ma.group().replace(ma.group("entry_id"), slot_boot_id, 1),
+            lambda ma: cls._replace_group(ma, "entry_id", slot_boot_id),
             _entry,
         )
 
         _entry = LINUX_PA_MULTILINE.sub(
-            lambda ma: ma.group().replace(
-                ma.group("linux_fpath"), f"/{slot_boot_id}{ma.group('linux_fpath')}", 1
+            lambda ma: cls._replace_group(
+                ma, "linux_fpath", f"/{slot_boot_id}{ma.group('linux_fpath')}"
             ),
             _entry,
         )
         _entry = INITRD_PA_MULTILINE.sub(
-            lambda ma: ma.group().replace(
-                ma.group("initrd_fpath"),
-                f"/{slot_boot_id}{ma.group('initrd_fpath')}",
-                1,
+            lambda ma: cls._replace_group(
+                ma, "initrd_fpath", f"/{slot_boot_id}{ma.group('initrd_fpath')}"
             ),
             _entry,
         )
@@ -516,6 +522,8 @@ class _GrubBootControl:
         _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
         if _grub_cfg.is_symlink():
             return False  # old grub boot control setup
+        if not _grub_cfg.exists():
+            return False  # how is it possible?
         if not OTAManagedCfg.validate_managed_config(read_str_from_file(_grub_cfg)):
             return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
         return True
