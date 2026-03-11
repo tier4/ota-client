@@ -791,6 +791,14 @@ class GrubBootController(BootControllerBase):
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _post_update_prepare_standby_slot(self, _kernel_ver: str) -> None:
+        """Prepare the standby slot for OTA switch boot.
+
+        Things to do:
+        1. prepare /boot/ota-slot_<standby_slot>, copy boot files from standby slot.
+        2. update fstab at standby slot rootfs.
+        3. update /etc/default/grub at standby slot rootfs.
+        4. inject /etc/grub.d/30_ota hook at standby slot rootfs.
+        """
         # prepare the boot slot dir
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
         # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
@@ -836,6 +844,7 @@ class GrubBootController(BootControllerBase):
         os.chmod(_hook_fpath, 0o750)
 
     def _post_update_generate_standby_slot_boot_cfg(self, _kernel_ver: str) -> None:
+        """After _post_update_prepare_standby_slot, generate boot cfg for standby slot."""
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
         _slot_id = self._boot_slots.standby_slot
 
@@ -857,6 +866,9 @@ class GrubBootController(BootControllerBase):
         return boot_cfg.BOOTLOADER
 
     def _pre_update_prepare_standby(self, *, erase_standby: bool) -> None:
+        """
+        Override the base's `_pre_update_prepare_standby`.
+        """
         self._mp_control.prepare_standby_dev(
             erase_standby=erase_standby,
             fsuuid=self._boot_slots.standby_slot_info.uuid,
