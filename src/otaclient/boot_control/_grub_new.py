@@ -19,9 +19,10 @@ import hashlib
 import logging
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from subprocess import CalledProcessError
+from tempfile import TemporaryDirectory
 from typing import ClassVar, Generator, Literal, NoReturn, Optional
 
 from typing_extensions import Self
@@ -104,11 +105,14 @@ class OTAManagedCfg:
 
     raw_contents: str
     grub_version: str
-    checksum: str
+    checksum: str = field(init=False)
     otaclient_version: str = version
 
     def __post_init__(self) -> None:
         self.raw_contents = self.raw_contents.strip()
+        self.checksum = (
+            f"sha256:{hashlib.sha256(self.raw_contents.encode()).hexdigest()}"
+        )
 
     @staticmethod
     def _parse_footer(_footer: str) -> dict[str, str]:
@@ -162,21 +166,18 @@ class OTAManagedCfg:
         return cls(
             raw_contents=content,
             grub_version=grub_version,
-            checksum=checksum,
             otaclient_version=otaclient_version,
         )
 
-    def export(self, *, hash_algorithm: str = "sha256") -> str:
-        _content = self.raw_contents
-        _digest = hashlib.new(hash_algorithm, _content.encode()).hexdigest()
+    def export(self) -> str:
         _footer = (
             f"{self.FOOTER_HEAD}"
             f"# otaclient_version: {self.otaclient_version}\n"
             f"# grub_version: {self.grub_version}\n"
-            f"# checksum: {hash_algorithm}:{_digest}\n"
+            f"# checksum: {self.checksum}\n"
             f"{self.FOOTER_TAIL}"
         )
-        return f"{self.HEADER}{_content}{_footer}"
+        return f"{self.HEADER}{self.raw_contents}{_footer}"
 
 
 class OTASlotBootID(StrEnum):
@@ -533,10 +534,11 @@ class _GrubBootControl:
         if boot_slots.is_uefi:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
-        # TODO: recovery and migration
         if _require_resetup := not self._detect_boot_control_setup():
-            pass
-
+            logger.warning(
+                "detect OTA boot control unmanaged system, bootstrapping boot control ..."
+            )
+            self._bootstrap_boot_control()
         self.initialized = _require_resetup
 
     def _bootstrap_retrieve_booted_kernel_initramfs(self) -> _BootFiles:
@@ -562,11 +564,9 @@ class _GrubBootControl:
 
         return _BootFiles(_kernel_ver, _boot_image, _initrd_image)
 
-    def _bootstrap_setup_boot_slot_dir(
-        self, _boot_files: _BootFiles, slot_id: OTASlotBootID
-    ) -> None:
+    def _bootstrap_setup_boot_slot_dir(self, _boot_files: _BootFiles) -> None:
         """Setup the boot slot dir for the target slot."""
-        _slot_boot_dir = self.get_boot_slot_dir(slot_id)
+        _slot_boot_dir = self.get_boot_slot_dir(self.boot_slots.current_slot)
         remove_file(_slot_boot_dir)
 
         _slot_boot_dir.mkdir(exist_ok=True)
@@ -574,24 +574,59 @@ class _GrubBootControl:
         copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
         copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
 
-    def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path):
+    def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path) -> None:
         _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)
         self.setup_slot_rootfs_for_ota_boot(
             slot_fsuuid=_current_slot_info.uuid, slot_mp=slot_mp
         )
 
-    def _bootstrap_setup_boot_cfg(self, _boot_files: _BootFiles, slot_mp: Path):
+    def _bootstrap_setup_boot_cfg(self, _boot_files: _BootFiles, slot_mp: Path) -> None:
+        """Generate and write the boot cfg for current slot."""
         self.setup_ota_boot_cfg_for_slot(
             _boot_files.kernel_ver,
             slot_id=self.boot_slots.current_slot,
             slot_mp=slot_mp,
         )
-    def _bootstrap_boot_control(self):
-        """Bootstrap(migrate) from non-OTA setup system.
 
-        Things to do:
-        1.
+    def _bootstrap_base_grub_cfg(self, slot_mp: Path) -> None:
+        """Switch the system to use OTA managed boot.
+
+        Must be called AFTER all other bootstrap functions called!
         """
+        with TemporaryDirectory(
+            dir=boot_cfg.BOOT_DPATH, prefix="._ota_bootstrap"
+        ) as _boot_source:
+            # with boot_source an empty folder at the boot partition,
+            #   and grub OTA hooks installed by _bootstrap_setup_rootfs_for_ota_boot,
+            #   grub-mkconfig will generate grub.cfg that only contains OTA boot entries.
+            _raw_grub_mkconfig = self._grub_mkconfig_on_mp(
+                slot_mp, _boot_source
+            ).strip()
+
+            _managed_grub_cfg = OTAManagedCfg(
+                raw_contents=_raw_grub_mkconfig,
+                grub_version=self._detect_grub_version(slot_mp),
+            )
+            write_str_to_file_atomic(
+                boot_cfg.GRUB_CFG_FPATH, _managed_grub_cfg.export()
+            )
+
+    def _bootstrap_boot_control(self) -> None:
+        _boot_files = self._bootstrap_retrieve_booted_kernel_initramfs()
+        self._bootstrap_setup_boot_slot_dir(_boot_files)
+
+        with TemporaryDirectory(
+            cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
+        ) as slop_mp:
+            _current_root_mp = _env.get_dynamic_client_chroot_path() or "/"
+            cmdhelper.bind_mount_rw(_current_root_mp, slop_mp)
+
+            slop_mp = Path(slop_mp)
+            self._bootstrap_setup_rootfs_for_ota_boot(slop_mp)
+            self._bootstrap_setup_boot_cfg(_boot_files, slop_mp)
+
+            # with base grub.cfg written, offically switch to OTA managed boot control
+            self._bootstrap_base_grub_cfg(slop_mp)
 
     @staticmethod
     def _read_fstab_dict(_in: str) -> dict[str, re.Match]:
@@ -847,7 +882,7 @@ class _GrubBootControl:
 
         This method should be called AFTER `setup_boot_slot_dir` and `setup_slot_rootfs_for_ota_boot`.
         """
-        _slot_boot_dir = Path(boot_cfg.BOOT_DPATH) / slot_id
+        _slot_boot_dir = self.get_boot_slot_dir(slot_id)
         _raw_grub_mkconfig = self._grub_mkconfig_on_mp(slot_mp, str(_slot_boot_dir))
         _boot_cfg = _BootMenuEntry.generate_menuentry(
             _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
