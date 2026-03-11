@@ -544,15 +544,6 @@ class _GrubBootControl:
             Path(boot_cfg.BOOT_DPATH) / boot_slots.standby_slot
         )
 
-        self._current_slot_boot_cfg = (
-            Path(boot_cfg.BOOT_DPATH)
-            / f"{boot_slots.current_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-        )
-        self._standby_slot_boot_cfg = (
-            Path(boot_cfg.BOOT_DPATH)
-            / f"{boot_slots.standby_slot}{boot_cfg.SLOT_BOOT_CFG_SUFFIX}"
-        )
-
         # TODO: recovery and migration
         _require_resetup = not self._detect_boot_control_setup()
         if _require_resetup:
@@ -743,7 +734,7 @@ class _GrubBootControl:
         self,
         _kernel_ver: str,
         *,
-        slot_fsuuid: str,
+        slot_info: _SlotInfo,
         slot_mp: Path,
         reference_fstab: str | None = None,
     ) -> None:
@@ -755,13 +746,16 @@ class _GrubBootControl:
         3. update /etc/default/grub at the slot rootfs.
         4. inject /etc/grub.d/30_ota hook at the slot rootfs.
         """
+        assert slot_info.slot_id  # for slot, slot_id must be presented
+
         # prepare the boot slot dir
         # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
         #                 the boot files to the root of /boot folder.
         #                 This is for old grub boot control bootstraps itself.
+        _boot_slot_dir = Path(boot_cfg.BOOT_DPATH) / slot_info.slot_id
         for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
             if f.is_file() and not f.is_symlink():
-                copyfile_atomic(f, self._standby_boot_slot_dir / f.name)
+                copyfile_atomic(f, _boot_slot_dir / f.name)
                 copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
 
         # update the fstab, base_fstab will be the slot we update,
@@ -775,7 +769,7 @@ class _GrubBootControl:
             self._generate_fstab(
                 base_fstab=read_str_from_file(_fstab_fpath),
                 reference_fstab=reference_fstab,
-                slot_fsuuid=slot_fsuuid,
+                slot_fsuuid=slot_info.uuid,
             ),
         )
 
@@ -907,11 +901,10 @@ class GrubBootController(BootControllerBase):
             self._mp_control.standby_slot_mount_point
         )
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
-        _slot_id = self._boot_slots.standby_slot
 
         self._boot_control.setup_slot_for_ota_boot(
             _kernel_ver,
-            slot_fsuuid=self._boot_slots.standby_slot_info.uuid,
+            slot_info=self._boot_slots.standby_slot_info,
             slot_mp=_standby_slot_mp,
             reference_fstab=read_str_from_file(
                 replace_root(
@@ -922,7 +915,7 @@ class GrubBootController(BootControllerBase):
             ),
         )
         self._boot_control.setup_ota_boot_cfg_for_slot(
-            _kernel_ver, slot_mp=_standby_slot_mp, slot_id=_slot_id
+            _kernel_ver, slot_mp=_standby_slot_mp, slot_id=self._boot_slots.standby_slot
         )
 
         self._boot_control.grub_reboot_to_standby()
