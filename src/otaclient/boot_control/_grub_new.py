@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import contextlib
+import itertools
 import logging
 import os
 import re
@@ -650,6 +651,20 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 boot_cfg.GRUB_CFG_FPATH, _managed_grub_cfg.export()
             )
 
+    def _bootstrap_cleanup_old_ota_boot_setup(self):
+        """Cleanup the old OTA boot setup, otherwise recovery/migration
+        procedure will not be triggered when downgrade.
+        """
+        remove_file("/boot/ota-partition")
+
+        _boot_dir = Path(boot_cfg.BOOT_DPATH)
+        for _entry in itertools.chain(
+            _boot_dir.glob("ota-partition.sda*"),
+            _boot_dir.glob("vmlinuz-ota*"),
+            _boot_dir.glob("initrd.img-ota*"),
+        ):
+            remove_file(_entry)
+
     def _bootstrap_boot_control(self) -> None:
         """Bootstrap OTA boot control on a system not yet managed by OTA.
 
@@ -688,6 +703,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 # with base grub.cfg written, officially switch to OTA managed boot control
                 logger.info("write /boot/grub.cfg and finish up bootstrapping ...")
                 self._bootstrap_manage_boot_control(slot_mp)
+
+                logger.warning("unconditionally cleanup the old OTA setup ...")
+                self._bootstrap_cleanup_old_ota_boot_setup()
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
