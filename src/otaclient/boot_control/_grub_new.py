@@ -421,11 +421,12 @@ class _GrubBootHelperFuncs:
 
                 return _res.stdout.decode()
             except CalledProcessError as e:
-                _err_msg = (
-                    f"grub-mkconfig on {_slot_mp=} failed: \n{e.stderr=}\n{e.stdout=}"
+                logger.error(
+                    f"grub-mkconfig on {_slot_mp=} failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
                 )
-                logger.exception(_err_msg)
-                raise GrubBootControllerError(_err_msg) from e
+                raise GrubBootControllerError(
+                    f"grub-mkconfig on {_slot_mp=} failed"
+                ) from e
 
     @staticmethod
     def _update_grub_default(_in: str) -> str:
@@ -637,6 +638,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         with TemporaryDirectory(
             dir=boot_cfg.BOOT_DPATH, prefix="._ota_bootstrap"
         ) as _boot_source:
+            # NOTE: also need to add a `grub` folder, otherwise grub-mkconfig will fail!
+            (Path(_boot_source) / "grub").mkdir(exist_ok=True)
+
             # with boot_source an empty folder at the boot partition,
             #   and grub OTA hooks installed by _bootstrap_setup_rootfs_for_ota_boot,
             #   grub-mkconfig will generate grub.cfg that only contains OTA boot entries.
