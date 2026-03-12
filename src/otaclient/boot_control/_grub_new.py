@@ -227,8 +227,8 @@ class _BootMenuEntry:
         )
 
         # inject a hint to indicate this boot entry is managed by OTA
-        _entry.rstrip().rstrip("}")
-        return "\n".join(["", _entry, f"echo 'Booting from {slot_boot_id} ...'", "}\n"])
+        _entry = _entry.rstrip().rstrip("}")
+        return "\n".join([_entry, f"\techo 'Booting from {slot_boot_id} ...'", "}\n"])
 
     @classmethod
     def generate_menuentry(
