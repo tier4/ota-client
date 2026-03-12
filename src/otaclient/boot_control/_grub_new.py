@@ -579,7 +579,12 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 "failed to bootstrap: cannot find the booted kernel"
             )
 
+        # NOTE(20260312): the kernel path retrieved from /proc/cmdline might not have
+        #                 /boot prefix.
         _boot_image = _boot_image_ma.group("kernel").strip()
+        if not _boot_image.startswith("/boot"):
+            _boot_image = f"/boot{_boot_image}"
+
         _boot_image = Path(_boot_image).resolve()
         _kernel_ver = _boot_image.name.replace(VMLINUZ_PREFIX, "", 1)
 
