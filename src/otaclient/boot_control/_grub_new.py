@@ -421,10 +421,11 @@ class _GrubBootHelperFuncs:
 
                 return _res.stdout.decode()
             except CalledProcessError as e:
-                logger.exception(f"grub-mkconfig on {_slot_mp=} failed")
-                raise GrubBootControllerError(
-                    f"grub-mkconfig on {_slot_mp=} failed"
-                ) from e
+                _err_msg = (
+                    f"grub-mkconfig on {_slot_mp=} failed: \n{e.stderr=}\n{e.stdout=}"
+                )
+                logger.exception(_err_msg)
+                raise GrubBootControllerError(_err_msg) from e
 
     @staticmethod
     def _update_grub_default(_in: str) -> str:
@@ -491,14 +492,14 @@ class _GrubBootHelperFuncs:
         # confirm the written files
         _options_set = set(_options)
         _res = subprocess_run_wrapper(
-            ["grub-editenv", "-", "list"],
+            ["grub-editenv", boot_cfg.GRUBENV_FPATH, "list"],
             check=True,
             check_output=True,
             chroot=_env.get_dynamic_client_chroot_path(),
         )
-        for _line in _res.stdout.decode().splitlines():
-            if _line.strip() not in _options_set:
-                raise ValueError(f"{_line} written but not recorded in grubenv!")
+        _read_options_set = set(i.strip() for i in _res.stdout.decode().splitlines())
+        if _read_options_set != _options_set:
+            raise ValueError(f"{_read_options_set} != {_options_set}")
 
     @classmethod
     def _grub_set_default_atomic(cls, slot_id: OTASlotBootID) -> None:
@@ -689,7 +690,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
 
         self._bootstrap_setup_boot_slot_dir(_boot_files)
         with TemporaryDirectory(
-            cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
+            dir=cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
         ) as slot_mp:
             _current_root_mp = _env.get_dynamic_client_chroot_path() or "/"
             cmdhelper.bind_mount_rw(_current_root_mp, slot_mp)
