@@ -360,6 +360,10 @@ class ABPartitionDetector:
                 slot_b=SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
                 standby_slot=OTASlotBootID.slot_a if _active_partid == "4" else OTASlotBootID.slot_b,
+                old_slot_id_mapping={
+                    OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
+                    OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}4",
+                }
             )
             # fmt: on
         else:  # legacy BIOS system
@@ -381,6 +385,10 @@ class ABPartitionDetector:
                 slot_b=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
                 current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
                 standby_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
+                old_slot_id_mapping={
+                    OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}2",
+                    OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
+                }
             )
             # fmt: on
 
@@ -582,30 +590,43 @@ class _GrubBootControl(_GrubBootHelperFuncs):
     def _bootstrap_retrieve_booted_kernel_initramfs(self) -> BootFiles:
         """Detect the current booted kernel and initramfs.
 
+        We first detect the booted kernel version by uname, and the try to find the corresponding
+        kernel files from the following locations:
+
+        1. /boot folder: newly USB installer setup system.
+        2. /boot/ota-slot_<current_slot>: broken previously setup system.
+        3. /boot/ota-partition.<current_slot_id>: system setup with old grub boot control.
+
         We assume that the initramfs lives under the same folder of kernel.
         """
-        _boot_image_ma = re.search(
-            r"BOOT_IMAGE=(?P<kernel>[^\s]+)", read_str_from_file("/proc/cmdline")
-        )
-        if not _boot_image_ma:
+        _cur_slot = self.boot_slots.current_slot
+
+        _kernel_ver = cmdhelper.get_kernel_version_via_uname()
+        if not _kernel_ver:
             raise GrubBootControllerError(
-                "failed to bootstrap: cannot find the booted kernel"
+                "failed to detect booted kernel version by uname!"
             )
+        logger.info(f"system is booted with {_kernel_ver=}")
 
-        # NOTE(20260312): the kernel path retrieved from /proc/cmdline might not have
-        #                 /boot prefix.
-        _boot_image = _boot_image_ma.group("kernel").strip()
-        if not _boot_image.startswith("/boot"):
-            _boot_image = f"/boot{_boot_image}"
-
-        _boot_image = Path(_boot_image).resolve()
-        _kernel_ver = _boot_image.name.replace(VMLINUZ_PREFIX, "", 1)
-
-        _initrd_image = (_boot_image.parent / f"{INITRD_PREFIX}{_kernel_ver}").resolve()
-        if not _initrd_image.is_file():
-            raise GrubBootControllerError(f"initramfs for {_kernel_ver=} not found!")
-
-        return BootFiles(_kernel_ver, _boot_image, _initrd_image)
+        _kernel_fname, _initrd_fname = (
+            f"{VMLINUZ_PREFIX}{_kernel_ver}",
+            f"{INITRD_PREFIX}{_kernel_ver}",
+        )
+        for _location in [
+            Path(boot_cfg.BOOT_DPATH),
+            self.get_boot_slot_dir(_cur_slot),
+            Path(boot_cfg.BOOT_DPATH) / self.boot_slots.old_slot_id_mapping[_cur_slot],
+        ]:
+            _boot_image, _initrd_image = (
+                _location / _kernel_fname,
+                _location / _initrd_fname,
+            )
+            if _boot_image.is_file() and _initrd_image.is_file():
+                return BootFiles(_kernel_ver, _boot_image, _initrd_image)
+        else:
+            raise GrubBootControllerError(
+                "failed to find booted linux image and/or initrd image!"
+            )
 
     def _bootstrap_setup_boot_slot_dir(self, _boot_files: BootFiles) -> None:
         """Setup the boot slot dir for the target slot."""
@@ -624,8 +645,10 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         #                 the boot files to the root of /boot folder.
         #                 This is for old grub boot control bootstraps itself.
         _boot_dir = Path(boot_cfg.BOOT_DPATH)
-        copyfile_atomic(_kernel, _boot_dir / _kernel.name)
-        copyfile_atomic(_initrd, _boot_dir / _initrd.name)
+        if _kernel != _boot_dir / _kernel.name:
+            copyfile_atomic(_kernel, _boot_dir / _kernel.name)
+        if _initrd != _boot_dir / _initrd.name:
+            copyfile_atomic(_initrd, _boot_dir / _initrd.name)
 
     def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path) -> None:
         _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)

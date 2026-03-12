@@ -19,7 +19,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar, Dict, Optional
 
 from typing_extensions import Self
 
@@ -175,6 +175,8 @@ class ABPartition:
     slot_b: SlotInfo
     current_slot: OTASlotBootID
     standby_slot: OTASlotBootID
+
+    old_slot_id_mapping: Dict[OTASlotBootID, str]
     efi_partition: Optional[SlotInfo] = None
 
 

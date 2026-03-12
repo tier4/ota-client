@@ -63,6 +63,7 @@ if [ -f \${config_directory}/ota-slot_b.cfg ]; then
 fi
 EOF
 """
+    LEGACY_SLOT_ID_PREFIX = "ota-partition.sda"
 
 
 class JetsonBootCommon:
