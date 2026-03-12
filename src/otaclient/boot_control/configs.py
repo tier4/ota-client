@@ -40,6 +40,7 @@ class GrubControlNewConfig:
 
     GRUB_DIR = "/boot/grub"
     GRUB_CFG_FPATH = "/boot/grub/grub.cfg"
+    GRUBENV_FPATH = "/boot/grub/grubenv"
     SLOT_BOOT_CFG_SUFFIX = ".cfg"
     """The config file will be `ota-slot_<a/b>.cfg`."""
 

@@ -461,22 +461,74 @@ class _GrubBootHelperFuncs:
         return "\n".join(res)
 
     @staticmethod
-    def _grub_set_default(slot_id: OTASlotBootID):
+    def _write_grubenv_atomic(_options: list[str]) -> None:
+        """Update the /boot/grub/grubenv by atomic operation."""
+        _tmp_grubenv = Path(boot_cfg.GRUB_DIR) / f".grubenv_ota_{os.urandom(4).hex()}"
+        try:
+            # fmt: off
+            subprocess_run_wrapper(
+                ["grub-editenv", str(_tmp_grubenv),
+                    "set", *_options,
+                ],
+                check=True,
+                check_output=False,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+            # fmt: on
+
+            # os.replace ensures atomic when src and dst are within the same fs!
+            os.replace(_tmp_grubenv, boot_cfg.GRUBENV_FPATH)
+        finally:
+            _tmp_grubenv.unlink(missing_ok=True)
+
+        # sync the whole boot partition
+        # sync command is also available at the otaclient app image, no need to chroot
         subprocess_run_wrapper(
-            ["grub-set-default", slot_id],
-            check=True,
-            check_output=True,
-            chroot=_env.get_dynamic_client_chroot_path(),
+            ["sync", "-f", boot_cfg.GRUBENV_FPATH], check=False, check_output=False
         )
 
-    @staticmethod
-    def _grub_reboot(slot_id: OTASlotBootID):
-        subprocess_run_wrapper(
-            ["grub-reboot", slot_id],
+        # confirm the written files
+        _options_set = set(_options)
+        _res = subprocess_run_wrapper(
+            ["grub-editenv", "-", "list"],
             check=True,
             check_output=True,
             chroot=_env.get_dynamic_client_chroot_path(),
         )
+        for _line in _res.stdout.decode().splitlines():
+            if _line.strip() not in _options_set:
+                raise ValueError(f"{_line} written but not recorded in grubenv!")
+
+    @classmethod
+    def _grub_set_default_atomic(cls, slot_id: OTASlotBootID) -> None:
+        """Configure default boot entries by atomically.
+
+        This command should be called when finalizing the slot switch,
+            or when the system just bootstraps OTA boot control.
+        """
+        try:
+            cls._write_grubenv_atomic([f"saved_entry={slot_id}"])
+        except Exception as e:
+            _err_msg = f"failed to configure default boot slot: {e!r}"
+            logger.exception(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
+
+    @classmethod
+    def _grub_reboot(cls, next_slot: OTASlotBootID, *, current_slot: OTASlotBootID):
+        """Configure the one-time boot entry atomically.
+
+        This command is for temporarily switching boot slot for OTA update.
+        NOTE: as _write_grubenv_atomic will completely override the old file,
+              also need to set the current default slot.
+        """
+        try:
+            cls._write_grubenv_atomic(
+                [f"saved_entry={current_slot}", f"next_entry={next_slot}"]
+            )
+        except Exception as e:
+            _err_msg = f"failed to configure default boot slot: {e!r}"
+            logger.exception(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
 
     @staticmethod
     def detect_slot_kernel_ver(_slot_mp: Path) -> str:
@@ -588,7 +640,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 raw_contents=_raw_grub_mkconfig,
                 grub_version=self._detect_grub_version(slot_mp),
             )
-            self._grub_set_default(_current_slot_id)
+            self._grub_set_default_atomic(_current_slot_id)
             write_str_to_file_atomic(
                 boot_cfg.GRUB_CFG_FPATH, _managed_grub_cfg.export()
             )
@@ -782,23 +834,21 @@ class _GrubBootControl(_GrubBootHelperFuncs):
     def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
         try:
-            self._grub_reboot(_standby_slot)
-        except CalledProcessError:
-            logger.exception(f"failed to grub-reboot to {_standby_slot}")
-            raise GrubBootControllerError(
-                f"`grub-reboot {_standby_slot}` failed"
-            ) from None
+            self._grub_reboot(_standby_slot, current_slot=self.boot_slots.current_slot)
+        except Exception as e:
+            _err_msg = f"failed to temporarily switch boot: {e!r}"
+            logger.exception(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
 
     def finalize_update_switch_boot(self) -> Literal[True]:
         _current_slot = self.boot_slots.current_slot
         try:
-            self._grub_set_default(_current_slot)
+            self._grub_set_default_atomic(_current_slot)
             return True
-        except CalledProcessError:
-            logger.exception(f"failed to grub-set-default to {_current_slot}")
-            raise GrubBootControllerError(
-                f"`grub-set-default {_current_slot}` failed"
-            ) from None
+        except Exception as e:
+            _err_msg = f"failed to finalize switch boot: {e!r}"
+            logger.exception(_err_msg)
+            raise GrubBootControllerError(_err_msg) from e
 
 
 class GrubBootController(BootControllerBase):
