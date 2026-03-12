@@ -225,7 +225,10 @@ class _BootMenuEntry:
         _entry = INITRD_PA_MULTILINE.sub(
             lambda ma: cls._replace_group(ma, "initrd_fpath", _fixup_fpath), _entry
         )
-        return _entry
+
+        # inject a hint to indicate this boot entry is managed by OTA
+        _entry.rstrip().rstrip("}")
+        return "\n".join(["", _entry, f"echo 'Booting from {slot_boot_id} ...'", "}\n"])
 
     @classmethod
     def generate_menuentry(
