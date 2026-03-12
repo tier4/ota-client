@@ -950,7 +950,8 @@ class GrubBootController(BootControllerBase):
         """GRUB-specific pre-update: cleanup standby slot boot dir and boot cfg."""
         _boot_slot_dir = self._boot_control.get_boot_slot_dir(self._standby_slot)
         remove_file(_boot_slot_dir)
-        _boot_slot_dir.mkdir(parents=True)
+        # NOTE: a dummy `grub` is required for grub-mkconfig to work properly!
+        (_boot_slot_dir / "grub").mkdir(parents=True)
         remove_file(self._boot_control.get_boot_cfg_fpath(self._standby_slot))
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
