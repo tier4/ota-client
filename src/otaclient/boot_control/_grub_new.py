@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import itertools
 import logging
 import os
@@ -23,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
-from typing import Generator, Literal, NoReturn
+from typing import Callable, Generator, Literal, NoReturn
 
 from typing_extensions import Self
 
@@ -176,12 +177,24 @@ class _BootMenuEntry:
         raise ValueError(f"failed to find menuentry for kernel version {kernel_ver!r}")
 
     @staticmethod
-    def _replace_group(ma: re.Match, group_name: str, replacement: str) -> str:
+    def _replace_group(
+        ma: re.Match, group_name: str, replacement: str | Callable[[str], str]
+    ) -> str:
         """Replace a named capture group within a match by position, not substring search."""
+        if callable(replacement):
+            replacement = replacement(ma.group(group_name))
+
         s = ma.group()
         start = ma.start(group_name) - ma.start()
         end = ma.end(group_name) - ma.start()
         return s[:start] + replacement + s[end:]
+
+    @staticmethod
+    def _fixup_fpath(_matched_str: str, *, slot_id: OTASlotBootID) -> str:
+        """Fix up the boot files fpath when it doesn't prefix with slot_id."""
+        if _matched_str.startswith(f"/{slot_id}"):
+            return _matched_str
+        return f"/{slot_id}/{_matched_str.lstrip('/')}"
 
     @classmethod
     def _fixup_menuentry(cls, _entry: str, *, slot_boot_id: OTASlotBootID) -> str:
@@ -199,25 +212,18 @@ class _BootMenuEntry:
             str: The rewritten menuentry block string.
         """
         _entry = MENUENTRY_TITLE_PA.sub(
-            lambda ma: cls._replace_group(ma, "entry_title", slot_boot_id),
-            _entry,
+            lambda ma: cls._replace_group(ma, "entry_title", slot_boot_id), _entry
         )
         _entry = MENUENTRY_ID_PA.sub(
-            lambda ma: cls._replace_group(ma, "entry_id", slot_boot_id),
-            _entry,
+            lambda ma: cls._replace_group(ma, "entry_id", slot_boot_id), _entry
         )
 
+        _fixup_fpath = functools.partial(cls._fixup_fpath, slot_id=slot_boot_id)
         _entry = LINUX_PA_MULTILINE.sub(
-            lambda ma: cls._replace_group(
-                ma, "linux_fpath", f"/{slot_boot_id}{ma.group('linux_fpath')}"
-            ),
-            _entry,
+            lambda ma: cls._replace_group(ma, "linux_fpath", _fixup_fpath), _entry
         )
         _entry = INITRD_PA_MULTILINE.sub(
-            lambda ma: cls._replace_group(
-                ma, "initrd_fpath", f"/{slot_boot_id}{ma.group('initrd_fpath')}"
-            ),
-            _entry,
+            lambda ma: cls._replace_group(ma, "initrd_fpath", _fixup_fpath), _entry
         )
         return _entry
 
