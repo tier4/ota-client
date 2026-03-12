@@ -622,6 +622,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 _location / _initrd_fname,
             )
             if _boot_image.is_file() and _initrd_image.is_file():
+                logger.info(f"kernel {_kernel_ver} found at {_location}")
                 return BootFiles(_kernel_ver, _boot_image, _initrd_image)
         else:
             raise GrubBootControllerError(
