@@ -939,10 +939,11 @@ class GrubBootController(BootControllerBase):
     def _pre_update_platform_specific(
         self, *, standby_as_ref: bool, erase_standby: bool
     ) -> None:
-        """GRUB-specific pre-update: cleanup standby ota_partition folder."""
+        """GRUB-specific pre-update: cleanup standby slot boot dir and boot cfg."""
         _boot_slot_dir = self._boot_control.get_boot_slot_dir(self._standby_slot)
         remove_file(_boot_slot_dir)
         _boot_slot_dir.mkdir(parents=True)
+        remove_file(self._boot_control.get_boot_cfg_fpath(self._standby_slot))
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
