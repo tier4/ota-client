@@ -597,7 +597,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _boot_image = Path(_boot_image).resolve()
         _kernel_ver = _boot_image.name.replace(VMLINUZ_PREFIX, "", 1)
 
-        _initrd_image = _boot_image.parent / f"{INITRD_PREFIX}{_kernel_ver}"
+        _initrd_image = (_boot_image.parent / f"{INITRD_PREFIX}{_kernel_ver}").resolve()
         if not _initrd_image.is_file():
             raise GrubBootControllerError(f"initramfs for {_kernel_ver=} not found!")
 
@@ -610,8 +610,11 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         (_slot_boot_dir / "grub").mkdir(parents=True, exist_ok=True)
 
         _kernel, _initrd = _boot_files.kernel, _boot_files.initrd
-        copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
-        copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
+        # in case of bootstrap triggers by damanged already setup system
+        if _kernel != _slot_boot_dir / _kernel.name:
+            copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
+        if _initrd != _slot_boot_dir / _initrd.name:
+            copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
 
         # NOTE(20260311): IMPORTANT! For backward compatibility, also copy
         #                 the boot files to the root of /boot folder.
