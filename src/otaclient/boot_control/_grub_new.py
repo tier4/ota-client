@@ -212,10 +212,11 @@ class _BootMenuEntry:
             str: The rewritten menuentry block string.
         """
         _entry = MENUENTRY_TITLE_PA.sub(
-            lambda ma: cls._replace_group(ma, "entry_title", slot_boot_id), _entry
+            lambda ma: cls._replace_group(ma, "entry_title", f"'{slot_boot_id}'"),
+            _entry,
         )
         _entry = MENUENTRY_ID_PA.sub(
-            lambda ma: cls._replace_group(ma, "entry_id", slot_boot_id), _entry
+            lambda ma: cls._replace_group(ma, "entry_id", f"'{slot_boot_id}'"), _entry
         )
 
         _fixup_fpath = functools.partial(cls._fixup_fpath, slot_id=slot_boot_id)
