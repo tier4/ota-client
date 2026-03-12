@@ -654,7 +654,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             )
             self._grub_set_default_atomic(_current_slot_id)
             write_str_to_file_atomic(
-                boot_cfg.GRUB_CFG_FPATH, _managed_grub_cfg.export()
+                boot_cfg.GRUB_CFG_FPATH,
+                _managed_grub_cfg.export(),
+                follow_symlink=False,
             )
 
     def _bootstrap_cleanup_old_ota_boot_setup(self):
@@ -823,6 +825,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 reference_fstab=reference_fstab,
                 slot_fsuuid=slot_fsuuid,
             ),
+            follow_symlink=False,
         )
 
         # update the /etc/default/grub
@@ -832,6 +835,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         write_str_to_file_atomic(
             _grub_default_fpath,
             self._update_grub_default(read_str_from_file(_grub_default_fpath)),
+            follow_symlink=False,
         )
 
         # inject the /etc/grub.d/30_ota hook and set it as executable
@@ -839,7 +843,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             boot_cfg.GRUB_HOOKS_DPATH, cfg.CANONICAL_ROOT, slot_mp
         )
         _hook_fpath = Path(_hook_dpath) / boot_cfg.OTA_GRUB_HOOK_FNAME
-        write_str_to_file_atomic(_hook_fpath, boot_cfg.OTA_GRUB_HOOK)
+        write_str_to_file_atomic(
+            _hook_fpath, boot_cfg.OTA_GRUB_HOOK, follow_symlink=False
+        )
         os.chmod(_hook_fpath, 0o750)
 
     def setup_ota_boot_cfg_for_slot(
@@ -858,7 +864,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _boot_cfg = _BootMenuEntry.generate_menuentry(
             _raw_grub_mkconfig, slot_boot_id=slot_id, kernel_ver=_kernel_ver
         )
-        write_str_to_file_atomic(self.get_boot_cfg_fpath(slot_id), _boot_cfg.raw_entry)
+        write_str_to_file_atomic(
+            self.get_boot_cfg_fpath(slot_id), _boot_cfg.raw_entry, follow_symlink=False
+        )
 
     def grub_reboot_to_standby(self) -> None:
         _standby_slot = self.boot_slots.standby_slot
