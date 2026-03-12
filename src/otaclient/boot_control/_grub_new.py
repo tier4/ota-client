@@ -601,7 +601,8 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _slot_boot_dir = self.get_boot_slot_dir(self.boot_slots.current_slot)
         remove_file(_slot_boot_dir)
 
-        _slot_boot_dir.mkdir(exist_ok=True)
+        # NOTE(20260312): `grub` under boot slot dir is for grub-mkconfig to run properly!
+        (_slot_boot_dir / "grub").mkdir(parents=True, exist_ok=True)
         _kernel, _initrd = _boot_files.kernel, _boot_files.initrd
         copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
         copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
