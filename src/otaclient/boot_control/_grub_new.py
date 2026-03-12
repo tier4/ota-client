@@ -413,7 +413,7 @@ class _GrubBootHelperFuncs:
             return False  # old grub boot control setup
         if not _grub_cfg.exists():
             return False  # how is it possible?
-        if not OTAManagedCfg.validate_managed_config(read_str_from_file(_grub_cfg)):
+        if not OTAManagedCfg.validate_managed_config(_grub_cfg.read_text()):
             return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
         return True
 
