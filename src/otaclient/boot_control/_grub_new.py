@@ -712,7 +712,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
     def _bootstrap_boot_control(self) -> None:
         """Bootstrap OTA boot control on a system not yet managed by OTA.
 
-        1. Detecting the running kernel and initramfs from /proc/cmdline.
+        1. Detecting the running kernel and initramfs.
         2. Copying them into the current slot's boot dir (/boot/ota-slot_<current>/).
         3. Bind-mounting the current rootfs to a temp dir and preparing it for
            OTA boot:
