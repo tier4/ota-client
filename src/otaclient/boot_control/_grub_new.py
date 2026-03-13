@@ -731,6 +731,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _boot_files = self._bootstrap_retrieve_booted_kernel_initramfs()
         logger.info(f"system booted with {_boot_files=}")
 
+        Path(cfg.MOUNT_SPACE).mkdir(exist_ok=True, parents=True)
         self._bootstrap_setup_boot_slot_dir(_boot_files)
         with TemporaryDirectory(
             dir=cfg.MOUNT_SPACE, prefix=".ota_bootstrap_mnt"
