@@ -18,18 +18,6 @@ from __future__ import annotations
 from otaclient.configs import BootloaderType
 
 
-class GrubControlConfig:
-    """x86-64 platform, with grub as bootloader."""
-
-    BOOTLOADER = BootloaderType.GRUB
-    FSTAB_FILE_PATH = "/etc/fstab"
-    GRUB_DIR = "/boot/grub"
-    GRUB_CFG_FNAME = "grub.cfg"
-    GRUB_CFG_PATH = "/boot/grub/grub.cfg"
-    DEFAULT_GRUB_PATH = "/etc/default/grub"
-    BOOT_OTA_PARTITION_FILE = "ota-partition"
-
-
 class GrubControlNewConfig:
     """x86-64 platform, with grub as bootloader."""
 
@@ -124,7 +112,6 @@ class RPIBootControlConfig:
     SWITCH_BOOT_FLAG_FILE = "._ota_switch_boot_finalized"
 
 
-grub_cfg = GrubControlConfig()
 grub_new_cfg = GrubControlNewConfig()
 
 jetson_common_cfg = JetsonBootCommon()
