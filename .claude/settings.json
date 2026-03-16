@@ -3,6 +3,7 @@
     "allow": [
       "Bash(uv sync*)",
       "Bash(uv build*)",
+      "Bash(uv run pytest*)",
       "Bash(pre-commit run*)",
       "Bash(docker compose -f docker/test_base/docker-compose_tests_py313.yml *)",
       "Bash(git diff*)",
