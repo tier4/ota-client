@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-TEST_DATA_DIR = Path(__file__).parent / "data"
+TEST_DATA_DIR = Path(__file__).parents[3] / "data"
 GRUB_CFG = (TEST_DATA_DIR / "grub.cfg").read_text()
 OTA_MANAGED_GRUB_CFG = (TEST_DATA_DIR / "ota_mamanged_grub.cfg").read_text()
 OLD_GRUB_BOOT_CFG = (TEST_DATA_DIR / "old_grub_boot_grub.cfg").read_text()
