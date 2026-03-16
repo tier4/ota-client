@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 
 import pytest
 
@@ -27,44 +26,11 @@ from otaclient.boot_control._grub_common import (
     read_fstab_dict,
 )
 
-TEST_DATA_DIR = Path(__file__).parent / "data"
-OTA_MANAGED_GRUB_CFG = (TEST_DATA_DIR / "ota_mamanged_grub.cfg").read_text()
-
-BOOT_MENU_ENTRY = """\
-menuentry 'Ubuntu' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-186d206e-73e7-401c-9d8a-fad4390922f2' {
-	recordfail
-	load_video
-	gfxmode $linux_gfx_mode
-	insmod gzio
-	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
-	insmod part_gpt
-	insmod ext2
-	search --no-floppy --fs-uuid --set=root 30cca32a-cbf5-4b05-8934-c6887a134162
-	linux	/vmlinuz-6.11.0-29-generic root=UUID=186d206e-73e7-401c-9d8a-fad4390922f2 ro  quiet splash $vt_handoff
-	initrd	/initrd.img-6.11.0-29-generic
-}
-"""
-
-# NOTE: normally we will not see menuentry with nested braces,
-#       but we need to support it.
-BOOT_MENU_ENTRY_WITH_NESTED_BRACES = """\
-menuentry 'Ubuntu' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-186d206e-73e7-401c-9d8a-fad4390922f2' {
-	recordfail
-	load_video
-	gfxmode $linux_gfx_mode
-	insmod gzio
-	if [ x$grub_platform = xxen ]; then insmod xzio; insmod lzopio; fi
-    some command that uses braces {
-        sub command 1
-        sub command 2
-    }
-	insmod part_gpt
-	insmod ext2
-	search --no-floppy --fs-uuid --set=root 30cca32a-cbf5-4b05-8934-c6887a134162
-	linux	/vmlinuz-6.11.0-29-generic root=UUID=186d206e-73e7-401c-9d8a-fad4390922f2 ro  quiet splash $vt_handoff
-	initrd	/initrd.img-6.11.0-29-generic
-}
-"""
+from .conftest import (
+    BOOT_MENU_ENTRY,
+    BOOT_MENU_ENTRY_WITH_NESTED_BRACES,
+    OTA_MANAGED_GRUB_CFG,
+)
 
 # ============================================================
 # OTAManagedCfg
