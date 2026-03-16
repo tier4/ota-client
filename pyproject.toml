@@ -101,6 +101,7 @@ log_cli = true
 log_cli_level = "INFO"
 testpaths = [
   "./tests",
+  "./test",
 ]
 
 [tool.black]
@@ -174,6 +175,7 @@ line-length = 88
 target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
+  "test/**/*.py",
   "tests/**/*.py",
   "src/**/*.py",
   "pyproject.toml",
