@@ -476,10 +476,10 @@ class _GrubBootHelperFuncs:
         for _blacklist_option in GRUB_BLACKLIST_OPTIONS:
             res_kvp.pop(_blacklist_option, None)
 
-        res = [OTA_MANAGED_CFG_HEADER]
+        res = []
         res.extend(f"{k}={v}" for k, v in res_kvp.items())
         res.append("")  # add a new line at the end of the file
-        return "\n".join(res)
+        return f"{OTA_MANAGED_CFG_HEADER}" + "\n".join(res)
 
     @staticmethod
     def _write_grubenv_atomic(_options: list[str]) -> None:
