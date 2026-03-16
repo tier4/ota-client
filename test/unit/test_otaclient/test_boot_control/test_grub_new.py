@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from otaclient.boot_control._grub_common import OTA_MANAGED_CFG_HEADER, OTASlotBootID
+from otaclient.boot_control._grub_common import OTASlotBootID
 from otaclient.boot_control._grub_new import (
     DEV_PATH_PA,
     GRUB_BLACKLIST_OPTIONS,
@@ -33,6 +33,7 @@ from otaclient.boot_control._grub_new import (
 )
 
 from .conftest import (
+    EXPECTED_OTA_MANAGED_DEFAULT,
     GRUB_CFG,
     GRUB_DEFAULT,
     GRUB_DEFAULT_WITH_BLACKLISTED,
@@ -487,76 +488,42 @@ class TestBootMenuEntryGenerateMenuentry:
 
 
 class TestUpdateGrubDefault:
-    def test_starts_with_ota_managed_header(self):
-        result = _GrubBootHelperFuncs._update_grub_default("")
-        assert result.startswith(OTA_MANAGED_CFG_HEADER)
-
-    def test_ends_with_trailing_newline(self):
-        result = _GrubBootHelperFuncs._update_grub_default("")
-        assert result.endswith("\n")
-
-    @pytest.mark.parametrize(
-        "key, expected_value",
-        [pytest.param(k, v, id=k) for k, v in GRUB_DEFAULT_OPTIONS.items()],
-    )
-    def test_empty_input_includes_all_defaults(self, key: str, expected_value: str):
-        result = _GrubBootHelperFuncs._update_grub_default("")
-        assert f"{key}={expected_value}" in result
-
-    @pytest.mark.parametrize(
-        "input_str, preserved_key, preserved_value",
-        [
-            pytest.param(
-                GRUB_DEFAULT,
-                "GRUB_DISTRIBUTOR",
-                "`( . /etc/os-release; echo ${NAME:-Ubuntu} ) 2>/dev/null || echo Ubuntu`",
-                id="preserves_distributor",
-            ),
-            pytest.param(
-                GRUB_DEFAULT,
-                "GRUB_CMDLINE_LINUX_DEFAULT",
-                '"quiet splash"',
-                id="preserves_cmdline_default",
-            ),
-            pytest.param(
-                GRUB_DEFAULT,
-                "GRUB_CMDLINE_LINUX",
-                '""',
-                id="preserves_cmdline_linux",
-            ),
-        ],
-    )
-    def test_preserves_non_overridden_options(
-        self, input_str: str, preserved_key: str, preserved_value: str
-    ):
-        result = _GrubBootHelperFuncs._update_grub_default(input_str)
-        assert f"{preserved_key}={preserved_value}" in result
-
-    @pytest.mark.parametrize(
-        "key, expected_value",
-        [
-            pytest.param(
-                "GRUB_TIMEOUT",
-                GRUB_DEFAULT_OPTIONS["GRUB_TIMEOUT"],
-                id="overrides_timeout",
-            ),
-            pytest.param(
-                "GRUB_TIMEOUT_STYLE",
-                GRUB_DEFAULT_OPTIONS["GRUB_TIMEOUT_STYLE"],
-                id="overrides_timeout_style",
-            ),
-            pytest.param(
-                "GRUB_DEFAULT",
-                GRUB_DEFAULT_OPTIONS["GRUB_DEFAULT"],
-                id="overrides_default",
-            ),
-        ],
-    )
-    def test_overrides_with_ota_defaults(self, key: str, expected_value: str):
+    def test_grub_default_to_ota_managed(self):
         result = _GrubBootHelperFuncs._update_grub_default(GRUB_DEFAULT)
-        lines = [_line for _line in result.splitlines() if _line.startswith(key + "=")]
-        assert len(lines) == 1
-        assert lines[0] == f"{key}={expected_value}"
+        assert result == EXPECTED_OTA_MANAGED_DEFAULT
+
+    def test_empty_input_includes_all_defaults(self):
+        result = _GrubBootHelperFuncs._update_grub_default("")
+        for key, expected_value in GRUB_DEFAULT_OPTIONS.items():
+            assert f"{key}={expected_value}" in result
+
+    def test_preserves_non_overridden_options(self):
+        result = _GrubBootHelperFuncs._update_grub_default(GRUB_DEFAULT)
+        result_kvp = {}
+        for line in result.splitlines():
+            if line.startswith("#") or not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            result_kvp[key] = value
+
+        # Collect non-overridden, non-blacklisted keys from the input.
+        for line in GRUB_DEFAULT.splitlines():
+            if line.startswith("#") or not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key in GRUB_DEFAULT_OPTIONS or key in GRUB_BLACKLIST_OPTIONS:
+                continue
+            assert key in result_kvp, f"{key} should be preserved"
+            assert result_kvp[key] == value, f"{key} value should be unchanged"
+
+    def test_overrides_with_ota_defaults(self):
+        result = _GrubBootHelperFuncs._update_grub_default(GRUB_DEFAULT)
+        for key, expected_value in GRUB_DEFAULT_OPTIONS.items():
+            lines = [
+                _line for _line in result.splitlines() if _line.startswith(key + "=")
+            ]
+            assert len(lines) == 1, f"expected exactly one {key}= line"
+            assert lines[0] == f"{key}={expected_value}"
 
     @pytest.mark.parametrize(
         "blacklisted_option",

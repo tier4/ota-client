@@ -28,6 +28,9 @@ GRUB_DEFAULT_WITH_BLACKLISTED = (
 GRUB_DEFAULT_WITH_DUPLICATES = (
     TEST_DATA_DIR / "grub_default_with_duplicates"
 ).read_text()
+EXPECTED_OTA_MANAGED_DEFAULT = (
+    TEST_DATA_DIR / "expected_ota_managed_default"
+).read_text()
 
 BOOT_MENU_ENTRY = """\
 menuentry 'Ubuntu' --class ubuntu --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-186d206e-73e7-401c-9d8a-fad4390922f2' {
