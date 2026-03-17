@@ -24,11 +24,10 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from ota_metadata.legacy import parser as ota_metadata_parser
-from otaclient_common.common import subprocess_call
 
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
-from .utils import ExportError, InputImageProcessError, StrPath
+from .utils import ExportError, InputImageProcessError, StrPath, subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,7 @@ def _unarchive_image(image_fpath: StrPath, *, workdir: StrPath):
     with tempfile.TemporaryDirectory(dir=workdir) as unarchive_dir:
         cmd = f"tar xf {image_fpath} -C {unarchive_dir}"
         try:
-            subprocess_call(cmd)
+            subprocess_run_wrapper(cmd)
         except Exception as e:
             _err_msg = f"failed to process input image {image_fpath}: {e!r}, {cmd=}"
             logger.error(_err_msg)
@@ -123,7 +122,7 @@ def _create_image_tar(image_rootfs: StrPath, output_fpath: StrPath):
     cmd = f"tar cf {output_fpath} -C {image_rootfs} ."
     try:
         logger.info(f"exporting external cache source image to {output_fpath} ...")
-        subprocess_call(cmd)
+        subprocess_run_wrapper(cmd)
     except Exception as e:
         _err_msg = f"failed to tar generated image to {output_fpath=}: {e!r}, {cmd=}"
         logger.error(_err_msg)
@@ -146,7 +145,7 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     try:
         logger.warning(f"formatting {dev} to ext4: {format_device_cmd}")
         # NOTE: label offline OTA image as external cache source
-        subprocess_call(format_device_cmd)
+        subprocess_run_wrapper(format_device_cmd)
     except Exception as e:
         _err_msg = f"failed to formatting {dev} to ext4: {e!r}"
         logger.error(_err_msg)
@@ -158,15 +157,17 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     cp_cmd = f"cp -rT {image_rootfs} {mount_point}"
     try:
         logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
-        subprocess_call(f"mount --make-private --make-unbindable {dev} {mount_point}")
-        subprocess_call(cp_cmd)
-        logger.info(f"finish copying, takes {time.time()-_start_time:.2f}s")
+        subprocess_run_wrapper(
+            f"mount --make-private --make-unbindable {dev} {mount_point}"
+        )
+        subprocess_run_wrapper(cp_cmd)
+        logger.info(f"finish copying, takes {time.time() - _start_time:.2f}s")
     except Exception as e:
         _err_msg = f"failed to export to image rootfs to {dev=}@{mount_point=}: {e!r}, {cp_cmd=}"
         logger.error(_err_msg)
         raise ExportError(_err_msg) from e
     finally:
-        subprocess_call(f"umount -l {dev}", raise_exception=False)
+        subprocess_run_wrapper(f"umount -l {dev}", check=False)
 
 
 def build(

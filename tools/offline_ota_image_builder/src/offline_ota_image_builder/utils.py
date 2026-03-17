@@ -58,8 +58,8 @@ def pyinstaller_aware_subprocess_run(args, *p_pargs, env=None, **p_kwargs):
 def subprocess_run_wrapper(
     cmd: str | list[str],
     *,
-    check: bool,
-    check_output: bool,
+    check: bool = True,
+    check_output: bool = True,
     env: Optional[dict[str, str]] = None,
     timeout: Optional[float] = None,
 ) -> subprocess.CompletedProcess[bytes]:
