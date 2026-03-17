@@ -100,11 +100,11 @@ ignore = [
   "**/*_pb2_grpc.py*",
 ]
 typeCheckingMode = "standard"
-pythonVersion = "3.8"
+pythonVersion = "3.13"
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py313"
 # NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
