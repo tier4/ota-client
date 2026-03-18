@@ -26,7 +26,7 @@ from typing import Mapping, Optional, Sequence
 from offline_ota_image_builder.ota_metadata.v1 import (
     DB_FNAME,
     OTAImageHelper,
-    ResourceTableHelper,
+    iter_resource_table,
 )
 
 from .configs import cfg
@@ -223,19 +223,20 @@ def _build_one_v1(
     # save a copy of index.json to the metadir
     _image_helper.save_index_json(_meta_dir / "index.json")
 
-    with ResourceTableHelper(_rst_file) as _rst_helper:
-        for _blob in _image_helper.iter_blob():
-            _blob_hex = _blob.hex()
-            if _rst_helper.check_blob_zstd_compressed(_blob):
-                # zstd compressed blob
-                _save_dst = (
-                    output_data_dir / f"{_blob_hex}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
-                )
-            else:
-                _save_dst = output_data_dir / _blob_hex
+    for _entry_digest, _is_compressed in iter_resource_table(_rst_file):
+        if not _image_helper.lookup_blob(_entry_digest):
+            continue  # not a leaf blobs in the blob storage
 
-            _saved_files_size += _image_helper.save_blob(_blob_hex, _save_dst)
-            _saved_files_num += 1
+        _entry_digest_hex = _entry_digest.hex()
+        if _is_compressed:
+            _save_dst = (
+                output_data_dir / f"{_entry_digest_hex}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
+            )
+        else:
+            _save_dst = output_data_dir / _entry_digest_hex
+
+        _saved_files_size += _image_helper.save_blob(_entry_digest_hex, _save_dst)
+        _saved_files_num += 1
     return _saved_files_size, _saved_files_num
 
 
@@ -246,7 +247,7 @@ def build(
     workdir: StrPath,
     output: Optional[StrPath],
     write_to_dev: Optional[StrPath],
-):
+) -> None:
     _start_time = time.time()
     logger.info(f"job started at {int(_start_time)}")
 
@@ -289,7 +290,9 @@ def build(
                 output_data_dir=output_data_dir,
             )
 
-        logger.info(f"{ecu_id=}: finish processing image")
+        logger.info(
+            f"{ecu_id=}: finish processing image, time cost: {time.time() - _start}s"
+        )
 
         manifest.data_size += _saved_files_size
         manifest.data_files_num += _saved_files_num
