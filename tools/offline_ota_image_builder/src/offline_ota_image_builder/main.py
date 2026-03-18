@@ -95,7 +95,9 @@ def _main(args) -> None:
         )
 
     # ------ build image ------ #
-    with tempfile.TemporaryDirectory(prefix="offline_OTA_image_builder") as workdir:
+    with tempfile.TemporaryDirectory(
+        prefix="offline_OTA_image_builder", dir=args.tmp_dir
+    ) as workdir:
         build(
             image_metas,
             image_files,
@@ -146,6 +148,11 @@ def main():
             "only valid when used with -w option."
         ),
         action="store_true",
+    )
+    parser.add_argument(
+        "--tmp-dir",
+        help="the temporary dir for building the offline OTA image, "
+        "if not specified, the system default temp will be used.",
     )
     args = parser.parse_args()
 
