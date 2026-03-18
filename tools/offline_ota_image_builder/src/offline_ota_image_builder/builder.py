@@ -74,7 +74,6 @@ def _process_legacy_ota_image(
     ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
 ):
     """Processing OTA image under <ota_image_dir> and update <data_dir> and <meta_dir>."""
-    _start_time = time.time()
     data_dir = Path(data_dir)
     # statistics
     saved_files, saved_files_size = 0, 0
@@ -126,7 +125,6 @@ def _process_legacy_ota_image(
     shutil.move(str(ota_image_dir / metadata_jwt.certificate.file), meta_dir)
     shutil.move(str(metadata_jwt_fpath), meta_dir)
 
-    logger.info(f"finish processing OTA image, takes {time.time() - _start_time:.2f}s")
     return saved_files, saved_files_size
 
 
@@ -262,6 +260,7 @@ def build(
 
     # ------ generate image ------ #
     for idx, image_meta in enumerate(manifest.image_meta):
+        _start = time.time()
         ecu_id = image_meta.ecu_id
         image_file = Path(image_files[ecu_id])
 
@@ -278,7 +277,7 @@ def build(
                 output_data_dir=output_data_dir,
             )
         else:
-            logger.info(f"{ecu_id=}: Process a legacy format OTA image ...")
+            logger.info(f"{ecu_id=}: process a legacy format OTA image ...")
             _saved_files_size, _saved_files_num = _build_one_legacy(
                 idx=idx,
                 image_file=image_file,
@@ -286,6 +285,8 @@ def build(
                 output_meta_dir=output_meta_dir,
                 output_data_dir=output_data_dir,
             )
+
+        logger.info(f"{ecu_id=}: finish processing image")
 
         manifest.data_size += _saved_files_size
         manifest.data_files_num += _saved_files_num
