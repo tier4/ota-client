@@ -18,8 +18,16 @@ permissions:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
 
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git curl ca-certificates
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -67,6 +75,5 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag_name }}
           name: "Offline OTA Image Builder v${{ steps.version.outputs.version }}"
-          generate_release_notes: true
           files: |
             tools/offline_ota_image_builder/dist/*
