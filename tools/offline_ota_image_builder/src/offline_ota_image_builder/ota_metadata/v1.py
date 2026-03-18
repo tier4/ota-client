@@ -52,8 +52,13 @@ class OTAImageHelper:
     def save_resource_table(self, _save_dst: Path) -> None:
         self._image_helper.get_resource_table(self._image_index, _save_dst)
 
-    def lookup_blob(self, _digest: bytes) -> bool:
-        return _digest.hex() in self._blob_names
+    def lookup_and_check_blob(self, _digest: bytes) -> bool:
+        _digest_hex = _digest.hex()
+        if _digest_hex in self._blob_names:
+            # already checked, no check again
+            self._blob_names.discard(_digest_hex)
+            return True
+        return False
 
     def save_blob(self, _digest_hex: str, _save_dst: Path) -> int:
         with (
@@ -66,7 +71,7 @@ class OTAImageHelper:
 
 
 def iter_resource_table(_rst_file: Path) -> Generator[tuple[bytes, bool]]:
-    """Iter throught the resource_table with checking whether blob is compressed.
+    """Iter throught the resource_table by resource_id order with checking whether blob is compressed.
 
     Yields:
         A tuple of digest of a blob, and a bool indicates whether this

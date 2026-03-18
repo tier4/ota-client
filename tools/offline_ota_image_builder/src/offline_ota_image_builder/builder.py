@@ -224,8 +224,9 @@ def _build_one_v1(
     _image_helper.save_index_json(_meta_dir / "index.json")
 
     for _entry_digest, _is_compressed in iter_resource_table(_rst_file):
-        if not _image_helper.lookup_blob(_entry_digest):
-            continue  # not a leaf blobs in the blob storage
+        if not _image_helper.lookup_and_check_blob(_entry_digest):
+            # not a leaf blobs in the blob storage or has already been checked
+            continue
 
         _entry_digest_hex = _entry_digest.hex()
         if _is_compressed:
