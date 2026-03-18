@@ -225,13 +225,16 @@ def _build_one_v1(
 
     with ResourceTableHelper(_rst_file) as _rst_helper:
         for _blob in _image_helper.iter_blob():
+            _blob_hex = _blob.hex()
             if _rst_helper.check_blob_zstd_compressed(_blob):
                 # zstd compressed blob
-                _save_dst = output_data_dir / f"{_blob}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
+                _save_dst = (
+                    output_data_dir / f"{_blob_hex}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
+                )
             else:
-                _save_dst = output_data_dir / _blob
+                _save_dst = output_data_dir / _blob_hex
 
-            _saved_files_size += _image_helper.save_blob(_blob, _save_dst)
+            _saved_files_size += _image_helper.save_blob(_blob_hex, _save_dst)
             _saved_files_num += 1
     return _saved_files_size, _saved_files_num
 

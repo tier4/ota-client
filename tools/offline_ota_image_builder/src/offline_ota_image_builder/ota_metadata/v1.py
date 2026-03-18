@@ -31,9 +31,7 @@ class OTAImageBroken(Exception): ...
 
 
 class OTAImageHelper:
-    def __init__(self, _image_zip: Path, *, workdir: Path) -> None:
-        self._workdir = workdir
-
+    def __init__(self, _image_zip: Path) -> None:
         self._image_helper = OTAImageArtifactReader(_image_zip)
         self._resource_prefix = f"{self._image_helper._resource_dir.rstrip('/')}/"
 
@@ -100,9 +98,9 @@ class OTAImageHelper:
                 if _digest not in self._exclude_blobs:
                     yield _digest
 
-    def save_blob(self, _digest: bytes, _save_dst: Path) -> int:
+    def save_blob(self, _digest_hex: str, _save_dst: Path) -> int:
         with (
-            self._image_helper.open_blob(_digest.hex()) as _src,
+            self._image_helper.open_blob(_digest_hex) as _src,
             open(_save_dst, "wb") as _dst,
         ):
             shutil.copyfileobj(_src, _dst)
