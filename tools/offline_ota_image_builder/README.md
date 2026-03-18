@@ -126,7 +126,7 @@ User must at least specifies one of `--write-to` and `--output`, or specifies th
 #### Usage 1: Build offline OTA image and export it as tar archive
 
 ```bash
-$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar
+sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar
 ```
 
 This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2_image.zip`(v1 format), which are for ECU `p1` and `p2`, and export the built image as `t2.tar` tar archive.
@@ -134,7 +134,7 @@ This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2
 ### Usage 2: Build the offline OTA image and create external cache source dev
 
 ```bash
-$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --write-to=/dev/<target_dev>
+sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --write-to=/dev/<target_dev>
 ```
 
 This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2_image.zip`(v1 format), which are for ECU `p1` and `p2`, and then prepare the `/dev/<target_dev>` as external cache source device(ext4 filesystem labelled with `ota_cache_src`) with image rootfs exported to the filesystem on `/dev/<target_device>`.
@@ -142,5 +142,5 @@ This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2
 ### Usage 3: Build the offline OTA image, export it as tar archive and prepare external cache source dev
 
 ```bash
-$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar --write-to=/dev/<target_dev>
+sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar --write-to=/dev/<target_dev>
 ```
