@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shutil
 from pathlib import Path
+from typing import Generator
 
 from ota_image_libs._resource_filter import CompressFilter
 from ota_image_libs.v1.artifact.reader import OTAImageArtifactReader
@@ -20,6 +22,7 @@ from ota_image_libs.v1.resource_table.schema import ResourceTableManifestTypedDi
 from ota_image_libs.v1.resource_table.utils import ResourceTableDBHelper
 
 DB_CONN = 3
+DB_FNAME = "resource_table.sqlite3"
 
 
 class OTAImageBroken(Exception): ...
@@ -28,10 +31,27 @@ class OTAImageBroken(Exception): ...
 class OTAImageHelper:
     def __init__(self, _image_zip: Path) -> None:
         self._image_helper = OTAImageArtifactReader(_image_zip)
+        self._resource_prefix = self._image_helper._resource_dir
 
     def save_resource_table(self, _save_dst: Path) -> None:
         _image_index = self._image_helper.parse_index()
         self._image_helper.get_resource_table(_image_index, _save_dst)
+
+    def iter_blob(self) -> Generator[str]:
+        _zip = self._image_helper._f
+        for _entry in _zip.namelist():
+            if (
+                _entry.startswith(self._resource_prefix)
+                and _entry != f"{self._resource_prefix}/"
+            ):
+                yield _entry.replace(self._resource_prefix, "")
+
+    def save_blob(self, _digest_hex: str, _save_dst: Path) -> None:
+        with (
+            self._image_helper.open_blob(_digest_hex) as _src,
+            open(_save_dst, "wb") as _dst,
+        ):
+            shutil.copyfileobj(_src, _dst)
 
 
 class ResourceTableHelper:
