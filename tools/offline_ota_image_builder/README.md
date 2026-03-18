@@ -91,24 +91,20 @@ The pre-built binary for amd64 target is available at [offline_ota_image_builder
 ### CLI usage
 
 ```text
-usage: offline_ota_image_builder [-h] --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]
-                                 [-o <OUTPUT_PATH>] [-w <DEVICE>] [--confirm-write-to]
+usage: offline_ota_image_builder [-h] --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>] [-o <OUTPUT_PATH>] [-w <DEVICE>] [--force-write-to] [--tmp-dir TMP_DIR]
 
-Helper script that builds offline OTA image with given OTA image(s) as external cache source or for
-offline OTA use.
+Helper script that builds offline OTA image with given OTA image(s) as external cache source or for offline OTA use.
 
 options:
   -h, --help            show this help message and exit
   --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]
-                        OTA image for <ECU_ID> as tar archive(compressed or uncompressed), this
-                        option can be used multiple times to include multiple images.
-  -o <OUTPUT_PATH>, --output <OUTPUT_PATH>
+                        OTA image for <ECU_ID> as tar archive(compressed or uncompressed), this option can be used multiple times to include multiple images.
+  -o, --output <OUTPUT_PATH>
                         save the generated image rootfs into tar archive to <OUTPUT_PATH>.
-  -w <DEVICE>, --write-to <DEVICE>
-                        write the image to <DEVICE> and prepare the device as external cache source
-                        device.
-  --force-write-to    prepare <DEVICE> as external cache source device without inter-active confirmation,
-                      only valid when used with -w option.
+  -w, --write-to <DEVICE>
+                        write the image to <DEVICE> and prepare the device as external cache source device.
+  --force-write-to      prepare <DEVICE> as external cache source device without inter-active confirmation, only valid when used with -w option.
+  --tmp-dir TMP_DIR     the temporary dir for building the offline OTA image, if not specified, the system default temp will be used.
 ```
 
 Execute the image builder by directly calling it from the source code. This package requires `root` permission to run(required by extracting OTA image and preparing external cache source device).
