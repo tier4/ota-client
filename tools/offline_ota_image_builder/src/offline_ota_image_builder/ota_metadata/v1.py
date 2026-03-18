@@ -70,12 +70,11 @@ class OTAImageHelper:
         return _save_dst.stat().st_size
 
 
-def iter_resource_table(_rst_file: Path) -> Generator[tuple[bytes, bool]]:
+def iter_resource_table(_rst_file: Path) -> Generator[tuple[bytes, bytes | None]]:
     """Iter throught the resource_table by resource_id order with checking whether blob is compressed.
 
     Yields:
-        A tuple of digest of a blob, and a bool indicates whether this
-            blob is a compressed blob.
+        A tuple of digest of an origin blob, and if compressed, the compressed version of the blob.
     """
     _rst_db_helper = ResourceTableDBHelper(_rst_file)
     with (
@@ -93,5 +92,8 @@ def iter_resource_table(_rst_file: Path) -> Generator[tuple[bytes, bool]]:
                         resource_id=_filter_applied.resource_id
                     )
                 )
-                yield _compressed_blob.digest, True
-            yield _entry.digest, False
+                yield _entry.digest, _compressed_blob.digest
+            # for the offline OTA image, the compressed blob is also named
+            #   with its original digest!
+            else:
+                yield _entry.digest, None
