@@ -56,7 +56,14 @@ def _check_if_mounted(dev: StrPath):
 def _unarchive_image(image_fpath: StrPath, *, workdir: StrPath):
     _start_time = time.time()
     with tempfile.TemporaryDirectory(dir=workdir) as unarchive_dir:
-        cmd = f"tar xf {image_fpath} -C {unarchive_dir}"
+        cmd = [
+            "tar",
+            "-xf",
+            str(image_fpath),
+            "--no-same-owner",
+            "-C",
+            str(unarchive_dir),
+        ]
         try:
             subprocess_run_wrapper(cmd)
         except Exception as e:
@@ -130,7 +137,7 @@ def _process_legacy_ota_image(
 
 def _create_image_tar(image_rootfs: StrPath, output_fpath: StrPath):
     """Export generated image rootfs as tar ball."""
-    cmd = f"tar cf {output_fpath} -C {image_rootfs} ."
+    cmd = ["tar", "cf", str(output_fpath), "-C", str(image_rootfs), "."]
     try:
         logger.info(f"exporting external cache source image to {output_fpath} ...")
         subprocess_run_wrapper(cmd)
@@ -152,7 +159,12 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
         return
 
     # prepare device
-    format_device_cmd = f"mkfs.ext4 -L {cfg.EXTERNAL_CACHE_DEV_FSLABEL} {dev}"
+    format_device_cmd = [
+        "mkfs.ext4",
+        "-L",
+        cfg.EXTERNAL_CACHE_DEV_FSLABEL,
+        str(dev),
+    ]
     try:
         logger.warning(f"formatting {dev} to ext4: {format_device_cmd}")
         # NOTE: label offline OTA image as external cache source
@@ -165,11 +177,11 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
     # mount and copy
     mount_point = Path(workdir) / "mnt"
     mount_point.mkdir(exist_ok=True)
-    cp_cmd = f"cp -rT {image_rootfs} {mount_point}"
+    cp_cmd = ["cp", "-rT", str(image_rootfs), str(mount_point)]
     try:
         logger.info(f"copying image rootfs to {dev=}@{mount_point=}...")
         subprocess_run_wrapper(
-            f"mount --make-private --make-unbindable {dev} {mount_point}"
+            ["mount", "--make-private", "--make-unbindable", str(dev), str(mount_point)]
         )
         subprocess_run_wrapper(cp_cmd)
         logger.info(f"finish copying, takes {time.time() - _start_time:.2f}s")
@@ -178,7 +190,7 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
         logger.error(_err_msg)
         raise ExportError(_err_msg) from e
     finally:
-        subprocess_run_wrapper(f"umount -l {dev}", check=False)
+        subprocess_run_wrapper(["umount", "-l", str(dev)], check=False)
 
 
 def _build_one_legacy(
