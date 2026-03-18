@@ -88,7 +88,7 @@ Offline OTA image's rootfs contains a `manifest.json` file with a single JSON ob
 
 The pre-built binary for amd64 target is available at [offline_ota_image_builder release v1.0.0](https://github.com/tier4/ota-client/releases/tag/offline_ota_image_builder_v1.0.0).
 
-#### Builder usage
+### CLI usage
 
 ```text
 usage: offline_ota_image_builder [-h] --image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]
@@ -123,7 +123,7 @@ Option `--output <OUTPUT>` specify where to save the exported tar archive of bui
 
 User must at least specifies one of `--write-to` and `--output`, or specifies them together.
 
-#### Usage 1: Build offline OTA image and export it as tar archive
+### Usage 1: Build offline OTA image and export it as tar archive
 
 ```bash
 sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar
