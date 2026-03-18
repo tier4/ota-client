@@ -21,7 +21,6 @@ from ota_image_libs.v1.artifact.reader import OTAImageArtifactReader
 from ota_image_libs.v1.resource_table.schema import ResourceTableManifestTypedDict
 from ota_image_libs.v1.resource_table.utils import ResourceTableDBHelper
 
-DB_CONN = 3
 DB_FNAME = "resource_table.sqlite3"
 
 
@@ -61,20 +60,20 @@ class OTAImageHelper:
 
 
 class ResourceTableHelper:
-    def __init__(self, _rst_file: Path, *, db_conn: int = DB_CONN) -> None:
+    def __init__(self, _rst_file: Path) -> None:
         _rst_db_helper = ResourceTableDBHelper(_rst_file)
-        self._rst_orm_pool = _rst_db_helper.get_orm_pool(db_conn)
+        self._rst_orm = _rst_db_helper.get_orm()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        self._rst_orm_pool.orm_pool_shutdown()
+        self._rst_orm.__exit__(exc_type, exc, tb)
 
     def check_blob_zstd_compressed(self, _digest_hex: str) -> bool:
         """Thread-safe helper to check whether a blob is zstd compressed."""
 
-        _entry = self._rst_orm_pool.orm_select_entry(
+        _entry = self._rst_orm.orm_select_entry(
             ResourceTableManifestTypedDict(digest=bytes.fromhex(_digest_hex))
         )
         if not _entry:
