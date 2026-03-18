@@ -47,7 +47,7 @@ PROC_MOUNTS = "/proc/mounts"
 
 def _check_if_mounted(dev: StrPath):
     for line in Path(PROC_MOUNTS).read_text().splitlines():
-        if line.find(str(dev)) != -1:
+        if line.strip().split()[0] == str(dev):
             return True
     return False
 
