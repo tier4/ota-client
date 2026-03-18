@@ -292,7 +292,7 @@ resolution-markers = [
     "python_full_version == '3.9.*'",
 ]
 dependencies = [
-    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
+    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/49/3b30cad09e7771a4982d9975a8cbf64f00d4a1ececb53297f1d9a7be1b10/importlib_metadata-8.7.1.tar.gz", hash = "sha256:49fef1ae6440c182052f407c8d34a68f72efc36db9ca90dc0113398f2fdde8bb", size = 57107, upload-time = "2025-12-21T10:00:19.278Z" }
 wheels = [
@@ -470,7 +470,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ota-image-libs", url = "https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl" },
+    { name = "ota-image-libs", url = "https://github.com/tier4/ota-image-libs/releases/download/v0.4.0/ota_image_libs-0.4.0-py3-none-any.whl" },
     { name = "simple-sqlite3-orm", specifier = ">=0.12,<0.14" },
 ]
 
@@ -482,8 +482,8 @@ dev = [
 
 [[package]]
 name = "ota-image-libs"
-version = "0.3.0"
-source = { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl" }
+version = "0.4.0"
+source = { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.4.0/ota_image_libs-0.4.0-py3-none-any.whl" }
 dependencies = [
     { name = "cryptography" },
     { name = "msgpack", version = "1.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -500,7 +500,7 @@ dependencies = [
     { name = "zstandard", version = "0.25.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 wheels = [
-    { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl", hash = "sha256:98a411c53a01f313ddfbfcb8c8d20dcd9ced829c7282a01763c81f25c695d79c" },
+    { url = "https://github.com/tier4/ota-image-libs/releases/download/v0.4.0/ota_image_libs-0.4.0-py3-none-any.whl", hash = "sha256:d14e73519063c390330b94da6f4d1348b582c79e3e382e148dde01992b29e807" },
 ]
 
 [package.metadata]
