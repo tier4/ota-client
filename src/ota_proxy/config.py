@@ -81,6 +81,7 @@ class Config:
 
     # cache streaming behavior
     AIOHTTP_SOCKET_READ_TIMEOUT = 16  # second
+    AIOHTTP_DNS_CACHE_TTL = 60  # second
 
     TMP_FILE_PREFIX = "tmp"
     URL_BASED_HASH_PREFIX = "URL_"

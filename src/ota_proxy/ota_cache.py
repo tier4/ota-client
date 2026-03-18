@@ -211,8 +211,12 @@ class OTACache:
         timeout = aiohttp.ClientTimeout(
             total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
         )
+        connector = aiohttp.TCPConnector(ttl_dns_cache=cfg.AIOHTTP_DNS_CACHE_TTL)
         self._session = aiohttp.ClientSession(
-            auto_decompress=False, raise_for_status=True, timeout=timeout
+            connector=connector,
+            auto_decompress=False,
+            raise_for_status=True,
+            timeout=timeout,
         )
 
         self._read_pool = CacheReaderPool()
