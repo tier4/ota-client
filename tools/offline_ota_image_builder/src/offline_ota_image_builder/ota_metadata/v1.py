@@ -33,9 +33,13 @@ class OTAImageHelper:
         self._image_helper = OTAImageArtifactReader(_image_zip)
         self._resource_prefix = self._image_helper._resource_dir
 
+        self._image_index = self._image_helper.parse_index()
+
+    def save_index_json(self, _save_dst: Path) -> None:
+        _save_dst.write_text(self._image_index.model_dump_json())
+
     def save_resource_table(self, _save_dst: Path) -> None:
-        _image_index = self._image_helper.parse_index()
-        self._image_helper.get_resource_table(_image_index, _save_dst)
+        self._image_helper.get_resource_table(self._image_index, _save_dst)
 
     def iter_blob(self) -> Generator[str]:
         _zip = self._image_helper._f

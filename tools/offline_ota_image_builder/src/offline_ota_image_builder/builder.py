@@ -185,7 +185,6 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
 
 def _build_one_legacy(
     idx: int,
-    ecu_id: str,
     image_file: StrPath,
     *,
     workdir: Path,
@@ -196,7 +195,6 @@ def _build_one_legacy(
     _meta_dir = output_meta_dir / str(idx)
     _meta_dir.mkdir(exist_ok=True, parents=True)
 
-    logger.info(f"{ecu_id=}: unarchive {image_file} ...")
     with _unarchive_image(image_file, workdir=workdir) as unarchived_image_dir:
         _saved_files_num, _saved_files_size = _process_legacy_ota_image(
             unarchived_image_dir,
@@ -208,7 +206,6 @@ def _build_one_legacy(
 
 def _build_one_v1(
     idx: int,
-    ecu_id: str,
     image_file: StrPath,
     *,
     workdir: Path,
@@ -224,6 +221,9 @@ def _build_one_v1(
     _rst_file = workdir / DB_FNAME
     _image_helper = OTAImageHelper(Path(image_file))
     _image_helper.save_resource_table(_rst_file)
+
+    # save a copy of index.json to the metadir
+    _image_helper.save_index_json(_meta_dir / "index.json")
 
     with ResourceTableHelper(_rst_file) as _rst_helper:
         for _blob in _image_helper.iter_blob():
@@ -267,22 +267,20 @@ def build(
 
         if not image_file.is_file():
             exit_with_err_msg(f"{ecu_id=}: specified {image_file=} not found!")
-        if image_file.suffix.lower() == "zip":
+
+        if image_file.suffix.lower() == ".zip":
             logger.info(f"{ecu_id=}: processing OTA image in v1 format ...")
             _saved_files_size, _saved_files_num = _build_one_v1(
                 idx=idx,
-                ecu_id=ecu_id,
                 image_file=image_file,
                 workdir=images_unarchiving_work_dir,
                 output_meta_dir=output_meta_dir,
                 output_data_dir=output_data_dir,
             )
-
         else:
-            logger.info("Process a legacy format OTA image ...")
+            logger.info(f"{ecu_id=}: Process a legacy format OTA image ...")
             _saved_files_size, _saved_files_num = _build_one_legacy(
                 idx=idx,
-                ecu_id=ecu_id,
                 image_file=image_file,
                 workdir=images_unarchiving_work_dir,
                 output_meta_dir=output_meta_dir,
