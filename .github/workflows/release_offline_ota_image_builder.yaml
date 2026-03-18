@@ -1,4 +1,4 @@
-name: Build and Release
+name: Offline OTA image builder Release
 
 on:
   workflow_dispatch:
