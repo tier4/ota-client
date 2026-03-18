@@ -15,12 +15,10 @@
 import shutil
 from pathlib import Path
 from typing import Generator
+from zipfile import ZipFile
 
 from ota_image_libs._resource_filter import CompressFilter
 from ota_image_libs.v1.artifact.reader import OTAImageArtifactReader
-from ota_image_libs.v1.image_config.schema import ImageConfig
-from ota_image_libs.v1.image_manifest.schema import ImageManifest
-from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
 from ota_image_libs.v1.resource_table.schema import ResourceTableManifestTypedDict
 from ota_image_libs.v1.resource_table.utils import ResourceTableDBHelper
 
@@ -36,48 +34,17 @@ class OTAImageHelper:
         self._resource_prefix = f"{self._image_helper._resource_dir.rstrip('/')}/"
 
         self._image_index = self._image_helper.parse_index()
-        self._exclude_blobs = self._collect_protected_resources_digest()
+        self._blob_names = self._get_blob_names_set(
+            self._image_helper._f, prefix=self._resource_prefix
+        )
 
-    def _collect_protected_resources_digest(self) -> set[bytes]:
-        """Scan through OTA image, collect blob digests that don't belong to any system image.
-
-        These blobs will not be tracked by resource_table.
-        """
-        _res: set[bytes] = set()
-
-        for manifest_descriptor in self._image_index.manifests:
-            _res.add(manifest_descriptor.digest.digest)
-            if isinstance(manifest_descriptor, ImageManifest.Descriptor):
-                _manifest = ImageManifest.model_validate_json(
-                    self._image_helper.read_blob_as_text(
-                        manifest_descriptor.digest.digest_hex
-                    )
-                )
-
-                for _file_table_descriptor in _manifest.layers:
-                    _res.add(_file_table_descriptor.digest.digest)
-
-                _image_config_descriptor = _manifest.config
-                _res.add(_image_config_descriptor.digest.digest)
-
-                _image_config = ImageConfig.model_validate_json(
-                    self._image_helper.read_blob_as_text(
-                        _image_config_descriptor.digest.digest_hex
-                    )
-                )
-                if _sys_config_descriptor := _image_config.sys_config:
-                    _res.add(_sys_config_descriptor.digest.digest)
-                _res.add(_image_config.file_table.digest.digest)
-            elif isinstance(manifest_descriptor, OTAClientPackageManifest.Descriptor):
-                _manifest = OTAClientPackageManifest.model_validate_json(
-                    self._image_helper.read_blob_as_text(
-                        manifest_descriptor.digest.digest_hex
-                    )
-                )
-                _res.add(_manifest.config.digest.digest)
-                for _payload_descriptor in _manifest.layers:
-                    _res.add(_payload_descriptor.digest.digest)
-        return _res
+    @staticmethod
+    def _get_blob_names_set(_zipf: ZipFile, *, prefix: str) -> set[str]:
+        _set = set()
+        for _entry in _zipf.namelist():
+            if _entry.startswith(prefix) and _entry != prefix:
+                _set.add(_entry.replace(prefix, ""))
+        return _set
 
     def save_index_json(self, _save_dst: Path) -> None:
         _save_dst.write_text(self._image_index.model_dump_json())
@@ -85,18 +52,8 @@ class OTAImageHelper:
     def save_resource_table(self, _save_dst: Path) -> None:
         self._image_helper.get_resource_table(self._image_index, _save_dst)
 
-    def iter_blob(self) -> Generator[bytes]:
-        _zip = self._image_helper._f
-        for _entry in _zip.namelist():
-            if (
-                _entry.startswith(self._resource_prefix)
-                and _entry != self._resource_prefix
-            ):
-                _digest_hex = _entry.replace(self._resource_prefix, "")
-                _digest = bytes.fromhex(_digest_hex)
-
-                if _digest not in self._exclude_blobs:
-                    yield _digest
+    def lookup_blob(self, _digest: bytes) -> bool:
+        return _digest.hex() in self._blob_names
 
     def save_blob(self, _digest_hex: str, _save_dst: Path) -> int:
         with (
@@ -108,23 +65,28 @@ class OTAImageHelper:
         return _save_dst.stat().st_size
 
 
-class ResourceTableHelper:
-    def __init__(self, _rst_file: Path) -> None:
-        _rst_db_helper = ResourceTableDBHelper(_rst_file)
-        self._rst_orm = _rst_db_helper.get_orm()
+def iter_resource_table(_rst_file: Path) -> Generator[tuple[bytes, bool]]:
+    """Iter throught the resource_table with checking whether blob is compressed.
 
-    def __enter__(self):
-        return self
+    Yields:
+        A tuple of digest of a blob, and a bool indicates whether this
+            blob is a compressed blob.
+    """
+    _rst_db_helper = ResourceTableDBHelper(_rst_file)
+    with (
+        _rst_db_helper.get_orm() as orm_iter,
+        _rst_db_helper.get_orm() as orm_lookup,
+    ):
+        for _entry in orm_iter.orm_select_all_with_pagination(batch_size=1024):
+            _filter_applied = _entry.filter_applied
 
-    def __exit__(self, exc_type, exc, tb):
-        self._rst_orm.__exit__(exc_type, exc, tb)
-
-    def check_blob_zstd_compressed(self, _digest: bytes) -> bool:
-        """Thread-safe helper to check whether a blob is zstd compressed."""
-
-        _entry = self._rst_orm.orm_select_entry(
-            ResourceTableManifestTypedDict(digest=_digest)
-        )
-        if not _entry:
-            raise OTAImageBroken(f"resource with {_digest.hex()=} not found!")
-        return isinstance(_entry.filter_applied, CompressFilter)
+            # if a blob is filtered with CompressFilter, it MUST not present
+            #   in the blob storage, but only the compressed version there.
+            if isinstance(_filter_applied, CompressFilter):
+                _compressed_blob = orm_lookup.orm_select_entry(
+                    ResourceTableManifestTypedDict(
+                        resource_id=_filter_applied.resource_id
+                    )
+                )
+                yield _compressed_blob.digest, True
+            yield _entry.digest, False
