@@ -19,7 +19,8 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     container:
-      image: debian:bookworm
+      # glibc compatible with ubuntu:20.04 and newer
+      image: debian:bullseye
 
     steps:
       - name: Install system dependencies
