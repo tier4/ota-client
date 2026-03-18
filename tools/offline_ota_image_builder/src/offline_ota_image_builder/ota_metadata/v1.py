@@ -53,6 +53,7 @@ class OTAImageHelper:
         self._image_helper.get_resource_table(self._image_index, _save_dst)
 
     def lookup_and_check_blob(self, _digest: bytes) -> bool:
+        """Ensure that for specific blob, we only copy it ONCE!"""
         _digest_hex = _digest.hex()
         if _digest_hex in self._blob_names:
             # already checked, no check again

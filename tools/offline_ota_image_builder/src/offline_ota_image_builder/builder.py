@@ -236,22 +236,25 @@ def _build_one_v1(
     _image_helper.save_index_json(_meta_dir / "index.json")
 
     for _entry_digest, _compressed_digest in iter_resource_table(_rst_file):
-        if not _image_helper.lookup_and_check_blob(_entry_digest):
-            # not a leaf blobs in the blob storage or has already been checked
-            continue
-
         _entry_digest_hex = _entry_digest.hex()
+
         # for the offline OTA image, the compressed blob is also named
         #   with its original digest!
-        if _compressed_digest:
+        if _compressed_digest and _image_helper.lookup_and_check_blob(
+            _compressed_digest
+        ):
             _save_dst = (
                 output_data_dir / f"{_entry_digest_hex}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
             )
             _size = _image_helper.save_blob(_compressed_digest.hex(), _save_dst)
-        else:
+
+        elif _image_helper.lookup_and_check_blob(_entry_digest):
             _size = _image_helper.save_blob(
                 _entry_digest_hex, output_data_dir / _entry_digest_hex
             )
+
+        else:
+            continue
 
         _saved_files_size += _size
         _saved_files_num += 1
