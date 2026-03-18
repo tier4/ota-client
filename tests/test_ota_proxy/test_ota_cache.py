@@ -19,8 +19,9 @@ import bisect
 import logging
 import random
 import sqlite3
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import aiohttp
 import pytest
 import pytest_asyncio
 from multidict import CIMultiDict, CIMultiDictProxy
@@ -163,6 +164,38 @@ class TestLRUCacheHelper:
         remote_fd, _ = await cache._retrieve_file_by_downloading("dummy_url", {})
         [chunk async for chunk in remote_fd]  # consume
         assert cache._metrics_data.cache_cdn_hits == expected_hits
+
+
+@pytest.mark.asyncio(scope="class")
+class TestOTACacheDNSTTL:
+    async def test_dns_cache_ttl_config_within_reasonable_range(self):
+        """AIOHTTP_DNS_CACHE_TTL should be longer than aiohttp default (10s) but
+        short enough to allow CDN failover (CloudFront TTL is ~60-300s)."""
+        assert (
+            cfg.AIOHTTP_DNS_CACHE_TTL > 10
+        ), "TTL should be greater than aiohttp default (10s) to reduce DNS resolution frequency"
+        assert (
+            cfg.AIOHTTP_DNS_CACHE_TTL <= 300
+        ), "TTL should not exceed CDN DNS TTL (~300s) to allow IP failover"
+
+    async def test_ota_cache_start_applies_dns_cache_ttl(self):
+        """OTACache.start() should configure TCPConnector with AIOHTTP_DNS_CACHE_TTL."""
+
+        cache = OTACache(
+            cache_enabled=False,
+            init_cache=False,
+            shm_metrics_writer=None,
+        )
+        with patch.object(
+            aiohttp, "TCPConnector", wraps=aiohttp.TCPConnector
+        ) as mock_connector:
+            await cache.start()
+            try:
+                mock_connector.assert_called_once_with(
+                    ttl_dns_cache=cfg.AIOHTTP_DNS_CACHE_TTL
+                )
+            finally:
+                await cache.close()
 
 
 @pytest.mark.asyncio(scope="class")
