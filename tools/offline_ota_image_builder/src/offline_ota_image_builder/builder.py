@@ -23,10 +23,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
-from ota_metadata.legacy import parser as ota_metadata_parser
-
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
+from .ota_metadata import legacy as ota_metadata_parser
 from .utils import ExportError, InputImageProcessError, StrPath, subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
@@ -69,9 +68,9 @@ def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: S
     ota_image_dir = Path(ota_image_dir)
 
     # ------ process OTA image metadata ------ #
-    metadata_jwt_fpath = ota_image_dir / ota_metadata_parser.OTAMetadata.METADATA_JWT
+    metadata_jwt_fpath = ota_image_dir / ota_metadata_parser.METADATA_JWT
     # NOTE: we don't need to do certificate verification here, so set certs_dir to empty
-    metadata_jwt = ota_metadata_parser._MetadataJWTParser(
+    metadata_jwt = ota_metadata_parser.MetadataJWTParser(
         metadata_jwt_fpath.read_text(), certs_dir=""
     ).get_otametadata()
 
