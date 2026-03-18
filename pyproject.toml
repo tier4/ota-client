@@ -160,6 +160,7 @@ exclude = [
   ".ruff_cache",
   ".venv",
   "venv",
+  "tools",
   ".tests",
 ]
 ignore = [
