@@ -86,32 +86,7 @@ Offline OTA image's rootfs contains a `manifest.json` file with a single JSON ob
 
 ## How to use
 
-### Prepare the dependencies
-
-This image builder requires latest ota-client to be installed/accessable. The recommended way to install dependencies is to init a virtual environment and install the ota-client into this venv, and then execute the image_builder with this venv.
-
-1. git clone the latest ota-client repository:
-
-    ```bash
-    $ git clone https://github.com/tier4/ota-client.git
-    # image builder is located at ota-client/tools/offline_ota_image_builder
-    ```
-
-2. prepare the virtual environment and activate it:
-
-    ```bash
-    $ python3 -m venv venv
-    $ . venv/bin/active
-    (venv) $
-    ```
-
-3. install the ota-client into the virtual environment:
-
-    ```bash
-    (venv) $ pip install ota-client
-    ```
-
-### Build image and export
+The pre-built binary for amd64 target is available at [offline_ota_image_builder release v1.0.0](https://github.com/tier4/ota-client/releases/tag/offline_ota_image_builder_v1.0.0).
 
 #### Builder usage
 
@@ -138,7 +113,9 @@ options:
 
 Execute the image builder by directly calling it from the source code. This package requires `root` permission to run(required by extracting OTA image and preparing external cache source device).
 
-Option `--image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]` is used to specify OTA image to be included. This option can be used multiple times to specify multiple OTA images.
+Option `--image <ECU_NAME>:<IMAGE_PATH>[:<IMAGE_VERSION>]` is used to specify OTA image to be included.
+OTA image in both legacy format(extension `.tgz`) and v1 format(extension `.zip`) are supported.
+This option can be used multiple times to specify multiple OTA images.
 
 Option `--write-to <DEVICE>` is used to prepare external cache source device used by otaproxy. The specified device will be formatted as `ext4`, fslabel with `ota_cache_src`, and be exported with the built offline OTA image's rootfs. If this package is used in a non-interactive script, option `--force-write-to` can be used to bypass interactive confirmation.
 
@@ -149,27 +126,21 @@ User must at least specifies one of `--write-to` and `--output`, or specifies th
 #### Usage 1: Build offline OTA image and export it as tar archive
 
 ```bash
-# current folder layout: venv ota-client
-(venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.tgz:ver_20230808 --output=t2.tar
+$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar
 ```
 
-This will build the offline OTA image with `p1_image.tgz` and `p2_image.tgz`, which are for ECU `p1` and `p2`, and export the built image as `t2.tar` tar archive.
+This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2_image.zip`(v1 format), which are for ECU `p1` and `p2`, and export the built image as `t2.tar` tar archive.
 
 ### Usage 2: Build the offline OTA image and create external cache source dev
 
 ```bash
-# current folder layout: venv ota-client
-(venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.tgz:ver_20230808 --write-to=/dev/<target_dev>
+$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --write-to=/dev/<target_dev>
 ```
 
-This will build the offline OTA image with `p1_image.tgz` and `p2_image.tgz`, which are for ECU `p1` and `p2`, and then prepare the `/dev/<target_dev>` as external cache source device(ext4 filesystem labelled with `ota_cache_src`) with image rootfs exported to the filesystem on `/dev/<target_device>`.
+This will build the offline OTA image with `p1_image.tgz`(legacy format) and `p2_image.zip`(v1 format), which are for ECU `p1` and `p2`, and then prepare the `/dev/<target_dev>` as external cache source device(ext4 filesystem labelled with `ota_cache_src`) with image rootfs exported to the filesystem on `/dev/<target_device>`.
 
 ### Usage 3: Build the offline OTA image, export it as tar archive and prepare external cache source dev
 
 ```bash
-# current folder layout: venv ota-client
-(venv) $ cd ota-client
-(venv) $ sudo -E env PATH=$PATH python3 -m tools.offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.tgz:ver_20230808 --output=t2.tar --write-to=/dev/<target_dev>
+$ sudo ./offline_ota_image_builder --image=p1:p1_image.tgz:ver_20230808 --image=p2:p2_image.zip:ver_20230808 --output=t2.tar --write-to=/dev/<target_dev>
 ```
