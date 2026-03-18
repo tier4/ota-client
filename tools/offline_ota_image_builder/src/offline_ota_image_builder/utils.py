@@ -18,7 +18,7 @@ import shlex
 import subprocess
 import sys
 from os import PathLike
-from typing import Optional, TypeAlias, Union
+from typing import NoReturn, Optional, TypeAlias, Union
 
 StrPath: TypeAlias = Union[str, PathLike]
 
@@ -78,3 +78,8 @@ def subprocess_run_wrapper(
         timeout=timeout,
         env=env,
     )  # type: ignore
+
+
+def exit_with_err_msg(err_msg: str, exit_code: int = 1) -> NoReturn:
+    print(f"ERR: {err_msg}")
+    sys.exit(exit_code)

@@ -46,12 +46,14 @@ class OTAImageHelper:
             ):
                 yield _entry.replace(self._resource_prefix, "")
 
-    def save_blob(self, _digest_hex: str, _save_dst: Path) -> None:
+    def save_blob(self, _digest_hex: str, _save_dst: Path) -> int:
         with (
             self._image_helper.open_blob(_digest_hex) as _src,
             open(_save_dst, "wb") as _dst,
         ):
             shutil.copyfileobj(_src, _dst)
+
+        return _save_dst.stat().st_size
 
 
 class ResourceTableHelper:

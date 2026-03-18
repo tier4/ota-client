@@ -23,10 +23,22 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
+from offline_ota_image_builder.ota_metadata.v1 import (
+    DB_FNAME,
+    OTAImageHelper,
+    ResourceTableHelper,
+)
+
 from .configs import cfg
 from .manifest import ImageMetadata, Manifest
 from .ota_metadata import legacy as ota_metadata_parser
-from .utils import ExportError, InputImageProcessError, StrPath, subprocess_run_wrapper
+from .utils import (
+    ExportError,
+    InputImageProcessError,
+    StrPath,
+    exit_with_err_msg,
+    subprocess_run_wrapper,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +70,9 @@ def _unarchive_image(image_fpath: StrPath, *, workdir: StrPath):
         yield unarchive_dir
 
 
-def _process_ota_image(ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath):
+def _process_legacy_ota_image(
+    ota_image_dir: StrPath, *, data_dir: StrPath, meta_dir: StrPath
+):
     """Processing OTA image under <ota_image_dir> and update <data_dir> and <meta_dir>."""
     _start_time = time.time()
     data_dir = Path(data_dir)
@@ -169,6 +183,61 @@ def _write_image_to_dev(image_rootfs: StrPath, dev: StrPath, *, workdir: StrPath
         subprocess_run_wrapper(f"umount -l {dev}", check=False)
 
 
+def _build_one_legacy(
+    idx: int,
+    ecu_id: str,
+    image_file: StrPath,
+    *,
+    workdir: Path,
+    output_meta_dir: Path,
+    output_data_dir: Path,
+) -> tuple[int, int]:
+    # image specific metadata dir
+    _meta_dir = output_meta_dir / str(idx)
+    _meta_dir.mkdir(exist_ok=True, parents=True)
+
+    logger.info(f"{ecu_id=}: unarchive {image_file} ...")
+    with _unarchive_image(image_file, workdir=workdir) as unarchived_image_dir:
+        _saved_files_num, _saved_files_size = _process_legacy_ota_image(
+            unarchived_image_dir,
+            data_dir=output_data_dir,
+            meta_dir=_meta_dir,
+        )
+        return _saved_files_size, _saved_files_num
+
+
+def _build_one_v1(
+    idx: int,
+    ecu_id: str,
+    image_file: StrPath,
+    *,
+    workdir: Path,
+    output_meta_dir: Path,
+    output_data_dir: Path,
+) -> tuple[int, int]:
+    _saved_files_size, _saved_files_num = 0, 0
+
+    # image specific metadata dir
+    _meta_dir = output_meta_dir / str(idx)
+    _meta_dir.mkdir(exist_ok=True, parents=True)
+
+    _rst_file = workdir / DB_FNAME
+    _image_helper = OTAImageHelper(Path(image_file))
+    _image_helper.save_resource_table(_rst_file)
+
+    with ResourceTableHelper(_rst_file) as _rst_helper:
+        for _blob in _image_helper.iter_blob():
+            if _rst_helper.check_blob_zstd_compressed(_blob):
+                # zstd compressed blob
+                _save_dst = output_data_dir / f"{_blob}.{cfg.OTA_IMAGE_COMPRESSION_ALG}"
+            else:
+                _save_dst = output_data_dir / _blob
+
+            _saved_files_size += _image_helper.save_blob(_blob, _save_dst)
+            _saved_files_num += 1
+    return _saved_files_size, _saved_files_num
+
+
 def build(
     image_metas: Sequence[ImageMetadata],
     image_files: Mapping[str, StrPath],
@@ -186,34 +255,44 @@ def build(
     output_data_dir.mkdir(exist_ok=True, parents=True)
     output_meta_dir = output_workdir / cfg.OUTPUT_META_DIR
     output_meta_dir.mkdir(exist_ok=True, parents=True)
-
-    # ------ generate image ------ #
     manifest = Manifest(image_meta=list(image_metas))
-    # process all inpu OTA images
+
     images_unarchiving_work_dir = Path(workdir) / cfg.IMAGE_UNARCHIVE_WORKDIR
     images_unarchiving_work_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------ generate image ------ #
     for idx, image_meta in enumerate(manifest.image_meta):
         ecu_id = image_meta.ecu_id
-        image_file = image_files[ecu_id]
-        # image specific metadata dir
-        _meta_dir = output_meta_dir / str(idx)
-        _meta_dir.mkdir(exist_ok=True, parents=True)
+        image_file = Path(image_files[ecu_id])
 
-        logger.info(f"{ecu_id=}: unarchive {image_file} ...")
-        with _unarchive_image(
-            image_file, workdir=images_unarchiving_work_dir
-        ) as unarchived_image_dir:
-            logger.info(f"{ecu_id=}: processing OTA image ...")
-            _saved_files_num, _saved_files_size = _process_ota_image(
-                unarchived_image_dir,
-                data_dir=output_data_dir,
-                meta_dir=_meta_dir,
+        if not image_file.is_file():
+            exit_with_err_msg(f"{ecu_id=}: specified {image_file=} not found!")
+        if image_file.suffix.lower() == "zip":
+            logger.info(f"{ecu_id=}: processing OTA image in v1 format ...")
+            _saved_files_size, _saved_files_num = _build_one_v1(
+                idx=idx,
+                ecu_id=ecu_id,
+                image_file=image_file,
+                workdir=images_unarchiving_work_dir,
+                output_meta_dir=output_meta_dir,
+                output_data_dir=output_data_dir,
             )
-            # update manifest after this image is processed
-            manifest.data_size += _saved_files_size
-            manifest.data_files_num += _saved_files_num
 
-    # process metadata
+        else:
+            logger.info("Process a legacy format OTA image ...")
+            _saved_files_size, _saved_files_num = _build_one_legacy(
+                idx=idx,
+                ecu_id=ecu_id,
+                image_file=image_file,
+                workdir=images_unarchiving_work_dir,
+                output_meta_dir=output_meta_dir,
+                output_data_dir=output_data_dir,
+            )
+
+        manifest.data_size += _saved_files_size
+        manifest.data_files_num += _saved_files_num
+
+    # ------ process metadata ------ #
     for cur_path, _, fnames in os.walk(output_meta_dir):
         _cur_path = Path(cur_path)
         for _fname in fnames:
@@ -228,8 +307,12 @@ def build(
 
     # ------ export image ------ #
     os.sync()  # make sure all changes are saved to disk before export
-    if output:
-        _create_image_tar(output_workdir, output_fpath=output)
-    if write_to_dev:
-        _write_image_to_dev(output_workdir, dev=write_to_dev, workdir=workdir)
+    try:
+        if output:
+            _create_image_tar(output_workdir, output_fpath=output)
+        if write_to_dev:
+            _write_image_to_dev(output_workdir, dev=write_to_dev, workdir=workdir)
+    except Exception:
+        exit_with_err_msg("failed to save the result!")
+
     logger.info(f"job finished, takes {time.time() - _start_time:.2f}s")
