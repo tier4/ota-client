@@ -1,0 +1,72 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Offline OTA image builder Release version (e.g. 1.0.0)"
+        required: true
+        type: string
+
+  push:
+    tags:
+      - "offline_ota_image_builder_v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=offline_ota_image_builder_v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # Extract version from tag: offline_ota_image_builder_v1.0.0 -> 1.0.0
+            TAG="${GITHUB_REF#refs/tags/}"
+            VERSION="${TAG#offline_ota_image_builder_v}"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          version: "0.10.11"
+
+      - name: Build binary with PyInstaller
+        working-directory: tools/offline_ota_image_builder
+        run: |
+          uv run --locked pyinstaller \
+            --onefile -s \
+            --name offline_ota_image_builder \
+            --clean \
+            src/offline_ota_image_builder/__main__.py
+
+      - name: calculate checksum
+        uses: ./.github/actions/calculate_checksum
+        with:
+          file_patterns: "*"
+          directory: tools/offline_ota_image_builder/dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag_name }}
+          name: "Offline OTA Image Builder v${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          files: |
+            tools/offline_ota_image_builder/dist/*
