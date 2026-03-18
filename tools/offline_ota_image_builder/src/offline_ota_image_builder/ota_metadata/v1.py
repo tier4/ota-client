@@ -31,7 +31,7 @@ class OTAImageBroken(Exception): ...
 class OTAImageHelper:
     def __init__(self, _image_zip: Path) -> None:
         self._image_helper = OTAImageArtifactReader(_image_zip)
-        self._resource_prefix = self._image_helper._resource_dir
+        self._resource_prefix = f"{self._image_helper._resource_dir.rstrip('/')}/"
 
         self._image_index = self._image_helper.parse_index()
 
@@ -46,7 +46,7 @@ class OTAImageHelper:
         for _entry in _zip.namelist():
             if (
                 _entry.startswith(self._resource_prefix)
-                and _entry != f"{self._resource_prefix}/"
+                and _entry != self._resource_prefix
             ):
                 yield _entry.replace(self._resource_prefix, "")
 
