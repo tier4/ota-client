@@ -26,7 +26,7 @@ async-timeout==5.0.1 ; python_full_version < '3.11'
     # via aiohttp
 attrs==25.3.0 ; python_full_version < '3.9'
     # via aiohttp
-attrs==25.4.0 ; python_full_version >= '3.9'
+attrs==26.1.0 ; python_full_version >= '3.9'
     # via aiohttp
 certifi==2026.2.25
     # via requests
@@ -107,9 +107,9 @@ propcache==0.4.1 ; python_full_version >= '3.9'
     #   yarl
 protobuf==5.29.6 ; python_full_version < '3.9'
     # via otaclient
-protobuf==6.33.5 ; python_full_version == '3.9.*'
+protobuf==6.33.6 ; python_full_version == '3.9.*'
     # via otaclient
-protobuf==7.34.0 ; python_full_version >= '3.10'
+protobuf==7.34.1 ; python_full_version >= '3.10'
     # via otaclient
 pycparser==2.23 ; (python_full_version < '3.9' and implementation_name == 'PyPy') or (python_full_version < '3.10' and implementation_name != 'PyPy' and platform_python_implementation != 'PyPy') or (python_full_version < '3.9' and platform_python_implementation == 'PyPy')
     # via cffi
