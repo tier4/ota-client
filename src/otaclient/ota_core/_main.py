@@ -281,6 +281,9 @@ class OTAClient:
         logger.info(
             f"start new OTA update request:{request_id}, session: {new_session_id=}"
         )
+        self._metrics.request_id = request_id
+        self._metrics.session_id = new_session_id
+        self._metrics.publish(OTAMetricsType.REQUEST)
 
         session_wd = self._update_session_dir / new_session_id
 
@@ -300,14 +303,9 @@ class OTAClient:
                 session_id=new_session_id,
             )
         )
-        self._metrics.request_id = request_id
-        self._metrics.session_id = new_session_id
-        self._metrics.publish(OTAMetricsType.REQUEST)
 
         if self.proxy:
             handle_upper_proxy(self.proxy)
-
-        session_wd = self._update_session_dir / new_session_id
 
         download_pool = create_downloader_pool(
             request.cookies_json,
