@@ -734,4 +734,4 @@ class OTACache:
             if self._shm_metrics_writer:
                 self._shm_metrics_writer.write_msg(self._metrics_data)
         except Exception:
-            pass # common ignorable errors
+            pass  # common ignorable errors
