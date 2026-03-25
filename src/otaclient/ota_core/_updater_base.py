@@ -51,9 +51,7 @@ from otaclient_common._io import remove_file
 from otaclient_common.downloader import DownloaderPool
 from otaclient_common.linux import is_directory
 
-from ._update_libs import (
-    download_resources_handler,
-)
+from ._update_libs import download_resources_handler
 
 logger = logging.getLogger(__name__)
 

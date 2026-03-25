@@ -47,9 +47,11 @@ from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
 from ota_proxy import OTAFileCacheControl
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import P, StrOrPath, T
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(__name__)
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
@@ -209,7 +211,7 @@ def check_cache_policy_in_resp(
             f"digest({cache_policy.file_sha256}) in cache_policy"
             f"doesn't match value({digest}) from regulars.txt: {url=}"
         )
-        logger.warning(_msg)
+        burst_suppressed_logger.warning(_msg)
         raise HashVerificationError(_msg)
 
     # If compression_alg mismatched, use the one from cache-control header.
@@ -219,7 +221,7 @@ def check_cache_policy_in_resp(
         cache_policy.file_compression_alg
         and compression_alg != cache_policy.file_compression_alg
     ):
-        logger.warning(
+        burst_suppressed_logger.warning(
             f"upper indicates different compression_alg for this OTA file: {url=}, "
             f"use {cache_policy.file_compression_alg=} instead of {compression_alg=}"
         )
@@ -242,7 +244,7 @@ def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
         except (PartialDownload, HashVerificationError, BrokenDecompressionError) as e:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retry mechanism does its job.
-            logger.warning(f"trigger cache retry due to: {e!r}")
+            burst_suppressed_logger.warning(f"trigger cache retry due to: {e!r}")
             return func(*args, **inject_cache_retry_directory(kwargs))
 
     return _wrapper
