@@ -433,7 +433,13 @@ def main() -> None:  # pragma: no cover
 
         if not _ota_core_p.is_alive():
             _exit_code = _ota_core_p.exitcode
-            if _exit_code == EXIT_CODE_OTA_ABORTED:
+            if _exit_code == 0:
+                logger.info(
+                    "ota-core shutdown on a successful OTA, cleanup main process ..."
+                )
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT)
+                return _on_shutdown(0)
+            elif _exit_code == EXIT_CODE_OTA_ABORTED:
                 logger.info(
                     "OTA abort completed. "
                     f"Shutting down after {SHUTDOWN_AFTER_ABORT_REQUEST_RECEIVED} seconds..."
