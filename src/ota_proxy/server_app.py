@@ -223,33 +223,24 @@ class App:
         try:
             _common_err_msg = f"request for {url=} failed"
             if isinstance(exc, (ReaderPoolBusy, CacheProviderNotReady)):
-                _err_msg = f"{_common_err_msg} due to otaproxy is busy: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "otaproxy internal busy", send
                 )
             elif isinstance(exc, aiohttp.ClientResponseError):
-                _err_msg = f"{_common_err_msg} due to HTTP error: {exc!r}"
-                burst_suppressed_logger.warning(_err_msg)
-                # passthrough 4xx(currently 403 and 404) to otaclient
                 await self._respond_with_error(
                     exc.status, f"HTTP status from remote: {exc.status}", send
                 )
             elif isinstance(exc, aiohttp.ClientConnectionError):
-                _err_msg = f"{_common_err_msg} due to connection error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.BAD_GATEWAY, "Failed to connect to remote", send
                 )
             elif isinstance(exc, aiohttp.ClientError):
-                _err_msg = f"{_common_err_msg} due to aiohttp client error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "HTTP client error", send
                 )
             elif isinstance(exc, (BaseOTACacheError, StopAsyncIteration)):
                 _err_msg = f"{_common_err_msg} due to handled ota_cache internal error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
+                burst_suppressed_logger.warning(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     "otaproxy internal error",
@@ -278,7 +269,7 @@ class App:
         try:
             _common_err_msg = f"request for {url=} failed"
             if isinstance(exc, (BaseOTACacheError, StopAsyncIteration)):
-                burst_suppressed_logger.error(
+                burst_suppressed_logger.warning(
                     f"{_common_err_msg=} due to handled ota_cache internal error: {exc!r}"
                 )
                 await self._send_chunk_one(b"", send)
