@@ -360,17 +360,12 @@ class OTACache:
         #       cache rotation for saving the cache file, the latter one means
         #       cache rotation failed.
         if _hashes is not None:
-            logger.debug(
-                f"rotate on bucket({size=}), num of entries to be cleaned {len(_hashes)=}"
-            )
             for entry_hash in _hashes:
                 # remove cache entry
                 f = self._base_dir_sync / entry_hash
                 f.unlink(missing_ok=True)
             return True
-        else:
-            logger.debug(f"rotate on bucket({size=}) failed, no enough entries")
-            return False
+        return False
 
     def _commit_cache_callback(self, meta: CacheMeta):
         """The callback for committing CacheMeta to cache_db.
@@ -492,7 +487,7 @@ class OTACache:
                 break
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
         else:
-            logger.warning(
+            burst_suppressed_logger.warning(
                 f"dangling cache entry found, remove db entry: {meta_db_entry}"
             )
             await self._lru_helper.remove_entry(cache_identifier)
@@ -534,7 +529,6 @@ class OTACache:
 
         cache_identifier = client_cache_policy.file_sha256
         cache_file = cache_data_dir / cache_identifier
-        logger.debug(f"try to lookup cache at {cache_file=}")
         cache_file_zst = anyio.Path(
             cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
         )
@@ -729,17 +723,15 @@ class OTACache:
                 if self._shm_metrics_writer:
                     # Write current metrics data to shared memory
                     self._shm_metrics_writer.write_msg(self._metrics_data)
-                    logger.debug("Metrics data updated to shared memory")
 
                 # Wait for the specified interval before next update
                 time.sleep(cfg.METRICS_UPDATE_INTERVAL)
-            except Exception as e:
-                logger.error(f"Error updating metrics to shared memory: {e}")
+            except Exception:
                 # Continue running even if there's an error
                 time.sleep(cfg.METRICS_UPDATE_INTERVAL)
 
         try:
             if self._shm_metrics_writer:
                 self._shm_metrics_writer.write_msg(self._metrics_data)
-        except Exception as e:
-            logger.error(f"Error updating metrics to shared memory: {e}")
+        except Exception:
+            pass # common ignorable errors
