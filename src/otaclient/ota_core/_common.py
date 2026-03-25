@@ -26,10 +26,12 @@ import requests.exceptions as requests_exc
 from requests import Response
 
 from otaclient import errors as ota_errors
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(__name__)
 
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
@@ -67,21 +69,21 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
 
             http_errcode = _response.status_code
             if http_errcode in [HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED]:
-                raise ota_errors.UpdateRequestCookieInvalid(
-                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}",
-                    module=__name__,
+                _err_msg = (
+                    f"download failed with critical HTTP error: {exc.errno}, {exc!r}"
                 )
+                burst_suppressed_logger.error(_err_msg, exc_info=exc)
+                raise ota_errors.UpdateRequestCookieInvalid(_err_msg, module=__name__)
+
             if http_errcode == HTTPStatus.NOT_FOUND:
-                raise ota_errors.OTAImageInvalid(
-                    f"download failed with 404 on some file(s): {exc!r}",
-                    module=__name__,
-                )
+                _err_msg = f"download failed with 404 on some file(s): {exc!r}"
+                burst_suppressed_logger.error(_err_msg, exc_info=exc)
+                raise ota_errors.OTAImageInvalid(_err_msg, module=__name__)
 
         if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
-            raise ota_errors.StandbySlotInsufficientSpace(
-                f"download failed due to space insufficient: {exc!r}",
-                module=__name__,
-            )
+            _err_msg = f"download failed due to space insufficient: {exc!r}"
+            burst_suppressed_logger.error(_err_msg, exc_info=exc)
+            raise ota_errors.StandbySlotInsufficientSpace(_err_msg, module=__name__)
 
         # handled exceptions, let the upper caller do the retry
         return False
