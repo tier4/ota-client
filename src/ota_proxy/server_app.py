@@ -223,6 +223,7 @@ class App:
         try:
             _common_err_msg = f"request for {url=} failed"
             if isinstance(exc, (ReaderPoolBusy, CacheProviderNotReady)):
+                burst_suppressed_logger.warning("otaproxy internal busy")
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "otaproxy internal busy", send
                 )
