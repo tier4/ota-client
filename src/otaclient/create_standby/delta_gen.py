@@ -35,12 +35,14 @@ from otaclient.configs.cfg import cfg
 from otaclient.create_standby.utils import TopDownCommonShortestPath
 from otaclient_common import replace_root
 from otaclient_common._io import _gen_tmp_fname, remove_file
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import is_directory, is_non_empty_regular_file
 
 from ._common import ResourcesDigestWithSize
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(__name__)
 
 T = TypeVar("T")
 
@@ -265,7 +267,7 @@ class DeltaGenFullDiskScan(_DeltaGeneratorBase):
 
         # ------ check dir search deepth ------ #
         if len(canonical_curdir_path.parents) > MAX_FOLDER_DEEPTH:
-            logger.warning(
+            burst_suppressed_logger.warning(
                 f"{canonical_curdir_path=} exceeds {MAX_FOLDER_DEEPTH=}, skip scan this folder"
             )
             return _CheckDirResult(
@@ -412,7 +414,7 @@ class InPlaceDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             # skip files that over the max_filenum_per_folder,
             # and add these files to remove list
             if len(filenames) > MAX_FILENUM_PER_FOLDER:
-                logger.warning(
+                burst_suppressed_logger.warning(
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be cleaned up unconditionally"
                 )
@@ -525,7 +527,7 @@ class RebuildDeltaGenFullDiskScan(DeltaGenFullDiskScan):
             # skip files that over the max_filenum_per_folder,
             # and add these files to remove list
             if len(filenames) > MAX_FILENUM_PER_FOLDER:
-                logger.warning(
+                burst_suppressed_logger.warning(
                     f"reach max_filenum_per_folder on {delta_src_curdir_path}, "
                     "exceeded files will be ignored silently"
                 )
