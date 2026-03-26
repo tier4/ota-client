@@ -9,6 +9,7 @@
 	"features": {
 		// for running tests with docker inside devcontainer
 		"ghcr.io/devcontainers/features/docker-in-docker:2": { },
+		"ghcr.io/anthropics/claude-code-devcontainer/claude-code:latest": {},
 		"ghcr.io/devcontainers/features/git:1": { },
 		"ghcr.io/devcontainers/features/python:1": { "version": "3.8", "toolsToInstall": "uv,ruff" }
 
@@ -26,6 +27,7 @@
 		// minimum set of extensions for python developing
 		"vscode": {
 			"extensions": [
+				"anthropics.claude-code",
 				"ms-python.python",
 				"ms-python.vscode-pylance",
 				"ms-python.debugpy",
