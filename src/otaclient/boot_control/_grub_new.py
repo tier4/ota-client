@@ -529,6 +529,7 @@ class _GrubBootHelperFuncs:
             check_output=True,
             chroot=_env.get_dynamic_client_chroot_path(),
         )
+
         _read_options_set = {i.strip() for i in _res.stdout.decode().splitlines()}
         if _read_options_set != _options_set:
             raise ValueError(f"{_read_options_set} != {_options_set}")
