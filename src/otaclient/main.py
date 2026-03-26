@@ -63,6 +63,7 @@ HEALTH_CHECK_INTERVAL = 6  # seconds
 #   is to allow grpc API server to respond to the status API calls with up-to-date
 #   failure information from ota_core.
 SHUTDOWN_AFTER_CORE_EXIT = 16  # seconds
+SHUTDOWN_AFTER_CORE_EXIT_ON_SUCCESS = 3  # seconds
 SHUTDOWN_AFTER_API_SERVER_EXIT = 3  # seconds
 SHUTDOWN_AFTER_STOP_REQUEST_RECEIVED = 3  # seconds
 SHUTDOWN_ON_DYNAMIC_APP_FAILED = 6  # seconds
@@ -445,6 +446,12 @@ def main() -> None:  # pragma: no cover
             return _on_shutdown()
 
         if not _ota_core_p.is_alive():
+            _ota_core_exit_code = _ota_core_p.exitcode
+            if _ota_core_exit_code == 0:
+                logger.info("ota_core exits on successful OTA, shutdown otaclient ...")
+                time.sleep(SHUTDOWN_AFTER_CORE_EXIT_ON_SUCCESS)
+                return _on_shutdown(0)
+
             logger.error(
                 "ota_core process is dead! "
                 f"otaclient will exit in {SHUTDOWN_AFTER_CORE_EXIT} seconds ..."
