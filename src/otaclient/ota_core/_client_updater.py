@@ -83,10 +83,7 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
                 # to notify the status report after reboot
                 _err_msg = "client package version is the same, skip client update"
                 logger.info(_err_msg)
-                raise ota_errors.ClientUpdateSameVersions(
-                    _err_msg,
-                    module=__name__,
-                )
+                raise ota_errors.ClientUpdateSameVersions(_err_msg, module=__name__)
             else:
                 self._copy_client_package()
                 self._notify_data_ready()
@@ -94,11 +91,8 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
             raise
         except Exception as e:
             _err_msg = f"client update failed: {e!r}"
-            logger.warning(_err_msg)
-            raise ota_errors.ClientUpdateFailed(
-                _err_msg,
-                module=__name__,
-            ) from e
+            logger.exception(_err_msg)
+            raise ota_errors.ClientUpdateFailed(_err_msg, module=__name__) from e
 
     def _download_client_package_resources(self) -> None:
         """Download OTA client."""
@@ -166,9 +160,6 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
         """Main entry for executing local OTA client update."""
         try:
             self._execute_client_update()
-        except Exception as e:
-            logger.warning(f"client update failed: {e!r}")
-            raise
         finally:
             ensure_umount(self._session_workdir, ignore_error=True)
             shutil.rmtree(self._session_workdir, ignore_errors=True)
