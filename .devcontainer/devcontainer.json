@@ -38,7 +38,7 @@
 	},
 
 	// For the claude-code accessing host system's claude-code resources
-    "mounts": [                                                                                                                          
+    "mounts": [
       "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind,consistency=cached"
     ]
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.

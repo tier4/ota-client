@@ -25,10 +25,10 @@ from typing import Any
 
 import pytest
 import pytest_mock
+from otaclient.boot_control._grub import GrubController
 
 from otaclient._types import OTAStatus
 from otaclient.boot_control import _grub
-from otaclient.boot_control._grub import GrubController
 from otaclient.boot_control.configs import GrubControlConfig
 from otaclient.configs import DefaultOTAClientConfigs
 from tests.conftest import TestConfiguration as cfg
@@ -240,6 +240,7 @@ class TestGrubControl:
         _grub_mkconfig_fsm: GrubMkConfigFSM,
     ):
         from otaclient.boot_control._grub import GrubABPartitionDetector
+
         from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 
         slot_a, slot_b, _ = grub_ab_slot
