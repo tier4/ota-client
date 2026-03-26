@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Dict, Optional
 
-from _otaclient_version import version
 from typing_extensions import Self
 
+from _otaclient_version import version
 from otaclient_common._typing import StrEnum
 
 from .configs import grub_new_cfg as boot_cfg

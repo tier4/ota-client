@@ -334,63 +334,76 @@ class ABPartitionDetector:
             raise GrubBootControllerError(_err_msg) from e
 
     @classmethod
+    def _detect_boot_slots_uefi(
+        cls, _partitions: dict[str, PartitionInfo], _active_partid: str
+    ):
+        if not all(str(_pid) in _partitions for _pid in range(1, 5)):
+            raise GrubBootControllerError(
+                f"unexpected layout for UEFI booted system: {_partitions=}"
+            )
+
+        if _active_partid not in ["3", "4"]:
+            raise GrubBootControllerError(
+                f"booted from unexpected partition: {_active_partid=}"
+            )
+
+        # fmt: off
+        return ABPartition(
+            is_uefi=True,
+            efi_partition=SlotInfo.from_partinfo(_partitions["1"]),
+            boot_partition=SlotInfo.from_partinfo(_partitions["2"]),
+            slot_a=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
+            slot_b=SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
+            current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
+            standby_slot=OTASlotBootID.slot_a if _active_partid == "4" else OTASlotBootID.slot_b,
+            old_slot_id_mapping={
+                OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
+                OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}4",
+            }
+        )
+        # fmt: on
+
+    @classmethod
+    def _detect_boot_slots_bios(
+        cls, _partitions: dict[str, PartitionInfo], _active_partid: str
+    ):
+        if not all(str(_pid) in _partitions for _pid in range(1, 4)):
+            raise GrubBootControllerError(
+                f"unexpected layout for legacy BIOS booted system: {_partitions}"
+            )
+
+        if _active_partid not in ["2", "3"]:
+            raise GrubBootControllerError(
+                f"booted from unexpected partition: {_active_partid=}"
+            )
+
+        # fmt: off
+        return ABPartition(
+            is_uefi=False,
+            boot_partition=SlotInfo.from_partinfo(_partitions["1"]),
+            slot_a=SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
+            slot_b=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
+            current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
+            standby_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
+            old_slot_id_mapping={
+                OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}2",
+                OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
+            }
+        )
+        # fmt: on
+
+    @classmethod
     def detect_boot_slots(cls) -> ABPartition:
         _rootfs_dev, _active_partid = cls._detect_rootfs_dev()
         _partitions = cls._list_partitions(_rootfs_dev)
 
         if "1" not in _partitions:
             raise GrubBootControllerError(f"missing first partition: {_partitions=}")
-        if _partitions["1"].parttype.lower() == EFI_PARTTYPE:
-            if not all(str(_pid) in _partitions for _pid in range(1, 5)):
-                raise GrubBootControllerError(
-                    f"unexpected layout for UEFI booted system: {_partitions=}"
-                )
 
-            if _active_partid not in ["3", "4"]:
-                raise GrubBootControllerError(
-                    f"booted from unexpected partition: {_active_partid=}"
-                )
-
-            # fmt: off
-            return ABPartition(
-                is_uefi=True,
-                efi_partition=SlotInfo.from_partinfo(_partitions["1"]),
-                boot_partition=SlotInfo.from_partinfo(_partitions["2"]),
-                slot_a=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_a),
-                slot_b=SlotInfo.from_partinfo(_partitions["4"], OTASlotBootID.slot_b),
-                current_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
-                standby_slot=OTASlotBootID.slot_a if _active_partid == "4" else OTASlotBootID.slot_b,
-                old_slot_id_mapping={
-                    OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
-                    OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}4",
-                }
-            )
-            # fmt: on
-        else:  # legacy BIOS system
-            if not all(str(_pid) in _partitions for _pid in range(1, 4)):
-                raise GrubBootControllerError(
-                    f"unexpected layout for legacy BIOS booted system: {_partitions}"
-                )
-
-            if _active_partid not in ["2", "3"]:
-                raise GrubBootControllerError(
-                    f"booted from unexpected partition: {_active_partid=}"
-                )
-
-            # fmt: off
-            return ABPartition(
-                is_uefi=False,
-                boot_partition=SlotInfo.from_partinfo(_partitions["1"]),
-                slot_a=SlotInfo.from_partinfo(_partitions["2"], OTASlotBootID.slot_a),
-                slot_b=SlotInfo.from_partinfo(_partitions["3"], OTASlotBootID.slot_b),
-                current_slot=OTASlotBootID.slot_a if _active_partid == "2" else OTASlotBootID.slot_b,
-                standby_slot=OTASlotBootID.slot_a if _active_partid == "3" else OTASlotBootID.slot_b,
-                old_slot_id_mapping={
-                    OTASlotBootID.slot_a: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}2",
-                    OTASlotBootID.slot_b: f"{boot_cfg.LEGACY_SLOT_ID_PREFIX}3",
-                }
-            )
-            # fmt: on
+        if _partitions["1"].parttype.lower() == EFI_PARTTYPE:  # UEFI
+            return cls._detect_boot_slots_uefi(_partitions, _active_partid)
+        # legacy BIOS
+        return cls._detect_boot_slots_bios(_partitions, _active_partid)
 
 
 class _GrubBootHelperFuncs:
@@ -516,7 +529,7 @@ class _GrubBootHelperFuncs:
             check_output=True,
             chroot=_env.get_dynamic_client_chroot_path(),
         )
-        _read_options_set = set(i.strip() for i in _res.stdout.decode().splitlines())
+        _read_options_set = (i.strip() for i in _res.stdout.decode().splitlines())
         if _read_options_set != _options_set:
             raise ValueError(f"{_read_options_set} != {_options_set}")
 
@@ -564,10 +577,7 @@ class _GrubBootHelperFuncs:
 
             if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
                 return _kernel_ver
-        else:
-            raise GrubBootControllerError(
-                f"no kernel installation found from {_slot_mp}!"
-            )
+        raise GrubBootControllerError(f"no kernel installation found from {_slot_mp}!")
 
 
 class _GrubBootControl(_GrubBootHelperFuncs):
@@ -624,10 +634,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             if _boot_image.is_file() and _initrd_image.is_file():
                 logger.info(f"kernel {_kernel_ver} found at {_location}")
                 return BootFiles(_kernel_ver, _boot_image, _initrd_image)
-        else:
-            raise GrubBootControllerError(
-                "failed to find booted linux image and/or initrd image!"
-            )
+        raise GrubBootControllerError(
+            "failed to find booted linux image and/or initrd image!"
+        )
 
     def _bootstrap_setup_boot_slot_dir(self, _boot_files: BootFiles) -> None:
         """Setup the boot slot dir for the target slot."""
