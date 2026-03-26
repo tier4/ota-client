@@ -42,7 +42,9 @@ from otaclient_common.linux import is_directory, is_non_empty_regular_file
 from ._common import ResourcesDigestWithSize
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = get_burst_suppressed_logger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(
+    f"{__name__}.burst_suppressed_logger"
+)
 
 T = TypeVar("T")
 

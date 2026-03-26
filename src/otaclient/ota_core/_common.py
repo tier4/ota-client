@@ -31,8 +31,9 @@ from otaclient_common.common import ensure_otaproxy_start
 from otaclient_common.downloader import DownloaderPool
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = get_burst_suppressed_logger(__name__)
-
+burst_suppressed_logger = get_burst_suppressed_logger(
+    f"{__name__}.burst_suppressed_logger"
+)
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 
 

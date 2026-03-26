@@ -51,7 +51,9 @@ from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import P, StrOrPath, T
 
 logger = logging.getLogger(__name__)
-burst_suppressed_logger = get_burst_suppressed_logger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(
+    f"{__name__}.burst_suppressed_logger"
+)
 
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
