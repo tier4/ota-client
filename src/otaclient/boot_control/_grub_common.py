@@ -149,9 +149,6 @@ class OTASlotBootID(StrEnum):
     slot_a = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_A_SUFFIX}"
     slot_b = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_B_SUFFIX}"
 
-    def get_suffix(self) -> str:
-        return f"_{self.rsplit('_', 1)[-1]}"
-
 
 @dataclass
 class SlotInfo:

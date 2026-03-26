@@ -439,7 +439,7 @@ class _GrubBootHelperFuncs:
         if not _grub_cfg.exists():
             return False  # how is it possible?
         if not OTAManagedCfg.validate_managed_config(_grub_cfg.read_text()):
-            return False  # /boot/grub/grub.cfg used to be managed by us, but being modified
+            return False  # grub.cfg is not OTA-managed (first time setup or externally modified)
         return True
 
     @staticmethod
@@ -573,11 +573,20 @@ class _GrubBootHelperFuncs:
         If multiple kernel version found, will pick the first found one.
         """
         _slot_boot = _slot_mp / "boot"
+        _found = None
         for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
             _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
 
             if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
-                return _kernel_ver
+                if _found:
+                    logger.warning(
+                        f"found second installation of kernel({_kernel_ver=}), ignored"
+                    )
+                else:
+                    _found = _kernel_ver
+
+        if _found:
+            return _found
         raise GrubBootControllerError(f"no kernel installation found from {_slot_mp}!")
 
 
@@ -596,7 +605,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 "detect OTA boot control unmanaged system, bootstrap boot control now!"
             )
             self._bootstrap_boot_control()
-        self.initialized = _require_resetup
+        self.resetup_requested = _require_resetup
 
     def _bootstrap_retrieve_booted_kernel_initramfs(self) -> BootFiles:
         """Detect the current booted kernel and initramfs.
@@ -959,7 +968,7 @@ class GrubBootController(BootControllerBase):
                 finalize_switching_boot=self._boot_control.finalize_update_switch_boot,
                 # NOTE(20230904): if boot control is initialized(i.e., migrate from non-ota booted system),
                 #                 force initialize the ota_status files.
-                force_initialize=self._boot_control.initialized,
+                force_initialize=self._boot_control.resetup_requested,
             )
             logger.info("grub boot control start up finished")
         except Exception as e:
@@ -1032,6 +1041,10 @@ class GrubBootController(BootControllerBase):
         _kernel_ver = self._boot_control.detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
         )
+        logger.info(
+            f"found kernel installation on updated standby slot: {_kernel_ver=}"
+        )
+
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
         _standby_slot_info = self._boot_control.get_slot_info(self._standby_slot)
         _standby_slot_id = self._boot_slots.standby_slot

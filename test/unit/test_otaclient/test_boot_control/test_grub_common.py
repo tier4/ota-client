@@ -391,7 +391,6 @@ class TestOTASlotBootID:
         self, slot: OTASlotBootID, expected_value: str, expected_suffix: str
     ):
         assert slot == expected_value
-        assert slot.get_suffix() == expected_suffix
         assert isinstance(slot, str)
 
 
