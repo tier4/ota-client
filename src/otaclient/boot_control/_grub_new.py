@@ -968,16 +968,12 @@ class GrubBootController(BootControllerBase):
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
     def _install_new_ota_config_files(self) -> None:
-        """Install new OTA config files to the shared boot partition."""
-        _ecu_info_dst = Path(cfg.ECU_INFO_FPATH)
-        _ecu_info_src = Path(
-            replace_root(
-                cfg.ECU_INFO_FPATH,
-                cfg.CANONICAL_ROOT,
-                self._mp_control.standby_slot_mount_point,
-            )
-        )
+        """Install new OTA config files to the shared boot partition.
 
+        For proxy_info.yaml, we always install the new version.
+        For ecu_info.yaml, we only install the new version when there is
+            no ecu_info.yaml presented in the /boot/ota.
+        """
         _proxy_info_dst = Path(cfg.PROXY_INFO_FPATH)
         _proxy_info_src = Path(
             replace_root(
@@ -990,7 +986,19 @@ class GrubBootController(BootControllerBase):
         Path(cfg.OTA_DPATH).mkdir(exist_ok=True, parents=True)
         if _proxy_info_src.is_file():
             copyfile_atomic(_proxy_info_src, _proxy_info_dst)
-        if _ecu_info_src.is_file():
+
+        _ecu_info_dst = Path(cfg.ECU_INFO_FPATH)
+        _ecu_info_src = Path(
+            replace_root(
+                cfg.ECU_INFO_FPATH,
+                cfg.CANONICAL_ROOT,
+                self._mp_control.standby_slot_mount_point,
+            )
+        )
+        if _ecu_info_src.is_file() and not _ecu_info_dst.is_file():
+            logger.warning(
+                f"no ecu_info.yaml file found at {_ecu_info_dst}, install the one from the OTA image ..."
+            )
             copyfile_atomic(_ecu_info_src, _ecu_info_dst)
 
     # API
