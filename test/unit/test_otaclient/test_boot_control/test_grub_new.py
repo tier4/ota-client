@@ -473,7 +473,7 @@ class TestBootMenuEntryGenerateMenuentry:
             )
 
     def test_raises_on_ota_managed_cfg_no_entries(self):
-        """ota_mamanged_grub.cfg has no menuentry blocks, so generate should fail."""
+        """ota_managed_grub.cfg has no menuentry blocks, so generate should fail."""
         with pytest.raises(ValueError, match="failed to find menuentry"):
             _BootMenuEntry.generate_menuentry(
                 OTA_MANAGED_GRUB_CFG,
