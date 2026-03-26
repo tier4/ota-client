@@ -967,6 +967,32 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
+    def _install_new_ota_config_files(self) -> None:
+        """Install new OTA config files to the shared boot partition."""
+        _ecu_info_dst = Path(cfg.ECU_INFO_FPATH)
+        _ecu_info_src = Path(
+            replace_root(
+                cfg.ECU_INFO_FPATH,
+                cfg.CANONICAL_ROOT,
+                self._mp_control.standby_slot_mount_point,
+            )
+        )
+
+        _proxy_info_dst = Path(cfg.PROXY_INFO_FPATH)
+        _proxy_info_src = Path(
+            replace_root(
+                cfg.PROXY_INFO_FPATH,
+                cfg.CANONICAL_ROOT,
+                self._mp_control.standby_slot_mount_point,
+            )
+        )
+
+        Path(cfg.OTA_DPATH).mkdir(exist_ok=True, parents=True)
+        if _proxy_info_src.is_file():
+            copyfile_atomic(_proxy_info_src, _proxy_info_dst)
+        if _ecu_info_src.is_file():
+            copyfile_atomic(_ecu_info_src, _ecu_info_dst)
+
     # API
 
     @property
@@ -1019,6 +1045,9 @@ class GrubBootController(BootControllerBase):
                 )
             ),
         )
+        logger.info("install new ecu_info.yaml and proxy_info.yaml to boot partition")
+        self._install_new_ota_config_files()
+
         logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
         self._boot_control.setup_ota_boot_cfg_for_slot(
             _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
