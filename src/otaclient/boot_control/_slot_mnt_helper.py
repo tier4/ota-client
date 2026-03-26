@@ -122,6 +122,7 @@ class SlotMountHelper:  # pragma: no cover
         *,
         erase_standby: bool = False,
         fslabel: str | None = None,
+        fsuuid: str | None = None,
     ) -> None:
         _target_dev = self.standby_slot_dev
         cmdhelper.ensure_umount(_target_dev, ignore_error=True)
@@ -132,7 +133,7 @@ class SlotMountHelper:  # pragma: no cover
             cmdhelper.ensure_umount_from_host(_target_dev, ignore_error=False)
 
         if erase_standby:
-            return cmdhelper.mkfs_ext4(_target_dev, fslabel=fslabel)
+            return cmdhelper.mkfs_ext4(_target_dev, fslabel=fslabel, fsuuid=fsuuid)
         if fslabel:
             cmdhelper.set_ext4_fslabel(_target_dev, fslabel=fslabel)
 

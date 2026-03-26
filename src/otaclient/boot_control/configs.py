@@ -18,16 +18,40 @@ from __future__ import annotations
 from otaclient.configs import BootloaderType
 
 
-class GrubControlConfig:
+class GrubControlNewConfig:
     """x86-64 platform, with grub as bootloader."""
 
     BOOTLOADER = BootloaderType.GRUB
+    BOOT_DPATH = "/boot"
+
     FSTAB_FILE_PATH = "/etc/fstab"
+
     GRUB_DIR = "/boot/grub"
-    GRUB_CFG_FNAME = "grub.cfg"
-    GRUB_CFG_PATH = "/boot/grub/grub.cfg"
+    GRUB_CFG_FPATH = "/boot/grub/grub.cfg"
+    GRUBENV_FPATH = "/boot/grub/grubenv"
+    SLOT_BOOT_CFG_SUFFIX = ".cfg"
+    """The config file will be `ota-slot_<a/b>.cfg`."""
+
     DEFAULT_GRUB_PATH = "/etc/default/grub"
-    BOOT_OTA_PARTITION_FILE = "ota-partition"
+    GRUB_HOOKS_DPATH = "/etc/grub.d"
+
+    OTA_BOOT_SLOT_BASE = "ota-slot"
+    SLOT_A_SUFFIX = "_a"
+    SLOT_B_SUFFIX = "_b"
+    OTA_GRUB_HOOK_FNAME = "30_ota"
+    OTA_GRUB_HOOK = r"""\
+#!/bin/sh
+cat <<EOF
+if [ -f \${config_directory}/ota-slot_a.cfg ]; then
+    source \${config_directory}/ota-slot_a.cfg
+fi
+
+if [ -f \${config_directory}/ota-slot_b.cfg ]; then
+    source \${config_directory}/ota-slot_b.cfg
+fi
+EOF
+"""
+    LEGACY_SLOT_ID_PREFIX = "ota-partition.sda"
 
 
 class JetsonBootCommon:
@@ -88,7 +112,7 @@ class RPIBootControlConfig:
     SWITCH_BOOT_FLAG_FILE = "._ota_switch_boot_finalized"
 
 
-grub_cfg = GrubControlConfig()
+grub_new_cfg = GrubControlNewConfig()
 
 jetson_common_cfg = JetsonBootCommon()
 cboot_cfg = JetsonCBootControlConfig()
