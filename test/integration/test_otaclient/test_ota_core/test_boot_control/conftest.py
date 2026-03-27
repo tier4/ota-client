@@ -273,5 +273,18 @@ def redirect_paths(
     monkeypatch.setattr(f"{consts_module}.EFI_DPATH", str(boot_dir / "efi"))
     monkeypatch.setattr(f"{consts_module}.CANONICAL_ROOT", str(rootfs_dir))
 
+    # OTA config paths — must be under CANONICAL_ROOT for replace_root to work
+    monkeypatch.setattr(
+        f"{consts_module}.OTA_DPATH", str(rootfs_dir / "boot" / "ota")
+    )
+    monkeypatch.setattr(
+        f"{consts_module}.PROXY_INFO_FPATH",
+        str(rootfs_dir / "boot" / "ota" / "proxy_info.yaml"),
+    )
+    monkeypatch.setattr(
+        f"{consts_module}.ECU_INFO_FPATH",
+        str(rootfs_dir / "boot" / "ota" / "ecu_info.yaml"),
+    )
+
     # ACTIVE_ROOT is a property reading _ACTIVE_ROOT, so patch _ACTIVE_ROOT on the instance
     monkeypatch.setattr(cfg_consts, "_ACTIVE_ROOT", str(rootfs_dir))
