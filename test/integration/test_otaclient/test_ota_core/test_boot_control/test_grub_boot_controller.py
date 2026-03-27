@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for the new grub boot controller startup flow.
+"""Integration tests for the new grub boot controller.
 
-These tests verify that GrubBootController.__init__ correctly sets up the
-/boot filesystem under different initial conditions:
-  1a. Normal startup with OTA status SUCCESS
-  1b. Normal startup with OTA status UPDATING (first reboot after update)
-  2.  Fresh ECU — grub not managed by OTA
-  3.  Migration from old grub boot control to new
+These tests verify:
+  - Startup flow: GrubBootController.__init__ correctly sets up the /boot
+    filesystem under different initial conditions.
+  - Pre-update hooks: GrubBootController._pre_update_prepare_standby and
+    _pre_update_platform_specific correctly prepare standby slot for OTA.
 """
 
 from __future__ import annotations
@@ -26,17 +25,22 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pytest_mock import MockerFixture
 
 from otaclient._types import OTAStatus
 from otaclient.boot_control._grub_common import OTAManagedCfg
 from otaclient.boot_control._grub_new import GrubBootController
+from otaclient.errors import BootControlPreUpdateFailed
 
 from .conftest import (
     GRUB_CFG_CONTENT,
     INITRD_FNAME,
     KERNEL_FNAME,
     KERNEL_VERSION,
+    SAMPLE_FSTAB,
+    SLOT_B_UUID,
     _create_dummy_kernel,
+    _create_rootfs,
 )
 
 # ---------------------------------------------------------------------------
@@ -363,3 +367,305 @@ class TestGrubBootControllerMigrateFromOldGrub:
 
         # NOTE: 30_ota hook is written into a bind-mounted TemporaryDirectory
         # that is cleaned up after bootstrap, so we cannot assert on it here.
+
+
+# ---------------------------------------------------------------------------
+# Pre-update hook tests
+# ---------------------------------------------------------------------------
+
+
+class TestGrubBootControllerPreUpdate:
+    """Test pre_update template method and its GRUB-specific hooks.
+
+    Verifies:
+    - _pre_update_prepare_standby passes fsuuid to prepare_standby_dev
+    - _pre_update_platform_specific cleans standby boot dir and cfg
+    - OTA status files are updated (current slot -> FAILURE)
+    - Execution order of template method steps
+    - Exception wrapping in BootControlPreUpdateFailed
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(
+        self, boot_dir, rootfs_dir, mnt_dir, mock_grub_commands, redirect_paths
+    ):
+        """Ensure all mocks and path redirections are active."""
+
+    def _create_ready_controller(self, boot_dir: Path, mocker: MockerFixture):
+        """Set up a SUCCESS-state controller with stale standby artifacts.
+
+        Returns (controller, mock_prepare, mock_mount_standby, mock_mount_active).
+        """
+        _setup_new_grub_managed_boot(boot_dir)
+
+        # Add stale standby boot artifacts that pre_update should clean up
+        slot_b_dir = boot_dir / "ota-slot_b"
+        slot_b_dir.mkdir(parents=True, exist_ok=True)
+        (slot_b_dir / "grub").mkdir(exist_ok=True)
+        (slot_b_dir / "vmlinuz-old").write_text("old-kernel")
+        (slot_b_dir / "initrd-old").write_text("old-initrd")
+        (slot_b_dir / "status").write_text("SUCCESS")
+
+        # Add stale standby boot cfg
+        (boot_dir / "grub" / "ota-slot_b.cfg").write_text("old boot cfg content")
+
+        controller = GrubBootController()
+
+        # Mock SlotMountHelper methods that call system commands
+        # (these go through _slot_mnt_helper's own cmdhelper import)
+        mock_prepare = mocker.MagicMock()
+        mock_mount_standby = mocker.MagicMock()
+        mock_mount_active = mocker.MagicMock()
+        controller._mp_control.prepare_standby_dev = mock_prepare
+        controller._mp_control.mount_standby = mock_mount_standby
+        controller._mp_control.mount_active = mock_mount_active
+
+        return controller, mock_prepare, mock_mount_standby, mock_mount_active
+
+    @pytest.mark.parametrize("erase_standby", [True, False])
+    def test_pre_update_erase_standby(
+        self, boot_dir: Path, erase_standby: bool, mocker: MockerFixture
+    ):
+        """Verify pre_update correctly prepares standby and cleans up boot artifacts."""
+        controller, mock_prepare, mock_mount_standby, mock_mount_active = (
+            self._create_ready_controller(boot_dir, mocker)
+        )
+
+        controller.pre_update(
+            standby_as_ref=not erase_standby, erase_standby=erase_standby
+        )
+
+        # Hook 1: prepare_standby_dev called with correct args
+        mock_prepare.assert_called_once_with(
+            erase_standby=erase_standby, fsuuid=SLOT_B_UUID
+        )
+
+        # Mounts called
+        mock_mount_standby.assert_called_once()
+        mock_mount_active.assert_called_once()
+
+        # OTA status files updated on current slot (slot_a)
+        assert (boot_dir / "ota-slot_a" / "status").read_text() == "FAILURE"
+        assert (boot_dir / "ota-slot_a" / "slot_in_use").read_text() == "ota-slot_b"
+
+        # Hook 2: standby boot dir wiped and only grub/ subdir remains
+        slot_b_dir = boot_dir / "ota-slot_b"
+        assert slot_b_dir.is_dir()
+        children = list(slot_b_dir.iterdir())
+        assert len(children) == 1
+        assert children[0].name == "grub"
+        assert children[0].is_dir()
+        # Stale files must be gone
+        assert not (slot_b_dir / "vmlinuz-old").exists()
+        assert not (slot_b_dir / "initrd-old").exists()
+        assert not (slot_b_dir / "status").exists()
+
+        # Hook 2: standby boot cfg removed
+        assert not (boot_dir / "grub" / "ota-slot_b.cfg").exists()
+
+    def test_pre_update_call_order(self, boot_dir: Path, mocker: MockerFixture):
+        """Verify the template method executes steps in the correct order."""
+        controller, mock_prepare, mock_mount_standby, mock_mount_active = (
+            self._create_ready_controller(boot_dir, mocker)
+        )
+
+        call_order = []
+
+        # Wrap pre_update_current to track ordering
+        original_pre_update_current = controller._ota_status_control.pre_update_current
+
+        def tracked_pre_update_current():
+            call_order.append("pre_update_current")
+            original_pre_update_current()
+
+        controller._ota_status_control.pre_update_current = tracked_pre_update_current
+
+        # Track mock calls via side_effect
+        mock_prepare.side_effect = lambda **kw: call_order.append("prepare_standby_dev")
+        mock_mount_standby.side_effect = lambda: call_order.append("mount_standby")
+        mock_mount_active.side_effect = lambda: call_order.append("mount_active")
+
+        # Wrap platform_specific to track ordering
+        original_platform_specific = controller._pre_update_platform_specific
+
+        def tracked_platform_specific(**kw):
+            call_order.append("platform_specific")
+            original_platform_specific(**kw)
+
+        controller._pre_update_platform_specific = tracked_platform_specific
+
+        controller.pre_update(standby_as_ref=False, erase_standby=True)
+
+        assert call_order == [
+            "pre_update_current",
+            "prepare_standby_dev",
+            "mount_standby",
+            "mount_active",
+            "platform_specific",
+        ]
+
+    def test_pre_update_wraps_exception(self, boot_dir: Path, mocker: MockerFixture):
+        """Verify exceptions from hooks are wrapped in BootControlPreUpdateFailed."""
+        controller, mock_prepare, _, _ = self._create_ready_controller(boot_dir, mocker)
+        mock_prepare.side_effect = RuntimeError("disk error")
+
+        with pytest.raises(BootControlPreUpdateFailed):
+            controller.pre_update(standby_as_ref=False, erase_standby=True)
+
+
+# ---------------------------------------------------------------------------
+# Post-update hook tests
+# ---------------------------------------------------------------------------
+
+NEW_KERNEL_VERSION = "6.12.0-1-generic"
+NEW_KERNEL_FNAME = f"vmlinuz-{NEW_KERNEL_VERSION}"
+NEW_INITRD_FNAME = f"initrd.img-{NEW_KERNEL_VERSION}"
+
+
+class TestGrubBootControllerPostUpdate:
+    """Test post_update template method and its GRUB-specific hooks.
+
+    Verifies:
+    - Old kernel/initrd files at /boot root are cleaned up
+    - Only active slot's and updated standby slot's kernel files are kept
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup_env(
+        self, boot_dir, rootfs_dir, mnt_dir, mock_grub_commands, redirect_paths
+    ):
+        """Ensure all mocks and path redirections are active."""
+
+    def _create_post_update_controller(
+        self, boot_dir: Path, mnt_dir: Path, rootfs_dir: Path, mocker: MockerFixture
+    ):
+        """Set up a controller in pre-update-done state, ready for post_update.
+
+        Creates old kernel/initrd files at /boot root to verify cleanup.
+        Returns (controller,).
+        """
+        _setup_new_grub_managed_boot(boot_dir)
+
+        # Add old kernel/initrd files at /boot root that should be cleaned up
+        old_versions = ["5.15.0-100-generic", "5.19.0-50-generic"]
+        for ver in old_versions:
+            (boot_dir / f"vmlinuz-{ver}").write_text(f"old-kernel-{ver}")
+            (boot_dir / f"initrd.img-{ver}").write_text(f"old-initrd-{ver}")
+
+        controller = GrubBootController()
+
+        # Mock SlotMountHelper methods
+        controller._mp_control.prepare_standby_dev = mocker.MagicMock()
+        controller._mp_control.mount_standby = mocker.MagicMock()
+        controller._mp_control.mount_active = mocker.MagicMock()
+        controller._mp_control.umount_all = mocker.MagicMock()
+
+        # Mock methods that access paths not redirected in tests or require
+        # matching kernel version in grub.cfg template
+        controller._install_new_ota_config_files = mocker.MagicMock()
+        controller._boot_control.setup_ota_boot_cfg_for_slot = mocker.MagicMock()
+
+        # Set up standby slot mount point with a new kernel version
+        standby_mp = mnt_dir / "standby"
+        standby_boot = standby_mp / "boot"
+        standby_boot.mkdir(parents=True, exist_ok=True)
+        (standby_boot / NEW_KERNEL_FNAME).write_text("new-standby-kernel")
+        (standby_boot / NEW_INITRD_FNAME).write_text("new-standby-initrd")
+
+        # Set up rootfs in standby mount for setup_slot_rootfs_for_ota_boot
+        _create_rootfs(standby_mp)
+
+        # Set up active slot mount point with fstab for reference
+        active_mp = mnt_dir / "active"
+        (active_mp / "etc").mkdir(parents=True, exist_ok=True)
+        (active_mp / "etc" / "fstab").write_text(SAMPLE_FSTAB)
+
+        return controller
+
+    def test_post_update_cleans_old_boot_files(
+        self, boot_dir: Path, mnt_dir: Path, rootfs_dir: Path, mocker: MockerFixture
+    ):
+        """Verify post_update removes old kernel/initrd from /boot root,
+        keeping only active and standby slot versions."""
+        controller = self._create_post_update_controller(
+            boot_dir, mnt_dir, rootfs_dir, mocker
+        )
+
+        # Run pre_update first (required before post_update)
+        controller.pre_update(standby_as_ref=False, erase_standby=True)
+        controller.post_update("3.0.0")
+
+        # Active slot's kernel files should be kept
+        assert (boot_dir / KERNEL_FNAME).is_file()
+        assert (boot_dir / INITRD_FNAME).is_file()
+
+        # New standby kernel files should be present (copied by setup_boot_slot_dir)
+        assert (boot_dir / NEW_KERNEL_FNAME).is_file()
+        assert (boot_dir / NEW_INITRD_FNAME).is_file()
+
+        # Old kernel/initrd files should be removed
+        assert not (boot_dir / "vmlinuz-5.15.0-100-generic").exists()
+        assert not (boot_dir / "initrd.img-5.15.0-100-generic").exists()
+        assert not (boot_dir / "vmlinuz-5.19.0-50-generic").exists()
+        assert not (boot_dir / "initrd.img-5.19.0-50-generic").exists()
+
+    def test_post_update_keeps_non_kernel_files(
+        self, boot_dir: Path, mnt_dir: Path, rootfs_dir: Path, mocker: MockerFixture
+    ):
+        """Verify post_update does not remove non-kernel files from /boot root."""
+        controller = self._create_post_update_controller(
+            boot_dir, mnt_dir, rootfs_dir, mocker
+        )
+
+        # Add a non-kernel file at /boot root
+        (boot_dir / "config-6.11.0-29-generic").write_text("kernel config")
+        (boot_dir / "System.map-6.11.0-29-generic").write_text("system map")
+
+        controller.pre_update(standby_as_ref=False, erase_standby=True)
+        controller.post_update("3.0.0")
+
+        # Non-kernel files should be untouched
+        assert (boot_dir / "config-6.11.0-29-generic").is_file()
+        assert (boot_dir / "System.map-6.11.0-29-generic").is_file()
+
+    def test_post_update_same_kernel_version(
+        self, boot_dir: Path, mnt_dir: Path, rootfs_dir: Path, mocker: MockerFixture
+    ):
+        """Verify post_update works when active and standby have the same kernel version."""
+        _setup_new_grub_managed_boot(boot_dir)
+
+        # Add old kernel files
+        (boot_dir / "vmlinuz-5.15.0-100-generic").write_text("old-kernel")
+        (boot_dir / "initrd.img-5.15.0-100-generic").write_text("old-initrd")
+
+        controller = GrubBootController()
+
+        # Mock SlotMountHelper methods
+        controller._mp_control.prepare_standby_dev = mocker.MagicMock()
+        controller._mp_control.mount_standby = mocker.MagicMock()
+        controller._mp_control.mount_active = mocker.MagicMock()
+        controller._mp_control.umount_all = mocker.MagicMock()
+        controller._install_new_ota_config_files = mocker.MagicMock()
+
+        # Standby has same kernel version as active
+        standby_mp = mnt_dir / "standby"
+        standby_boot = standby_mp / "boot"
+        standby_boot.mkdir(parents=True, exist_ok=True)
+        (standby_boot / KERNEL_FNAME).write_text("same-kernel")
+        (standby_boot / INITRD_FNAME).write_text("same-initrd")
+        _create_rootfs(standby_mp)
+
+        active_mp = mnt_dir / "active"
+        (active_mp / "etc").mkdir(parents=True, exist_ok=True)
+        (active_mp / "etc" / "fstab").write_text(SAMPLE_FSTAB)
+
+        controller.pre_update(standby_as_ref=False, erase_standby=True)
+        controller.post_update("3.0.0")
+
+        # Active/standby kernel files kept
+        assert (boot_dir / KERNEL_FNAME).is_file()
+        assert (boot_dir / INITRD_FNAME).is_file()
+
+        # Old files removed
+        assert not (boot_dir / "vmlinuz-5.15.0-100-generic").exists()
+        assert not (boot_dir / "initrd.img-5.15.0-100-generic").exists()
