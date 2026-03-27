@@ -274,9 +274,7 @@ def redirect_paths(
     monkeypatch.setattr(f"{consts_module}.CANONICAL_ROOT", str(rootfs_dir))
 
     # OTA config paths — must be under CANONICAL_ROOT for replace_root to work
-    monkeypatch.setattr(
-        f"{consts_module}.OTA_DPATH", str(rootfs_dir / "boot" / "ota")
-    )
+    monkeypatch.setattr(f"{consts_module}.OTA_DPATH", str(rootfs_dir / "boot" / "ota"))
     monkeypatch.setattr(
         f"{consts_module}.PROXY_INFO_FPATH",
         str(rootfs_dir / "boot" / "ota" / "proxy_info.yaml"),
