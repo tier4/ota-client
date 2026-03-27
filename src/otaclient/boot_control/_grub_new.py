@@ -858,6 +858,36 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 copyfile_atomic(f, _boot_slot_dir / f.name)
                 copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
 
+    def cleanup_old_boot_root_files(
+        self, *, active_kernel_ver: str, standby_kernel_ver: str
+    ) -> None:
+        """Remove old kernel/initrd files from /boot root.
+
+        For backward compatibility, kernel/initrd files are copied to /boot root.
+        Over time this accumulates stale files from previous updates. This method
+        removes any vmlinuz-* and initrd.img-* files whose version matches neither
+        the active slot's kernel nor the updated standby slot's kernel.
+        """
+        _boot_dir = Path(boot_cfg.BOOT_DPATH)
+        _keep_versions = {active_kernel_ver, standby_kernel_ver}
+        logger.info(f"will remove kernels whose version not in {_keep_versions} ...")
+
+        for _f in itertools.chain(
+            _boot_dir.glob(f"{VMLINUZ_PREFIX}*"), _boot_dir.glob(f"{INITRD_PREFIX}*")
+        ):
+            if not _f.is_file() or _f.is_symlink():
+                continue
+
+            _fname = _f.name
+            if _fname.startswith(VMLINUZ_PREFIX):
+                _ver = _fname[len(VMLINUZ_PREFIX) :]
+            else:
+                _ver = _fname[len(INITRD_PREFIX) :]
+
+            if _ver not in _keep_versions:
+                logger.info(f"removing old boot file: {_f}")
+                remove_file(_f)
+
     def setup_slot_rootfs_for_ota_boot(
         self, *, slot_fsuuid: str, slot_mp: Path, reference_fstab: str | None = None
     ) -> None:
@@ -1041,8 +1071,16 @@ class GrubBootController(BootControllerBase):
         _kernel_ver = self._boot_control.detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
         )
+        _active_kernel_ver = cmdhelper.get_kernel_version_via_uname()
+        assert _active_kernel_ver
+
         logger.info(
             f"found kernel installation on updated standby slot: {_kernel_ver=}"
+        )
+
+        logger.info("cleanup old kernel/initrd files from /boot root ...")
+        self._boot_control.cleanup_old_boot_root_files(
+            active_kernel_ver=_active_kernel_ver, standby_kernel_ver=_kernel_ver
         )
 
         _standby_slot_mp = self._mp_control.standby_slot_mount_point
@@ -1054,6 +1092,7 @@ class GrubBootController(BootControllerBase):
         self._boot_control.setup_boot_slot_dir(
             _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
         )
+
         logger.info(f"setup standby slot({_standby_slot_id=}) rootfs for OTA boot ...")
         self._boot_control.setup_slot_rootfs_for_ota_boot(
             slot_fsuuid=_standby_slot_info.uuid,
