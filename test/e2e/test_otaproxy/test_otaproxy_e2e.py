@@ -18,6 +18,10 @@ Test paths covered:
     2. Cold cache - otaproxy downloads from upstream and populates cache.
     3. Warm cache - otaproxy serves from local cache (no upstream hit).
 
+Each cached test path is parametrized over disk space conditions
+(below_soft_limit, below_hard_limit, exceed_hard_limit) to exercise
+LRU cache rotation and cache disabling.
+
 otaproxy runs **in-process** (managed by async fixtures).
 The download client runs as a **standalone subprocess** that downloads
 all blobs through the proxy and validates SHA256 integrity.
@@ -29,7 +33,10 @@ import logging
 from pathlib import Path
 
 from ._download_client import DownloadResult
-from .conftest import RunDownloadClient
+from .conftest import (
+    SPACE_CONDITION_BELOW_SOFT,
+    RunDownloadClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,50 +70,73 @@ class TestOTAProxyNoCache:
 class TestOTAProxyColdCache:
     """Test otaproxy cold cache write path.
 
-    When the cache is empty, otaproxy should download from upstream,
-    cache the data, and serve it to the client.
+    Parametrized over space conditions via the ``otaproxy`` fixture.
+    When the cache is empty, otaproxy downloads from upstream,
+    caches data (subject to space limits), and serves it to the client.
     """
 
     async def test_cold_cache_populates_cache_dir(
         self,
-        otaproxy: tuple[str, Path],
+        otaproxy: tuple[str, Path, str],
         ota_image_server: str,
         run_download_client: RunDownloadClient,
     ):
-        """Downloaded blobs should be intact and cache directory populated."""
-        proxy_url, cache_dir = otaproxy
+        """Downloaded blobs should be intact; cache populated under normal pressure."""
+        proxy_url, cache_dir, condition = otaproxy
         result = await run_download_client(proxy_url, ota_image_server)
-        _assert_download_ok(result, "cold cache")
+        _assert_download_ok(result, f"cold cache [{condition}]")
 
         cached_files = [
             f
             for f in cache_dir.iterdir()
-            if f.is_file() and f.name != "cache_db" and not f.name.startswith("tmp")
+            if f.is_file()
+            and f.name != "cache_db"
+            and not f.name.startswith("tmp")
         ]
-        assert len(cached_files) > 0, "Cache directory is empty after cold cache run"
-        logger.info("Cold cache: %d cache entries created", len(cached_files))
+
+        if condition == SPACE_CONDITION_BELOW_SOFT:
+            assert len(cached_files) > 0, (
+                "Cache directory is empty after cold cache run under below_soft_limit"
+            )
+        # Under below_hard_limit or exceed_hard_limit, LRU rotation or
+        # cache disabling may have removed entries — just verify no tmp
+        # files are left behind (clean shutdown).
+        tmp_files = list(cache_dir.glob("tmp*"))
+        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"
+
+        logger.info(
+            "Cold cache [%s]: %d cache entries, %d tmp files",
+            condition,
+            len(cached_files),
+            len(tmp_files),
+        )
 
 
 class TestOTAProxyWarmCache:
     """Test otaproxy warm cache path.
 
-    After a cold cache run, a second download of the same blobs should
-    be served from cache with identical content.
+    Parametrized over space conditions via the ``otaproxy`` fixture.
+    After a cold cache run, a second download should be served from
+    cache (under normal pressure) or still succeed via upstream fallback.
     """
 
     async def test_warm_cache_serves_from_cache(
         self,
-        otaproxy: tuple[str, Path],
+        otaproxy: tuple[str, Path, str],
         ota_image_server: str,
         run_download_client: RunDownloadClient,
     ):
-        """Second download run should be served from cache and validate OK."""
-        proxy_url, _ = otaproxy
+        """Second download run should succeed regardless of space condition."""
+        proxy_url, cache_dir, condition = otaproxy
 
         # First pass: populate cache (cold).
         result_cold = await run_download_client(proxy_url, ota_image_server)
-        _assert_download_ok(result_cold, "warm/cold pass")
+        _assert_download_ok(result_cold, f"warm/cold pass [{condition}]")
 
-        # Second pass: served from warm cache.
+        # Second pass: served from warm cache (or upstream fallback).
         result_warm = await run_download_client(proxy_url, ota_image_server)
-        _assert_download_ok(result_warm, "warm pass")
+        _assert_download_ok(result_warm, f"warm pass [{condition}]")
+
+        # No tmp files should be left behind after both passes.
+        tmp_files = list(cache_dir.glob("tmp*"))
+        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"

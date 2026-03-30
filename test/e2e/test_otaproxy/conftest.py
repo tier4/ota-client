@@ -69,6 +69,13 @@ SPECIAL_FILENAMES = [
 DOWNLOAD_CLIENT_SCRIPT = Path(__file__).parent / "_download_client.py"
 HTTP_SERVER_SCRIPT = Path(__file__).parent / "_ota_image_server.py"
 
+# Space availability conditions for cache rotation testing.
+# Each condition simulates a different disk pressure scenario by
+# monkeypatching OTACache._background_check_free_space.
+SPACE_CONDITION_BELOW_SOFT = "below_soft_limit"
+SPACE_CONDITION_BELOW_HARD = "below_hard_limit"
+SPACE_CONDITION_EXCEED_HARD = "exceed_hard_limit"
+
 
 def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
     """Wait for the subprocess to print its READY line."""
@@ -166,17 +173,58 @@ def cache_dir(tmp_path: Path) -> Path:
     return d
 
 
+def _make_mocked_space_checker(condition: str):
+    """Create a mocked _background_check_free_space method.
+
+    The mock progressively transitions disk pressure state over time:
+      - below_soft_limit: always normal, both events set.
+      - below_hard_limit: normal for first 10 ticks, then soft limit exceeded
+        (triggers LRU rotation) but hard limit still OK.
+      - exceed_hard_limit: normal for first 5 ticks, then soft exceeded for
+        5 ticks, then both exceeded (caching fully disabled).
+    """
+
+    def _mocked_background_check_freespace(self):
+        _count = 0
+        while not self._closed:
+            if condition == SPACE_CONDITION_BELOW_SOFT:
+                self._storage_below_soft_limit_event.set()
+                self._storage_below_hard_limit_event.set()
+            elif condition == SPACE_CONDITION_BELOW_HARD:
+                if _count < 10:
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                else:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.set()
+            elif condition == SPACE_CONDITION_EXCEED_HARD:
+                if _count < 5:
+                    self._storage_below_soft_limit_event.set()
+                    self._storage_below_hard_limit_event.set()
+                elif _count < 10:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.set()
+                else:
+                    self._storage_below_soft_limit_event.clear()
+                    self._storage_below_hard_limit_event.clear()
+
+            time.sleep(2)
+            _count += 1
+
+    return _mocked_background_check_freespace
+
+
 async def _launch_otaproxy(
     port: int, ota_cache: OTACache
 ) -> tuple[str, uvicorn.Server, asyncio.Task]:
-    """Start otaproxy in-process and yield its URL, then shut down.
+    """Start otaproxy in-process and return its URL, server, and task.
 
     Args:
         port: TCP port to listen on.
         ota_cache: Pre-configured OTACache instance.
 
-    Yields:
-        The proxy base URL (e.g. ``http://127.0.0.1:18080``).
+    Returns:
+        A tuple of (proxy_url, server, serve_task).
     """
     app = App(ota_cache)
     config = uvicorn.Config(
@@ -198,15 +246,29 @@ async def _launch_otaproxy(
     return proxy_url, server, serve_task
 
 
-@pytest.fixture()
+@pytest.fixture(
+    params=[
+        SPACE_CONDITION_BELOW_SOFT,
+        SPACE_CONDITION_BELOW_HARD,
+        SPACE_CONDITION_EXCEED_HARD,
+    ]
+)
 async def otaproxy(
-    ota_image_server: str, cache_dir: Path
-) -> AsyncGenerator[tuple[str, Path]]:
+    request, ota_image_server: str, cache_dir: Path
+) -> AsyncGenerator[tuple[str, Path, str]]:
     """Run otaproxy in-process with caching enabled.
 
-    Returns:
-        A tuple of (proxy_url, cache_dir).
+    Parametrized over disk space conditions to test cache rotation.
+
+    Yields:
+        A tuple of (proxy_url, cache_dir, space_condition).
     """
+    condition: str = request.param
+
+    # Monkeypatch the space checker before OTACache is started.
+    _orig = OTACache._background_check_free_space
+    OTACache._background_check_free_space = _make_mocked_space_checker(condition)
+
     ota_cache = OTACache(
         cache_enabled=True,
         init_cache=True,
@@ -217,11 +279,13 @@ async def otaproxy(
     )
 
     proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
-    yield proxy_url, cache_dir
+    logger.info("otaproxy space condition: %s", condition)
+    yield proxy_url, cache_dir, condition
 
     server.should_exit = True
     await server_task
-    logger.info(f"otaproxy stopped (port {OTAPROXY_PORT})")
+    OTACache._background_check_free_space = _orig
+    logger.info("otaproxy stopped (port %d, condition=%s)", OTAPROXY_PORT, condition)
 
 
 @pytest.fixture()
@@ -239,7 +303,7 @@ async def otaproxy_no_cache(ota_image_server: str) -> AsyncGenerator[str]:
 
     server.should_exit = True
     await server_task
-    logger.info(f"otaproxy stopped (port {OTAPROXY_PORT})")
+    logger.info("otaproxy (no cache) stopped")
 
 
 @pytest.fixture(scope="session")
