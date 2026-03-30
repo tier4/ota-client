@@ -126,7 +126,7 @@ def ota_image_blobs() -> dict[str, str]:
 
 
 @pytest.fixture(scope="session")
-def ota_image_server(special_filenames: list[str]) -> Generator[str]:
+def ota_image_server(ota_image_blobs) -> Generator[str]:
     """Launch the standalone OTA image HTTP server.
 
     Returns:
