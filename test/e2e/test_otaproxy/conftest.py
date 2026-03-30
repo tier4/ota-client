@@ -59,17 +59,16 @@ DOWNLOAD_ENTRIES_SAMPLE_RATIO = 1 / 3
 # Filenames with characters that require URL escaping or are otherwise special.
 # These exercise backward compatibility with old OTA images.
 SPECIAL_FILENAMES = [
-    "file with spaces.bin",
-    "file#hash.bin",
-    "file%percent.bin",
-    "file+plus.bin",
-    "file&ampersand.bin",
-    "file=equals.bin",
-    "file[bracket].bin",
-    "filéàccénted.bin",
-    "fileñtilde.bin",
-    "file日本語.bin",
-    "file@at!exclaim.bin",
+    "file with spaces/file with spaces.bin",
+    "file#hash/file#hash.bin",
+    "file%percent/file%percent.bin",
+    "file+plus/file+plus.bin",
+    "file&ampersand/file&ampersand.bin",
+    "file=equals/file=equals.bin",
+    "file[bracket]/file[bracket].bin",
+    "filéàccénted/filéàccénted.bin",
+    "fileñtilde/fileñtilde.bin",
+    "file@at!exclaim/file@at!exclaim.bin",
 ]
 
 DOWNLOAD_CLIENT_SCRIPT = Path(__file__).parent / "_download_client.py"
@@ -114,7 +113,8 @@ def ota_image_blobs() -> dict[str, str]:
     resources_to_download: dict[str, str] = {}
     # first create special files
     for name in SPECIAL_FILENAMES:
-        fpath = OTA_IMAGE_BLOBS_DIR / name
+        fpath = OTA_IMAGE_BLOBS_DIR / Path(name)
+        fpath.parent.mkdir(exist_ok=True, parents=True)
 
         _data = f"test-payload-for-{name}".encode("utf-8")
         fpath.write_bytes(_data)
