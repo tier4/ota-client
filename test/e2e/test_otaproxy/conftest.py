@@ -184,40 +184,48 @@ def cache_dir(tmp_path: Path) -> Generator[Path]:
     shutil.rmtree(d, ignore_errors=True)
 
 
-def _make_mocked_space_checker(condition: str):
-    """Create a mocked _background_check_free_space method.
+def _resolve_space_state(condition: str, tick: int) -> tuple[bool, bool]:
+    """Return (below_soft, below_hard) for a given condition and tick.
 
-    The mock progressively transitions disk pressure state over time:
-      - below_soft_limit: always normal, both events set.
-      - below_hard_limit: normal for first 10 ticks, then soft limit exceeded
-        (triggers LRU rotation) but hard limit still OK.
-      - exceed_hard_limit: normal for first 5 ticks, then soft exceeded for
-        5 ticks, then both exceeded (caching fully disabled).
+    Each condition defines a timeline of disk pressure transitions:
+      - below_soft_limit: always normal.
+      - below_hard_limit: normal for 10 ticks, then soft limit exceeded.
+      - exceed_hard_limit: normal for 5 ticks, soft exceeded for 5 more,
+        then both exceeded.
     """
+    # (below_soft_limit_set, below_hard_limit_set)
+    _TRANSITIONS: dict[str, list[tuple[int, bool, bool]]] = {
+        SPACE_CONDITION_BELOW_SOFT: [(0, True, True)],
+        SPACE_CONDITION_BELOW_HARD: [(0, True, True), (10, False, True)],
+        SPACE_CONDITION_EXCEED_HARD: [
+            (0, True, True),
+            (5, False, True),
+            (10, False, False),
+        ],
+    }
+    below_soft, below_hard = True, True
+    for threshold, soft, hard in _TRANSITIONS[condition]:
+        if tick >= threshold:
+            below_soft, below_hard = soft, hard
+    return below_soft, below_hard
+
+
+def _make_mocked_space_checker(condition: str):
 
     def _mocked_background_check_freespace(self):
         _count = 0
         while not self._closed:
-            if condition == SPACE_CONDITION_BELOW_SOFT:
+            below_soft, below_hard = _resolve_space_state(condition, _count)
+
+            if below_soft:
                 self._storage_below_soft_limit_event.set()
+            else:
+                self._storage_below_soft_limit_event.clear()
+
+            if below_hard:
                 self._storage_below_hard_limit_event.set()
-            elif condition == SPACE_CONDITION_BELOW_HARD:
-                if _count < 10:
-                    self._storage_below_soft_limit_event.set()
-                    self._storage_below_hard_limit_event.set()
-                else:
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.set()
-            elif condition == SPACE_CONDITION_EXCEED_HARD:
-                if _count < 5:
-                    self._storage_below_soft_limit_event.set()
-                    self._storage_below_hard_limit_event.set()
-                elif _count < 10:
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.set()
-                else:
-                    self._storage_below_soft_limit_event.clear()
-                    self._storage_below_hard_limit_event.clear()
+            else:
+                self._storage_below_hard_limit_event.clear()
 
             time.sleep(2)
             _count += 1
@@ -328,12 +336,16 @@ def manifest_path(
     return p
 
 
+CONCURRENT_START_DELAY = 3  # seconds into the future for synchronized start
+
+
 async def _run_download_client(
     proxy_url: str,
     upstream_url: str,
     manifest: Path,
     *,
     headers: dict[str, str] | None = None,
+    start_at: float = 0,
     _timeout: float,
 ) -> DownloadResult:
     """Launch the download client subprocess and return parsed results.
@@ -354,6 +366,8 @@ async def _run_download_client(
         "--manifest",
         str(manifest),
     ]
+    if start_at > 0:
+        cmd.extend(["--start-at", str(start_at)])
     for k, v in (headers or {}).items():
         cmd.extend(["--header", f"{k}: {v}"])
 
@@ -396,6 +410,7 @@ def run_download_client(manifest_path: Path) -> RunDownloadClient:
         *,
         manifest: Path | None = None,
         headers: dict[str, str] | None = None,
+        start_at: float = 0,
         _timeout: float = DOWNLOAD_TIMEOUT,
     ) -> DownloadResult:
         return await _run_download_client(
@@ -403,6 +418,7 @@ def run_download_client(manifest_path: Path) -> RunDownloadClient:
             upstream_url,
             manifest or manifest_path,
             headers=headers,
+            start_at=start_at,
             _timeout=_timeout,
         )
 

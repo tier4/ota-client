@@ -48,6 +48,7 @@ import asyncio
 import hashlib
 import json
 import sys
+import time
 from typing import TypedDict
 from urllib.parse import quote
 
@@ -114,6 +115,12 @@ def main() -> None:
         default=[],
         help="Extra header as 'Name: Value' (repeatable)",
     )
+    parser.add_argument(
+        "--start-at",
+        type=float,
+        default=0,
+        help="Unix timestamp to wait for before starting downloads",
+    )
     args = parser.parse_args()
 
     try:
@@ -132,6 +139,11 @@ def main() -> None:
             sys.exit(2)
         k, v = h.split(": ", 1)
         extra_headers[k] = v
+
+    if args.start_at > 0:
+        wait = args.start_at - time.time()
+        if wait > 0:
+            time.sleep(wait)
 
     result = asyncio.run(run(args.proxy_url, args.upstream_url, blobs, extra_headers))
     print(json.dumps(result))
