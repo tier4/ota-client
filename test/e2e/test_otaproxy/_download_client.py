@@ -84,6 +84,7 @@ async def run(
                     h = hashlib.sha256()
                     async for chunk in resp.content.iter_any():
                         h.update(chunk)
+
                     actual = h.hexdigest()
                     if actual != expected_sha256:
                         hash_mismatches.append(

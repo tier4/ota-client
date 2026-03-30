@@ -111,12 +111,14 @@ def ota_image_blobs() -> dict[str, str]:
         f"Created {len(SPECIAL_FILENAMES)} special files in {OTA_IMAGE_BLOBS_DIR}"
     )
 
-    # check all the blobs
+    # collect regular blobs (filename is the sha256 hex digest)
     for fpath in OTA_IMAGE_BLOBS_DIR.iterdir():
+        if fpath.name in blobs:
+            continue  # already registered (special file)
         try:
             bytes.fromhex(fpath.name)
         except ValueError:
-            pass  # not a blob
+            continue  # not a hex-named blob, skip
         blobs[fpath.name] = fpath.name
 
     logger.info(
