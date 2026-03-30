@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import shutil
 import signal
 import subprocess
@@ -50,6 +51,10 @@ OTAPROXY_PORT = 18080
 OTAPROXY_PORT_NOCACHE = 18081
 
 DOWNLOAD_TIMEOUT = 360  # seconds
+
+# Due to the test time too long for downloading the whole image,
+#   we only sample to download 1/3 of the total blobs.
+DOWNLOAD_ENTRIES_SAMPLE_RATIO = 1 / 3
 
 # Filenames with characters that require URL escaping or are otherwise special.
 # These exercise backward compatibility with old OTA images.
@@ -106,33 +111,37 @@ def ota_image_blobs() -> dict[str, str]:
     Returns:
         A dict mapping filename to its expected sha256 hex digest.
     """
-    blobs: dict[str, str] = {}
+    resources_to_download: dict[str, str] = {}
     # first create special files
     for name in SPECIAL_FILENAMES:
         fpath = OTA_IMAGE_BLOBS_DIR / name
 
         _data = f"test-payload-for-{name}".encode("utf-8")
         fpath.write_bytes(_data)
-        blobs[name] = sha256(_data).hexdigest()
+        resources_to_download[name] = sha256(_data).hexdigest()
 
     logger.info(
         f"Created {len(SPECIAL_FILENAMES)} special files in {OTA_IMAGE_BLOBS_DIR}"
     )
 
     # collect regular blobs (filename is the sha256 hex digest)
-    for fpath in OTA_IMAGE_BLOBS_DIR.iterdir():
-        if fpath.name in blobs:
+    _blobs, _count = [], 0
+    for _count, fpath in enumerate(OTA_IMAGE_BLOBS_DIR.iterdir()):
+        if fpath.name in resources_to_download:
             continue  # already registered (special file)
         try:
             bytes.fromhex(fpath.name)
         except ValueError:
             continue  # not a hex-named blob, skip
-        blobs[fpath.name] = fpath.name
+        _blobs.append((fpath.name, fpath.name))
+
+    _sample_counts = int(_count * DOWNLOAD_ENTRIES_SAMPLE_RATIO)
+    resources_to_download.update(random.sample(_blobs, _sample_counts))
 
     logger.info(
-        f"Collected {len(blobs)} files from {OTA_IMAGE_BLOBS_DIR} (special counts: {len(SPECIAL_FILENAMES)})"
+        f"Collected {len(resources_to_download)} files from {OTA_IMAGE_BLOBS_DIR} (special counts: {len(SPECIAL_FILENAMES)})"
     )
-    return blobs
+    return resources_to_download
 
 
 @pytest.fixture(scope="session")
