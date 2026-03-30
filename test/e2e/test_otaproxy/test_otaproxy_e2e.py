@@ -54,12 +54,12 @@ CONCURRENT_CLIENTS = 3
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
     """Assert that a download client result has no failures."""
     prefix = f"[{label}] " if label else ""
-    assert not result["failed_downloads"], (
-        f"{prefix}Downloads failed: {result['failed_downloads']}"
-    )
-    assert not result["hash_mismatches"], (
-        f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
-    )
+    assert not result[
+        "failed_downloads"
+    ], f"{prefix}Downloads failed: {result['failed_downloads']}"
+    assert not result[
+        "hash_mismatches"
+    ], f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
     logger.info("%s%d/%d blobs OK", prefix, result["ok"], result["total"])
 
 
@@ -92,9 +92,9 @@ def _check_cache_db(cache_dir: Path, min_entries: int) -> None:
         cur = conn.execute(f"SELECT * FROM {ota_proxy_cfg.TABLE_NAME}")
         rows = cur.fetchall()
 
-    assert len(rows) >= min_entries, (
-        f"Expected at least {min_entries} cache db entries, got {len(rows)}"
-    )
+    assert (
+        len(rows) >= min_entries
+    ), f"Expected at least {min_entries} cache db entries, got {len(rows)}"
 
     now = time.time()
     for row in rows:
@@ -153,9 +153,9 @@ class TestOTAProxyColdCache:
         ]
 
         if condition == SPACE_CONDITION_BELOW_SOFT:
-            assert len(cached_files) > 0, (
-                "Cache directory is empty after cold cache run under below_soft_limit"
-            )
+            assert (
+                len(cached_files) > 0
+            ), "Cache directory is empty after cold cache run under below_soft_limit"
             # Verify cache db entries are valid.
             _check_cache_db(cache_dir, min_entries=1)
 
