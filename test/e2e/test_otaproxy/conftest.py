@@ -196,11 +196,11 @@ def _resolve_space_state(condition: str, tick: int) -> tuple[bool, bool]:
     # (below_soft_limit_set, below_hard_limit_set)
     _TRANSITIONS: dict[str, list[tuple[int, bool, bool]]] = {
         SPACE_CONDITION_BELOW_SOFT: [(0, True, True)],
-        SPACE_CONDITION_BELOW_HARD: [(0, True, True), (10, False, True)],
+        SPACE_CONDITION_BELOW_HARD: [(0, True, True), (8, False, True)],
         SPACE_CONDITION_EXCEED_HARD: [
             (0, True, True),
             (5, False, True),
-            (10, False, False),
+            (8, False, False),
         ],
     }
     below_soft, below_hard = True, True
