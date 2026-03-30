@@ -29,6 +29,7 @@ all blobs through the proxy and validates SHA256 integrity.
 
 from __future__ import annotations
 
+import gc
 import logging
 from pathlib import Path
 
@@ -98,17 +99,20 @@ class TestOTAProxyColdCache:
             assert len(cached_files) > 0, (
                 "Cache directory is empty after cold cache run under below_soft_limit"
             )
-        # Under below_hard_limit or exceed_hard_limit, LRU rotation or
-        # cache disabling may have removed entries — just verify no tmp
-        # files are left behind (clean shutdown).
+
+        # CacheTracker registers a weakref.finalize to unlink its tmp file.
+        # Force GC so all unreferenced trackers are collected and their
+        # finalizers run before we check.
+        gc.collect()
         tmp_files = list(cache_dir.glob("tmp*"))
-        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"
+        assert not tmp_files, (
+            f"[{condition}] Temp files left in cache dir: {tmp_files}"
+        )
 
         logger.info(
-            "Cold cache [%s]: %d cache entries, %d tmp files",
+            "Cold cache [%s]: %d cache entries",
             condition,
             len(cached_files),
-            len(tmp_files),
         )
 
 
@@ -137,6 +141,9 @@ class TestOTAProxyWarmCache:
         result_warm = await run_download_client(proxy_url, ota_image_server)
         _assert_download_ok(result_warm, f"warm pass [{condition}]")
 
-        # No tmp files should be left behind after both passes.
+        # CacheTracker uses weakref.finalize to clean up tmp files.
+        gc.collect()
         tmp_files = list(cache_dir.glob("tmp*"))
-        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"
+        assert not tmp_files, (
+            f"[{condition}] Temp files left in cache dir: {tmp_files}"
+        )
