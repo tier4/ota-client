@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import signal
 import subprocess
 import sys
@@ -166,11 +167,12 @@ def ota_image_server(ota_image_blobs) -> Generator[str]:
 
 
 @pytest.fixture()
-def cache_dir(tmp_path: Path) -> Path:
+def cache_dir(tmp_path: Path) -> Generator[Path]:
     """Provide a temporary cache directory for otaproxy."""
     d = tmp_path / "ota-cache"
     d.mkdir()
-    return d
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def _make_mocked_space_checker(condition: str):
