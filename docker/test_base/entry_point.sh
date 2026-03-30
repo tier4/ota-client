@@ -11,6 +11,7 @@ cp -R ${OTACLIENT_SRC}/src ${TEST_ROOT}
 cp ${OTACLIENT_SRC}/uv.lock ${TEST_ROOT}
 # symlink all the other needed folders/files into test root
 ln -s ${OTACLIENT_SRC}/tests ${TEST_ROOT}
+ln -sf "${OTACLIENT_SRC}/test" "${TEST_ROOT}"
 ln -s ${OTACLIENT_SRC}/.git ${TEST_ROOT}
 ln -s ${OTACLIENT_SRC}/pyproject.toml ${TEST_ROOT}
 ln -s ${OTACLIENT_SRC}/README.md ${TEST_ROOT}
