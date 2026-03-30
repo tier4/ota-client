@@ -37,12 +37,12 @@ logger = logging.getLogger(__name__)
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
     """Assert that a download client result has no failures."""
     prefix = f"[{label}] " if label else ""
-    assert not result["failed_downloads"], (
-        f"{prefix}Downloads failed: {result['failed_downloads']}"
-    )
-    assert not result["hash_mismatches"], (
-        f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
-    )
+    assert not result[
+        "failed_downloads"
+    ], f"{prefix}Downloads failed: {result['failed_downloads']}"
+    assert not result[
+        "hash_mismatches"
+    ], f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
     logger.info("%s%d/%d blobs OK", prefix, result["ok"], result["total"])
 
 
