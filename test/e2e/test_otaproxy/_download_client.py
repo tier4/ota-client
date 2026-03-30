@@ -73,7 +73,7 @@ async def run(
 
     async with aiohttp.ClientSession() as session:
         for name, expected_sha256 in blobs.items():
-            url = f"{upstream_url}/{quote(name, safe='')}"
+            url = f"{upstream_url}/{quote(name)}"
             try:
                 async with session.get(
                     url, proxy=proxy_url, headers=extra_headers
