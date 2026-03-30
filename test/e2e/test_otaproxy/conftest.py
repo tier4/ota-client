@@ -14,7 +14,6 @@
 """Fixtures for OTA proxy e2e tests.
 
 Provides:
-    - special_filenames: Creates files with special names for backward compat testing.
     - ota_image_blobs: Dict of filename -> sha256 for all blobs (including special).
     - ota_image_server: Launches standalone HTTP server serving OTA image blobs.
     - otaproxy / otaproxy_no_cache: In-process otaproxy with/without caching.
@@ -67,7 +66,8 @@ SPECIAL_FILENAMES = [
     "file@at!exclaim.bin",
 ]
 
-DOWNLOAD_CLIENT_SCRIPT = Path(__file__).parent / "download_client.py"
+DOWNLOAD_CLIENT_SCRIPT = Path(__file__).parent / "_download_client.py"
+HTTP_SERVER_SCRIPT = Path(__file__).parent / "_ota_image_server.py"
 
 
 def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
@@ -132,11 +132,10 @@ def ota_image_server(ota_image_blobs) -> Generator[str]:
     Returns:
         The base URL of the server (e.g. "http://127.0.0.1:18888").
     """
-    server_script = Path(__file__).parent / "ota_image_server.py"
     proc = subprocess.Popen(
         [
             sys.executable,
-            str(server_script),
+            str(HTTP_SERVER_SCRIPT),
             "--port",
             str(OTA_IMAGE_SERVER_PORT),
             "--directory",
