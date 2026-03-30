@@ -24,7 +24,6 @@ Provides:
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import signal
@@ -32,6 +31,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Coroutine
+from hashlib import sha256
 from pathlib import Path
 from typing import AsyncGenerator, Callable, Generator
 
@@ -89,24 +89,7 @@ def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
 
 
 @pytest.fixture(scope="session")
-def special_filenames() -> Generator[list[str]]:
-    """Create files with special names in the OTA image blobs directory.
-
-    These are created before the HTTP server starts to ensure they are served.
-    Files contain a small deterministic payload derived from their name.
-    """
-    created = []
-    for name in SPECIAL_FILENAMES:
-        fpath = OTA_IMAGE_BLOBS_DIR / name
-        if not fpath.exists():
-            fpath.write_bytes(f"test-payload-for-{name}".encode("utf-8"))
-            created.append(name)
-    logger.info("Created %d special files in %s", len(created), OTA_IMAGE_BLOBS_DIR)
-    yield SPECIAL_FILENAMES
-
-
-@pytest.fixture(scope="session")
-def ota_image_blobs(special_filenames: list[str]) -> dict[str, str]:
+def ota_image_blobs() -> dict[str, str]:
     """Collect all blob files and their SHA256 digests.
 
     For regular blobs the filename itself is the sha256 hash.
@@ -115,21 +98,29 @@ def ota_image_blobs(special_filenames: list[str]) -> dict[str, str]:
     Returns:
         A dict mapping filename to its expected sha256 hex digest.
     """
-    special_set = set(special_filenames)
     blobs: dict[str, str] = {}
-    for fpath in sorted(OTA_IMAGE_BLOBS_DIR.iterdir()):
-        if not fpath.is_file():
-            continue
-        if fpath.name in special_set:
-            sha256 = hashlib.sha256(fpath.read_bytes()).hexdigest()
-        else:
-            sha256 = fpath.name
-        blobs[fpath.name] = sha256
+    # first create special files
+    for name in SPECIAL_FILENAMES:
+        fpath = OTA_IMAGE_BLOBS_DIR / name
+
+        _data = f"test-payload-for-{name}".encode("utf-8")
+        fpath.write_bytes(_data)
+        blobs[name] = sha256(_data).hexdigest()
+
     logger.info(
-        "Collected %d blobs (%d special) from %s",
-        len(blobs),
-        len(special_set & set(blobs)),
-        OTA_IMAGE_BLOBS_DIR,
+        f"Created {len(SPECIAL_FILENAMES)} special files in {OTA_IMAGE_BLOBS_DIR}"
+    )
+
+    # check all the blobs
+    for fpath in OTA_IMAGE_BLOBS_DIR.iterdir():
+        try:
+            bytes.fromhex(fpath.name)
+        except ValueError:
+            pass  # not a blob
+        blobs[fpath.name] = fpath.name
+
+    logger.info(
+        f"Collected {len(blobs)} files from {OTA_IMAGE_BLOBS_DIR} (special counts: {len(SPECIAL_FILENAMES)})"
     )
     return blobs
 
