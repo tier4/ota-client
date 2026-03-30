@@ -25,12 +25,11 @@ all blobs through the proxy and validates SHA256 integrity.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 
-from .conftest import SPECIAL_FILENAMES, RunDownloadClient
-from .download_client import DownloadResult
+from ._download_client import DownloadResult
+from .conftest import RunDownloadClient
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +46,6 @@ def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
     logger.info("%s%d/%d blobs OK", prefix, result["ok"], result["total"])
 
 
-def _write_special_manifest(ota_image_blobs: dict[str, str], tmp_path: Path) -> Path:
-    """Write a manifest containing only the special-filename blobs."""
-    special = {k: v for k, v in ota_image_blobs.items() if k in SPECIAL_FILENAMES}
-    p = tmp_path / "special_manifest.json"
-    p.write_text(json.dumps(special))
-    return p
-
-
 class TestOTAProxyNoCache:
     """Test otaproxy in relay-only mode (no caching)."""
 
@@ -67,21 +58,6 @@ class TestOTAProxyNoCache:
         """All blobs should be downloadable and intact through the proxy."""
         result = await run_download_client(otaproxy_no_cache, ota_image_server)
         _assert_download_ok(result, "no-cache")
-
-    async def test_special_filenames_no_cache(
-        self,
-        otaproxy_no_cache: str,
-        ota_image_server: str,
-        run_download_client: RunDownloadClient,
-        ota_image_blobs: dict[str, str],
-        tmp_path: Path,
-    ):
-        """Files with special characters should be downloadable and intact."""
-        manifest = _write_special_manifest(ota_image_blobs, tmp_path)
-        result = await run_download_client(
-            otaproxy_no_cache, ota_image_server, manifest=manifest
-        )
-        _assert_download_ok(result, "no-cache special")
 
 
 class TestOTAProxyColdCache:
@@ -110,22 +86,6 @@ class TestOTAProxyColdCache:
         assert len(cached_files) > 0, "Cache directory is empty after cold cache run"
         logger.info("Cold cache: %d cache entries created", len(cached_files))
 
-    async def test_cold_cache_special_filenames(
-        self,
-        otaproxy: tuple[str, Path],
-        ota_image_server: str,
-        run_download_client: RunDownloadClient,
-        ota_image_blobs: dict[str, str],
-        tmp_path: Path,
-    ):
-        """Files with special names should be downloadable, intact, and cached."""
-        proxy_url, _ = otaproxy
-        manifest = _write_special_manifest(ota_image_blobs, tmp_path)
-        result = await run_download_client(
-            proxy_url, ota_image_server, manifest=manifest
-        )
-        _assert_download_ok(result, "cold cache special")
-
 
 class TestOTAProxyWarmCache:
     """Test otaproxy warm cache path.
@@ -150,24 +110,3 @@ class TestOTAProxyWarmCache:
         # Second pass: served from warm cache.
         result_warm = await run_download_client(proxy_url, ota_image_server)
         _assert_download_ok(result_warm, "warm pass")
-
-    async def test_warm_cache_special_filenames(
-        self,
-        otaproxy: tuple[str, Path],
-        ota_image_server: str,
-        run_download_client: RunDownloadClient,
-        ota_image_blobs: dict[str, str],
-        tmp_path: Path,
-    ):
-        """Special filename blobs should also validate from warm cache."""
-        proxy_url, _ = otaproxy
-        manifest = _write_special_manifest(ota_image_blobs, tmp_path)
-
-        # Cold pass.
-        await run_download_client(proxy_url, ota_image_server, manifest=manifest)
-
-        # Warm pass.
-        result = await run_download_client(
-            proxy_url, ota_image_server, manifest=manifest
-        )
-        _assert_download_ok(result, "warm cache special")

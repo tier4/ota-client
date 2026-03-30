@@ -106,9 +106,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="OTA proxy download client")
     parser.add_argument("--proxy-url", required=True)
     parser.add_argument("--upstream-url", required=True)
-    parser.add_argument(
-        "--manifest", required=True, help="Path to JSON manifest file"
-    )
+    parser.add_argument("--manifest", required=True, help="Path to JSON manifest file")
     parser.add_argument(
         "--header",
         action="append",
@@ -127,7 +125,9 @@ def main() -> None:
     extra_headers: dict[str, str] = {}
     for h in args.header:
         if ": " not in h:
-            print(f"Invalid header format (expected 'Name: Value'): {h}", file=sys.stderr)
+            print(
+                f"Invalid header format (expected 'Name: Value'): {h}", file=sys.stderr
+            )
             sys.exit(2)
         k, v = h.split(": ", 1)
         extra_headers[k] = v

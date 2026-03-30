@@ -40,7 +40,7 @@ import uvicorn
 
 from ota_proxy import App, OTACache
 
-from .download_client import DownloadResult
+from ._download_client import DownloadResult
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +174,9 @@ def cache_dir(tmp_path: Path) -> Path:
     return d
 
 
-async def _launch_otaproxy(port: int, ota_cache: OTACache) -> AsyncGenerator[str]:
+async def _launch_otaproxy(
+    port: int, ota_cache: OTACache
+) -> tuple[str, uvicorn.Server, asyncio.Task]:
     """Start otaproxy in-process and yield its URL, then shut down.
 
     Args:
@@ -201,11 +203,7 @@ async def _launch_otaproxy(port: int, ota_cache: OTACache) -> AsyncGenerator[str
 
     proxy_url = f"http://127.0.0.1:{port}"
     logger.info("otaproxy started at %s", proxy_url)
-    yield proxy_url
-
-    server.should_exit = True
-    await serve_task
-    logger.info("otaproxy stopped (port %d)", port)
+    return proxy_url, server, serve_task
 
 
 @pytest.fixture()
@@ -225,8 +223,13 @@ async def otaproxy(
         upper_proxy="",
         enable_https=False,
     )
-    async for proxy_url in _launch_otaproxy(OTAPROXY_PORT, ota_cache):
-        yield proxy_url, cache_dir
+
+    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
+    yield proxy_url, cache_dir
+
+    server.should_exit = True
+    await server_task
+    logger.info(f"otaproxy stopped (port {OTAPROXY_PORT})")
 
 
 @pytest.fixture()
@@ -237,13 +240,14 @@ async def otaproxy_no_cache(ota_image_server: str) -> AsyncGenerator[str]:
         The proxy URL.
     """
     ota_cache = OTACache(
-        cache_enabled=False,
-        init_cache=False,
-        upper_proxy="",
-        enable_https=False,
+        cache_enabled=False, init_cache=False, upper_proxy="", enable_https=False
     )
-    async for proxy_url in _launch_otaproxy(OTAPROXY_PORT_NOCACHE, ota_cache):
-        yield proxy_url
+    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
+    yield proxy_url
+
+    server.should_exit = True
+    await server_task
+    logger.info(f"otaproxy stopped (port {OTAPROXY_PORT})")
 
 
 @pytest.fixture(scope="session")
