@@ -49,9 +49,6 @@ from .conftest import (
 logger = logging.getLogger(__name__)
 
 CONCURRENT_CLIENTS = 3
-# Max time to wait for background cache writes to settle after downloads complete.
-CACHE_SETTLE_TIMEOUT = 30  # seconds
-CACHE_SETTLE_POLL_INTERVAL = 0.5  # seconds
 
 
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
@@ -85,26 +82,9 @@ async def _run_concurrent_clients(
     return await asyncio.gather(*tasks)
 
 
-async def _wait_for_cache_settled(cache_dir: Path) -> None:
-    """Wait until all background cache writes have completed.
-
-    Cache writes happen in background threads. A tmp file in the cache
-    directory indicates an in-flight write. Poll until no tmp files
-    remain (all writes committed or rolled back via weakref.finalize).
-    """
-    deadline = time.time() + CACHE_SETTLE_TIMEOUT
-    while time.time() < deadline:
-        gc.collect()
-        tmp_files = list(cache_dir.glob("tmp*"))
-        if not tmp_files:
-            return
-        logger.debug("Waiting for %d tmp files to settle...", len(tmp_files))
-        await asyncio.sleep(CACHE_SETTLE_POLL_INTERVAL)
-    # Don't fail here — let the caller's assertions catch real problems.
-    logger.warning("Cache settle timeout: tmp files still present")
-
-
-def _check_cache_db(cache_dir: Path, min_entries: int) -> None:
+def _check_cache_db(
+    cache_dir: Path, min_entries: int, resources_digests: set[str]
+) -> None:
     """Verify the cache sqlite db has entries with valid metadata."""
     db_path = cache_dir / "cache_db"
     assert db_path.is_file(), f"Cache db not found at {db_path}"
@@ -120,8 +100,8 @@ def _check_cache_db(cache_dir: Path, min_entries: int) -> None:
 
     now = time.time()
     for row in rows:
-        assert row["file_sha256"], f"Empty file_sha256 in row: {dict(row)}"
-        assert row["url"], f"Empty url in row: {dict(row)}"
+        _file_sha256 = row["file_sha256"]
+        assert _file_sha256 in resources_digests, f"Resource {_file_sha256=} not found!"
         assert row["cache_size"] >= 0, f"Invalid cache_size in row: {dict(row)}"
         assert 0 < row["last_access"] <= now, f"Invalid last_access in row: {dict(row)}"
 
@@ -156,6 +136,7 @@ class TestOTAProxyColdCache:
     async def test_cold_cache_populates_cache_dir(
         self,
         otaproxy: tuple[str, Path, str],
+        ota_image_blobs: dict[str, str],
         ota_image_server: str,
         run_download_client: RunDownloadClient,
     ):
@@ -179,7 +160,11 @@ class TestOTAProxyColdCache:
                 "Cache directory is empty after cold cache run under below_soft_limit"
             )
             # Verify cache db entries are valid.
-            _check_cache_db(cache_dir, min_entries=1)
+            _check_cache_db(
+                cache_dir,
+                min_entries=len(ota_image_blobs),
+                resources_digests=set(ota_image_blobs.values()),
+            )
 
         # CacheTracker registers a weakref.finalize to unlink its tmp file.
         # Force GC so all unreferenced trackers are collected and their
@@ -206,6 +191,7 @@ class TestOTAProxyWarmCache:
     async def test_warm_cache_serves_from_cache(
         self,
         otaproxy: tuple[str, Path, str],
+        ota_image_blobs: dict[str, str],
         ota_image_server: str,
         run_download_client: RunDownloadClient,
     ):
@@ -223,15 +209,15 @@ class TestOTAProxyWarmCache:
         # If the condition is BELOW_SOFT, which all caches will be preserved, test full cached downloading
         # without involving the OTA image server.
         if condition == SPACE_CONDITION_BELOW_SOFT:
-            # Wait for all background cache writes to finish before
-            # attempting cache-only downloads with a dead upstream.
-            await _wait_for_cache_settled(cache_dir)
-
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, "http://127.0.0.1:65500"
             )
             # After warm pass, db should still have valid entries.
-            _check_cache_db(cache_dir, min_entries=1)
+            _check_cache_db(
+                cache_dir,
+                min_entries=len(ota_image_blobs),
+                resources_digests=set(ota_image_blobs.values()),
+            )
         else:
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, ota_image_server
