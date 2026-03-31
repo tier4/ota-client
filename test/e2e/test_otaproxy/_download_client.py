@@ -73,6 +73,8 @@ class DownloadResult(TypedDict):
     ok: int
     failed_downloads: list[str]
     hash_mismatches: list[str]
+    recorded_failed: list[str]
+    """Include retried failed downloads."""
 
 
 async def run(
@@ -83,6 +85,7 @@ async def run(
 ) -> DownloadResult:
     failed_downloads: list[str] = []
     hash_mismatches: list[str] = []
+    recorded_failed: list[str] = []
     ok = 0
 
     async with aiohttp.ClientSession() as session:
@@ -105,6 +108,7 @@ async def run(
                         if resp.status != 200:
                             last_err = f"{name}: HTTP {resp.status}"
                             err_type = DownloadErrorType.failed_downloaded
+                            recorded_failed.append(last_err)
                             continue
 
                         h = hashlib.sha256()
@@ -117,12 +121,14 @@ async def run(
                                 f"{name}: expected {expected_sha256}, got {actual}"
                             )
                             err_type = DownloadErrorType.hash_mismatches
+                            recorded_failed.append(last_err)
                         else:
                             ok += 1
                             break
                 except Exception as e:
                     last_err = f"{name}: {e!r}"
                     err_type = DownloadErrorType.failed_downloaded
+                    recorded_failed.append(last_err)
 
                 time.sleep(1)
 
@@ -136,6 +142,7 @@ async def run(
         ok=ok,
         failed_downloads=failed_downloads,
         hash_mismatches=hash_mismatches,
+        recorded_failed=recorded_failed,
     )
 
 
