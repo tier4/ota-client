@@ -54,12 +54,12 @@ CONCURRENT_CLIENTS = 3
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
     """Assert that a download client result has no failures."""
     prefix = f"[{label}] " if label else ""
-    assert not result["failed_downloads"], (
-        f"{prefix}Downloads failed: {result['failed_downloads']}"
-    )
-    assert not result["hash_mismatches"], (
-        f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
-    )
+    assert not result[
+        "failed_downloads"
+    ], f"{prefix}Downloads failed: {result['failed_downloads']}"
+    assert not result[
+        "hash_mismatches"
+    ], f"{prefix}SHA256 mismatches: {result['hash_mismatches']}"
     if result["recorded_failed"]:
         logger.info(
             f"downloader run has failures but handled: {result['recorded_failed']}"
@@ -98,9 +98,9 @@ def _check_cache_db(
         cur = conn.execute(f"SELECT * FROM {ota_proxy_cfg.TABLE_NAME}")
         rows = cur.fetchall()
 
-    assert len(rows) >= min_entries, (
-        f"Expected at least {min_entries} cache db entries, got {len(rows)}"
-    )
+    assert (
+        len(rows) >= min_entries
+    ), f"Expected at least {min_entries} cache db entries, got {len(rows)}"
 
     now = time.time()
     for row in rows:
