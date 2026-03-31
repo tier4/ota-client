@@ -49,17 +49,23 @@ import hashlib
 import json
 import sys
 import time
+from enum import Enum
 from typing import TypedDict
 from urllib.parse import quote
 
 import aiohttp
 
-from ota_proxy.cache_control_header import (
-    HEADER_LOWERCASE as OTA_CACHE_CONTROL_HEADER,
-)
-from ota_proxy.cache_control_header import (
-    export_kwargs_as_header_string,
-)
+from ota_proxy.cache_control_header import HEADER_LOWERCASE as OTA_CACHE_CONTROL_HEADER
+from ota_proxy.cache_control_header import export_kwargs_as_header_string
+
+# When cache rotation engaged, cache file might be
+# unavailable temporarily, allow retry on this case.
+RETRY_COUNT = 3
+
+
+class DownloadErrorType(Enum):
+    failed_downloaded = 0
+    hash_mismatches = 1
 
 
 class DownloadResult(TypedDict):
@@ -89,26 +95,41 @@ async def run(
             per_file_headers[OTA_CACHE_CONTROL_HEADER] = export_kwargs_as_header_string(
                 file_sha256=expected_sha256
             )
-            try:
-                async with session.get(
-                    url, proxy=proxy_url, headers=per_file_headers
-                ) as resp:
-                    if resp.status != 200:
-                        failed_downloads.append(f"{name}: HTTP {resp.status}")
-                        continue
-                    h = hashlib.sha256()
-                    async for chunk in resp.content.iter_any():
-                        h.update(chunk)
 
-                    actual = h.hexdigest()
-                    if actual != expected_sha256:
-                        hash_mismatches.append(
-                            f"{name}: expected {expected_sha256}, got {actual}"
-                        )
-                    else:
-                        ok += 1
-            except Exception as e:
-                failed_downloads.append(f"{name}: {e!r}")
+            last_err, err_type = None, None
+            for _ in range(RETRY_COUNT):
+                try:
+                    async with session.get(
+                        url, proxy=proxy_url, headers=per_file_headers
+                    ) as resp:
+                        if resp.status != 200:
+                            last_err = f"{name}: HTTP {resp.status}"
+                            err_type = DownloadErrorType.failed_downloaded
+                            continue
+
+                        h = hashlib.sha256()
+                        async for chunk in resp.content.iter_any():
+                            h.update(chunk)
+
+                        actual = h.hexdigest()
+                        if actual != expected_sha256:
+                            last_err = (
+                                f"{name}: expected {expected_sha256}, got {actual}"
+                            )
+                            err_type = DownloadErrorType.hash_mismatches
+                        else:
+                            ok += 1
+                            break
+                except Exception as e:
+                    last_err = f"{name}: {e!r}"
+                    err_type = DownloadErrorType.failed_downloaded
+
+                time.sleep(1)
+
+            if err_type == DownloadErrorType.failed_downloaded and last_err:
+                failed_downloads.append(last_err)
+            if err_type == DownloadErrorType.hash_mismatches and last_err:
+                hash_mismatches.append(last_err)
 
     return DownloadResult(
         total=len(blobs),
