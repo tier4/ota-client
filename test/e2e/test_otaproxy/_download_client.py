@@ -54,6 +54,11 @@ from urllib.parse import quote
 
 import aiohttp
 
+from ota_proxy.cache_control_header import (
+    HEADER_LOWERCASE as OTA_CACHE_CONTROL_HEADER,
+    export_kwargs_as_header_string,
+)
+
 
 class DownloadResult(TypedDict):
     total: int
@@ -75,9 +80,16 @@ async def run(
     async with aiohttp.ClientSession() as session:
         for name, expected_sha256 in blobs.items():
             url = f"{upstream_url}/{quote(name)}"
+            # Send ota-file-cache-control with file_sha256 so the proxy
+            # uses the actual digest as cache key (matching real otaclient
+            # behavior via inject_cache_control_header_in_req).
+            per_file_headers = dict(extra_headers)
+            per_file_headers[OTA_CACHE_CONTROL_HEADER] = (
+                export_kwargs_as_header_string(file_sha256=expected_sha256)
+            )
             try:
                 async with session.get(
-                    url, proxy=proxy_url, headers=extra_headers
+                    url, proxy=proxy_url, headers=per_file_headers
                 ) as resp:
                     if resp.status != 200:
                         failed_downloads.append(f"{name}: HTTP {resp.status}")
