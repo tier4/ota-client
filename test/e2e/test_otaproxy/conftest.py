@@ -49,7 +49,6 @@ logger = logging.getLogger(__name__)
 OTA_IMAGE_BLOBS_DIR = Path("/ota-image_v1/blobs/sha256")
 OTA_IMAGE_SERVER_PORT = 18888
 OTAPROXY_PORT = 18080
-OTAPROXY_PORT_NOCACHE = 18081
 
 DOWNLOAD_TIMEOUT = 360  # seconds
 
@@ -132,9 +131,6 @@ def ota_image_blobs() -> dict[str, str]:
     _blobs, _count = [], 0
     for fpath in OTA_IMAGE_BLOBS_DIR.iterdir():
         _fname, _fsize = fpath.name, fpath.stat().st_size
-        if _fname in resources_to_download:
-            continue  # already registered (special file)
-
         try:
             bytes.fromhex(_fname)
         except ValueError:
@@ -292,7 +288,7 @@ async def _launch_otaproxy(
     ]
 )
 async def otaproxy(
-    request, ota_image_server: str, cache_dir: Path
+    request, cache_dir: Path, ota_image_server: str
 ) -> AsyncGenerator[tuple[str, Path, str]]:
     """Run otaproxy in-process with caching enabled.
 
