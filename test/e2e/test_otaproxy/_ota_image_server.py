@@ -33,7 +33,7 @@ from pathlib import Path
 class OTAImageRequestHandler(SimpleHTTPRequestHandler):
     """HTTP handler that serves files from the configured directory."""
 
-    def log_message(self, format, *args):
+    def log_message(self, format, *args):  # noqa: A002
         # Suppress request logging to keep test output clean.
         pass
 
