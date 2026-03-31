@@ -125,63 +125,8 @@ class TestOTAProxyNoCache:
             _assert_download_ok(result, f"no-cache client#{i}")
 
 
-class TestOTAProxyColdCache:
-    """Test otaproxy cold cache write path.
-
-    Parametrized over space conditions via the ``otaproxy`` fixture.
-    When the cache is empty, otaproxy downloads from upstream,
-    caches data (subject to space limits), and serves it to the client.
-    """
-
-    async def test_cold_cache_populates_cache_dir(
-        self,
-        otaproxy: tuple[str, Path, str],
-        ota_image_blobs: dict[str, str],
-        ota_image_server: str,
-        run_download_client: RunDownloadClient,
-    ):
-        """Downloaded blobs should be intact; cache populated under normal pressure."""
-        proxy_url, cache_dir, condition = otaproxy
-
-        results = await _run_concurrent_clients(
-            run_download_client, proxy_url, ota_image_server
-        )
-        for i, result in enumerate(results):
-            _assert_download_ok(result, f"cold cache [{condition}] client#{i}")
-
-        cached_files = [
-            f
-            for f in cache_dir.iterdir()
-            if f.is_file() and f.name != "cache_db" and not f.name.startswith("tmp")
-        ]
-
-        if condition == SPACE_CONDITION_BELOW_SOFT:
-            assert len(cached_files) > 0, (
-                "Cache directory is empty after cold cache run under below_soft_limit"
-            )
-            # Verify cache db entries are valid.
-            _check_cache_db(
-                cache_dir,
-                min_entries=len(ota_image_blobs),
-                resources_digests=set(ota_image_blobs.values()),
-            )
-
-        # CacheTracker registers a weakref.finalize to unlink its tmp file.
-        # Force GC so all unreferenced trackers are collected and their
-        # finalizers run before we check.
-        gc.collect()
-        tmp_files = list(cache_dir.glob("tmp*"))
-        assert not tmp_files, f"[{condition}] Temp files left in cache dir: {tmp_files}"
-
-        logger.info(
-            "Cold cache [%s]: %d cache entries",
-            condition,
-            len(cached_files),
-        )
-
-
-class TestOTAProxyWarmCache:
-    """Test otaproxy warm cache path.
+class TestOTAProxyWithCache:
+    """Test otaproxy cache enabled path.
 
     Parametrized over space conditions via the ``otaproxy`` fixture.
     After a cold cache run, a second download should be served from
@@ -203,7 +148,7 @@ class TestOTAProxyWarmCache:
             run_download_client, proxy_url, ota_image_server
         )
         for i, result in enumerate(results_cold):
-            _assert_download_ok(result, f"warm/cold pass [{condition}] client#{i}")
+            _assert_download_ok(result, f"cold cache pass [{condition}] client#{i}")
 
         # Second pass: served from warm cache (or upstream fallback).
         # If the condition is BELOW_SOFT, which all caches will be preserved, test full cached downloading
@@ -224,7 +169,7 @@ class TestOTAProxyWarmCache:
             )
 
         for i, result in enumerate(results_warm):
-            _assert_download_ok(result, f"warm pass [{condition}] client#{i}")
+            _assert_download_ok(result, f"warm cache pass [{condition}] client#{i}")
 
         # CacheTracker uses weakref.finalize to clean up tmp files.
         gc.collect()
