@@ -147,7 +147,7 @@ def ota_image_blobs() -> dict[str, str]:
         _fsize = fpath.stat().st_size
         if _fsize > _top_large_blobs[_cursor][1]:
             _top_large_blobs[_cursor] = (_fname, _fsize, _fname)
-            _cursor += 1
+            _cursor = (_cursor + 1) % ENSURE_LARGE_BLOB_ENTRIES
         _blobs.append((_fname, _fname))
 
     logger.info(f"top {ENSURE_LARGE_BLOB_ENTRIES} entries: {_top_large_blobs}")
