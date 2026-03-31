@@ -100,6 +100,9 @@ def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
     raise TimeoutError("Timed out waiting for subprocess READY signal")
 
 
+ENSURE_LARGE_BLOB_ENTRIES = 10
+
+
 @pytest.fixture(scope="session")
 def ota_image_blobs() -> dict[str, str]:
     """Collect all blob files and their SHA256 digests.
@@ -125,18 +128,35 @@ def ota_image_blobs() -> dict[str, str]:
     )
 
     # collect regular blobs (filename is the sha256 hex digest)
+    _top_large_blobs: list[tuple[str, int, str]] = [
+        ("", 0, "") for _ in range(ENSURE_LARGE_BLOB_ENTRIES)
+    ]
+    _cursor = 0
+
     _blobs, _count = [], 0
     for _count, fpath in enumerate(OTA_IMAGE_BLOBS_DIR.iterdir()):
-        if fpath.name in resources_to_download:
+        _fname = fpath.name
+        if _fname in resources_to_download:
             continue  # already registered (special file)
+
         try:
-            bytes.fromhex(fpath.name)
+            bytes.fromhex(_fname)
         except ValueError:
             continue  # not a hex-named blob, skip
-        _blobs.append((fpath.name, fpath.name))
+
+        _fsize = fpath.stat().st_size
+        if _fsize > _top_large_blobs[_cursor][1]:
+            _top_large_blobs[_cursor] = (_fname, _fsize, _fname)
+            _cursor += 1
+        _blobs.append((_fname, _fname))
+
+    logger.info(f"top {ENSURE_LARGE_BLOB_ENTRIES} entries: {_top_large_blobs}")
 
     _sample_counts = int(_count * DOWNLOAD_ENTRIES_SAMPLE_RATIO)
     resources_to_download.update(random.sample(_blobs, _sample_counts))
+    resources_to_download.update(
+        ((_entry[0], _entry[-1]) for _entry in _top_large_blobs if _entry[1] > 0)
+    )
 
     logger.info(
         f"Collected {len(resources_to_download)} files from {OTA_IMAGE_BLOBS_DIR} (special counts: {len(SPECIAL_FILENAMES)})"
