@@ -154,6 +154,9 @@ class TestOTAProxyWithCache:
         # If the condition is BELOW_SOFT, which all caches will be preserved, test full cached downloading
         # without involving the OTA image server.
         if condition == SPACE_CONDITION_BELOW_SOFT:
+            logger.info(
+                "Full cached downloading with dummy OTA image server under below_soft condition ..."
+            )
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, "http://127.0.0.1:65500"
             )
