@@ -56,6 +56,8 @@ import aiohttp
 
 from ota_proxy.cache_control_header import (
     HEADER_LOWERCASE as OTA_CACHE_CONTROL_HEADER,
+)
+from ota_proxy.cache_control_header import (
     export_kwargs_as_header_string,
 )
 
@@ -84,8 +86,8 @@ async def run(
             # uses the actual digest as cache key (matching real otaclient
             # behavior via inject_cache_control_header_in_req).
             per_file_headers = dict(extra_headers)
-            per_file_headers[OTA_CACHE_CONTROL_HEADER] = (
-                export_kwargs_as_header_string(file_sha256=expected_sha256)
+            per_file_headers[OTA_CACHE_CONTROL_HEADER] = export_kwargs_as_header_string(
+                file_sha256=expected_sha256
             )
             try:
                 async with session.get(
