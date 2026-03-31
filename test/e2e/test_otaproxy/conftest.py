@@ -23,6 +23,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import logging
 import random
@@ -128,14 +129,9 @@ def ota_image_blobs() -> dict[str, str]:
     )
 
     # collect regular blobs (filename is the sha256 hex digest)
-    _top_large_blobs: list[tuple[str, int, str]] = [
-        ("", 0, "") for _ in range(ENSURE_LARGE_BLOB_ENTRIES)
-    ]
-    _cursor = 0
-
     _blobs, _count = [], 0
-    for _count, fpath in enumerate(OTA_IMAGE_BLOBS_DIR.iterdir()):
-        _fname = fpath.name
+    for fpath in OTA_IMAGE_BLOBS_DIR.iterdir():
+        _fname, _fsize = fpath.name, fpath.stat().st_size
         if _fname in resources_to_download:
             continue  # already registered (special file)
 
@@ -144,18 +140,21 @@ def ota_image_blobs() -> dict[str, str]:
         except ValueError:
             continue  # not a hex-named blob, skip
 
-        _fsize = fpath.stat().st_size
-        if _fsize > _top_large_blobs[_cursor][1]:
-            _top_large_blobs[_cursor] = (_fname, _fsize, _fname)
-            _cursor = (_cursor + 1) % ENSURE_LARGE_BLOB_ENTRIES
-        _blobs.append((_fname, _fname))
+        _blobs.append((_fname, _fsize, _fname))
+        _count += 1
+
+    _top_large_blobs = heapq.nlargest(
+        ENSURE_LARGE_BLOB_ENTRIES, _blobs, key=lambda x: x[1]
+    )
 
     logger.info(f"top {ENSURE_LARGE_BLOB_ENTRIES} entries: {_top_large_blobs}")
 
     _sample_counts = int(_count * DOWNLOAD_ENTRIES_SAMPLE_RATIO)
-    resources_to_download.update(random.sample(_blobs, _sample_counts))
     resources_to_download.update(
-        ((_entry[0], _entry[-1]) for _entry in _top_large_blobs if _entry[1] > 0)
+        (_entry[0], _entry[-1]) for _entry in random.sample(_blobs, _sample_counts)
+    )
+    resources_to_download.update(
+        ((_entry[0], _entry[-1]) for _entry in _top_large_blobs)
     )
 
     logger.info(
