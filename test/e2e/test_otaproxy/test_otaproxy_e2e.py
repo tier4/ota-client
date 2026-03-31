@@ -49,6 +49,9 @@ from .conftest import (
 logger = logging.getLogger(__name__)
 
 CONCURRENT_CLIENTS = 3
+# Max time to wait for background cache writes to settle after downloads complete.
+CACHE_SETTLE_TIMEOUT = 30  # seconds
+CACHE_SETTLE_POLL_INTERVAL = 0.5  # seconds
 
 
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
@@ -80,6 +83,25 @@ async def _run_concurrent_clients(
         for _ in range(n)
     ]
     return await asyncio.gather(*tasks)
+
+
+async def _wait_for_cache_settled(cache_dir: Path) -> None:
+    """Wait until all background cache writes have completed.
+
+    Cache writes happen in background threads. A tmp file in the cache
+    directory indicates an in-flight write. Poll until no tmp files
+    remain (all writes committed or rolled back via weakref.finalize).
+    """
+    deadline = time.time() + CACHE_SETTLE_TIMEOUT
+    while time.time() < deadline:
+        gc.collect()
+        tmp_files = list(cache_dir.glob("tmp*"))
+        if not tmp_files:
+            return
+        logger.debug("Waiting for %d tmp files to settle...", len(tmp_files))
+        await asyncio.sleep(CACHE_SETTLE_POLL_INTERVAL)
+    # Don't fail here — let the caller's assertions catch real problems.
+    logger.warning("Cache settle timeout: tmp files still present")
 
 
 def _check_cache_db(cache_dir: Path, min_entries: int) -> None:
@@ -201,6 +223,10 @@ class TestOTAProxyWarmCache:
         # If the condition is BELOW_SOFT, which all caches will be preserved, test full cached downloading
         # without involving the OTA image server.
         if condition == SPACE_CONDITION_BELOW_SOFT:
+            # Wait for all background cache writes to finish before
+            # attempting cache-only downloads with a dead upstream.
+            await _wait_for_cache_settled(cache_dir)
+
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, "http://127.0.0.1:65500"
             )
