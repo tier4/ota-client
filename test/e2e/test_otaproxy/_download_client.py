@@ -60,7 +60,7 @@ from ota_proxy.cache_control_header import export_kwargs_as_header_string
 
 # When cache rotation engaged, cache file might be
 # unavailable temporarily, allow retry on this case.
-RETRY_COUNT = 3
+RETRY_COUNT = 6
 
 
 class DownloadErrorType(Enum):
