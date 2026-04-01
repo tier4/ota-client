@@ -121,9 +121,9 @@ source = [
   "otaclient_manifest",
 ]
 disable_warnings = [
-    "no-data-collected",
-    "module-not-measured",
-    "module-not-imported",
+  "no-data-collected",
+  "module-not-measured",
+  "module-not-imported",
 ]
 
 [tool.coverage.report]
@@ -192,3 +192,6 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true
