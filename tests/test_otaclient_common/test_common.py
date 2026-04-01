@@ -140,7 +140,7 @@ class Test_copytree_identical:
 
 
 class Test_ensure_otaproxy_start:
-    DUMMY_SERVER_ADDR, DUMMY_SERVER_PORT = "127.0.0.1", 18888
+    DUMMY_SERVER_ADDR, DUMMY_SERVER_PORT = "127.0.0.1", 18889
     DUMMY_SERVER_URL = f"http://{DUMMY_SERVER_ADDR}:{DUMMY_SERVER_PORT}"
     LAUNCH_DELAY = 6
 
