@@ -167,11 +167,11 @@ class TestBootControllerBase:
         call_order = []
 
         # Track call order
-        controller._ota_status_control.pre_update_current.side_effect = (
-            lambda: call_order.append("pre_update_current")
+        controller._ota_status_control.pre_update_current.side_effect = lambda: (
+            call_order.append("pre_update_current")
         )
-        controller._mp_control.prepare_standby_dev.side_effect = (
-            lambda **kwargs: call_order.append("prepare_standby_dev")
+        controller._mp_control.prepare_standby_dev.side_effect = lambda **kwargs: (
+            call_order.append("prepare_standby_dev")
         )
         controller._mp_control.mount_standby.side_effect = lambda: call_order.append(
             "mount_standby"

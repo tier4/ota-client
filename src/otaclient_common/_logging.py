@@ -43,8 +43,8 @@ class BurstSuppressFilter(logging.Filter):
         if (cur_timestamp := int(time.time())) > self._round_start + self.round_length:
             if self._round_warned:
                 upper_logger.warning(
-                    f"{next(self._round_logging_count)-1} lines of logging suppressed for logger {self.name} "
-                    f"from {self._round_start} to {self._round_start+self.round_length} "
+                    f"{next(self._round_logging_count) - 1} lines of logging suppressed for logger {self.name} "
+                    f"from {self._round_start} to {self._round_start + self.round_length} "
                 )
             # reset logging round
             self._round_start = cur_timestamp

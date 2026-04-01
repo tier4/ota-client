@@ -64,7 +64,8 @@ def test_digest_value_parsing(_in, _expected: list[str]):
             ["file", "/opt/ota/firmware/BOOTAA64.efi"],
         ),
         (
-            _in := "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d",
+            _in
+            := "sha256:32baa6f7e96661d50fb78e5d7149763e3a0fe70c51c37c6bea92c3c27cd2472d",
             [
                 "blob",
                 DigestValue.parse(_in),

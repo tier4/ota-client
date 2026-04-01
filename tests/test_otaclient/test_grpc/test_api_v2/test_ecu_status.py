@@ -61,7 +61,9 @@ class TestECUStatusStorage:
 
         _mocked_otaclient_cfg = DefaultOTAClientConfigs()
         # NOTE: decrease the interval for faster testing
-        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = self.PROPERTY_REFRESH_INTERVAL_FOR_TEST  # type: ignore[assignment]
+        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = (
+            self.PROPERTY_REFRESH_INTERVAL_FOR_TEST
+        )  # type: ignore[assignment]
         mocker.patch(f"{ECU_STATUS_MODULE}.cfg", _mocked_otaclient_cfg)
 
         try:
@@ -423,9 +425,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert (
-                getattr(self.ecu_storage._state, k) == v
-            ), f"status_report attr {k} mismatch"
+            assert getattr(self.ecu_storage._state, k) == v, (
+                f"status_report attr {k} mismatch"
+            )
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
@@ -567,9 +569,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert (
-                getattr(self.ecu_storage._state, k) == v
-            ), f"status_report attr {k} mismatch"
+            assert getattr(self.ecu_storage._state, k) == v, (
+                f"status_report attr {k} mismatch"
+            )
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
