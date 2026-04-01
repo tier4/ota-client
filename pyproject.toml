@@ -98,6 +98,7 @@ log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(m
 log_cli = true
 log_cli_level = "INFO"
 testpaths = [
+  "./test",
   "./tests",
 ]
 markers = [
@@ -148,6 +149,7 @@ exclude = [
   ".venv",
   "venv",
   ".tests",
+  ".test"
 ]
 ignore = [
   "proto/**",
@@ -161,9 +163,9 @@ pythonVersion = "3.8"
 [tool.ruff]
 line-length = 88
 target-version = "py38"
-# NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
+  "test/**/*.py",
   "src/**/*.py",
   "pyproject.toml",
 ]
