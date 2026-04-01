@@ -59,7 +59,6 @@ def test_slot_id(_in: Any, _expect: SlotID | None, _exc: type[Exception] | None)
 
 
 class TestBSPVersion:
-
     @pytest.mark.parametrize(
         "_in, _expect, _exc",
         (
@@ -97,7 +96,6 @@ class TestBSPVersion:
 
 
 class TestFirmwareBSPVersionControl:
-
     @pytest.fixture(autouse=True)
     def setup_test(self):
         self.ver = BSPVersion(35, 5, 0)

@@ -234,7 +234,6 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-
         # TODO: Currently, we cannot update /boot/ota/proxy_info.yaml because it is not included in the OTA image.
         # As a workaround, we use the HTTP host with the gRPC port for gRPC communication,
         # since their hosts are essentially the same.

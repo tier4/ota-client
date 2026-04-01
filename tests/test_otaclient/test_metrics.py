@@ -19,7 +19,6 @@ import json
 from unittest.mock import patch
 
 from _otaclient_version import __version__
-
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info

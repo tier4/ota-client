@@ -171,12 +171,12 @@ class TestOTACacheDNSTTL:
     async def test_dns_cache_ttl_config_within_reasonable_range(self):
         """AIOHTTP_DNS_CACHE_TTL should be longer than aiohttp default (10s) but
         short enough to allow CDN failover (CloudFront TTL is ~60-300s)."""
-        assert (
-            cfg.AIOHTTP_DNS_CACHE_TTL > 10
-        ), "TTL should be greater than aiohttp default (10s) to reduce DNS resolution frequency"
-        assert (
-            cfg.AIOHTTP_DNS_CACHE_TTL <= 300
-        ), "TTL should not exceed CDN DNS TTL (~300s) to allow IP failover"
+        assert cfg.AIOHTTP_DNS_CACHE_TTL > 10, (
+            "TTL should be greater than aiohttp default (10s) to reduce DNS resolution frequency"
+        )
+        assert cfg.AIOHTTP_DNS_CACHE_TTL <= 300, (
+            "TTL should not exceed CDN DNS TTL (~300s) to allow IP failover"
+        )
 
     async def test_ota_cache_start_applies_dns_cache_ttl(self):
         """OTACache.start() should configure TCPConnector with AIOHTTP_DNS_CACHE_TTL."""
@@ -227,7 +227,6 @@ class TestOtaNfsCache:
             ) as mock_nfs, patch.object(
                 cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
             ) as mock_download:
-
                 # Setup: local cache miss, NFS cache hit
                 mock_local.return_value = None
                 mock_nfs.return_value = nfs_result
@@ -271,7 +270,6 @@ class TestOtaNfsCache:
         ) as mock_nfs, patch.object(
             cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
         ) as mock_download:
-
             # Setup: both local and NFS cache have the file
             mock_local.return_value = local_result
             mock_nfs.return_value = nfs_result
@@ -314,7 +312,6 @@ class TestOtaNfsCache:
         ) as mock_nfs, patch.object(
             cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
         ) as mock_download:
-
             # Setup: only local cache has the file
             mock_local.return_value = local_result
             mock_nfs.return_value = None

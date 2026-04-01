@@ -36,7 +36,6 @@ from otaclient._types import FailureType, OTAStatus, UpdatePhase
 
 
 class TestStatusMonitor:
-
     # update meta
     TOTAL_FILES_NUM = TOTAL_FILES_SIZE = 1000
     METADATA_SIZE = 20

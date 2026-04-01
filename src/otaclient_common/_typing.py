@@ -52,7 +52,6 @@ else:
     #   besides here, we implement __str__ to use str type's one, to align with
     #   the behavior of >= 3.11.
     class StrEnum(str, Enum):
-
         def __str__(self) -> str:
             return str.__str__(self)
 
@@ -77,9 +76,9 @@ def gen_strenum_validator(
     """
 
     def _inner(value: EnumT | str | Any) -> EnumT:
-        assert isinstance(
-            value, (enum_type, str)
-        ), f"{value=} should be {enum_type} or str type"
+        assert isinstance(value, (enum_type, str)), (
+            f"{value=} should be {enum_type} or str type"
+        )
         return enum_type(value)
 
     return _inner

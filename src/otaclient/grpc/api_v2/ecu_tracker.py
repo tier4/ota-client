@@ -39,7 +39,6 @@ _ACTIVE_POLL_LOCAL_ON_STARTUP = 0.1
 
 
 class ECUTracker:
-
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,

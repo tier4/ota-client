@@ -98,8 +98,7 @@ class OTAClientCall:
                 )
             else:
                 _msg = (
-                    f"{ecu_id=} abort request failed with gRPC error code "
-                    f"{code}: {e!r}"
+                    f"{ecu_id=} abort request failed with gRPC error code {code}: {e!r}"
                 )
             raise ECUNoResponse(_msg) from e
         except Exception as e:
