@@ -254,7 +254,6 @@ class CacheTracker:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, input_que, cache_meta
 
     def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
@@ -282,7 +281,6 @@ class CacheTracker:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, data, cache_meta
 
     async def subscriber_wait_for_provider(self) -> bool:
