@@ -259,8 +259,8 @@ class CacheTracker:
             #   subscriber faster. Whether the database entry is committed or not
             #   doesn't matter here, the subscriber doesn't need to fail if caching
             #   finished but db commit failed.
-            tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written
+            tracker_events.set_writer_finished()
 
             if not tracker_events.writer_failed:
                 self._finalize_cache()
@@ -286,10 +286,10 @@ class CacheTracker:
                 f.write(data)
                 f.flush()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            cache_meta.cache_size = self._bytes_written = len(data)
 
             # as the data is small, directly set writer to finish
             tracker_events.set_writer_finished()
-            cache_meta.cache_size = self._bytes_written = len(data)
             self._finalize_cache()
         except Exception as e:
             tracker_events.set_writer_failed()
