@@ -285,8 +285,11 @@ class CacheTracker:
             tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> None:
+    async def subscriber_wait_for_provider(self) -> bool:
         """
+        Returns:
+            A bool indicates whether the cache write is finished.
+
         Raises:
             CacheProviderNotReady if timeout waiting cache provider.
         """
@@ -310,6 +313,8 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
+
+            return tracker_events.writer_finished
         finally:
             del self, tracker_events
 
@@ -637,22 +642,34 @@ class CacheReaderPool:
             await self._read_dispatcher(read_file_once, fpath)
         )
 
-    async def subscribe_tracker(self, tracker: CacheTracker) -> AsyncGenerator[bytes]:
+    async def subscribe_tracker(
+        self, tracker: CacheTracker
+    ) -> AsyncGenerator[bytes] | bytes:
         """
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
         # first we wait for provider ready
-        await tracker.subscriber_wait_for_provider()
+        _cache_finished = await tracker.subscriber_wait_for_provider()
 
-        interrupt_thread_worker = threading.Event()
-        que = asyncio.Queue()
-        # then wait for task picked by reader thread worker pool
-        await self._read_dispatcher(
-            tracker.subscriber_stream_cache_in_thread,
-            que,
-            interrupt_thread_worker=interrupt_thread_worker,
-            read_chunk_size=self.read_chunk_size,
-        )
-        return self._stream_from_que(que, interrupt_thread_worker)
+        if not _cache_finished:
+            interrupt_thread_worker = threading.Event()
+            que = asyncio.Queue()
+            # then wait for task picked by reader thread worker pool
+            await self._read_dispatcher(
+                tracker.subscriber_stream_cache_in_thread,
+                que,
+                interrupt_thread_worker=interrupt_thread_worker,
+                read_chunk_size=self.read_chunk_size,
+            )
+            return self._stream_from_que(que, interrupt_thread_worker)
+
+        # if cache write is finished, cache_meta MUST not be None
+        assert tracker.cache_meta
+        _cache_size = tracker.cache_meta.cache_size
+
+        # if it is small files, just directly read it without stream
+        if _cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
+            return await self.read_file_once(tracker.fpath)
+        return await self.stream_read_file(tracker.fpath)
