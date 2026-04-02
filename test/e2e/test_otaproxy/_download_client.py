@@ -121,7 +121,6 @@ async def run(  # noqa
                             last_err = f"{name}: HTTP {resp.status}"
                             err_type = DownloadErrorType.failed_downloaded
                             recorded_failed.append(last_err)
-                            _set_retry_caching(headers)
                             continue
 
                         h = hashlib.sha256()
