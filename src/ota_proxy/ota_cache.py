@@ -479,7 +479,6 @@ class OTACache:
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
         cache_file = os_path.join(self._base_dir, cache_identifier)
-        _cache_file_fstat = os.lstat(cache_file)
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -487,8 +486,13 @@ class OTACache:
         #   cache_commit_callback to rename the tmp file.
         _retry_count_max, _factor, _backoff_max = 6, 0.01, 0.1  # 0.255s in total
         for _retry_count in range(_retry_count_max):
-            if stat.S_ISREG(_cache_file_fstat.st_mode):
-                break
+            try:
+                _cache_file_fstat = os.lstat(cache_file)
+                if stat.S_ISREG(_cache_file_fstat.st_mode):
+                    break
+            except Exception:
+                pass  # file is not yet created
+
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
         else:
             burst_suppressed_logger.warning(
