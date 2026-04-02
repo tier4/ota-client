@@ -45,6 +45,8 @@ def process_raw_url(raw_url: str, enable_https: bool) -> str:
     """Process the raw URL received from upper uvicorn app.
 
     NOTE: raw_url(get from uvicorn) is unquoted, we must quote it again before we send it to the remote
+    NOTE(20221003): as otaproxy, we should treat all contents after netloc as path and not touch it,
+                    because we should forward the request as it to the remote.
     NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
     """
     _scheme = "https" if enable_https else "http"
