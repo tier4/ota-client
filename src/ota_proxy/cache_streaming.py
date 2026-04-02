@@ -209,7 +209,10 @@ class CacheTracker:
                 return burst_suppressed_logger.warning(
                     f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
                 )
-            os.link(self.fpath, self.save_path)
+            # If the cache file is already existed, we assume that
+            # another writer is handling it, but somehow the cache db entry
+            # is not inserted yet.
+            # To prevent dangling cache file, still insert the cache entry.
 
         try:
             self._commit_cache_cb(self.cache_meta)
