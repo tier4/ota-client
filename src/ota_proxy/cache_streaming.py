@@ -20,7 +20,6 @@ import itertools
 import logging
 import os
 import os.path as os_path
-import stat
 import threading
 import time
 import weakref
@@ -71,7 +70,10 @@ def _unlink_no_error(fpath):
 
 
 class CacheTrackerEvents:  # pragma: no cover
-    """One-way flag storage for tracking CacheTracker's status."""
+    """One-way flag storage for tracking CacheTracker's status.
+
+    ONLY one writer will update the state, so no need to use lock.
+    """
 
     _INIT = 0
     _STARTED = 1
@@ -198,27 +200,13 @@ class CacheTracker:
             return
 
         try:
-            _save_path_fstat = os.lstat(self.save_path)
-            _save_path_mode = _save_path_fstat.st_mode
-        except FileNotFoundError:
-            try:
-                os.link(self.fpath, self.save_path)
-            except FileExistsError:
-                # _finalize_cache will also be called from multiple threads against
-                # the same file.
-                pass
-        else:
-            if stat.S_ISLNK(_save_path_mode):
-                os.unlink(self.save_path)
-            elif not stat.S_ISREG(_save_path_mode):
-                return burst_suppressed_logger.warning(
-                    f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
-                )
-            # If the cache file is already existed, we assume that
-            # another writer is handling it, but somehow the cache db entry
-            # is not inserted yet.
-            # To prevent dangling cache file, still insert the cache entry.
+            os.link(self.fpath, self.save_path)
+        except FileExistsError:
+            pass
 
+        # If the cache file is already existed, we assume that
+        # another writer is handling it, but in case of somehow the cache db entry
+        # is not correctly inserted, to prevent dangling cache file, still insert the cache entry.
         try:
             self._commit_cache_cb(self.cache_meta)
         except Exception as e:
