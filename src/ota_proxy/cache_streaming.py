@@ -57,7 +57,7 @@ P = ParamSpec("P")
 RT = TypeVar("RT")
 
 # will have a random nounce at every startup
-TMP_FNAME_NOUNCE = os.urandom(4).hex()
+TMP_FNAME_NONCE = os.urandom(4).hex()
 TMP_FNAME_COUNTER = itertools.count()
 
 # cache tracker
@@ -142,7 +142,7 @@ class CacheTracker:
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
 
-    _tmp_fname_nounce = TMP_FNAME_NOUNCE
+    _tmp_fname_nonce = TMP_FNAME_NONCE
     _tmp_fname_counter = TMP_FNAME_COUNTER
 
     @classmethod
@@ -157,7 +157,7 @@ class CacheTracker:
         return (
             f"{cfg.TMP_FILE_PREFIX}{cls.FNAME_PART_SEPARATOR}"
             f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}"
-            f"{cls._tmp_fname_nounce}{cls.FNAME_PART_SEPARATOR}{next(cls._tmp_fname_counter)}"
+            f"{cls._tmp_fname_nonce}{cls.FNAME_PART_SEPARATOR}{next(cls._tmp_fname_counter)}"
         )
 
     def __init__(
