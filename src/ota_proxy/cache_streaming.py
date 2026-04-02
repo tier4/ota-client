@@ -16,13 +16,15 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
 import os
+import os.path as os_path
+import stat
 import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
-from pathlib import Path
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -54,6 +56,10 @@ _reader_failed_sentinel = object()
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
+# will have a random nounce at every startup
+TMP_FNAME_NOUNCE = os.urandom(4).hex()
+TMP_FNAME_COUNTER = itertools.count()
+
 # cache tracker
 
 
@@ -64,33 +70,39 @@ def _unlink_no_error(fpath):
         pass
 
 
-class CacheTrackerEvents:
-    def __init__(self):
-        self._writer_started = threading.Event()
-        self._writer_finished = threading.Event()
-        self._writer_failed = threading.Event()
+class CacheTrackerEvents:  # pragma: no cover
+    """One-way flag storage for tracking CacheTracker's status."""
+
+    _INIT = 0
+    _STARTED = 1
+    _FINISHED = 2
+    _FAILED = -1
+
+    __slots__ = ("_state",)
+
+    def __init__(self) -> None:
+        self._state = 0
 
     @property
     def writer_failed(self) -> bool:
-        return self._writer_failed.is_set()
+        return self._state < 0
 
     @property
     def writer_finished(self) -> bool:
-        return self._writer_finished.is_set()
+        return self._state >= 2
 
     @property
     def writer_started(self) -> bool:
-        return self._writer_started.is_set()
+        return self._state >= 1
 
-    def set_writer_failed(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
-        self._writer_failed.set()
+    def set_writer_failed(self) -> None:
+        self._state = self._FAILED
 
-    def set_writer_started(self) -> None:  # pragma: no cover
-        self._writer_started.set()
+    def set_writer_started(self) -> None:
+        self._state = self._STARTED
 
-    def set_writer_finished(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
+    def set_writer_finished(self) -> None:
+        self._state = self._FINISHED
 
 
 class CacheTracker:
@@ -124,6 +136,9 @@ class CacheTracker:
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
 
+    _tmp_fname_nounce = TMP_FNAME_NOUNCE
+    _tmp_fname_counter = TMP_FNAME_COUNTER
+
     @classmethod
     def _tmp_file_naming(cls, cache_identifier: str) -> str:
         """Create fname for tmp caching entry.
@@ -135,19 +150,21 @@ class CacheTracker:
         """
         return (
             f"{cfg.TMP_FILE_PREFIX}{cls.FNAME_PART_SEPARATOR}"
-            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}{(os.urandom(4)).hex()}"
+            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}"
+            f"{cls._tmp_fname_nounce}{cls.FNAME_PART_SEPARATOR}{next(cls._tmp_fname_counter)}"
         )
 
     def __init__(
         self,
         cache_identifier: str,
         *,
-        base_dir: Path,
+        base_dir: str,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
-    ):
-        self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
-        self.save_path = base_dir / cache_identifier
+    ) -> None:
+        self.fpath = os_path.join(base_dir, self._tmp_file_naming(cache_identifier))
+        self.save_path = os_path.join(base_dir, cache_identifier)
+
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
@@ -174,15 +191,18 @@ class CacheTracker:
         if not self.cache_meta:
             return
 
-        if self.save_path.is_symlink():
-            self.save_path.unlink()
-        if self.save_path.exists():
-            if not self.save_path.is_file():
-                burst_suppressed_logger.warning(
+        try:
+            _save_path_fstat = os.lstat(self.save_path)
+            _save_path_mode = _save_path_fstat.st_mode
+        except FileNotFoundError:
+            os.link(self.fpath, self.save_path)
+        else:
+            if stat.S_ISLNK(_save_path_mode):
+                os.unlink(self.save_path)
+            elif not stat.S_ISREG(_save_path_mode):
+                return burst_suppressed_logger.warning(
                     f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
                 )
-                return
-        else:
             os.link(self.fpath, self.save_path)
 
         try:
@@ -196,16 +216,16 @@ class CacheTracker:
         self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
     ) -> None:
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                # first create the file
-                f.write(b"")
-                f.flush()
+                weakref.finalize(self, _unlink_no_error, self.fpath)
+
+                # NOTE(20260330): at the time open(..., "wb") returns,
+                #                 the file entry is already created.
+                tracker_events.set_writer_started()
 
                 self.cache_meta = cache_meta
-                weakref.finalize(self, _unlink_no_error, self.fpath)
                 try:
                     while data := input_que.get():
                         # caller set failed flag, or space hard limit is reached, abort
@@ -239,7 +259,6 @@ class CacheTracker:
 
     def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
             if not self._space_availability_event.is_set():
                 _err_msg = f"abort caching {cache_meta} on space hard limit reached"
@@ -248,11 +267,14 @@ class CacheTracker:
 
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
+                weakref.finalize(self, _unlink_no_error, self.fpath)
+
                 self.cache_meta = cache_meta
                 f.write(data)
                 f.flush()
-                weakref.finalize(self, _unlink_no_error, self.fpath)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+            # as the data is small, directly set writer to finish
             tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
             self._finalize_cache()

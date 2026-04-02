@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import os.path as os_path
 import shutil
+import stat
 import threading
 import time
 from pathlib import Path
@@ -475,7 +478,8 @@ class OTACache:
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        cache_file = self._base_dir / cache_identifier
+        cache_file = os_path.join(self._base_dir, cache_identifier)
+        _cache_file_fstat = os.lstat(cache_file)
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -483,7 +487,7 @@ class OTACache:
         #   cache_commit_callback to rename the tmp file.
         _retry_count_max, _factor, _backoff_max = 6, 0.01, 0.1  # 0.255s in total
         for _retry_count in range(_retry_count_max):
-            if await cache_file.is_file():
+            if stat.S_ISREG(_cache_file_fstat.st_mode):
                 break
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
         else:
@@ -593,7 +597,7 @@ class OTACache:
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
-            base_dir=Path(self._base_dir),
+            base_dir=str(self._base_dir),
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
