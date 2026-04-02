@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from http import HTTPStatus
-from urllib.parse import urlparse
 
 import aiohttp
 from multidict import CIMultiDict, CIMultiDictProxy
