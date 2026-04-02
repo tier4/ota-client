@@ -96,12 +96,18 @@ class CacheTrackerEvents:  # pragma: no cover
         return self._state >= 1
 
     def set_writer_failed(self) -> None:
+        if self._state >= 2:
+            return
         self._state = self._FAILED
 
     def set_writer_started(self) -> None:
+        if self._state != 0:
+            return
         self._state = self._STARTED
 
     def set_writer_finished(self) -> None:
+        if self._state < 0:
+            return
         self._state = self._FINISHED
 
 
