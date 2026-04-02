@@ -207,6 +207,7 @@ class CacheTracker:
         # If the cache file is already existed, we assume that
         # another writer is handling it, but in case of somehow the cache db entry
         # is not correctly inserted, to prevent dangling cache file, still insert the cache entry.
+        # If the cache file is somehow broken, we still have OTA cache control header retry_caching.
         try:
             self._commit_cache_cb(self.cache_meta)
         except Exception as e:
