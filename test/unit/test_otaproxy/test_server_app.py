@@ -93,10 +93,10 @@ class _MessageQueue:
         self._recv = list(recv_messages)
         self._sent: list[dict] = []
 
-    async def receive(self) -> dict:
+    async def receive(self) -> dict:  # noqa: S7503
         return self._recv.pop(0)
 
-    async def send(self, msg: dict) -> None:
+    async def send(self, msg: dict) -> None:  # noqa: S7503
         self._sent.append(msg)
 
     @property
@@ -620,7 +620,7 @@ class TestErrorHandlingForCacheRetrieving:
         app = App(mock_cache)
         sent: list[dict] = []
 
-        async def _send(msg: dict) -> None:
+        async def _send(msg: dict) -> None:  # noqa: S7503
             sent.append(msg)
 
         await app._error_handling_for_cache_retrieving(exc, "http://x.com/f", _send)
@@ -681,7 +681,7 @@ class TestErrorHandlingDuringTransferring:
         app = App(mock_cache)
         sent: list[dict] = []
 
-        async def _send(msg: dict) -> None:
+        async def _send(msg: dict) -> None:  # noqa: S7503
             sent.append(msg)
 
         await app._error_handling_during_transferring(exc, "http://x.com/f", _send)
