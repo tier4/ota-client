@@ -335,12 +335,28 @@ class App:
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
 
-        url = scope["path"]
-        _url = urlparse(url)
-        if not _url.scheme or not _url.path:
-            msg = f"INVALID URL {url}."
-            await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
-            return
+        url: str = scope["path"]
+        for name, value in scope["headers"]:
+            if name == b"host":
+                _host = value.decode("ascii")
+                break
+        else:
+            return await self._respond_with_error(
+                HTTPStatus.BAD_REQUEST, "missing `host` header", send
+            )
+
+        # httptools strips absolute URLs to just the path component.
+        # Reconstruct the full URL from the Host header for proxy requests.
+        # Reject non-proxy requests where Host matches our own listen address.
+        if url.startswith("/"):
+            _server = scope.get("server")
+            if _server and _host == f"{_server[0]}:{_server[1]}":
+                msg = "We are not HTTP server but a proxy server."
+                await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
+                return
+
+            _scheme = scope.get("scheme", "http")
+            url = f"{_scheme}://{_host}{url}"
 
         if self._se.locked():
             burst_suppressed_logger.warning(
