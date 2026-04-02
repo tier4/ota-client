@@ -201,7 +201,12 @@ class CacheTracker:
             _save_path_fstat = os.lstat(self.save_path)
             _save_path_mode = _save_path_fstat.st_mode
         except FileNotFoundError:
-            os.link(self.fpath, self.save_path)
+            try:
+                os.link(self.fpath, self.save_path)
+            except FileExistsError:
+                # _finalize_cache will also be called from multiple threads against
+                # the same file.
+                pass
         else:
             if stat.S_ISLNK(_save_path_mode):
                 os.unlink(self.save_path)
