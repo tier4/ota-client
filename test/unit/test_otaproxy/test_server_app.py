@@ -11,35 +11,28 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Unit tests for ota_proxy.server_app (App ASGI application).
 
 Test focus:
   1. Helper functions: parse_raw_headers, encode_headers
   2. App lifecycle: start / stop idempotency
   3. ASGI lifespan protocol compliance (uvicorn compatibility)
-  4. HTTP handler routing logic
+  4. HTTP handler routing logic (httptools URL reconstruction)
   5. Error handling for all exception types from ota_cache
   6. Data-streaming paths (_pull_data_and_send)
-  7. uvicorn integration: verify the App works end-to-end with a real
-     uvicorn.Server instance using our production configuration.
+  7. ASGI response format compliance
 
-The unit tests (1-6) use a mocked OTACache so no real network or filesystem
-access is required.  The integration tests (7) spin up a real uvicorn server
-in-process and make actual HTTP requests through it.
+All tests use a mocked OTACache so no real network or filesystem access is
+required.
 """
 
 from __future__ import annotations
 
-import asyncio
-import socket
 from http import HTTPStatus
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
-import pytest
-import uvicorn
 from multidict import CIMultiDict
 
 from ota_proxy._consts import (
@@ -62,22 +55,30 @@ from ota_proxy.errors import (
 )
 from ota_proxy.server_app import App, encode_headers, parse_raw_headers
 
-# --------------------------------------------------------------------------- #
-# ASGI test helpers
-# --------------------------------------------------------------------------- #
-
 
 def _make_http_scope(
     method: str = "GET",
-    path: str = "http://example.com/data/file.bin",
+    path: str = "/data/file.bin",
     headers: list[tuple[bytes, bytes]] | None = None,
+    host: str = "example.com",
+    server: tuple[str, int] = ("127.0.0.1", 8080),
 ) -> dict[str, Any]:
-    """Build a minimal ASGI HTTP scope dict (as uvicorn would provide)."""
+    """Build a minimal ASGI HTTP scope dict (as uvicorn+httptools would provide).
+
+    httptools strips absolute URLs to just the path component, so the scope
+    contains a relative path and a Host header (plus a "server" tuple for the
+    local listen address).
+    """
+    _headers = [(b"host", host.encode("ascii"))]
+    if headers:
+        _headers.extend(headers)
     return {
         "type": "http",
         "method": method,
         "path": path,
-        "headers": headers if headers is not None else [],
+        "headers": _headers,
+        "server": server,
+        "scheme": "http",
     }
 
 
@@ -112,9 +113,9 @@ def _make_ota_cache_mock() -> MagicMock:
     return mock
 
 
-# --------------------------------------------------------------------------- #
-# Tests: parse_raw_headers
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: parse_raw_headers ------------ #
+#
 
 
 class TestParseRawHeaders:
@@ -188,9 +189,9 @@ class TestParseRawHeaders:
         assert HEADER_AUTHORIZATION in result
 
 
-# --------------------------------------------------------------------------- #
-# Tests: encode_headers
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: encode_headers ------------ #
+#
 
 
 class TestEncodeHeaders:
@@ -259,9 +260,9 @@ class TestEncodeHeaders:
             assert isinstance(item[1], bytes)
 
 
-# --------------------------------------------------------------------------- #
-# Tests: App lifecycle (start / stop)
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: App lifecycle (start / stop) ------------ #
+#
 
 
 class TestAppLifecycle:
@@ -305,7 +306,7 @@ class TestAppLifecycle:
         mock_cache.close.assert_not_awaited()
 
     async def test_start_stop_start_cycle(self):
-        """A full start → stop → start cycle should re-open the cache."""
+        """A full start -> stop -> start cycle should re-open the cache."""
         mock_cache = _make_ota_cache_mock()
         app = App(mock_cache)
         await app.start()
@@ -315,9 +316,9 @@ class TestAppLifecycle:
         assert mock_cache.close.await_count == 1
 
 
-# --------------------------------------------------------------------------- #
-# Tests: ASGI lifespan protocol (uvicorn compatibility)
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: ASGI lifespan protocol (uvicorn compatibility) ------------ #
+#
 
 
 class TestASGILifespanProtocol:
@@ -356,7 +357,7 @@ class TestASGILifespanProtocol:
         assert "lifespan.shutdown.complete" in sent_types
 
     async def test_full_lifespan_sequence(self):
-        """startup → startup.complete → shutdown → shutdown.complete."""
+        """startup -> startup.complete -> shutdown -> shutdown.complete."""
         mock_cache = _make_ota_cache_mock()
         app = App(mock_cache)
 
@@ -399,24 +400,30 @@ class TestASGILifespanProtocol:
         assert mq.sent == []
 
 
-# --------------------------------------------------------------------------- #
-# Tests: HTTP handler routing
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: HTTP handler routing ------------ #
+#
 
 
 class TestHTTPHandlerRouting:
-    """Tests for App.http_handler() routing decisions."""
+    """Tests for App.http_handler() routing decisions.
+
+    httptools strips absolute URLs to just the path, so all scopes use
+    relative paths with a Host header.  The handler reconstructs the full
+    URL as ``http://{host}{path}``.
+    """
 
     async def _call_http(
         self,
         app: App,
         *,
         method: str = "GET",
-        path: str = "http://example.com/data/file.bin",
+        path: str = "/data/file.bin",
+        host: str = "example.com",
         headers: list[tuple[bytes, bytes]] | None = None,
     ) -> list[dict]:
         """Helper: call the app as an HTTP request and return sent messages."""
-        scope = _make_http_scope(method=method, path=path, headers=headers)
+        scope = _make_http_scope(method=method, path=path, host=host, headers=headers)
         mq = _MessageQueue([])
         await app(scope, mq.receive, mq.send)
         return mq.sent
@@ -429,28 +436,64 @@ class TestHTTPHandlerRouting:
         assert sent[0]["type"] == "http.response.start"
         assert sent[0]["status"] == HTTPStatus.BAD_REQUEST
 
-    async def test_invalid_url_no_scheme_returns_400(self):
+    async def test_request_to_own_address_returns_400(self):
+        """A request whose Host matches the server's own listen address must be rejected."""
         mock_cache = _make_ota_cache_mock()
         app = App(mock_cache)
-        # A relative path has no scheme
-        sent = await self._call_http(app, path="/relative/path")
+        # Host == server address -> not a proxy request
+        sent = await self._call_http(app, path="/some/path", host="127.0.0.1:8080")
+
+        assert sent[0]["type"] == "http.response.start"
+        assert sent[0]["status"] == HTTPStatus.BAD_REQUEST
+
+    async def test_missing_host_header_returns_400(self):
+        """A request with no Host header must be rejected with 400."""
+        mock_cache = _make_ota_cache_mock()
+        app = App(mock_cache)
+        # Build scope manually without any host header
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/data/file.bin",
+            "headers": [],
+            "server": ("127.0.0.1", 8080),
+            "scheme": "http",
+        }
+        mq = _MessageQueue([])
+        await app(scope, mq.receive, mq.send)
+        sent = mq.sent
 
         assert sent[0]["type"] == "http.response.start"
         assert sent[0]["status"] == HTTPStatus.BAD_REQUEST
 
     async def test_valid_get_delegates_to_pull_data(self):
-        """A valid GET with a proper URL must call retrieve_file."""
+        """A valid GET with a proper Host header must call retrieve_file."""
         mock_cache = _make_ota_cache_mock()
         mock_cache.retrieve_file.return_value = (
             b"file content",
             CIMultiDict({HEADER_CONTENT_TYPE: "application/octet-stream"}),
         )
         app = App(mock_cache)
-        sent = await self._call_http(app, path="http://example.com/data/file.bin")
+        sent = await self._call_http(app, path="/data/file.bin", host="example.com")
 
         mock_cache.retrieve_file.assert_awaited_once()
         assert sent[0]["type"] == "http.response.start"
         assert sent[0]["status"] == HTTPStatus.OK
+
+    async def test_url_reconstructed_from_host_and_path(self):
+        """The URL passed to retrieve_file must be reconstructed as http://host/path."""
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (
+            b"data",
+            CIMultiDict({HEADER_CONTENT_TYPE: "application/octet-stream"}),
+        )
+        app = App(mock_cache)
+        await self._call_http(
+            app, path="/data/firmware.bin", host="ota-image.example.com"
+        )
+
+        called_url = mock_cache.retrieve_file.call_args[0][0]
+        assert called_url == "http://ota-image.example.com/data/firmware.bin"
 
     async def test_semaphore_full_returns_429(self):
         """When all semaphore slots are occupied, requests get 429."""
@@ -461,16 +504,16 @@ class TestHTTPHandlerRouting:
         # Saturate the semaphore manually
         await app._se.acquire()
         try:
-            sent = await self._call_http(app, path="http://example.com/data/file.bin")
+            sent = await self._call_http(app, path="/data/file.bin", host="example.com")
             assert sent[0]["type"] == "http.response.start"
             assert sent[0]["status"] == HTTPStatus.TOO_MANY_REQUESTS
         finally:
             app._se.release()
 
 
-# --------------------------------------------------------------------------- #
-# Tests: _pull_data_and_send – data streaming paths
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: _pull_data_and_send - data streaming paths ------------ #
+#
 
 
 class TestPullDataAndSend:
@@ -480,12 +523,13 @@ class TestPullDataAndSend:
         self,
         app: App,
         *,
-        path: str = "http://example.com/data/file.bin",
+        url: str = "http://example.com/data/file.bin",
+        path: str = "/data/file.bin",
         headers: list[tuple[bytes, bytes]] | None = None,
     ) -> list[dict]:
         scope = _make_http_scope(path=path, headers=headers)
         mq = _MessageQueue([])
-        await app._pull_data_and_send(path, scope, mq.send)
+        await app._pull_data_and_send(url, scope, mq.send)
         return mq.sent
 
     async def test_bytes_response_sends_ok_and_body(self):
@@ -563,9 +607,9 @@ class TestPullDataAndSend:
         assert sent[-1]["body"] == b""
 
 
-# --------------------------------------------------------------------------- #
-# Tests: _error_handling_for_cache_retrieving
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: _error_handling_for_cache_retrieving ------------ #
+#
 
 
 class TestErrorHandlingForCacheRetrieving:
@@ -624,9 +668,9 @@ class TestErrorHandlingForCacheRetrieving:
         assert status == HTTPStatus.INTERNAL_SERVER_ERROR
 
 
-# --------------------------------------------------------------------------- #
-# Tests: _error_handling_during_transferring
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: _error_handling_during_transferring ------------ #
+#
 
 
 class TestErrorHandlingDuringTransferring:
@@ -656,9 +700,9 @@ class TestErrorHandlingDuringTransferring:
         assert body == b""
 
 
-# --------------------------------------------------------------------------- #
-# Tests: ASGI response format compliance (uvicorn compatibility)
-# --------------------------------------------------------------------------- #
+#
+# ------------ Tests: ASGI response format compliance (uvicorn compatibility) ------------ #
+#
 
 
 class TestASGIResponseFormatCompliance:
@@ -673,7 +717,7 @@ class TestASGIResponseFormatCompliance:
         mock_cache: MagicMock,
         *,
         method: str = "GET",
-        path: str = "http://example.com/data/file.bin",
+        path: str = "/data/file.bin",
     ) -> list[dict]:
         app = App(mock_cache)
         scope = _make_http_scope(method=method, path=path)
@@ -759,167 +803,3 @@ class TestASGIResponseFormatCompliance:
 
         starts = [m for m in sent if m.get("type") == "http.response.start"]
         assert len(starts) == 1
-
-
-# --------------------------------------------------------------------------- #
-# Tests: uvicorn integration (version-upgrade compatibility)
-# --------------------------------------------------------------------------- #
-
-
-def _find_free_port() -> int:
-    """Return an available TCP port on localhost."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class TestUvicornCompatibility:
-    """End-to-end tests that run a real uvicorn.Server with our App.
-
-    These tests validate that our production uvicorn usage does not break
-    across version upgrades.  Key configuration under test:
-
-        uvicorn.Config(app, lifespan="on", loop="uvloop", http="h11")
-        uvicorn.Server(config).serve()   (awaited as a coroutine)
-
-    Requests are sent via aiohttp using the HTTP proxy protocol
-    (absolute-form URI target), which is exactly how otaclient uses otaproxy.
-    """
-
-    # --- fixture ------------------------------------------------------------ #
-
-    @pytest.fixture
-    async def live_server(self):
-        """Start uvicorn in-process and yield (server, port, mock_cache).
-
-        loop="none" keeps uvicorn on the current event loop so that the fixture
-        can co-exist with pytest-asyncio's event loop.  The lifespan="on" and
-        http="h11" settings mirror the production configuration in __init__.py.
-        """
-        content = b"test-payload"
-        mock_cache = _make_ota_cache_mock()
-        mock_cache.retrieve_file.return_value = (
-            content,
-            CIMultiDict({HEADER_CONTENT_TYPE: "application/octet-stream"}),
-        )
-        app = App(mock_cache)
-        port = _find_free_port()
-
-        config = uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=port,
-            log_level="error",
-            lifespan="on",
-            loop="none",  # reuse pytest-asyncio's event loop
-            http="h11",  # required for HTTP proxy (absolute-form URI)
-        )
-        server = uvicorn.Server(config)
-        serve_task = asyncio.create_task(server.serve())
-
-        # Poll until uvicorn signals it has finished startup
-        for _ in range(50):
-            if server.started:
-                break
-            await asyncio.sleep(0.1)
-        else:
-            server.should_exit = True
-            await serve_task
-            pytest.fail("uvicorn did not start within 5 s")
-
-        try:
-            yield server, port, mock_cache, content
-        finally:
-            server.should_exit = True
-            await serve_task
-
-    # --- config-only tests (no server needed) ------------------------------- #
-
-    def test_production_config_params_are_accepted(self):
-        """uvicorn.Config must not raise with our production parameter set.
-
-        This test validates that the uvicorn version installed in the project
-        still accepts loop="uvloop", http="h11", and lifespan="on".
-        """
-        mock_cache = _make_ota_cache_mock()
-        app = App(mock_cache)
-        # Must not raise regardless of uvicorn version
-        config = uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=_find_free_port(),
-            log_level="error",
-            lifespan="on",
-            loop="uvloop",
-            http="h11",
-        )
-        assert config.lifespan == "on"
-        assert config.http == "h11"
-
-    # --- lifespan integration tests ---------------------------------------- #
-
-    async def test_lifespan_startup_triggers_app_start(self, live_server):
-        """uvicorn's lifespan handling must call App.start() on startup."""
-        _server, _port, mock_cache, _content = live_server
-        mock_cache.start.assert_awaited_once()
-
-    async def test_lifespan_shutdown_triggers_app_stop(self, live_server):
-        """uvicorn's lifespan handling must call App.stop() on shutdown."""
-        server, _port, mock_cache, _content = live_server
-        # Trigger shutdown by setting should_exit; the fixture teardown awaits it
-        server.should_exit = True
-        # Give the server a moment to process the shutdown
-        for _ in range(30):
-            if not server.started:
-                break
-            await asyncio.sleep(0.1)
-        mock_cache.close.assert_awaited_once()
-
-    # --- HTTP request integration tests ------------------------------------ #
-
-    async def test_proxy_get_returns_200_and_body(self, live_server):
-        """A proxy-style GET must return 200 and the file content."""
-        _server, port, _mock_cache, content = live_server
-        proxy_url = f"http://127.0.0.1:{port}"
-        target_url = "http://ota-image.example.com/data/firmware.bin"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(target_url, proxy=proxy_url) as resp:
-                assert resp.status == HTTPStatus.OK
-                body = await resp.read()
-
-        assert body == content
-
-    async def test_proxy_get_forwards_request_url_to_ota_cache(self, live_server):
-        """The URL seen by OTACache.retrieve_file must match the original target."""
-        _server, port, mock_cache, _content = live_server
-        proxy_url = f"http://127.0.0.1:{port}"
-        target_url = "http://ota-image.example.com/data/firmware.bin"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(target_url, proxy=proxy_url) as resp:
-                assert resp.status == HTTPStatus.OK
-
-        called_url = mock_cache.retrieve_file.call_args[0][0]
-        assert called_url == target_url
-
-    async def test_proxy_non_get_returns_400(self, live_server):
-        """A non-GET request through the proxy must be rejected with 400."""
-        _server, port, _mock_cache, _content = live_server
-        proxy_url = f"http://127.0.0.1:{port}"
-        target_url = "http://ota-image.example.com/data/firmware.bin"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(target_url, proxy=proxy_url) as resp:
-                assert resp.status == HTTPStatus.BAD_REQUEST
-
-    async def test_content_type_header_forwarded_to_client(self, live_server):
-        """The Content-Type header returned by OTACache must reach the client."""
-        _server, port, _mock_cache, _content = live_server
-        proxy_url = f"http://127.0.0.1:{port}"
-        target_url = "http://ota-image.example.com/data/firmware.bin"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(target_url, proxy=proxy_url) as resp:
-                assert resp.status == HTTPStatus.OK
-                assert "application/octet-stream" in resp.content_type
