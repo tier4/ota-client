@@ -55,7 +55,7 @@ _reader_failed_sentinel = object()
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
-# will have a random nounce at every startup
+# will have a random nonce at every startup
 TMP_FNAME_NONCE = os.urandom(4).hex()
 TMP_FNAME_COUNTER = itertools.count()
 
@@ -194,7 +194,7 @@ class CacheTracker:
                             reports it with OTA cache file protocol in next OTA download request.
         NOTE(20250731): not considering the case that /ota-cache folder is tampered
                             or poluted intentionally, assume that all files are normal files.
-                        If `save_dst` exists and is not a regular file, we just give up caching this file.
+                        If `save_dst` exists and is not a regular file, let next OTA download request handles it.
         """
         if not self.cache_meta:
             return

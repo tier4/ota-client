@@ -490,7 +490,12 @@ class OTACache:
                 _cache_file_fstat = os.lstat(cache_file)
                 if stat.S_ISREG(_cache_file_fstat.st_mode):
                     break
-            except Exception:
+
+                # the file is not a regular file?
+                Path(cache_file).unlink(missing_ok=True)
+                await self._lru_helper.remove_entry(cache_identifier)
+                return
+            except FileNotFoundError:
                 pass  # file is not yet created
 
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
