@@ -500,10 +500,7 @@ class OTACache:
 
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
         else:
-            burst_suppressed_logger.warning(
-                f"dangling cache entry found, remove db entry: {meta_db_entry}"
-            )
-            await self._lru_helper.remove_entry(cache_identifier)
+            # NOTE(20260403): not do the cleanup at here, let the new cache handler do it.
             return
 
         # fast path for small file, read one and directly return bytes
@@ -591,18 +588,17 @@ class OTACache:
             cache_identifier = url_based_hash(raw_url)
             compression_alg = None
 
-        # if set, cleanup any previous cache file before starting new cache
-        if cache_policy.retry_caching:
-            await self._lru_helper.remove_entry(cache_identifier)
-            await (self._base_dir / cache_identifier).unlink(missing_ok=True)
-
+        # Get a tracker: we are the subscriber
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
-            if _cache_meta := tracker.cache_meta:
-                return (
-                    await self._read_pool.subscribe_tracker(tracker),
-                    _cache_meta.export_headers_to_client(),
-                )
+            _subscribed_fd = await self._read_pool.subscribe_tracker(tracker)
+            # when subscribe is successful, the cache_meta must be set already
+            assert tracker.cache_meta
+            return (
+                _subscribed_fd,
+                tracker.cache_meta.export_headers_to_client(),
+            )
 
+        # We are the provider
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
@@ -612,6 +608,13 @@ class OTACache:
         )
         try:
             self._on_going_caching.register_tracker(cache_identifier, tracker)
+
+            # NOTE(20260403): only provider can do the cleanup for retry_cache
+            # if set, cleanup any previous cache file before starting new cache
+            if cache_policy.retry_caching:
+                await self._lru_helper.remove_entry(cache_identifier)
+                await (self._base_dir / cache_identifier).unlink(missing_ok=True)
+
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
@@ -631,7 +634,7 @@ class OTACache:
             tracker._tracker_events.set_writer_failed()
             raise
         finally:
-            del tracker  # prevent future subscribe to this tracker
+            del tracker  # prevent being captured by Exception
 
     # exposed API
 
