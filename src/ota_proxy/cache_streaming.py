@@ -653,26 +653,27 @@ class CacheReaderPool:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
-        # first we wait for provider ready
+        # First we wait for provider ready
         _cache_finished = await tracker.subscriber_wait_for_provider()
 
-        if not _cache_finished:
-            interrupt_thread_worker = threading.Event()
-            que = asyncio.Queue()
-            # then wait for task picked by reader thread worker pool
-            await self._read_dispatcher(
-                tracker.subscriber_stream_cache_in_thread,
-                que,
-                interrupt_thread_worker=interrupt_thread_worker,
-                read_chunk_size=self.read_chunk_size,
-            )
-            return self._stream_from_que(que, interrupt_thread_worker)
-
-        # if cache write is finished, cache_meta MUST not be None
-        assert tracker.cache_meta
-        _cache_size = tracker.cache_meta.cache_size
-
-        # if it is small files, just directly read it without stream
-        if _cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
+        # If cache write is finished and file is small, read it in one shot.
+        # read_file_once awaits the result, so tracker stays alive throughout.
+        if (
+            _cache_finished
+            and (_cache_meta := tracker.cache_meta)
+            and _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE
+        ):
             return await self.read_file_once(tracker.fpath)
-        return await self.stream_read_file(tracker.fpath)
+
+        # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
+        # The bound method keeps a strong reference to tracker, preventing GC
+        # from deleting the tmp file before the reader opens it.
+        interrupt_thread_worker = threading.Event()
+        que = asyncio.Queue()
+        await self._read_dispatcher(
+            tracker.subscriber_stream_cache_in_thread,
+            que,
+            interrupt_thread_worker=interrupt_thread_worker,
+            read_chunk_size=self.read_chunk_size,
+        )
+        return self._stream_from_que(que, interrupt_thread_worker)
