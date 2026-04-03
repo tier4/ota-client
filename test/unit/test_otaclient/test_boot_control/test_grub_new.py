@@ -284,15 +284,14 @@ class TestBootMenuEntryFindMenuentry:
         assert "fwsetup" not in result
 
     def test_skips_recovery_entry(self):
-        """The skip logic checks `_linux_dir_ma.group()` (the matched `linux <fpath>`),
-        so "recovery" must appear in the fpath for the skip to trigger.
-
-        Using `/recovery/vmlinuz-...` ensures LINUX_VERSION_PA still extracts the
-        correct kernel version, but the recovery check fires on the full match.
+        """Recovery entries have `recovery` as a boot argument in the linux
+        directive (e.g. `linux /vmlinuz-... root=UUID=... ro recovery nomodeset`).
+        The skip logic uses LINUX_RECOVERY_PA to match `recovery` as a
+        word-boundary argument, not a substring of the file path.
         """
         recovery = (
             "menuentry 'Ubuntu (recovery)' $menuentry_id_option 'recovery' {\n"
-            "\tlinux\t/recovery/vmlinuz-5.19.0-50-generic root=UUID=abc ro\n"
+            "\tlinux\t/vmlinuz-5.19.0-50-generic root=UUID=abc ro recovery nomodeset\n"
             "\tinitrd\t/initrd.img-5.19.0-50-generic\n"
             "}\n"
         )
@@ -307,6 +306,20 @@ class TestBootMenuEntryFindMenuentry:
             combined, kernel_ver="5.19.0-50-generic"
         )
         assert "recovery" not in result
+        assert "vmlinuz-5.19.0-50-generic" in result
+
+    def test_does_not_skip_recovery_in_path(self):
+        """A kernel under a path containing 'recovery' (e.g. /recovery/vmlinuz-...)
+        should NOT be skipped if `recovery` is not a boot argument."""
+        entry = (
+            "menuentry 'Ubuntu' $menuentry_id_option 'normal' {\n"
+            "\tlinux\t/recovery/vmlinuz-5.19.0-50-generic root=UUID=abc ro\n"
+            "\tinitrd\t/initrd.img-5.19.0-50-generic\n"
+            "}\n"
+        )
+        result = _BootMenuEntry._find_menuentry(
+            entry, kernel_ver="5.19.0-50-generic"
+        )
         assert "vmlinuz-5.19.0-50-generic" in result
 
 

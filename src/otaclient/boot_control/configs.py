@@ -51,6 +51,7 @@ if [ -f \${config_directory}/ota-slot_b.cfg ]; then
 fi
 EOF
 """
+    LEGACY_OTA_PARTITION_FNAME = "ota-partition"
     LEGACY_SLOT_ID_PREFIX = "ota-partition.sda"
 
 

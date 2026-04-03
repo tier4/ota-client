@@ -74,6 +74,10 @@ GRUB_BLACKLIST_OPTIONS = ["GRUB_SAVEDEFAULT"]
 
 MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
 LINUX_PA_MULTILINE = re.compile(r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE)
+LINUX_RECOVERY_PA = re.compile(
+    r"^\s*linux\s+\S+\s+.*\brecovery\b", re.MULTILINE
+)
+"""Match a linux directive line where `recovery` appears as a boot argument."""
 LINUX_VERSION_PA = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
 INITRD_PA_MULTILINE = re.compile(r"^\s*initrd\s*(?P<initrd_fpath>[^\s]+)", re.MULTILINE)
 MENUENTRY_TITLE_PA = re.compile(
@@ -162,11 +166,10 @@ class _BootMenuEntry:
             if not _linux_dir_ma:
                 continue  # not a linux boot menuentry
 
-            _linux_dir = _linux_dir_ma.group()
-            if _linux_dir.find("recovery") >= 0:
+            if LINUX_RECOVERY_PA.search(_found):
                 continue  # skip recovery entry
 
-            _linux_ver_ma = LINUX_VERSION_PA.search(_linux_dir)
+            _linux_ver_ma = LINUX_VERSION_PA.search(_linux_dir_ma.group())
             if not _linux_ver_ma:
                 continue  # invalid linux entry
 
@@ -319,7 +322,10 @@ class ABPartitionDetector:
                 _dev_name = _entry_ma.group("dev_name")
 
                 _dev_path_ma = DEV_PATH_PA.search(_dev_name)
-                assert _dev_path_ma
+                if not _dev_path_ma:
+                    raise GrubBootControllerError(
+                        f"unexpected device path format: {_dev_name}"
+                    )
                 _part_id = _dev_path_ma.group("partition_id")
 
                 _parts[_part_id] = PartitionInfo(
@@ -655,7 +661,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         (_slot_boot_dir / "grub").mkdir(parents=True, exist_ok=True)
 
         _kernel, _initrd = _boot_files.kernel, _boot_files.initrd
-        # in case of bootstrap triggers by damanged already setup system
+        # in case of bootstrap triggers by damaged already setup system
         if _kernel != _slot_boot_dir / _kernel.name:
             copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
         if _initrd != _slot_boot_dir / _initrd.name:
@@ -718,7 +724,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         """Cleanup the old OTA boot setup, otherwise recovery/migration
         procedure will not be triggered when downgrade.
         """
-        remove_file("/boot/ota-partition")
+        remove_file(Path(boot_cfg.BOOT_DPATH) / boot_cfg.LEGACY_OTA_PARTITION_FNAME)
 
         _boot_dir = Path(boot_cfg.BOOT_DPATH)
         for _entry in itertools.chain(
@@ -1072,7 +1078,10 @@ class GrubBootController(BootControllerBase):
             self._mp_control.standby_slot_mount_point
         )
         _active_kernel_ver = cmdhelper.get_kernel_version_via_uname()
-        assert _active_kernel_ver
+        if not _active_kernel_ver:
+            raise GrubBootControllerError(
+                "failed to detect active kernel version via uname"
+            )
 
         logger.info(
             f"found kernel installation on updated standby slot: {_kernel_ver=}"
