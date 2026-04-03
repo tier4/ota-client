@@ -226,9 +226,11 @@ class CacheTracker:
 
                 # NOTE(20260330): at the time open(..., "wb") returns,
                 #                 the file entry is already created.
-                tracker_events.set_writer_started()
-
+                # NOTE(20260403): set cache_meta before signaling writer_started,
+                #   so that subscribers seeing writer_started=True can rely on
+                #   cache_meta being set.
                 self.cache_meta = cache_meta
+                tracker_events.set_writer_started()
                 try:
                     while data := input_que.get():
                         # caller set failed flag, or space hard limit is reached, abort
