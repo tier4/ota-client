@@ -60,6 +60,7 @@ from .utils import process_raw_url, read_file, url_based_hash
 logger = logging.getLogger(__name__)
 # NOTE: only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
+burst_suppressed_logger_exc = get_burst_suppressed_logger(f"{__name__}.cache_failed")
 
 # helper functions
 
@@ -689,39 +690,48 @@ class OTACache:
                 raw_url, headers=headers_from_client
             )
 
-        # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
-        #   and loaded, still try to use external cache source.
-        if self._external_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(
-                cache_policy, self._external_cache_data_dir
-            )
-        ):
-            self._metrics_data.cache_external_hits += 1
-            return _res
+        try:
+            # NOTE(20241202): behavior changed: even if _cache_enabled is False, if external_cache is configured
+            #   and loaded, still try to use external cache source.
+            if self._external_cache_data_dir and (
+                _res := await self._retrieve_file_by_external_cache(
+                    cache_policy, self._external_cache_data_dir
+                )
+            ):
+                self._metrics_data.cache_external_hits += 1
+                return _res
 
-        # NOTE(20251212): use local cache first before going to NFS cache
-        if not cache_policy.retry_caching and (
-            _res := await self._retrieve_file_by_cache_lookup(
-                raw_url=raw_url, cache_policy=cache_policy
-            )
-        ):
-            self._metrics_data.cache_local_hits += 1
-            return _res
+            # NOTE(20251212): use local cache first before going to NFS cache
+            if not cache_policy.retry_caching and (
+                _res := await self._retrieve_file_by_cache_lookup(
+                    raw_url=raw_url, cache_policy=cache_policy
+                )
+            ):
+                self._metrics_data.cache_local_hits += 1
+                return _res
 
-        if self._external_nfs_cache_data_dir and (
-            _res := await self._retrieve_file_by_external_cache(
-                cache_policy, self._external_nfs_cache_data_dir
-            )
-        ):
-            self._metrics_data.cache_external_nfs_hits += 1
-            return _res
+            if self._external_nfs_cache_data_dir and (
+                _res := await self._retrieve_file_by_external_cache(
+                    cache_policy, self._external_nfs_cache_data_dir
+                )
+            ):
+                self._metrics_data.cache_external_nfs_hits += 1
+                return _res
 
-        if _res := await self._retrieve_file_by_new_caching(
-            raw_url=raw_url,
-            cache_policy=cache_policy,
-            headers_from_client=headers_from_client,
-        ):
-            return _res
+            if _res := await self._retrieve_file_by_new_caching(
+                raw_url=raw_url,
+                cache_policy=cache_policy,
+                headers_from_client=headers_from_client,
+            ):
+                return _res
+        except Exception as e:
+            # NOTE(20260403): sometime the caching might fail due to cache bucket too
+            #                 shallow, crushing the cache files too fast under multi-client
+            #                 condition.
+            burst_suppressed_logger_exc.exception(
+                f"internal errors when processing {raw_url}: {e!r}\n"
+                "fallback to direct downloading ..."
+            )
 
         # as last resort, finally try to handle the request by directly downloading
         return await self._retrieve_file_by_downloading(
