@@ -317,9 +317,7 @@ class TestBootMenuEntryFindMenuentry:
             "\tinitrd\t/initrd.img-5.19.0-50-generic\n"
             "}\n"
         )
-        result = _BootMenuEntry._find_menuentry(
-            entry, kernel_ver="5.19.0-50-generic"
-        )
+        result = _BootMenuEntry._find_menuentry(entry, kernel_ver="5.19.0-50-generic")
         assert "vmlinuz-5.19.0-50-generic" in result
 
 

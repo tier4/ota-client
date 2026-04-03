@@ -164,9 +164,9 @@ def _assert_ota_managed_grub_cfg(boot_dir: Path) -> None:
     """Assert /boot/grub/grub.cfg is a valid OTA-managed config file."""
     grub_cfg_path = boot_dir / "grub" / "grub.cfg"
     assert grub_cfg_path.is_file()
-    assert (
-        not grub_cfg_path.is_symlink()
-    ), "grub.cfg must be a regular file, not a symlink"
+    assert not grub_cfg_path.is_symlink(), (
+        "grub.cfg must be a regular file, not a symlink"
+    )
 
     content = grub_cfg_path.read_text()
     validated = OTAManagedCfg.validate_managed_config(content)
@@ -202,9 +202,9 @@ def _assert_slot_boot_cfg(boot_dir: Path, slot_id: str) -> None:
 
 def _assert_old_grub_files_cleaned_up(boot_dir: Path) -> None:
     """Assert all old grub boot control artifacts are removed."""
-    assert not (
-        boot_dir / "ota-partition"
-    ).exists(), "/boot/ota-partition should be removed"
+    assert not (boot_dir / "ota-partition").exists(), (
+        "/boot/ota-partition should be removed"
+    )
 
     for pattern in ["ota-partition.sda*", "vmlinuz-ota*", "initrd.img-ota*"]:
         matches = list(boot_dir.glob(pattern))

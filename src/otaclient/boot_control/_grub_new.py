@@ -74,9 +74,7 @@ GRUB_BLACKLIST_OPTIONS = ["GRUB_SAVEDEFAULT"]
 
 MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
 LINUX_PA_MULTILINE = re.compile(r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE)
-LINUX_RECOVERY_PA = re.compile(
-    r"^\s*linux\s+\S+\s+.*\brecovery\b", re.MULTILINE
-)
+LINUX_RECOVERY_PA = re.compile(r"^\s*linux\s+\S+\s+.*\brecovery\b", re.MULTILINE)
 """Match a linux directive line where `recovery` appears as a boot argument."""
 LINUX_VERSION_PA = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
 INITRD_PA_MULTILINE = re.compile(r"^\s*initrd\s*(?P<initrd_fpath>[^\s]+)", re.MULTILINE)
