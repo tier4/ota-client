@@ -99,6 +99,34 @@ from ota_proxy.utils import process_raw_url
             True,
             "https://example.com/home/user/file%20%0A",
         ),
+        # No path component
+        ("http://example.com", False, "http://example.com"),
+        ("http://example.com", True, "https://example.com"),
+        # Root path only
+        ("http://example.com/", False, "http://example.com/"),
+        ("http://example.com/", True, "https://example.com/"),
+        # Scheme downgrade (https input, enable_https=False)
+        (
+            "https://example.com/usr/local/bin",
+            False,
+            "http://example.com/usr/local/bin",
+        ),
+        (
+            "https://example.com/usr/local/bin",
+            True,
+            "https://example.com/usr/local/bin",
+        ),
+        # Netloc with port
+        (
+            "http://example.com:8080/data/file.bin",
+            False,
+            "http://example.com:8080/data/file.bin",
+        ),
+        (
+            "http://example.com:8080/data/file.bin",
+            True,
+            "https://example.com:8080/data/file.bin",
+        ),
     ),
 )
 def test_process_raw_url(_input: str, _enable_https: bool, _expected: str):
