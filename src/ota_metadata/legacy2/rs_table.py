@@ -71,7 +71,6 @@ class ResourceTable(TableSpec):
 
 
 class ResourceTableORM(ORMBase[ResourceTable]):
-
     orm_bootstrap_table_name = RSTABLE_NAME
     orm_bootstrap_create_table_params = CreateTableParams(without_rowid=True)
 
@@ -92,5 +91,4 @@ class ResourceTableORM(ORMBase[ResourceTable]):
 
 
 class ResourceTableORMPool(ORMThreadPoolBase[ResourceTable]):
-
     orm_bootstrap_table_name = RSTABLE_NAME

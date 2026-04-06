@@ -84,7 +84,6 @@ def _ensure_connect_shm(
 
 
 class MPSharedMemoryReader(SHA512Verifier, Generic[T]):
-
     def __init__(
         self,
         *,
@@ -139,7 +138,6 @@ class MPSharedMemoryReader(SHA512Verifier, Generic[T]):
 
 
 class MPSharedMemoryWriter(SHA512Verifier, Generic[T]):
-
     def __init__(
         self,
         *,

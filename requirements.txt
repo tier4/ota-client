@@ -6,7 +6,7 @@ aiohappyeyeballs==2.6.1 ; python_full_version >= '3.9'
     # via aiohttp
 aiohttp==3.10.11 ; python_full_version < '3.9'
     # via otaclient
-aiohttp==3.13.4 ; python_full_version >= '3.9'
+aiohttp==3.13.5 ; python_full_version >= '3.9'
     # via otaclient
 aiosignal==1.3.1 ; python_full_version < '3.9'
     # via aiohttp
@@ -40,11 +40,11 @@ cffi==1.17.1 ; python_full_version < '3.9'
     #   zstandard
 cffi==2.0.0 ; python_full_version >= '3.9' and platform_python_implementation != 'PyPy'
     # via cryptography
-charset-normalizer==3.4.6
+charset-normalizer==3.4.7
     # via requests
 click==8.1.8 ; python_full_version < '3.10'
     # via uvicorn
-click==8.3.1 ; python_full_version >= '3.10'
+click==8.3.2 ; python_full_version >= '3.10'
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -166,7 +166,7 @@ requests==2.32.4 ; python_full_version < '3.9'
     # via otaclient
 requests==2.32.5 ; python_full_version == '3.9.*'
     # via otaclient
-requests==2.33.0 ; python_full_version >= '3.10'
+requests==2.33.1 ; python_full_version >= '3.10'
     # via otaclient
 simple-sqlite3-orm==0.13.0
     # via
@@ -219,7 +219,7 @@ uvicorn==0.33.0 ; python_full_version < '3.9'
     # via otaclient
 uvicorn==0.39.0 ; python_full_version == '3.9.*'
     # via otaclient
-uvicorn==0.42.0 ; python_full_version >= '3.10'
+uvicorn==0.43.0 ; python_full_version >= '3.10'
     # via otaclient
 uvloop==0.21.0 ; python_full_version < '3.8.1' and platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn

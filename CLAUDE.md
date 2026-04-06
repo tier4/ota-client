@@ -34,7 +34,7 @@ Performance tests (`@pytest.mark.performance`) are excluded from regular runs an
 
 ## Code Style
 
-- Formatter: **black** (Python 3.11 target)
+- Formatter: **ruff format**
 - Linter: **ruff** (with auto-fix)
 - Pre-commit hooks enforce formatting: `pre-commit run --all-files`
 - Protobuf generated files (`*_pb2.py`, `*_pb2_grpc.py`) are excluded from linting
