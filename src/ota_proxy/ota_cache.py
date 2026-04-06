@@ -52,7 +52,12 @@ from .cache_streaming import (
 )
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError, CacheCommitFailed
+from .errors import (
+    BaseOTACacheError,
+    CacheCommitFailed,
+    CacheProviderNotReady,
+    ReaderPoolBusy,
+)
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
@@ -724,9 +729,11 @@ class OTACache:
                 headers_from_client=headers_from_client,
             ):
                 return _res
+        except (ReaderPoolBusy, CacheProviderNotReady):
+            raise  # common errors, will indicate server_app to return 503
         except Exception as e:
             # NOTE(20260403): sometime the caching might fail due to cache bucket too
-            #                 shallow, crushing the cache files too fast under multi-client
+            #                 shallow, LRU crushing the cache files too fast under multi-client
             #                 condition.
             burst_suppressed_logger_exc.exception(
                 f"internal errors when processing {raw_url}: {e!r}\n"

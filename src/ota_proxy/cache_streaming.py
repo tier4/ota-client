@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import asyncio
-import itertools
 import logging
 import os
 import os.path as os_path
@@ -24,6 +23,7 @@ import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
+from itertools import count
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -57,7 +57,7 @@ RT = TypeVar("RT")
 
 # will have a random nonce at every startup
 TMP_FNAME_NONCE = os.urandom(4).hex()
-TMP_FNAME_COUNTER = itertools.count()
+TMP_FNAME_COUNTER = count()
 
 # cache tracker
 
@@ -72,45 +72,52 @@ def _unlink_no_error(fpath):
 class CacheTrackerEvents:  # pragma: no cover
     """One-way flag storage for tracking CacheTracker's status.
 
-    ONLY one writer will update the state, so no need to use lock.
+    Each flag has a count (for atomic set via next()) and a separate
+    status variable (for non-mutating reads). set_writer_failed may be
+    called from another thread — next() on count is atomic under CPython's GIL.
+
+    Priority: _failed overrides _finished overrides _started.
     """
 
-    _INIT = 0
-    _STARTED = 1
-    _FINISHED = 2
-    _FAILED = -1
-
-    __slots__ = ("_state",)
+    __slots__ = (
+        "_started_cnt",
+        "_finished_cnt",
+        "_failed_cnt",
+        "_started",
+        "_finished",
+        "_failed",
+    )
 
     def __init__(self) -> None:
-        self._state = 0
+        self._started_cnt: count = count(1)
+        self._finished_cnt: count = count(1)
+        self._failed_cnt: count = count(1)
+        self._started = 0
+        self._finished = 0
+        self._failed = 0
 
     @property
     def writer_failed(self) -> bool:
-        return self._state < 0
+        return self._failed > 0
 
     @property
     def writer_finished(self) -> bool:
-        return self._state >= 2
+        return self._finished > 0
 
     @property
     def writer_started(self) -> bool:
-        return self._state >= 1
+        return self._started > 0
 
     def set_writer_failed(self) -> None:
-        if self._state >= 2:
-            return
-        self._state = self._FAILED
+        self._started = next(self._started_cnt)
+        self._failed = next(self._failed_cnt)
 
     def set_writer_started(self) -> None:
-        if self._state != 0:
-            return
-        self._state = self._STARTED
+        self._started = next(self._started_cnt)
 
     def set_writer_finished(self) -> None:
-        if self._state < 0:
-            return
-        self._state = self._FINISHED
+        self._started = next(self._started_cnt)
+        self._finished = next(self._finished_cnt)
 
 
 class CacheTracker:
