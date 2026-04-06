@@ -70,54 +70,42 @@ def _unlink_no_error(fpath):
 
 
 class CacheTrackerEvents:  # pragma: no cover
-    """One-way flag storage for tracking CacheTracker's status.
+    """One-way Flag storage for tracking CacheTracker's status.
 
-    Each flag has a count (for atomic set via next()) and a separate
-    status variable (for non-mutating reads). set_writer_failed may be
-    called from another thread — next() on count is atomic under CPython's GIL.
-
-    Priority: _failed overrides _finished overrides _started.
+    As the flag set is one-way(failed flag will not get reserved once is set),
+    we can safely use this CacehTrackerEvents in multi-thread environment without
+    a lock. Also, only failed flag will be set accross threads.
     """
 
-    __slots__ = (
-        "_started_cnt",
-        "_finished_cnt",
-        "_failed_cnt",
-        "_started",
-        "_finished",
-        "_failed",
-    )
+    __slots__ = ("_started", "_finished", "_failed")
 
     def __init__(self) -> None:
-        self._started_cnt: count = count(1)
-        self._finished_cnt: count = count(1)
-        self._failed_cnt: count = count(1)
-        self._started = 0
-        self._finished = 0
-        self._failed = 0
+        self._started = False
+        self._finished = False
+        self._failed = False
 
     @property
     def writer_failed(self) -> bool:
-        return self._failed > 0
+        return self._failed
 
     @property
     def writer_finished(self) -> bool:
-        return self._finished > 0
+        return self._finished
 
     @property
     def writer_started(self) -> bool:
-        return self._started > 0
+        return self._started
 
     def set_writer_failed(self) -> None:
-        self._started = next(self._started_cnt)
-        self._failed = next(self._failed_cnt)
+        self._started = True
+        self._failed = True
 
     def set_writer_started(self) -> None:
-        self._started = next(self._started_cnt)
+        self._started = True
 
     def set_writer_finished(self) -> None:
-        self._started = next(self._started_cnt)
-        self._finished = next(self._finished_cnt)
+        self._started = True
+        self._finished = True
 
 
 class CacheTracker:
