@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import os.path as os_path
 import shutil
+import stat
 import threading
 import time
 from pathlib import Path
@@ -49,7 +52,10 @@ from .cache_streaming import (
 )
 from .config import config as cfg
 from .db import CacheMeta, check_db, init_db
-from .errors import BaseOTACacheError, CacheCommitFailed
+from .errors import (
+    BaseOTACacheError,
+    CacheCommitFailed,
+)
 from .external_cache import mount_external_cache, umount_external_cache
 from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
@@ -57,6 +63,7 @@ from .utils import process_raw_url, read_file, url_based_hash
 logger = logging.getLogger(__name__)
 # NOTE: only allow max 6 lines of logging per 30 seconds
 burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.request_logging")
+burst_suppressed_logger_exc = get_burst_suppressed_logger(f"{__name__}.cache_failed")
 
 # helper functions
 
@@ -475,7 +482,7 @@ class OTACache:
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
         #           2. URL based sha256 value for corresponding requested URL
-        cache_file = self._base_dir / cache_identifier
+        cache_file = os_path.join(self._base_dir, cache_identifier)
 
         # check if cache file exists
         # NOTE(20240729): there is an edge condition that the finished cached file is not yet renamed,
@@ -483,14 +490,21 @@ class OTACache:
         #   cache_commit_callback to rename the tmp file.
         _retry_count_max, _factor, _backoff_max = 6, 0.01, 0.1  # 0.255s in total
         for _retry_count in range(_retry_count_max):
-            if await cache_file.is_file():
-                break
+            try:
+                _cache_file_fstat = os.lstat(cache_file)
+                if stat.S_ISREG(_cache_file_fstat.st_mode):
+                    break
+
+                # the file is not a regular file?
+                Path(cache_file).unlink(missing_ok=True)
+                await self._lru_helper.remove_entry(cache_identifier)
+                return
+            except FileNotFoundError:
+                pass  # file is not yet created
+
             await asyncio.sleep(get_backoff(_retry_count, _factor, _backoff_max))
         else:
-            burst_suppressed_logger.warning(
-                f"dangling cache entry found, remove db entry: {meta_db_entry}"
-            )
-            await self._lru_helper.remove_entry(cache_identifier)
+            # NOTE(20260403): not do the cleanup at here, let the new cache handler do it.
             return
 
         # fast path for small file, read one and directly return bytes
@@ -578,27 +592,33 @@ class OTACache:
             cache_identifier = url_based_hash(raw_url)
             compression_alg = None
 
-        # if set, cleanup any previous cache file before starting new cache
-        if cache_policy.retry_caching:
-            await self._lru_helper.remove_entry(cache_identifier)
-            await (self._base_dir / cache_identifier).unlink(missing_ok=True)
-
+        # Get a tracker: we are the subscriber
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
-            if _cache_meta := tracker.cache_meta:
-                return (
-                    await self._read_pool.subscribe_tracker(tracker),
-                    _cache_meta.export_headers_to_client(),
-                )
+            _subscribed_fd = await self._read_pool.subscribe_tracker(tracker)
+            # when subscribe is successful, the cache_meta must be set already
+            assert tracker.cache_meta
+            return (
+                _subscribed_fd,
+                tracker.cache_meta.export_headers_to_client(),
+            )
 
+        # We are the provider
         # NOTE: register the tracker before open the remote fd!
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
-            base_dir=Path(self._base_dir),
+            base_dir=str(self._base_dir),
             commit_cache_cb=self._commit_cache_callback,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         try:
             self._on_going_caching.register_tracker(cache_identifier, tracker)
+
+            # NOTE(20260403): only provider can do the cleanup for retry_cache
+            # if set, cleanup any previous cache file before starting new cache
+            if cache_policy.retry_caching:
+                await self._lru_helper.remove_entry(cache_identifier)
+                await (self._base_dir / cache_identifier).unlink(missing_ok=True)
+
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
             )
@@ -618,7 +638,7 @@ class OTACache:
             tracker._tracker_events.set_writer_failed()
             raise
         finally:
-            del tracker  # prevent future subscribe to this tracker
+            del tracker  # prevent being captured by Exception
 
     # exposed API
 

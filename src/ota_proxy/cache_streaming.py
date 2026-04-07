@@ -18,11 +18,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import os.path as os_path
 import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
-from pathlib import Path
+from itertools import count
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -54,6 +55,10 @@ _reader_failed_sentinel = object()
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
+# will have a random nonce at every startup
+TMP_FNAME_NONCE = os.urandom(4).hex()
+TMP_FNAME_COUNTER = count()
+
 # cache tracker
 
 
@@ -64,33 +69,43 @@ def _unlink_no_error(fpath):
         pass
 
 
-class CacheTrackerEvents:
-    def __init__(self):
-        self._writer_started = threading.Event()
-        self._writer_finished = threading.Event()
-        self._writer_failed = threading.Event()
+class CacheTrackerEvents:  # pragma: no cover
+    """One-way Flag storage for tracking CacheTracker's status.
+
+    As the flag set is one-way(failed flag will not get reserved once is set),
+    we can safely use this CacehTrackerEvents in multi-thread environment without
+    a lock. Also, only failed flag will be set accross threads.
+    """
+
+    __slots__ = ("_started", "_finished", "_failed")
+
+    def __init__(self) -> None:
+        self._started = False
+        self._finished = False
+        self._failed = False
 
     @property
     def writer_failed(self) -> bool:
-        return self._writer_failed.is_set()
+        return self._failed
 
     @property
     def writer_finished(self) -> bool:
-        return self._writer_finished.is_set()
+        return self._finished
 
     @property
     def writer_started(self) -> bool:
-        return self._writer_started.is_set()
+        return self._started
 
-    def set_writer_failed(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
-        self._writer_failed.set()
+    def set_writer_failed(self) -> None:
+        self._started = True
+        self._failed = True
 
-    def set_writer_started(self) -> None:  # pragma: no cover
-        self._writer_started.set()
+    def set_writer_started(self) -> None:
+        self._started = True
 
-    def set_writer_finished(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
+    def set_writer_finished(self) -> None:
+        self._started = True
+        self._finished = True
 
 
 class CacheTracker:
@@ -124,6 +139,9 @@ class CacheTracker:
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
 
+    _tmp_fname_nonce = TMP_FNAME_NONCE
+    _tmp_fname_counter = TMP_FNAME_COUNTER
+
     @classmethod
     def _tmp_file_naming(cls, cache_identifier: str) -> str:
         """Create fname for tmp caching entry.
@@ -135,19 +153,21 @@ class CacheTracker:
         """
         return (
             f"{cfg.TMP_FILE_PREFIX}{cls.FNAME_PART_SEPARATOR}"
-            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}{(os.urandom(4)).hex()}"
+            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}"
+            f"{cls._tmp_fname_nonce}{cls.FNAME_PART_SEPARATOR}{next(cls._tmp_fname_counter)}"
         )
 
     def __init__(
         self,
         cache_identifier: str,
         *,
-        base_dir: Path,
+        base_dir: str,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
         below_hard_limit_event: threading.Event,
-    ):
-        self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
-        self.save_path = base_dir / cache_identifier
+    ) -> None:
+        self.fpath = os_path.join(base_dir, self._tmp_file_naming(cache_identifier))
+        self.save_path = os_path.join(base_dir, cache_identifier)
+
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
@@ -169,22 +189,20 @@ class CacheTracker:
                             reports it with OTA cache file protocol in next OTA download request.
         NOTE(20250731): not considering the case that /ota-cache folder is tampered
                             or poluted intentionally, assume that all files are normal files.
-                        If `save_dst` exists and is not a regular file, we just give up caching this file.
+                        If `save_dst` exists and is not a regular file, let next OTA download request handles it.
         """
         if not self.cache_meta:
             return
 
-        if self.save_path.is_symlink():
-            self.save_path.unlink()
-        if self.save_path.exists():
-            if not self.save_path.is_file():
-                burst_suppressed_logger.warning(
-                    f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
-                )
-                return
-        else:
+        try:
             os.link(self.fpath, self.save_path)
+        except FileExistsError:
+            pass
 
+        # If the cache file is already existed, we assume that
+        # another writer is handling it, but in case of somehow the cache db entry
+        # is not correctly inserted, to prevent dangling cache file, still insert the cache entry.
+        # If the cache file is somehow broken, we still have OTA cache control header retry_caching.
         try:
             self._commit_cache_cb(self.cache_meta)
         except Exception as e:
@@ -196,16 +214,18 @@ class CacheTracker:
         self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
     ) -> None:
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                # first create the file
-                f.write(b"")
-                f.flush()
-
-                self.cache_meta = cache_meta
                 weakref.finalize(self, _unlink_no_error, self.fpath)
+
+                # NOTE(20260330): at the time open(..., "wb") returns,
+                #                 the file entry is already created.
+                # NOTE(20260403): set cache_meta before signaling writer_started,
+                #   so that subscribers seeing writer_started=True can rely on
+                #   cache_meta being set.
+                self.cache_meta = cache_meta
+                tracker_events.set_writer_started()
                 try:
                     while data := input_que.get():
                         # caller set failed flag, or space hard limit is reached, abort
@@ -225,8 +245,8 @@ class CacheTracker:
             #   subscriber faster. Whether the database entry is committed or not
             #   doesn't matter here, the subscriber doesn't need to fail if caching
             #   finished but db commit failed.
-            tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written
+            tracker_events.set_writer_finished()
 
             if not tracker_events.writer_failed:
                 self._finalize_cache()
@@ -234,12 +254,10 @@ class CacheTracker:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, input_que, cache_meta
 
     def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
             if not self._space_availability_event.is_set():
                 _err_msg = f"abort caching {cache_meta} on space hard limit reached"
@@ -248,23 +266,28 @@ class CacheTracker:
 
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
+                weakref.finalize(self, _unlink_no_error, self.fpath)
+
                 self.cache_meta = cache_meta
                 f.write(data)
                 f.flush()
-                weakref.finalize(self, _unlink_no_error, self.fpath)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-            tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
+
+            # as the data is small, directly set writer to finish
+            tracker_events.set_writer_finished()
             self._finalize_cache()
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> None:
+    async def subscriber_wait_for_provider(self) -> bool:
         """
+        Returns:
+            A bool indicates whether the cache write is finished.
+
         Raises:
             CacheProviderNotReady if timeout waiting cache provider.
         """
@@ -288,6 +311,8 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
+
+            return tracker_events.writer_finished
         finally:
             del self, tracker_events
 
@@ -615,18 +640,31 @@ class CacheReaderPool:
             await self._read_dispatcher(read_file_once, fpath)
         )
 
-    async def subscribe_tracker(self, tracker: CacheTracker) -> AsyncGenerator[bytes]:
+    async def subscribe_tracker(
+        self, tracker: CacheTracker
+    ) -> AsyncGenerator[bytes] | bytes:
         """
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
-        # first we wait for provider ready
-        await tracker.subscriber_wait_for_provider()
+        # First we wait for provider ready
+        _cache_finished = await tracker.subscriber_wait_for_provider()
 
+        # If cache write is finished and file is small, read it in one shot.
+        # read_file_once awaits the result, so tracker stays alive throughout.
+        if (
+            _cache_finished
+            and (_cache_meta := tracker.cache_meta)
+            and _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE
+        ):
+            return await self.read_file_once(tracker.fpath)
+
+        # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
+        # The bound method keeps a strong reference to tracker, preventing GC
+        # from deleting the tmp file before the reader opens it.
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
-        # then wait for task picked by reader thread worker pool
         await self._read_dispatcher(
             tracker.subscriber_stream_cache_in_thread,
             que,

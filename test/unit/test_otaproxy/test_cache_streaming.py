@@ -80,7 +80,7 @@ class TestOngoingCachingRegister:
             await self.register_finish.acquire()
 
             while (
-                not _tracker._tracker_events._writer_finished.is_set()
+                not _tracker._tracker_events.writer_finished
             ):  # simulating cache streaming
                 await asyncio.sleep(0.1)
             return False, _tracker.cache_meta
@@ -91,7 +91,7 @@ class TestOngoingCachingRegister:
         # NOTE: register the tracker before open the remote fd!
         _tracker = CacheTracker(
             cache_identifier=self.URL,
-            base_dir=Path(self.base_dir),
+            base_dir=str(self.base_dir),
             commit_cache_cb=None,  # type: ignore
             below_hard_limit_event=None,  # type: ignore
         )
@@ -111,11 +111,11 @@ class TestOngoingCachingRegister:
         await self.register_finish.acquire()
 
         # simulate waiting for writer finished downloading
-        _tracker.fpath.touch()
+        Path(_tracker.fpath).touch()
         await self.writer_done_event.wait()
 
         # finished
-        _tracker._tracker_events._writer_finished.set()
+        _tracker._tracker_events.set_writer_finished()
         logger.info(f"writer #{idx} finished")
         return True, _tracker.cache_meta
 

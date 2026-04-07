@@ -4,7 +4,7 @@ import os
 from hashlib import sha256
 from os import PathLike
 from typing import AsyncGenerator
-from urllib.parse import SplitResult, quote, urlsplit
+from urllib.parse import quote
 
 import anyio
 from anyio import open_file
@@ -49,22 +49,15 @@ def process_raw_url(raw_url: str, enable_https: bool) -> str:
                     because we should forward the request as it to the remote.
     NOTE(20221003): unconditionally set scheme to https if enable_https, else unconditionally set to http
     """
-    _raw_parse = urlsplit(raw_url)
-    # get the base of the raw_url, which is <scheme>://<netloc>
-    _raw_base = SplitResult(
-        scheme=_raw_parse.scheme,
-        netloc=_raw_parse.netloc,
-        path="",
-        query="",
-        fragment="",
-    ).geturl()
+    _scheme = "https" if enable_https else "http"
+    # raw_url is "scheme://netloc/path..." — find the boundaries by string indexing
+    _sep = raw_url.index("://") + 3
+    try:
+        _slash = raw_url.index("/", _sep)
+    except ValueError:  # no path component
+        _slash = len(raw_url)
 
-    # get the leftover part of URL besides base as path, and then quote it
-    # finally, regenerate proper quoted url
-    return SplitResult(
-        scheme="https" if enable_https else "http",
-        netloc=_raw_parse.netloc,
-        path=quote(raw_url.replace(_raw_base, "", 1)),
-        query="",
-        fragment="",
-    ).geturl()
+    _netloc = raw_url[_sep:_slash]
+    # everything after netloc, forwarded as-is with quoted back
+    _raw_path = quote(raw_url[_slash:])
+    return f"{_scheme}://{_netloc}{_raw_path}"
