@@ -12,24 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
-import bisect
 import logging
 import random
-import sqlite3
-from unittest.mock import MagicMock, patch
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-import pytest_asyncio
 from multidict import CIMultiDict, CIMultiDictProxy
-from simple_sqlite3_orm import ORMBase
 
 from ota_proxy import config as cfg
+from ota_proxy.cache_index import CacheIndex
 from ota_proxy.db import CacheMeta
-from ota_proxy.ota_cache import LRUCacheHelper, OTACache
+from ota_proxy.ota_cache import OTACache
 from ota_proxy.utils import url_based_hash
 
 logger = logging.getLogger(__name__)
@@ -39,13 +36,9 @@ TEST_LOOKUP_ENTRIES = 1200
 TEST_DELETE_ENTRIES = 512
 
 
-class OTACacheDB(ORMBase[CacheMeta]):
-    pass
-
-
-@pytest.fixture(autouse=True, scope="module")
-def setup_testdata() -> dict[str, CacheMeta]:
-    size_list = list(cfg.BUCKET_FILE_SIZE_DICT)
+def _generate_test_entries() -> dict[str, CacheMeta]:
+    """Generate a set of CacheMeta entries with various cache sizes."""
+    size_list = [0, 1024, 2048, 4096, 8192, 16384, 32768, 256 * 1024, 1024**2]
 
     entries: dict[str, CacheMeta] = {}
     for idx in range(TEST_DATA_SET_SIZE):
@@ -54,89 +47,86 @@ def setup_testdata() -> dict[str, CacheMeta]:
         file_sha256 = url_based_hash(mocked_url)
 
         entries[file_sha256] = CacheMeta(
-            # see lru_cache_helper module for more details
             url=mocked_url,
-            bucket_idx=bisect.bisect_right(size_list, target_size),
             cache_size=target_size,
             file_sha256=file_sha256,
         )
     return entries
 
 
-@pytest.fixture(autouse=True, scope="module")
-def entries_to_lookup(setup_testdata: dict[str, CacheMeta]) -> list[CacheMeta]:
-    return random.sample(
-        list(setup_testdata.values()),
-        k=TEST_LOOKUP_ENTRIES,
-    )
+#
+# ------------ Tests: CacheIndex ------------ #
+#
 
 
-@pytest.fixture(autouse=True, scope="module")
-def entries_to_remove(setup_testdata: dict[str, CacheMeta]) -> list[CacheMeta]:
-    return random.sample(
-        list(setup_testdata.values()),
-        k=TEST_DELETE_ENTRIES,
-    )
+class TestCacheIndex:
+    """Tests for CacheIndex commit, lookup, and remove operations."""
 
+    @pytest.fixture(scope="class")
+    def test_entries(self) -> dict[str, CacheMeta]:
+        return _generate_test_entries()
 
-@pytest.mark.asyncio(scope="class")
-class TestLRUCacheHelper:
-    @pytest_asyncio.fixture(autouse=True, scope="class")
-    async def lru_helper(self, tmp_path_factory: pytest.TempPathFactory):
-        ota_cache_folder = tmp_path_factory.mktemp("ota-cache")
+    @pytest.fixture(scope="class")
+    def cache_index(self, tmp_path_factory: pytest.TempPathFactory):
+        ota_cache_folder = tmp_path_factory.mktemp("cache_index") / "ota-cache"
+        ota_cache_folder.mkdir()
         db_f = ota_cache_folder / "db_f"
 
-        # init table
-        conn = sqlite3.connect(db_f)
-        orm = OTACacheDB(conn, cfg.TABLE_NAME)
-        orm.orm_create_table(without_rowid=True)
-        conn.close()
-
-        lru_cache_helper = LRUCacheHelper(db_f)
+        # Create cache files so preload doesn't discard entries
+        # (preload checks os.path.exists for each entry)
+        cache_index = CacheIndex(db_f, ota_cache_folder, init_db=True)
         try:
-            yield lru_cache_helper
+            yield cache_index, ota_cache_folder
         finally:
-            await lru_cache_helper.close()
+            cache_index.close()
 
-    async def test_commit_entry(
-        self, lru_helper: LRUCacheHelper, setup_testdata: dict[str, CacheMeta]
-    ):
-        for _, entry in setup_testdata.items():
-            # deliberately clear the bucket_idx, this should be set by commit_entry method
-            _copy = entry.model_copy()
-            _copy.bucket_idx = 0
-            assert lru_helper.commit_entry(entry)
-
-    async def test_lookup_entry(
+    def test_commit_entry(
         self,
-        lru_helper: LRUCacheHelper,
-        entries_to_lookup: list[CacheMeta],
-        setup_testdata: dict[str, CacheMeta],
+        cache_index: tuple[CacheIndex, Path],
+        test_entries: dict[str, CacheMeta],
     ):
-        for entry in entries_to_lookup:
-            assert (
-                await lru_helper.lookup_entry(entry.file_sha256)
-                == setup_testdata[entry.file_sha256]
-            )
+        idx, base_dir = cache_index
+        for entry in test_entries.values():
+            # Create a placeholder cache file so the entry is valid on reload
+            (base_dir / entry.file_sha256).touch()
+            assert idx.commit_entry(entry)
 
-    async def test_remove_entry(
-        self, lru_helper: LRUCacheHelper, entries_to_remove: list[CacheMeta]
+    def test_lookup_entry(
+        self,
+        cache_index: tuple[CacheIndex, Path],
+        test_entries: dict[str, CacheMeta],
     ):
+        idx, _ = cache_index
+        # Confirm all entries are added
+        for entry in test_entries.values():
+            result = idx.lookup_entry(entry.file_sha256)
+            assert result is not None
+            assert result.cache_size == test_entries[entry.file_sha256].cache_size
+
+    def test_remove_entry(
+        self,
+        cache_index: tuple[CacheIndex, Path],
+        test_entries: dict[str, CacheMeta],
+    ):
+        idx, _ = cache_index
+
+        # Remove a sample and verify they are gone
+        entries_to_remove = random.sample(
+            list(test_entries.values()), k=TEST_DELETE_ENTRIES
+        )
         for entry in entries_to_remove:
-            assert await lru_helper.remove_entry(entry.file_sha256)
+            idx.remove_entry(entry.file_sha256)
+            assert idx.lookup_entry(entry.file_sha256) is None
 
-    async def test_rotate_cache(self, lru_helper: LRUCacheHelper):
-        """Ensure the LRUHelper properly rotates the cache entries.
 
-        We should file enough entries into the database, so each rotate should be successful.
-        """
-        # NOTE that the first bucket and last bucket will not be rotated,
-        #   see lru_cache_helper module for more details.
-        for target_bucket in list(cfg.BUCKET_FILE_SIZE_DICT)[1:-1]:
-            entries_to_be_removed = lru_helper.rotate_cache(target_bucket)
-            assert entries_to_be_removed is not None and len(entries_to_be_removed) != 0
+#
+# ------------ Tests: OTACache CDN cache-hit detection ------------ #
+#
 
-    @pytest.mark.asyncio
+
+class TestOTACacheCDNCacheHit:
+    """Tests for CDN cache-hit detection via X-Cache response header."""
+
     @pytest.mark.parametrize(
         "x_cache_value, expected_hits",
         [
@@ -147,7 +137,7 @@ class TestLRUCacheHelper:
         ],
     )
     async def test_retrieve_file_by_downloading_cdn_cache(
-        self, x_cache_value, expected_hits
+        self, x_cache_value: str, expected_hits: int
     ):
         cache = OTACache(
             cache_enabled=False,
@@ -162,13 +152,19 @@ class TestLRUCacheHelper:
         cache._do_request = MagicMock(side_effect=mock_do_request)
 
         remote_fd, _ = await cache._retrieve_file_by_downloading("dummy_url", {})
-        [chunk async for chunk in remote_fd]  # consume
+        [chunk async for chunk in remote_fd]  # consume the generator
         assert cache._metrics_data.cache_cdn_hits == expected_hits
 
 
-@pytest.mark.asyncio(scope="class")
+#
+# ------------ Tests: OTACache DNS TTL configuration ------------ #
+#
+
+
 class TestOTACacheDNSTTL:
-    async def test_dns_cache_ttl_config_within_reasonable_range(self):
+    """Tests for AIOHTTP_DNS_CACHE_TTL configuration bounds and application."""
+
+    def test_dns_cache_ttl_config_within_reasonable_range(self):
         """AIOHTTP_DNS_CACHE_TTL should be longer than aiohttp default (10s) but
         short enough to allow CDN failover (CloudFront TTL is ~60-300s)."""
         assert cfg.AIOHTTP_DNS_CACHE_TTL > 10, (
@@ -180,7 +176,6 @@ class TestOTACacheDNSTTL:
 
     async def test_ota_cache_start_applies_dns_cache_ttl(self):
         """OTACache.start() should configure TCPConnector with AIOHTTP_DNS_CACHE_TTL."""
-
         cache = OTACache(
             cache_enabled=False,
             init_cache=False,
@@ -198,14 +193,18 @@ class TestOTACacheDNSTTL:
                 await cache.close()
 
 
-@pytest.mark.asyncio(scope="class")
-class TestOtaNfsCache:
-    async def test_retrieve_file_local_cache_before_nfs(
+#
+# ------------ Tests: OTACache NFS cache lookup ordering ------------ #
+#
+
+
+class TestOTACacheNfsCacheLookupOrder:
+    """Tests for NFS vs local cache lookup ordering in retrieve_file."""
+
+    async def test_local_cache_checked_before_nfs(
         self, tmp_path_factory: pytest.TempPathFactory
     ):
-        """Test that local cache lookup is attempted before NFS cache."""
-        from unittest.mock import AsyncMock, patch
-
+        """Local cache lookup must be attempted before NFS cache."""
         nfs_mount = tmp_path_factory.mktemp("nfs_cache")
 
         with patch(
@@ -215,7 +214,7 @@ class TestOtaNfsCache:
                 cache_enabled=True,
                 init_cache=False,
                 base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
-                external_nfs_cache_mnt_point=str(nfs_mount),  # Use actual temp path
+                external_nfs_cache_mnt_point=str(nfs_mount),
             )
 
             nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
@@ -226,11 +225,9 @@ class TestOtaNfsCache:
                 cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
             ) as mock_nfs, patch.object(
                 cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
-            ) as mock_download:
-                # Setup: local cache miss, NFS cache hit
+            ):
                 mock_local.return_value = None
                 mock_nfs.return_value = nfs_result
-                mock_download.return_value = (AsyncMock(), CIMultiDict())
 
                 await cache.start()
                 try:
@@ -238,21 +235,16 @@ class TestOtaNfsCache:
                         "http://example.com/file", CIMultiDict()
                     )
 
-                    # Verify local cache was checked first
                     mock_local.assert_called_once()
-                    # Verify NFS cache was checked after local cache miss
                     mock_nfs.assert_called_once()
-                    # Verify result is from NFS cache
                     assert result == nfs_result
                 finally:
                     await cache.close()
 
-    async def test_retrieve_file_local_cache_preferred_over_nfs(
+    async def test_local_cache_preferred_over_nfs(
         self, tmp_path_factory: pytest.TempPathFactory
     ):
-        """Test that local cache is used when both local and NFS cache are present."""
-        from unittest.mock import AsyncMock, patch
-
+        """Local cache hit must short-circuit NFS cache lookup."""
         cache = OTACache(
             cache_enabled=True,
             init_cache=False,
@@ -269,11 +261,9 @@ class TestOtaNfsCache:
             cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
         ) as mock_nfs, patch.object(
             cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
-        ) as mock_download:
-            # Setup: both local and NFS cache have the file
+        ):
             mock_local.return_value = local_result
             mock_nfs.return_value = nfs_result
-            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
@@ -281,21 +271,16 @@ class TestOtaNfsCache:
                     "http://example.com/file", CIMultiDict()
                 )
 
-                # Verify local cache was called
                 mock_local.assert_called_once()
-                # Verify NFS cache was NOT called since local cache hit
                 mock_nfs.assert_not_called()
-                # Verify result is from local cache
                 assert result == local_result
             finally:
                 await cache.close()
 
-    async def test_retrieve_file_local_cache_only(
+    async def test_local_cache_hit_skips_nfs(
         self, tmp_path_factory: pytest.TempPathFactory
     ):
-        """Test that local cache is used when NFS cache is not present."""
-        from unittest.mock import AsyncMock, patch
-
+        """When only local cache has the file, NFS should not be consulted."""
         cache = OTACache(
             cache_enabled=True,
             init_cache=False,
@@ -311,11 +296,9 @@ class TestOtaNfsCache:
             cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
         ) as mock_nfs, patch.object(
             cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
-        ) as mock_download:
-            # Setup: only local cache has the file
+        ):
             mock_local.return_value = local_result
             mock_nfs.return_value = None
-            mock_download.return_value = (AsyncMock(), CIMultiDict())
 
             await cache.start()
             try:
@@ -323,11 +306,8 @@ class TestOtaNfsCache:
                     "http://example.com/file", CIMultiDict()
                 )
 
-                # Verify local cache was called
                 mock_local.assert_called_once()
-                # Verify NFS cache was NOT called since local cache hit
                 mock_nfs.assert_not_called()
-                # Verify result is from local cache
                 assert result == local_result
             finally:
                 await cache.close()

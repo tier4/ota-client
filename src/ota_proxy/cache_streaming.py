@@ -163,6 +163,7 @@ class CacheTracker:
         *,
         base_dir: str,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
+        below_soft_limit_event: threading.Event,
         below_hard_limit_event: threading.Event,
     ) -> None:
         self.fpath = os_path.join(base_dir, self._tmp_file_naming(cache_identifier))
@@ -172,7 +173,8 @@ class CacheTracker:
         self._commit_cache_cb = commit_cache_cb
 
         self._tracker_events = CacheTrackerEvents()
-        self._space_availability_event = below_hard_limit_event
+        self._below_soft_limit_event = below_soft_limit_event
+        self._below_hard_limit_event = below_hard_limit_event
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
@@ -190,8 +192,15 @@ class CacheTracker:
         NOTE(20250731): not considering the case that /ota-cache folder is tampered
                             or poluted intentionally, assume that all files are normal files.
                         If `save_dst` exists and is not a regular file, let next OTA download request handles it.
+
+        NOTE(20260407): New Threshold-based strategy:
+                        - Below soft limit: commit entry to in-memory index + queue DB write
+                        - Above soft limit: skip commit (temp file written for current request but not persisted)
         """
         if not self.cache_meta:
+            return
+
+        if not self._below_soft_limit_event.is_set():
             return
 
         try:
@@ -199,10 +208,6 @@ class CacheTracker:
         except FileExistsError:
             pass
 
-        # If the cache file is already existed, we assume that
-        # another writer is handling it, but in case of somehow the cache db entry
-        # is not correctly inserted, to prevent dangling cache file, still insert the cache entry.
-        # If the cache file is somehow broken, we still have OTA cache control header retry_caching.
         try:
             self._commit_cache_cb(self.cache_meta)
         except Exception as e:
@@ -231,7 +236,7 @@ class CacheTracker:
                         # caller set failed flag, or space hard limit is reached, abort
                         if tracker_events.writer_failed:
                             raise CacheStreamingFailed("upper data source failed")
-                        if not self._space_availability_event.is_set():
+                        if not self._below_hard_limit_event.is_set():
                             _err_msg = f"abort caching {cache_meta} on space hard limit reached"
                             burst_suppressed_logger.warning(_err_msg)
                             raise StorageReachHardLimit(_err_msg)
@@ -259,7 +264,7 @@ class CacheTracker:
     def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
         tracker_events = self._tracker_events
         try:
-            if not self._space_availability_event.is_set():
+            if not self._below_hard_limit_event.is_set():
                 _err_msg = f"abort caching {cache_meta} on space hard limit reached"
                 burst_suppressed_logger.warning(_err_msg)
                 raise StorageReachHardLimit(_err_msg)
@@ -380,7 +385,7 @@ class CacheTracker:
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Any]
 
 
 class CachingRegister:

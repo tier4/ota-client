@@ -29,18 +29,22 @@ import logging
 import random
 import shutil
 import signal
+import sqlite3
 import subprocess
 import sys
 import time
 from collections.abc import Coroutine
+from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
 from typing import AsyncGenerator, Callable, Generator
 
 import pytest
 import uvicorn
+from pytest_mock import MockerFixture
 
 from ota_proxy import App, OTACache
+from ota_proxy import config as otaproxy_cfg
 
 from ._download_client import DownloadResult
 
@@ -281,6 +285,75 @@ async def _launch_otaproxy(
     return proxy_url, server, serve_task
 
 
+def _check_cache_db(
+    cache_dir: Path, min_entries: int, resources_digests: set[str]
+) -> None:
+    """Verify the cache sqlite db has entries with valid metadata."""
+    db_path = cache_dir / "cache_db"
+    assert db_path.is_file(), f"Cache db not found at {db_path}"
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(f"SELECT * FROM {otaproxy_cfg.TABLE_NAME}")
+        rows = cur.fetchall()
+
+    assert len(rows) >= min_entries, (
+        f"Expected at least {min_entries} cache db entries, got {len(rows)}"
+    )
+
+    now = time.time()
+    for row in rows:
+        _file_sha256 = row["file_sha256"]
+        assert _file_sha256 in resources_digests, f"Resource {_file_sha256=} not found!"
+        assert row["cache_size"] >= 0, f"Invalid cache_size in row: {dict(row)}"
+        assert 0 < row["last_access"] <= now, f"Invalid last_access in row: {dict(row)}"
+
+    logger.info("Cache db: %d entries, all valid", len(rows))
+
+
+@asynccontextmanager
+async def launch_otaproxy_with_cache(
+    cache_dir: Path,
+    mocker: MockerFixture,
+    condition: str,
+    *,
+    init_cache: bool = True,
+) -> AsyncGenerator[tuple[str, Path, str]]:
+    """Start an in-process otaproxy with caching and a mocked space checker.
+
+    Args:
+        cache_dir: Directory used for cache files and the sqlite DB.
+        mocker: pytest-mock fixture for patching the space checker.
+        condition: One of the ``SPACE_CONDITION_*`` constants.
+        init_cache: Passed to ``OTACache``; ``False`` reuses the existing DB.
+
+    Yields:
+        A tuple of (proxy_url, cache_dir, space_condition).
+    """
+    mocker.patch.object(
+        OTACache, "_background_check_free_space", _make_mocked_space_checker(condition)
+    )
+    ota_cache = OTACache(
+        cache_enabled=True,
+        init_cache=init_cache,
+        base_dir=str(cache_dir),
+        db_file=str(cache_dir / "cache_db"),
+        upper_proxy="",
+        enable_https=False,
+    )
+
+    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
+    logger.info("otaproxy started (condition=%s, init_cache=%s)", condition, init_cache)
+    try:
+        yield proxy_url, cache_dir, condition
+    finally:
+        server.should_exit = True
+        await server_task
+        logger.info(
+            "otaproxy stopped (port %d, condition=%s)", OTAPROXY_PORT, condition
+        )
+
+
 @pytest.fixture(
     params=[
         SPACE_CONDITION_BELOW_SOFT,
@@ -289,7 +362,11 @@ async def _launch_otaproxy(
     ]
 )
 async def otaproxy(
-    request, cache_dir: Path, ota_image_server: str
+    request,
+    cache_dir: Path,
+    mocker: MockerFixture,
+    ota_image_server: str,
+    ota_image_blobs,
 ) -> AsyncGenerator[tuple[str, Path, str]]:
     """Run otaproxy in-process with caching enabled.
 
@@ -300,27 +377,16 @@ async def otaproxy(
     """
     condition: str = request.param
 
-    # Monkeypatch the space checker before OTACache is started.
-    _orig = OTACache._background_check_free_space
-    OTACache._background_check_free_space = _make_mocked_space_checker(condition)
+    async with launch_otaproxy_with_cache(cache_dir, mocker, condition) as ctx:
+        yield ctx
 
-    ota_cache = OTACache(
-        cache_enabled=True,
-        init_cache=True,
-        base_dir=str(cache_dir),
-        db_file=str(cache_dir / "cache_db"),
-        upper_proxy="",
-        enable_https=False,
-    )
-
-    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
-    logger.info("otaproxy space condition: %s", condition)
-    yield proxy_url, cache_dir, condition
-
-    server.should_exit = True
-    await server_task
-    OTACache._background_check_free_space = _orig
-    logger.info("otaproxy stopped (port %d, condition=%s)", OTAPROXY_PORT, condition)
+    # For below_soft condition, after otaproxy exits we should have all DB entries written.
+    if condition == SPACE_CONDITION_BELOW_SOFT:
+        _check_cache_db(
+            cache_dir,
+            min_entries=len(ota_image_blobs),
+            resources_digests=set(ota_image_blobs.values()),
+        )
 
 
 @pytest.fixture()

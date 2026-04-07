@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from hashlib import sha256
 from os import PathLike
 from typing import AsyncGenerator
@@ -12,6 +13,23 @@ from anyio import open_file
 from otaclient_common._typing import StrOrPath
 
 from .config import config as cfg
+
+if sys.version_info < (3, 12):
+    from itertools import islice
+
+    def batched(iterable, n, *, strict=False):
+        """Copied from python documentation."""
+        # batched('ABCDEFG', 3) → ABC DEF G
+        if n < 1:
+            raise ValueError("n must be at least one")
+        iterator = iter(iterable)
+        while batch := tuple(islice(iterator, n)):
+            if strict and len(batch) != n:
+                raise ValueError("batched(): incomplete batch")
+            yield batch
+
+else:
+    from itertools import batched  # noqa
 
 
 async def read_file(

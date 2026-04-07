@@ -33,17 +33,18 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
-import sqlite3
 import time
 from pathlib import Path
 
-from ota_proxy.config import config as ota_proxy_cfg
+from pytest_mock import MockerFixture
 
 from ._download_client import DownloadResult
 from .conftest import (
     CONCURRENT_START_DELAY,
     SPACE_CONDITION_BELOW_SOFT,
     RunDownloadClient,
+    _check_cache_db,
+    launch_otaproxy_with_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,32 +87,6 @@ async def _run_concurrent_clients(
         for _ in range(n)
     ]
     return await asyncio.gather(*tasks)
-
-
-def _check_cache_db(
-    cache_dir: Path, min_entries: int, resources_digests: set[str]
-) -> None:
-    """Verify the cache sqlite db has entries with valid metadata."""
-    db_path = cache_dir / "cache_db"
-    assert db_path.is_file(), f"Cache db not found at {db_path}"
-
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(f"SELECT * FROM {ota_proxy_cfg.TABLE_NAME}")
-        rows = cur.fetchall()
-
-    assert len(rows) >= min_entries, (
-        f"Expected at least {min_entries} cache db entries, got {len(rows)}"
-    )
-
-    now = time.time()
-    for row in rows:
-        _file_sha256 = row["file_sha256"]
-        assert _file_sha256 in resources_digests, f"Resource {_file_sha256=} not found!"
-        assert row["cache_size"] >= 0, f"Invalid cache_size in row: {dict(row)}"
-        assert 0 < row["last_access"] <= now, f"Invalid last_access in row: {dict(row)}"
-
-    logger.info("Cache db: %d entries, all valid", len(rows))
 
 
 class TestOTAProxyNoCache:
@@ -166,12 +141,6 @@ class TestOTAProxyWithCache:
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, "http://127.0.0.1:65500"
             )
-            # After warm pass, db should still have valid entries.
-            _check_cache_db(
-                cache_dir,
-                min_entries=len(ota_image_blobs),
-                resources_digests=set(ota_image_blobs.values()),
-            )
         else:
             results_warm = await _run_concurrent_clients(
                 run_download_client, proxy_url, ota_image_server
@@ -184,3 +153,56 @@ class TestOTAProxyWithCache:
         gc.collect()
         tmp_files = list(cache_dir.glob("tmp*"))
         assert not tmp_files, f"[{condition}] Temp files left in cache dir: {tmp_files}"
+
+
+class TestOTAProxyPreloadDB:
+    """Test otaproxy DB pre-load on restart.
+
+    Validates that after a cold cache run with space always below soft limit,
+    restarting otaproxy (init_cache=False) correctly pre-loads the DB
+    and serves all blobs from warm cache without hitting upstream.
+    """
+
+    async def test_warm_cache_after_restart(
+        self,
+        cache_dir: Path,
+        mocker: MockerFixture,
+        ota_image_blobs: dict[str, str],
+        ota_image_server: str,
+        run_download_client: RunDownloadClient,
+    ):
+        """After cold cache, restart otaproxy and verify warm cache via DB pre-load."""
+        condition = SPACE_CONDITION_BELOW_SOFT
+
+        # --- Phase 1: Cold cache (fresh DB) ---
+        async with launch_otaproxy_with_cache(
+            cache_dir, mocker, condition, init_cache=True
+        ) as (proxy_url, _, _):
+            results_cold = await _run_concurrent_clients(
+                run_download_client, proxy_url, ota_image_server
+            )
+            for i, result in enumerate(results_cold):
+                _assert_download_ok(result, f"cold cache pass client#{i}")
+
+        # DB should contain all entries after below_soft cold cache.
+        _check_cache_db(
+            cache_dir,
+            min_entries=len(ota_image_blobs),
+            resources_digests=set(ota_image_blobs.values()),
+        )
+
+        # --- Phase 2: Restart with DB pre-load ---
+        async with launch_otaproxy_with_cache(
+            cache_dir, mocker, condition, init_cache=False
+        ) as (proxy_url, _, _):
+            # Warm cache with dummy upstream: all blobs must be served from cache.
+            logger.info("Testing warm cache after restart with dummy upstream ...")
+            results_warm = await _run_concurrent_clients(
+                run_download_client, proxy_url, "http://127.0.0.1:65500"
+            )
+            for i, result in enumerate(results_warm):
+                _assert_download_ok(result, f"warm cache after restart client#{i}")
+
+        gc.collect()
+        tmp_files = list(cache_dir.glob("tmp*"))
+        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"
