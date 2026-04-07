@@ -50,30 +50,14 @@ class Config:
     # ------ metrics config ------ #
     METRICS_UPDATE_INTERVAL = 5  # in seconds
 
-    # ------ LRU cache config ------ #
-    # value is the largest numbers of files that
-    # might need to be deleted for the bucket to hold a new entry
-    # if we have to reserve space for this file.
-    # bucket definition: revision 2
-    BUCKET_FILE_SIZE_DICT = {
-        0: 0,  # [0, 1KiB), will not be rotated
-        1 * 1024: 1,  # [1KiB, 2KiB)
-        2 * 1024: 1,
-        4 * 1024: 2,
-        8 * 1024: 2,
-        16 * 1024: 2,  # 16KiB
-        32 * 1024: 2,
-        256 * 1024: 8,  # 256KiB
-        1 * (1024**2): 4,  # 1MiB
-        8 * (1024**2): 8,
-        16 * (1024**2): 2,
-        32 * (1024**2): 2,  # [32MiB, ~), will not be rotated
-    }
+    # ------ cache index config ------ #
+    MAX_INDEX_ENTRIES = 400_000  # upper bound on in-memory index size
+    DB_FLUSH_BATCH_SIZE = 100  # flush when batch reaches this many entries
+    DB_FLUSH_MAX_LOOPS = 5  # flush after this many 1s loops (with pending entries)
+    DB_WRITER_LOOP_INTERVAL = 1  # seconds to sleep per writer loop iteration
 
     # ------ db config ------ #
     DB_FILE = f"{BASE_DIR}/cache_db"
-    # serializing the access
-    READ_DB_THREADS = WRITE_DB_THREAD = 1
     DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
     # ota-cache table
