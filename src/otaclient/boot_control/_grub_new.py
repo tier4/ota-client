@@ -528,6 +528,7 @@ class _GrubBootHelperFuncs:
         """
         res_kvp: dict[str, str] = {}
         for option_line in _in.splitlines():
+            option_line = option_line.strip()
             # NOTE: skip empty or commented lines
             if not option_line or option_line.startswith("#"):
                 continue
