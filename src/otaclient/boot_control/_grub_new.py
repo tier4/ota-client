@@ -17,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import itertools
+import json
 import logging
 import os
 import re
@@ -303,22 +304,62 @@ class ABPartitionDetector:
     @staticmethod
     def _list_partitions(rootfs_dev: str) -> dict[str, PartitionInfo]:
         _parts: dict[str, PartitionInfo] = {}
-        _lsblk_pa = re.compile(
-            r'NAME="(?P<dev_name>[^"]+)"\s+FSTYPE="(?P<fstype>[^"]*)"\s+UUID="(?P<uuid>[^"]*)"\s+PARTTYPE="(?P<parttype>[^"]*)"'
-        )
-        _lsblk_cmd = ["lsblk", "-Ppo", "NAME,FSTYPE,UUID,PARTTYPE"]
+        _lsblk_cmd = ["lsblk", "--json", "-po", "NAME,FSTYPE,UUID,PARTTYPE"]
         try:
             _parent_dev = cmdhelper.get_parent_dev(rootfs_dev)
             _output = cmdhelper.subprocess_check_output(
                 [*_lsblk_cmd, _parent_dev], raise_exception=True
             )
+            _parsed = json.loads(_output)
 
-            # skip the first line (parent device itself)
-            for _entry in _output.splitlines()[1:]:
-                if not (_entry_ma := _lsblk_pa.search(_entry)):
-                    continue
-                _dev_name = _entry_ma.group("dev_name")
+            # lsblk --json returns {"blockdevices": [{...parent..., "children": [...]}]}
+            # Examples:
+            # ```
+            # {
+            #    "blockdevices": [
+            #       {
+            #          "name": "/dev/nvme0n1",
+            #          "fstype": null,
+            #          "uuid": null,
+            #          "parttype": null,
+            #          "children": [
+            #             {
+            #                "name": "/dev/nvme0n1p1",
+            #                "fstype": "vfat",
+            #                "uuid": "CB4C-72D3",
+            #                "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+            #             },{
+            #                "name": "/dev/nvme0n1p2",
+            #                "fstype": "ext4",
+            #                "uuid": "d9a87440-5dcf-4fa1-994a-e84f8a9ae9df",
+            #                "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4"
+            #             },{
+            #                "name": "/dev/nvme0n1p3",
+            #                "fstype": "ext4",
+            #                "uuid": "5f563e84-6422-4844-aa82-f912cf8561b8",
+            #                "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4"
+            #             },{
+            #                "name": "/dev/nvme0n1p4",
+            #                "fstype": "ext4",
+            #                "uuid": "cb7519f4-924b-4f2c-ac30-9318e31cf64e",
+            #                "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4"
+            #             }
+            #          ]
+            #       }
+            #    ]
+            # }
+            # ```
+            #
+            # `null` in json will be converted to `None` by python.
+            _devices = _parsed.get("blockdevices", [])
+            if not _devices:
+                raise GrubBootControllerError(
+                    f"no block devices found for {_parent_dev}"
+                )
+            _children = _devices[0].get("children", [])
 
+            for _entry in _children:
+                _dev_name = _entry["name"]
                 _dev_path_ma = DEV_PATH_PA.search(_dev_name)
                 if not _dev_path_ma:
                     raise GrubBootControllerError(
@@ -328,10 +369,12 @@ class ABPartitionDetector:
 
                 _parts[_part_id] = PartitionInfo(
                     dev=_dev_name,
-                    uuid=_entry_ma.group("uuid"),
-                    parttype=_entry_ma.group("parttype"),
+                    uuid=_entry.get("uuid") or "",
+                    parttype=_entry.get("parttype") or "",
                 )
             return _parts
+        except GrubBootControllerError:
+            raise
         except Exception as e:
             _err_msg = f"failed to detect boot device family tree: {e!r}"
             logger.error(_err_msg)
