@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
 import os
 import queue
@@ -77,6 +78,8 @@ class CacheDBWriter:
 
         self._closed = False
 
+        self._bucket_size_list = list(cfg.BUCKET_FILE_SIZE_DICT)
+
     def register_entry(self, entry: CacheMeta) -> None:
         """Enqueue an entry for batched DB write (non-blocking)."""
         self._queue.put_nowait(entry)
@@ -121,6 +124,11 @@ class CacheDBWriter:
     def _flush(self, _batch: Iterable[CacheMeta]) -> None:
         """Write a batch of entries to SQLite in one transaction."""
         try:
+            # Fill bucket_idx for backward compat with older otaproxy LRU
+            for entry in _batch:
+                entry.bucket_idx = (
+                    bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
+                )
             self._orm.orm_insert_entries(_batch, or_option="replace")
         except Exception as e:
             burst_suppressed_logger.exception(
