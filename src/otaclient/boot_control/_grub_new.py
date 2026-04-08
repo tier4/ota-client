@@ -485,7 +485,12 @@ class _GrubBootHelperFuncs:
             return False  # old grub boot control setup
         if not _grub_cfg.exists():
             return False  # grub.cfg missing — fresh install without grub setup
-        if not OTAManagedCfg.validate_managed_config(_grub_cfg.read_text()):
+        try:
+            _grub_cfg_text = _grub_cfg.read_text()
+        except OSError as e:
+            logger.warning(f"failed to read {_grub_cfg}: {e!r}, re-setup required")
+            return False
+        if not OTAManagedCfg.validate_managed_config(_grub_cfg_text):
             return False  # grub.cfg is not OTA-managed (first time setup or externally modified)
         return True
 
