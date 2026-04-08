@@ -441,7 +441,7 @@ class _GrubBootHelperFuncs:
         if _grub_cfg.is_symlink():
             return False  # old grub boot control setup
         if not _grub_cfg.exists():
-            return False  # how is it possible?
+            return False  # grub.cfg missing — fresh install without grub setup
         if not OTAManagedCfg.validate_managed_config(_grub_cfg.read_text()):
             return False  # grub.cfg is not OTA-managed (first time setup or externally modified)
         return True
@@ -519,6 +519,12 @@ class _GrubBootHelperFuncs:
         finally:
             _tmp_grubenv.unlink(missing_ok=True)
 
+        # Post-replace verification: grubenv is already committed at this point.
+        # If sync or verify fails, the exception propagates to the caller
+        # (e.g. _grub_set_default_atomic / _grub_reboot) which wraps it in
+        # GrubBootControllerError. This is intentional — the write succeeded
+        # but we cannot confirm durability/correctness.
+
         # sync the whole boot partition
         # sync command is also available at the otaclient app image, no need to chroot
         subprocess_run_wrapper(
@@ -570,27 +576,58 @@ class _GrubBootHelperFuncs:
             raise GrubBootControllerError(_err_msg) from e
 
     @staticmethod
-    def detect_slot_kernel_ver(_slot_mp: Path) -> str:
-        """Detect the kernel version by looking at `<_slot_mp>/boot` folder.
+    def _parse_kernel_ver_key(ver: str) -> tuple:
+        """Parse a kernel version string into a comparable tuple.
 
-        Expect only one version of kernel installed.
-        If multiple kernel version found, will pick the first found one.
+        Splits on ``'.'`` and ``'-'``, converting numeric segments to ints
+        so that version comparison works correctly
+        (e.g. ``"6.11.0-29-generic"`` → ``(6, 11, 0, 29, "generic")``).
+        """
+        parts: list[int | str] = []
+        for segment in re.split(r"[.\-]", ver):
+            try:
+                parts.append(int(segment))
+            except ValueError:
+                parts.append(segment)
+        return tuple(parts)
+
+    @classmethod
+    def detect_slot_kernel_ver(cls, _slot_mp: Path) -> str:
+        """Detect the kernel version from the slot's ``/boot`` directory.
+
+        Scans ``<_slot_mp>/boot`` for vmlinuz-* files that have a matching
+        initrd.img-* companion. When multiple valid kernel installations are
+        found, the highest version (by parsed version string comparison) is
+        selected so that the most recently installed kernel is used for OTA
+        boot.
+
+        Args:
+            _slot_mp: Mount point of the slot whose kernel version to detect.
+
+        Returns:
+            The kernel version string (e.g. ``"6.11.0-29-generic"``).
+
+        Raises:
+            GrubBootControllerError: If no valid kernel installation is found.
         """
         _slot_boot = _slot_mp / "boot"
-        _found = None
+        _candidates: list[str] = []
         for _vmlinuz in _slot_boot.glob(f"{VMLINUZ_PREFIX}*"):
             _kernel_ver = _vmlinuz.name.replace(VMLINUZ_PREFIX, "", 1)
 
             if (_slot_boot / f"{INITRD_PREFIX}{_kernel_ver}").is_file():
-                if _found:
-                    logger.warning(
-                        f"found second installation of kernel({_kernel_ver=}), ignored"
-                    )
-                else:
-                    _found = _kernel_ver
+                _candidates.append(_kernel_ver)
 
-        if _found:
-            return _found
+        if _candidates:
+            _candidates.sort(key=cls._parse_kernel_ver_key, reverse=True)
+            _selected = _candidates[0]
+            if len(_candidates) > 1:
+                logger.warning(
+                    f"multiple kernel installations found, "
+                    f"selecting highest version: {_selected!r}, "
+                    f"ignoring: {_candidates[1:]}"
+                )
+            return _selected
         raise GrubBootControllerError(f"no kernel installation found from {_slot_mp}!")
 
 
