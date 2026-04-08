@@ -267,7 +267,8 @@ async def _launch_otaproxy(
         port=port,
         log_level="error",
         lifespan="on",
-        http="h11",
+        # NOTE(20260402): aligns with otaproxy, use httptools now
+        http="httptools",
     )
     server = uvicorn.Server(config)
     serve_task = asyncio.create_task(server.serve())

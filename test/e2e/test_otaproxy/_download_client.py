@@ -56,7 +56,10 @@ from urllib.parse import quote
 import aiohttp
 
 from ota_proxy.cache_control_header import HEADER_LOWERCASE as OTA_CACHE_CONTROL_HEADER
-from ota_proxy.cache_control_header import export_kwargs_as_header_string
+from ota_proxy.cache_control_header import (
+    export_kwargs_as_header_string,
+    update_header_str,
+)
 
 # When cache rotation engaged, cache file might be
 # unavailable temporarily, allow retry on this case.
@@ -77,7 +80,15 @@ class DownloadResult(TypedDict):
     """Include retried failed downloads."""
 
 
-async def run(
+def _set_retry_caching(headers: dict[str, str]) -> None:
+    """Add retry_caching directive to the ota-file-cache-control header."""
+    headers[OTA_CACHE_CONTROL_HEADER] = update_header_str(
+        headers[OTA_CACHE_CONTROL_HEADER],
+        retry_caching=True,
+    )
+
+
+async def run(  # noqa
     proxy_url: str,
     upstream_url: str,
     blobs: dict[str, str],
@@ -98,17 +109,18 @@ async def run(
             per_file_headers[OTA_CACHE_CONTROL_HEADER] = export_kwargs_as_header_string(
                 file_sha256=expected_sha256
             )
+            headers = dict(per_file_headers)
 
-            last_err, err_type = None, None
+            _download_ok, _last_err, _err_type = None, None, False
             for _ in range(RETRY_COUNT):
                 try:
                     async with session.get(
-                        url, proxy=proxy_url, headers=per_file_headers
+                        url, proxy=proxy_url, headers=headers
                     ) as resp:
                         if resp.status != 200:
-                            last_err = f"{name}: HTTP {resp.status}"
-                            err_type = DownloadErrorType.failed_downloaded
-                            recorded_failed.append(last_err)
+                            _last_err = f"{name}: HTTP {resp.status}"
+                            _err_type = DownloadErrorType.failed_downloaded
+                            recorded_failed.append(_last_err)
                             continue
 
                         h = hashlib.sha256()
@@ -117,25 +129,30 @@ async def run(
 
                         actual = h.hexdigest()
                         if actual != expected_sha256:
-                            last_err = (
+                            _last_err = (
                                 f"{name}: expected {expected_sha256}, got {actual}"
                             )
-                            err_type = DownloadErrorType.hash_mismatches
-                            recorded_failed.append(last_err)
+                            _err_type = DownloadErrorType.hash_mismatches
+                            recorded_failed.append(_last_err)
+                            _set_retry_caching(headers)
                         else:
+                            _download_ok = True
                             ok += 1
                             break
                 except Exception as e:
-                    last_err = f"{name}: {e!r}"
-                    err_type = DownloadErrorType.failed_downloaded
-                    recorded_failed.append(last_err)
+                    _last_err = f"{name}: {e!r}"
+                    _err_type = DownloadErrorType.failed_downloaded
+                    recorded_failed.append(_last_err)
+                    _set_retry_caching(headers)
 
-                time.sleep(1)
+                await asyncio.sleep(1)
 
-            if err_type == DownloadErrorType.failed_downloaded and last_err:
-                failed_downloads.append(last_err)
-            if err_type == DownloadErrorType.hash_mismatches and last_err:
-                hash_mismatches.append(last_err)
+            if _download_ok:
+                continue
+            if _err_type == DownloadErrorType.failed_downloaded and _last_err:
+                failed_downloads.append(_last_err)
+            if _err_type == DownloadErrorType.hash_mismatches and _last_err:
+                hash_mismatches.append(_last_err)
 
     return DownloadResult(
         total=len(blobs),
