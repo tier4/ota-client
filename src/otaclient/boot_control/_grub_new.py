@@ -562,35 +562,28 @@ class _GrubBootHelperFuncs:
             )
             # fmt: on
 
+            # Verify the temp file content before the atomic replace.
+            _options_set = set(_options)
+            _res = subprocess_run_wrapper(
+                ["grub-editenv", str(_tmp_grubenv), "list"],
+                check=True,
+                check_output=True,
+                chroot=_env.get_dynamic_client_chroot_path(),
+            )
+            _read_options_set = {i.strip() for i in _res.stdout.decode().splitlines()}
+            if _read_options_set != _options_set:
+                raise ValueError(f"{_read_options_set} != {_options_set}")
+
             # os.replace ensures atomic when src and dst are within the same fs!
             os.replace(_tmp_grubenv, boot_cfg.GRUBENV_FPATH)
         finally:
             _tmp_grubenv.unlink(missing_ok=True)
-
-        # Post-replace verification: grubenv is already committed at this point.
-        # If sync or verify fails, the exception propagates to the caller
-        # (e.g. _grub_set_default_atomic / _grub_reboot) which wraps it in
-        # GrubBootControllerError. This is intentional — the write succeeded
-        # but we cannot confirm durability/correctness.
 
         # sync the whole boot partition
         # sync command is also available at the otaclient app image, no need to chroot
         subprocess_run_wrapper(
             ["sync", "-f", boot_cfg.GRUBENV_FPATH], check=False, check_output=False
         )
-
-        # confirm the written files
-        _options_set = set(_options)
-        _res = subprocess_run_wrapper(
-            ["grub-editenv", boot_cfg.GRUBENV_FPATH, "list"],
-            check=True,
-            check_output=True,
-            chroot=_env.get_dynamic_client_chroot_path(),
-        )
-
-        _read_options_set = {i.strip() for i in _res.stdout.decode().splitlines()}
-        if _read_options_set != _options_set:
-            raise ValueError(f"{_read_options_set} != {_options_set}")
 
     @classmethod
     def _grub_set_default_atomic(cls, slot_id: OTASlotBootID) -> None:
@@ -890,6 +883,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             ma = reference_dict[cfg.CANONICAL_ROOT]
             merged.append("\t".join([slot_uuid_str] + list(ma.groups())[1:]))
         else:
+            logger.warning(
+                "no root entry in reference fstab, falling back to ext4"
+            )
             merged.append(f"{slot_uuid_str}\t/\text4\terrors=remount-ro\t0\t1")
 
         # Add /boot and /boot/efi from active if available
@@ -942,7 +938,11 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         #                 the boot files to the root of /boot folder.
         #                 This is for old grub boot control bootstraps itself.
         _boot_slot_dir = self.get_boot_slot_dir(slot_id)
-        for f in (slot_mp / "boot").glob(f"*{_kernel_ver}"):
+        _slot_boot = slot_mp / "boot"
+        for f in itertools.chain(
+            _slot_boot.glob(f"{VMLINUZ_PREFIX}{_kernel_ver}"),
+            _slot_boot.glob(f"{INITRD_PREFIX}{_kernel_ver}"),
+        ):
             if f.is_file() and not f.is_symlink():
                 copyfile_atomic(f, _boot_slot_dir / f.name)
                 copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
