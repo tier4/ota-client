@@ -71,12 +71,15 @@ GRUB_DEFAULT_OPTIONS = {
 }
 """The required grub options for OTA grub boot control."""
 GRUB_BLACKLIST_OPTIONS = ["GRUB_SAVEDEFAULT"]
-"""The grub options that MUST be stripped away."""
+"""The grub options that MUST be stripped away.
+
+GRUB_SAVEDEFAULT: will make our boot control invalid.
+"""
 
 MENUENTRY_HEAD_PA = re.compile(r"^\s*menuentry\s", re.MULTILINE)
 LINUX_PA_MULTILINE = re.compile(r"^\s*linux\s*(?P<linux_fpath>[^\s]+)", re.MULTILINE)
-LINUX_RECOVERY_PA = re.compile(r"^\s*linux\s+\S+\s+.*\brecovery\b", re.MULTILINE)
-"""Match a linux directive line where `recovery` appears as a boot argument."""
+LINUX_RECOVERY_PA = re.compile(r"\brecovery\b")
+"""Match `recovery` as a boot argument word."""
 LINUX_VERSION_PA = re.compile(r"vmlinuz-(?P<ver>[\.\w-]+)$")
 INITRD_PA_MULTILINE = re.compile(r"^\s*initrd\s*(?P<initrd_fpath>[^\s]+)", re.MULTILINE)
 MENUENTRY_TITLE_PA = re.compile(
@@ -165,7 +168,8 @@ class _BootMenuEntry:
             if not _linux_dir_ma:
                 continue  # not a linux boot menuentry
 
-            if LINUX_RECOVERY_PA.search(_found):
+            _boot_args = _found[_linux_dir_ma.end() :].split("\n", 1)[0]
+            if LINUX_RECOVERY_PA.search(_boot_args):
                 continue  # skip recovery entry
 
             _linux_ver_ma = LINUX_VERSION_PA.search(_linux_dir_ma.group())
@@ -883,9 +887,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             ma = reference_dict[cfg.CANONICAL_ROOT]
             merged.append("\t".join([slot_uuid_str] + list(ma.groups())[1:]))
         else:
-            logger.warning(
-                "no root entry in reference fstab, falling back to ext4"
-            )
+            logger.warning("no root entry in reference fstab, falling back to ext4")
             merged.append(f"{slot_uuid_str}\t/\text4\terrors=remount-ro\t0\t1")
 
         # Add /boot and /boot/efi from active if available
