@@ -35,6 +35,7 @@ from otaclient.boot_control._grub_new import (
     MENUENTRY_TITLE_PA,
     ABPartitionDetector,
     _BootMenuEntry,
+    _GrubBootControl,
     _GrubBootHelperFuncs,
     iter_menuentries,
 )
@@ -721,3 +722,254 @@ class TestListPartitions:
 
         with pytest.raises(GrubBootControllerError, match="failed to detect"):
             ABPartitionDetector._list_partitions("/dev/sda1")
+
+
+#
+# ------ _GrubBootControl._generate_fstab ------
+#
+
+
+def _fstab_entry(uuid: str, mp: str, fstype: str, opts: str, dump: str, pass_: str) -> str:
+    return f"UUID={uuid}\t{mp}\t{fstype}\t{opts}\t{dump}\t{pass_}"
+
+
+def _build_fstab(*entries: str, comments: tuple = ()) -> str:
+    lines = list(comments) + [e + "\n" for e in entries]
+    return "".join(lines)
+
+
+# Reusable fstab entries — synthetic.
+_ROOT_SYNTH = _fstab_entry("aaaa-1111", "/", "ext4", "errors=remount-ro", "0", "1")
+_BOOT_SYNTH = _fstab_entry("bbbb-2222", "/boot", "ext4", "defaults", "0", "1")
+_EFI_SYNTH = _fstab_entry("cccc-3333", "/boot/efi", "vfat", "umask=0077", "0", "1")
+_ROOT_SYNTH_STANDBY = _fstab_entry("old-root", "/", "ext4", "errors=remount-ro", "0", "1")
+_DATA_SYNTH = _fstab_entry("dddd-4444", "/data", "ext4", "defaults", "0", "2")
+_HOME_SYNTH = _fstab_entry("eeee-5555", "/home", "ext4", "defaults", "0", "2")
+_VARLOG_SYNTH = _fstab_entry("ffff-6666", "/var/log", "ext4", "defaults", "0", "2")
+
+# Reusable fstab entries — real-world OTA setup ECU.
+_ROOT_REAL = _fstab_entry(
+    "cb7519f4-924b-4f2c-ac30-9318e31cf64e", "/", "ext4", "errors=remount-ro", "0", "1"
+)
+_BOOT_REAL = _fstab_entry(
+    "d9a87440-5dcf-4fa1-994a-e84f8a9ae9df", "/boot", "ext4", "defaults", "0", "1"
+)
+_EFI_REAL = _fstab_entry("CB4C-72D3", "/boot/efi", "vfat", "defaults", "0", "1")
+_DATA_REAL = _fstab_entry(
+    "ba7ed9ca-0188-4f66-bb01-b1ac990f2a31", "/data", "ext4", "defaults", "0", "2"
+)
+
+_SYNTH_STANDBY_FSUUID = "new-standby-uuid"
+_REAL_STANDBY_FSUUID = "5f563e84-6422-4844-aa82-f912cf8561b8"
+
+
+def _make_grub_ctrl(mocker, *, boot_uuid, efi_uuid):
+    """Create a _GrubBootControl instance bypassing __init__."""
+    ctrl = object.__new__(_GrubBootControl)
+    boot_slots = mocker.MagicMock()
+    boot_slots.boot_partition.uuid = boot_uuid
+    if efi_uuid is not None:
+        boot_slots.efi_partition.uuid = efi_uuid
+    else:
+        boot_slots.efi_partition = None
+    ctrl.boot_slots = boot_slots
+    return ctrl
+
+
+@pytest.mark.parametrize(
+    "boot_uuid, efi_uuid, slot_fsuuid, "
+    "reference_fstab, base_fstab, expected_lines",
+    [
+        pytest.param(
+            "bbbb-2222",
+            "cccc-3333",
+            _SYNTH_STANDBY_FSUUID,
+            _build_fstab(
+                _ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH,
+                comments=("# /etc/fstab: static file system information.\n",),
+            ),
+            _build_fstab(_ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH, _DATA_SYNTH),
+            [
+                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _BOOT_SYNTH,
+                _EFI_SYNTH,
+                _DATA_SYNTH,
+            ],
+            id="synth_with_extra_mount",
+        ),
+        pytest.param(
+            "bbbb-2222",
+            "cccc-3333",
+            _SYNTH_STANDBY_FSUUID,
+            _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH),
+            _build_fstab(
+                _ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH,
+                _DATA_SYNTH, _HOME_SYNTH, _VARLOG_SYNTH,
+            ),
+            [
+                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _BOOT_SYNTH,
+                _EFI_SYNTH,
+                _DATA_SYNTH,
+                _HOME_SYNTH,
+                _VARLOG_SYNTH,
+            ],
+            id="synth_multiple_extra_mounts",
+        ),
+        pytest.param(
+            "d9a87440-5dcf-4fa1-994a-e84f8a9ae9df",
+            "CB4C-72D3",
+            _REAL_STANDBY_FSUUID,
+            _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
+            _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
+            [
+                _fstab_entry(_REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _BOOT_REAL,
+                _EFI_REAL,
+            ],
+            id="real_ecu",
+        ),
+        pytest.param(
+            "d9a87440-5dcf-4fa1-994a-e84f8a9ae9df",
+            "CB4C-72D3",
+            _REAL_STANDBY_FSUUID,
+            _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
+            _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL, _DATA_REAL),
+            [
+                _fstab_entry(_REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _BOOT_REAL,
+                _EFI_REAL,
+                _DATA_REAL,
+            ],
+            id="real_ecu_with_extra_mount",
+        ),
+    ],
+)
+class TestGenerateFstab:
+    """Tests for _GrubBootControl._generate_fstab."""
+
+    def test_expected_output(
+        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
+        reference_fstab, base_fstab, expected_lines,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=base_fstab,
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        assert result.strip().splitlines() == expected_lines
+
+    def test_trailing_newline(
+        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
+        reference_fstab, base_fstab, expected_lines,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=base_fstab,
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        assert result.endswith("\n")
+
+    def test_no_comments_in_output(
+        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
+        reference_fstab, base_fstab, expected_lines,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=base_fstab,
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        for line in result.strip().splitlines():
+            assert not line.startswith("#")
+
+    def test_special_entries_not_duplicated(
+        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
+        reference_fstab, base_fstab, expected_lines,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=base_fstab,
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        mount_points = [line.split("\t")[1] for line in result.strip().splitlines()]
+        assert mount_points.count("/") == 1
+        assert mount_points.count("/boot") == 1
+        assert mount_points.count("/boot/efi") == 1
+
+    def test_boot_appears_before_efi(
+        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
+        reference_fstab, base_fstab, expected_lines,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=base_fstab,
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        mount_points = [line.split("\t")[1] for line in result.strip().splitlines()]
+        assert mount_points.index("/boot") < mount_points.index("/boot/efi")
+
+
+class TestGenerateFstabFallback:
+    """Tests for _generate_fstab fallback paths (no reference or missing entries)."""
+
+    @pytest.mark.parametrize(
+        "boot_uuid, efi_uuid, reference_fstab, slot_fsuuid, "
+        "expected_root, expected_boot, expected_efi",
+        [
+            pytest.param(
+                "bbbb-2222",
+                "cccc-3333",
+                None,
+                _SYNTH_STANDBY_FSUUID,
+                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry("bbbb-2222", "/boot", "ext4", "defaults", "0", "1"),
+                _fstab_entry("cccc-3333", "/boot/efi", "vfat", "defaults", "0", "1"),
+                id="no_reference",
+            ),
+            pytest.param(
+                "boot-uuid-fb",
+                "efi-uuid-fb",
+                _build_fstab(_ROOT_SYNTH),
+                _SYNTH_STANDBY_FSUUID,
+                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry("boot-uuid-fb", "/boot", "ext4", "defaults", "0", "1"),
+                _fstab_entry("efi-uuid-fb", "/boot/efi", "vfat", "defaults", "0", "1"),
+                id="reference_missing_boot_and_efi",
+            ),
+        ],
+    )
+    def test_fallback_entries(
+        self, mocker, boot_uuid, efi_uuid, reference_fstab, slot_fsuuid,
+        expected_root, expected_boot, expected_efi,
+    ):
+        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
+        result = ctrl._generate_fstab(
+            base_fstab=_build_fstab(_ROOT_SYNTH_STANDBY),
+            reference_fstab=reference_fstab,
+            slot_fsuuid=slot_fsuuid,
+        )
+        lines = result.strip().splitlines()
+        assert lines[0] == expected_root
+        assert lines[1] == expected_boot
+        assert lines[2] == expected_efi
+
+    def test_no_efi_partition_omits_efi_entry(self, mocker):
+        """When efi_partition is None, /boot/efi entry is not included."""
+        ctrl = _make_grub_ctrl(mocker, boot_uuid="bbbb-2222", efi_uuid=None)
+        result = ctrl._generate_fstab(
+            base_fstab=_build_fstab(
+                _ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH, _DATA_SYNTH,
+            ),
+            reference_fstab=_build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH),
+            slot_fsuuid=_SYNTH_STANDBY_FSUUID,
+        )
+        mount_points = [line.split("\t")[1] for line in result.strip().splitlines()]
+        assert "/" in mount_points
+        assert "/boot" in mount_points
+        assert "/boot/efi" not in mount_points
+        assert "/data" in mount_points
