@@ -14,9 +14,15 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from otaclient.boot_control._grub_common import OTASlotBootID
+from otaclient.boot_control._grub_common import (
+    GrubBootControllerError,
+    OTASlotBootID,
+    PartitionInfo,
+)
 from otaclient.boot_control._grub_new import (
     DEV_PATH_PA,
     GRUB_BLACKLIST_OPTIONS,
@@ -27,6 +33,7 @@ from otaclient.boot_control._grub_new import (
     MENUENTRY_HEAD_PA,
     MENUENTRY_ID_PA,
     MENUENTRY_TITLE_PA,
+    ABPartitionDetector,
     _BootMenuEntry,
     _GrubBootHelperFuncs,
     iter_menuentries,
@@ -44,11 +51,6 @@ from .conftest import (
 
 # Shared test data: (grub_cfg, kernel_ver) for the standard grub.cfg test file.
 _GRUB_CFG_KERNEL_VER = (GRUB_CFG, "5.19.0-50-generic")
-
-
-# ============================================================
-# Regex patterns
-# ============================================================
 
 
 class TestDevPathPattern:
@@ -321,11 +323,6 @@ class TestBootMenuEntryFindMenuentry:
         assert "vmlinuz-5.19.0-50-generic" in result
 
 
-# ============================================================
-# _BootMenuEntry._fixup_fpath
-# ============================================================
-
-
 class TestBootMenuEntryFixupFpath:
     @pytest.mark.parametrize(
         "fpath, slot_id, expected",
@@ -573,3 +570,154 @@ class TestUpdateGrubDefault:
                 continue
             key = line.split("=", 1)[0]
             assert key in GRUB_DEFAULT_OPTIONS
+
+
+# The real-world lsblk --json output provided during development.
+_LSBLK_JSON_NVME = json.dumps(
+    {
+        "blockdevices": [
+            {
+                "name": "/dev/nvme0n1",
+                "fstype": None,
+                "uuid": None,
+                "parttype": None,
+                "children": [
+                    {
+                        "name": "/dev/nvme0n1p1",
+                        "fstype": "vfat",
+                        "uuid": "CB4C-72D3",
+                        "parttype": "c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+                    },
+                    {
+                        "name": "/dev/nvme0n1p2",
+                        "fstype": "ext4",
+                        "uuid": "d9a87440-5dcf-4fa1-994a-e84f8a9ae9df",
+                        "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+                    },
+                    {
+                        "name": "/dev/nvme0n1p3",
+                        "fstype": "ext4",
+                        "uuid": "5f563e84-6422-4844-aa82-f912cf8561b8",
+                        "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+                    },
+                    {
+                        "name": "/dev/nvme0n1p4",
+                        "fstype": "ext4",
+                        "uuid": "cb7519f4-924b-4f2c-ac30-9318e31cf64e",
+                        "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+                    },
+                ],
+            }
+        ]
+    }
+)
+
+_LSBLK_JSON_SDA = json.dumps(
+    {
+        "blockdevices": [
+            {
+                "name": "/dev/sda",
+                "fstype": None,
+                "uuid": None,
+                "parttype": None,
+                "children": [
+                    {
+                        "name": "/dev/sda1",
+                        "fstype": "ext4",
+                        "uuid": "aaaa-1111",
+                        "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+                    },
+                    {
+                        "name": "/dev/sda2",
+                        "fstype": "ext4",
+                        "uuid": "bbbb-2222",
+                        "parttype": "0fc63daf-8483-4772-8e79-3d69d8477de4",
+                    },
+                ],
+            }
+        ]
+    }
+)
+
+
+class TestListPartitions:
+    """Tests for ABPartitionDetector._list_partitions."""
+
+    def test_parses_nvme_partitions(self, mocker):
+        mock_cmdhelper = mocker.patch("otaclient.boot_control._grub_new.cmdhelper")
+        mock_cmdhelper.get_parent_dev.return_value = "/dev/nvme0n1"
+        mock_cmdhelper.subprocess_check_output.return_value = _LSBLK_JSON_NVME
+
+        result = ABPartitionDetector._list_partitions("/dev/nvme0n1p3")
+
+        assert result == {
+            "1": PartitionInfo(
+                dev="/dev/nvme0n1p1",
+                uuid="CB4C-72D3",
+                parttype="c12a7328-f81f-11d2-ba4b-00a0c93ec93b",
+            ),
+            "2": PartitionInfo(
+                dev="/dev/nvme0n1p2",
+                uuid="d9a87440-5dcf-4fa1-994a-e84f8a9ae9df",
+                parttype="0fc63daf-8483-4772-8e79-3d69d8477de4",
+            ),
+            "3": PartitionInfo(
+                dev="/dev/nvme0n1p3",
+                uuid="5f563e84-6422-4844-aa82-f912cf8561b8",
+                parttype="0fc63daf-8483-4772-8e79-3d69d8477de4",
+            ),
+            "4": PartitionInfo(
+                dev="/dev/nvme0n1p4",
+                uuid="cb7519f4-924b-4f2c-ac30-9318e31cf64e",
+                parttype="0fc63daf-8483-4772-8e79-3d69d8477de4",
+            ),
+        }
+
+    def test_parses_sda_partitions(self, mocker):
+        mock_cmdhelper = mocker.patch("otaclient.boot_control._grub_new.cmdhelper")
+        mock_cmdhelper.get_parent_dev.return_value = "/dev/sda"
+        mock_cmdhelper.subprocess_check_output.return_value = _LSBLK_JSON_SDA
+
+        result = ABPartitionDetector._list_partitions("/dev/sda1")
+
+        assert len(result) == 2
+        assert result["1"].dev == "/dev/sda1"
+        assert result["2"].dev == "/dev/sda2"
+
+    def test_no_block_devices_raises(self, mocker):
+        mock_cmdhelper = mocker.patch("otaclient.boot_control._grub_new.cmdhelper")
+        mock_cmdhelper.get_parent_dev.return_value = "/dev/sda"
+        mock_cmdhelper.subprocess_check_output.return_value = json.dumps(
+            {"blockdevices": []}
+        )
+
+        with pytest.raises(GrubBootControllerError, match="no block devices found"):
+            ABPartitionDetector._list_partitions("/dev/sda1")
+
+    def test_no_children_returns_empty(self, mocker):
+        mock_cmdhelper = mocker.patch("otaclient.boot_control._grub_new.cmdhelper")
+        lsblk_json = json.dumps(
+            {
+                "blockdevices": [
+                    {
+                        "name": "/dev/sda",
+                        "fstype": None,
+                        "uuid": None,
+                        "parttype": None,
+                    }
+                ]
+            }
+        )
+        mock_cmdhelper.get_parent_dev.return_value = "/dev/sda"
+        mock_cmdhelper.subprocess_check_output.return_value = lsblk_json
+
+        result = ABPartitionDetector._list_partitions("/dev/sda1")
+        assert result == {}
+
+    def test_invalid_json_raises(self, mocker):
+        mock_cmdhelper = mocker.patch("otaclient.boot_control._grub_new.cmdhelper")
+        mock_cmdhelper.get_parent_dev.return_value = "/dev/sda"
+        mock_cmdhelper.subprocess_check_output.return_value = "not json"
+
+        with pytest.raises(GrubBootControllerError, match="failed to detect"):
+            ABPartitionDetector._list_partitions("/dev/sda1")
