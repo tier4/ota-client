@@ -729,7 +729,9 @@ class TestListPartitions:
 #
 
 
-def _fstab_entry(uuid: str, mp: str, fstype: str, opts: str, dump: str, pass_: str) -> str:
+def _fstab_entry(
+    uuid: str, mp: str, fstype: str, opts: str, dump: str, pass_: str
+) -> str:
     return f"UUID={uuid}\t{mp}\t{fstype}\t{opts}\t{dump}\t{pass_}"
 
 
@@ -742,7 +744,9 @@ def _build_fstab(*entries: str, comments: tuple = ()) -> str:
 _ROOT_SYNTH = _fstab_entry("aaaa-1111", "/", "ext4", "errors=remount-ro", "0", "1")
 _BOOT_SYNTH = _fstab_entry("bbbb-2222", "/boot", "ext4", "defaults", "0", "1")
 _EFI_SYNTH = _fstab_entry("cccc-3333", "/boot/efi", "vfat", "umask=0077", "0", "1")
-_ROOT_SYNTH_STANDBY = _fstab_entry("old-root", "/", "ext4", "errors=remount-ro", "0", "1")
+_ROOT_SYNTH_STANDBY = _fstab_entry(
+    "old-root", "/", "ext4", "errors=remount-ro", "0", "1"
+)
 _DATA_SYNTH = _fstab_entry("dddd-4444", "/data", "ext4", "defaults", "0", "2")
 _HOME_SYNTH = _fstab_entry("eeee-5555", "/home", "ext4", "defaults", "0", "2")
 _VARLOG_SYNTH = _fstab_entry("ffff-6666", "/var/log", "ext4", "defaults", "0", "2")
@@ -777,20 +781,23 @@ def _make_grub_ctrl(mocker, *, boot_uuid, efi_uuid):
 
 
 @pytest.mark.parametrize(
-    "boot_uuid, efi_uuid, slot_fsuuid, "
-    "reference_fstab, base_fstab, expected_lines",
+    "boot_uuid, efi_uuid, slot_fsuuid, reference_fstab, base_fstab, expected_lines",
     [
         pytest.param(
             "bbbb-2222",
             "cccc-3333",
             _SYNTH_STANDBY_FSUUID,
             _build_fstab(
-                _ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH,
+                _ROOT_SYNTH,
+                _BOOT_SYNTH,
+                _EFI_SYNTH,
                 comments=("# /etc/fstab: static file system information.\n",),
             ),
             _build_fstab(_ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH, _DATA_SYNTH),
             [
-                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _BOOT_SYNTH,
                 _EFI_SYNTH,
                 _DATA_SYNTH,
@@ -803,11 +810,17 @@ def _make_grub_ctrl(mocker, *, boot_uuid, efi_uuid):
             _SYNTH_STANDBY_FSUUID,
             _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH),
             _build_fstab(
-                _ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH,
-                _DATA_SYNTH, _HOME_SYNTH, _VARLOG_SYNTH,
+                _ROOT_SYNTH_STANDBY,
+                _BOOT_SYNTH,
+                _EFI_SYNTH,
+                _DATA_SYNTH,
+                _HOME_SYNTH,
+                _VARLOG_SYNTH,
             ),
             [
-                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _BOOT_SYNTH,
                 _EFI_SYNTH,
                 _DATA_SYNTH,
@@ -823,7 +836,9 @@ def _make_grub_ctrl(mocker, *, boot_uuid, efi_uuid):
             _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
             _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
             [
-                _fstab_entry(_REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _BOOT_REAL,
                 _EFI_REAL,
             ],
@@ -836,7 +851,9 @@ def _make_grub_ctrl(mocker, *, boot_uuid, efi_uuid):
             _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL),
             _build_fstab(_ROOT_REAL, _BOOT_REAL, _EFI_REAL, _DATA_REAL),
             [
-                _fstab_entry(_REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _REAL_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _BOOT_REAL,
                 _EFI_REAL,
                 _DATA_REAL,
@@ -849,8 +866,14 @@ class TestGenerateFstab:
     """Tests for _GrubBootControl._generate_fstab."""
 
     def test_expected_output(
-        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
-        reference_fstab, base_fstab, expected_lines,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        slot_fsuuid,
+        reference_fstab,
+        base_fstab,
+        expected_lines,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -861,8 +884,14 @@ class TestGenerateFstab:
         assert result.strip().splitlines() == expected_lines
 
     def test_trailing_newline(
-        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
-        reference_fstab, base_fstab, expected_lines,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        slot_fsuuid,
+        reference_fstab,
+        base_fstab,
+        expected_lines,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -873,8 +902,14 @@ class TestGenerateFstab:
         assert result.endswith("\n")
 
     def test_no_comments_in_output(
-        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
-        reference_fstab, base_fstab, expected_lines,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        slot_fsuuid,
+        reference_fstab,
+        base_fstab,
+        expected_lines,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -886,8 +921,14 @@ class TestGenerateFstab:
             assert not line.startswith("#")
 
     def test_special_entries_not_duplicated(
-        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
-        reference_fstab, base_fstab, expected_lines,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        slot_fsuuid,
+        reference_fstab,
+        base_fstab,
+        expected_lines,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -901,8 +942,14 @@ class TestGenerateFstab:
         assert mount_points.count("/boot/efi") == 1
 
     def test_boot_appears_before_efi(
-        self, mocker, boot_uuid, efi_uuid, slot_fsuuid,
-        reference_fstab, base_fstab, expected_lines,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        slot_fsuuid,
+        reference_fstab,
+        base_fstab,
+        expected_lines,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -926,7 +973,9 @@ class TestGenerateFstabFallback:
                 "cccc-3333",
                 None,
                 _SYNTH_STANDBY_FSUUID,
-                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _fstab_entry("bbbb-2222", "/boot", "ext4", "defaults", "0", "1"),
                 _fstab_entry("cccc-3333", "/boot/efi", "vfat", "defaults", "0", "1"),
                 id="no_reference",
@@ -936,7 +985,9 @@ class TestGenerateFstabFallback:
                 "efi-uuid-fb",
                 _build_fstab(_ROOT_SYNTH),
                 _SYNTH_STANDBY_FSUUID,
-                _fstab_entry(_SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"),
+                _fstab_entry(
+                    _SYNTH_STANDBY_FSUUID, "/", "ext4", "errors=remount-ro", "0", "1"
+                ),
                 _fstab_entry("boot-uuid-fb", "/boot", "ext4", "defaults", "0", "1"),
                 _fstab_entry("efi-uuid-fb", "/boot/efi", "vfat", "defaults", "0", "1"),
                 id="reference_missing_boot_and_efi",
@@ -944,8 +995,15 @@ class TestGenerateFstabFallback:
         ],
     )
     def test_fallback_entries(
-        self, mocker, boot_uuid, efi_uuid, reference_fstab, slot_fsuuid,
-        expected_root, expected_boot, expected_efi,
+        self,
+        mocker,
+        boot_uuid,
+        efi_uuid,
+        reference_fstab,
+        slot_fsuuid,
+        expected_root,
+        expected_boot,
+        expected_efi,
     ):
         ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
         result = ctrl._generate_fstab(
@@ -963,7 +1021,10 @@ class TestGenerateFstabFallback:
         ctrl = _make_grub_ctrl(mocker, boot_uuid="bbbb-2222", efi_uuid=None)
         result = ctrl._generate_fstab(
             base_fstab=_build_fstab(
-                _ROOT_SYNTH_STANDBY, _BOOT_SYNTH, _EFI_SYNTH, _DATA_SYNTH,
+                _ROOT_SYNTH_STANDBY,
+                _BOOT_SYNTH,
+                _EFI_SYNTH,
+                _DATA_SYNTH,
             ),
             reference_fstab=_build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH),
             slot_fsuuid=_SYNTH_STANDBY_FSUUID,
