@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Dict, Optional
 
-from _otaclient_version import version
 from typing_extensions import Self
 
+from _otaclient_version import version
 from otaclient_common._typing import StrEnum
 
 from .configs import grub_new_cfg as boot_cfg
@@ -119,8 +119,8 @@ class OTAManagedCfg:
             return
 
         content = _in[:_footer_start].strip()
-        _algorithm, _expected_digest = checksum.split(":", 1)
         try:
+            _algorithm, _expected_digest = checksum.split(":", 1)
             _hasher = hashlib.new(_algorithm, content.encode())
         except ValueError:
             return
@@ -204,6 +204,10 @@ def read_fstab_dict(_in: str) -> dict[str, re.Match]:
 
     entries = {}
     for line in _in.splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            continue
+
         if m := fstab_entry_pa.match(line):
             entries[m.group("mount_point")] = m
     return entries
