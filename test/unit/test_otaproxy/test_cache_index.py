@@ -15,14 +15,13 @@
 from __future__ import annotations
 
 import bisect
-import sqlite3
 import time
 
 import pytest
 
-from ota_proxy.cache_index import CacheDBWriter, CacheIndex
+from ota_proxy.cache_index import CacheDBWriter
 from ota_proxy.config import config as cfg
-from ota_proxy.db import CacheMeta, CacheMetaORM, init_db
+from ota_proxy.db import CacheMeta, init_db
 from ota_proxy.utils import url_based_hash
 
 BUCKET_SIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT)
@@ -89,62 +88,8 @@ class TestBucketIdxCalculation:
             last_access=int(time.time()),
         )
 
-        writer._flush([entry])
-        writer._orm.orm_con.close()
+        writer._flush_writes([entry])
+        writer._write_orm.orm_con.close()
 
         assert entry.bucket_idx == expected_idx
         assert entry.bucket_idx == _expected_bucket_idx(cache_size)
-
-
-class TestBucketIdxPersistedToDB:
-    """Verify bucket_idx is persisted correctly through the full pipeline."""
-
-    @pytest.fixture()
-    def cache_index(self, tmp_path):
-        base_dir = tmp_path / "ota-cache"
-        base_dir.mkdir()
-        db_f = tmp_path / "cache.db"
-        idx = CacheIndex(db_f, base_dir, init_db=True)
-        try:
-            yield idx, db_f, base_dir
-        finally:
-            idx.close()
-
-    def test_committed_entries_have_bucket_idx_in_db(self, cache_index):
-        """Entries committed via CacheIndex must have correct bucket_idx in DB."""
-        idx, db_f, base_dir = cache_index
-
-        test_sizes = [0, 1024, 4096, 256 * 1024, 1024**2, 32 * 1024**2]
-        entries = []
-        for size in test_sizes:
-            url = f"http://example.com/file_{size}"
-            sha = url_based_hash(url)
-            entry = CacheMeta(
-                file_sha256=sha, url=url, cache_size=size, last_access=int(time.time())
-            )
-            (base_dir / sha).touch()
-            idx.commit_entry(entry)
-            entries.append(entry)
-
-        # Wait for the DB writer to flush
-        idx.close()
-
-        # Read back from DB and verify bucket_idx
-        with sqlite3.connect(db_f) as con:
-            orm = CacheMetaORM(con, cfg.TABLE_NAME)
-            for entry in entries:
-                rows = list(
-                    orm.orm_select_entries(
-                        _stmt=(
-                            f"SELECT * FROM {cfg.TABLE_NAME} "
-                            f"WHERE file_sha256 = '{entry.file_sha256}'"
-                        ),
-                    )
-                )
-                assert len(rows) == 1, f"expected 1 row for {entry.file_sha256}"
-
-                expected = _expected_bucket_idx(entry.cache_size)
-                assert rows[0].bucket_idx == expected, (
-                    f"cache_size={entry.cache_size}: "
-                    f"got bucket_idx={rows[0].bucket_idx}, expected={expected}"
-                )

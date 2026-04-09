@@ -79,7 +79,7 @@ class CacheDBWriter:
 
         _delete_con = sqlite3.connect(self._db_f, check_same_thread=False)
         enable_wal_mode(_delete_con)
-        self._delete_orm = orm_type(_write_con)
+        self._delete_orm = orm_type(_delete_con)
 
         self._closed = False
 
@@ -134,9 +134,6 @@ class CacheDBWriter:
         batch: list[str] = []
         loops_since_flush = 0
 
-        _con = sqlite3.connect(self._db_f, check_same_thread=False)
-        enable_wal_mode(_con)
-
         while not self._closed:
             time.sleep(cfg.DB_WRITER_LOOP_INTERVAL)
 
@@ -164,7 +161,7 @@ class CacheDBWriter:
         for _batch in batched(batch, cfg.DB_FLUSH_BATCH_SIZE):
             if _batch:
                 self._flush_deletes(_batch)
-        _con.close()
+        self._delete_orm.orm_con.close()
 
     def _flush_writes(self, _batch: Iterable[CacheMeta]) -> None:
         """Write a batch of entries to SQLite in one transaction."""
