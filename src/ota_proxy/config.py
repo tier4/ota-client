@@ -38,7 +38,7 @@ class Config:
     MAX_PENDING_READ = 512
 
     # ------ storage quota ------ #
-    DISK_USE_LIMIT_SOFT_P = 70  # in p%
+    DISK_USE_LIMIT_SOFT_P = 75  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
 
