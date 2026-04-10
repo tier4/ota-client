@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for CacheDBWriter threads and CacheIndex DB round-trip."""
+"""Integration tests for CacheDBWriter thread and CacheIndex DB round-trip."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import random
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -62,13 +62,13 @@ def _expected_bucket_idx(cache_size: int) -> int:
     return bisect.bisect_right(BUCKET_SIZE_LIST, cache_size) - 1
 
 
-def _run_thread(
-    target: Callable[[], None], *, close_first: bool, writer: CacheDBWriter
+def _run_writer(
+    writer: CacheDBWriter, *, close_first: bool
 ) -> None:
-    """Start a CacheDBWriter thread, optionally closing the writer first."""
+    """Start the CacheDBWriter thread, optionally closing the writer first."""
     if close_first:
         writer.close()
-    t = threading.Thread(target=target, daemon=True)
+    t = threading.Thread(target=writer.start_thread, daemon=True)
     t.start()
     if not close_first:
         time.sleep(0.3)
@@ -110,8 +110,8 @@ def db_f(tmp_path: Path) -> Path:
 # ---- CacheDBWriter thread tests ---- #
 
 
-class TestCacheDBWriterDeleteThread:
-    """Delete thread drains the queue and flushes deletes to DB."""
+class TestCacheDBWriterDeletes:
+    """Writer thread flushes enqueued deletes to DB."""
 
     @pytest.fixture
     def db_writer(
@@ -127,7 +127,7 @@ class TestCacheDBWriterDeleteThread:
     @pytest.mark.parametrize(
         "close_first", [False, True], ids=["during_loop", "on_close"]
     )
-    def test_delete_thread_flushes_queue(
+    def test_deletes_flushed(
         self,
         db_writer: tuple[CacheDBWriter, Path, list[CacheMeta]],
         close_first: bool,
@@ -140,7 +140,7 @@ class TestCacheDBWriterDeleteThread:
         for e in to_delete:
             writer.remove_entry(e.file_sha256)
 
-        _run_thread(writer.start_delete_thread, close_first=close_first, writer=writer)
+        _run_writer(writer, close_first=close_first)
 
         remaining = _db_select_all_sha256_hashes(db_f, cfg.TABLE_NAME)
         for key in to_delete_keys:
@@ -148,8 +148,8 @@ class TestCacheDBWriterDeleteThread:
         assert len(remaining) == DB_ENTRIES - ENTRIES_TO_REMOVE
 
 
-class TestCacheDBWriterWriteThread:
-    """Write thread drains the queue and flushes writes to DB."""
+class TestCacheDBWriterWrites:
+    """Writer thread flushes enqueued writes to DB."""
 
     @pytest.fixture
     def db_writer(
@@ -161,7 +161,7 @@ class TestCacheDBWriterWriteThread:
     @pytest.mark.parametrize(
         "close_first", [False, True], ids=["during_loop", "on_close"]
     )
-    def test_write_thread_flushes_queue(
+    def test_writes_flushed(
         self,
         db_writer: tuple[CacheDBWriter, Path],
         entries: list[CacheMeta],
@@ -173,19 +173,19 @@ class TestCacheDBWriterWriteThread:
         for e in entries:
             writer.register_entry(e)
 
-        _run_thread(writer.start_write_thread, close_first=close_first, writer=writer)
+        _run_writer(writer, close_first=close_first)
 
         persisted = _db_select_all_sha256_hashes(db_f, cfg.TABLE_NAME)
         assert len(persisted) == DB_ENTRIES
         for e in entries:
             assert e.file_sha256 in persisted
 
-    def test_write_thread_assigns_bucket_idx(
+    def test_writes_assign_bucket_idx(
         self,
         db_writer: tuple[CacheDBWriter, Path],
         entries: list[CacheMeta],
     ) -> None:
-        """Write thread must assign correct bucket_idx for backward compat."""
+        """Writer thread must assign correct bucket_idx for backward compat."""
         writer, db_f = db_writer
 
         for e in entries:
@@ -202,7 +202,7 @@ class TestCacheDBWriterWriteThread:
                 )
             )
 
-        _run_thread(writer.start_write_thread, close_first=False, writer=writer)
+        _run_writer(writer, close_first=False)
 
         rows = _db_select_all(db_f, cfg.TABLE_NAME)
         for e in entries:
@@ -213,7 +213,7 @@ class TestCacheDBWriterWriteThread:
 
 
 class TestCacheIndexCommitAndRemove:
-    """CacheIndex commit_entry / remove_entry with real DB threads."""
+    """CacheIndex commit_entry / remove_entry with real DB thread."""
 
     @pytest.fixture
     def cache_index(

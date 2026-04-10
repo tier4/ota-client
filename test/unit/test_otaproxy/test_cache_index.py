@@ -76,7 +76,7 @@ class TestBucketIdxCalculation:
         expected_idx: int,
         desc: str,
     ):
-        """CacheDBWriter._flush must assign the same bucket_idx as old LRU."""
+        """CacheDBWriter._flush_to_db must assign the same bucket_idx as old LRU."""
         db_f = tmp_path / "cache.db"
         init_db(db_f, cfg.TABLE_NAME)
 
@@ -88,8 +88,8 @@ class TestBucketIdxCalculation:
             last_access=int(time.time()),
         )
 
-        writer._flush_writes([entry])
-        writer._write_orm.orm_con.close()
+        writer._flush_to_db([entry], [])
+        writer._orm.orm_con.close()
 
         assert entry.bucket_idx == expected_idx
         assert entry.bucket_idx == _expected_bucket_idx(cache_size)

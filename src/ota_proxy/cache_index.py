@@ -45,7 +45,7 @@ burst_suppressed_logger = get_burst_suppressed_logger(f"{__name__}.db_error")
 
 PRELOAD_BATCH_REMOVE = 128
 DB_SHUTDOWN_TIMEOUT = 10
-"""Timeout for waiting the DB writer threads to
+"""Timeout for waiting the DB writer thread to
 flush the pending commits."""
 
 
@@ -67,118 +67,101 @@ class CacheIndexEntry(NamedTuple):
         return res
 
 
-_WRITER_STOP_SENTINEL = typing.cast("CacheMeta", object())
-_DELETER_STOP_SENTINEL = typing.cast("str", object())
+_STOP_SENTINEL = typing.cast("CacheMeta", object())
 
 
 class CacheDBWriter:
-    """Dedicated threads that batch CacheMeta writes and deletes to SQLite."""
+    """Dedicated thread that batches CacheMeta writes and deletes to SQLite.
+
+    Both writes and deletes go through a single FIFO queue so that
+    operations on the same key are always processed in the order they
+    were enqueued (e.g. a DELETE followed by a WRITE for the same
+    ``file_sha256`` during retry-caching).
+
+    Queue items are distinguished by type: ``CacheMeta`` for writes,
+    ``str`` (file_sha256) for deletes.
+    """
 
     def __init__(self, db_f: Path, orm_type: type[ORMBase] = CacheMetaORM) -> None:
         self._db_f = db_f
-        self._orm_type = orm_type
-        self._write_queue: queue.Queue[CacheMeta] = queue.Queue()
-        self._delete_queue: queue.Queue[str] = queue.Queue()
+        self._queue: queue.Queue[CacheMeta | str] = queue.Queue()
 
-        _write_con = sqlite3.connect(self._db_f, check_same_thread=False)
-        enable_wal_mode(_write_con)
-        self._write_orm = orm_type(_write_con)
-
-        _delete_con = sqlite3.connect(self._db_f, check_same_thread=False)
-        enable_wal_mode(_delete_con)
-        self._delete_orm = orm_type(_delete_con)
+        _con = sqlite3.connect(self._db_f, check_same_thread=False)
+        enable_wal_mode(_con)
+        self._orm = orm_type(_con)
 
         self._bucket_size_list = list(cfg.BUCKET_FILE_SIZE_DICT)
 
     def register_entry(self, entry: CacheMeta) -> None:
         """Enqueue an entry for batched DB write (non-blocking)."""
-        self._write_queue.put_nowait(entry)
+        self._queue.put_nowait(entry)
 
     def remove_entry(self, file_sha256: str) -> None:
         """Enqueue a key for batched DB deletion (non-blocking)."""
-        self._delete_queue.put_nowait(file_sha256)
+        self._queue.put_nowait(file_sha256)
 
     def close(self) -> None:
-        self._write_queue.put_nowait(_WRITER_STOP_SENTINEL)
-        self._delete_queue.put_nowait(_DELETER_STOP_SENTINEL)
+        self._queue.put_nowait(_STOP_SENTINEL)
 
-    def start_write_thread(self) -> None:
-        batch: list[CacheMeta] = []
+    def start_thread(self) -> None:
+        write_batch: list[CacheMeta] = []
+        delete_batch: list[str] = []
         try:
             while True:
                 _wait_timeout = False
                 try:
-                    _item = self._write_queue.get(timeout=cfg.DB_WRITER_LOOP_INTERVAL)
-                    if _item is _WRITER_STOP_SENTINEL:
-                        self._flush_writes(batch)
-                        return batch.clear()
-                    batch.append(_item)
+                    _item = self._queue.get(timeout=cfg.DB_WRITER_LOOP_INTERVAL)
+                    if _item is _STOP_SENTINEL:
+                        self._flush_to_db(write_batch, delete_batch)
+                        return
+                    if isinstance(_item, CacheMeta):
+                        write_batch.append(_item)
+                    else:
+                        delete_batch.append(_item)
                 except queue.Empty:
                     _wait_timeout = True
 
-                if len(batch) >= cfg.DB_FLUSH_BATCH_SIZE or (batch and _wait_timeout):
-                    self._flush_writes(batch)
-                    batch.clear()
+                _total = len(write_batch) + len(delete_batch)
+                if _total >= cfg.DB_FLUSH_BATCH_SIZE or (_total > 0 and _wait_timeout):
+                    self._flush_to_db(write_batch, delete_batch)
+                    write_batch.clear()
+                    delete_batch.clear()
         finally:
-            self._write_orm.orm_con.close()
+            self._orm.orm_con.close()
 
-    def start_delete_thread(self) -> None:
-        batch: list[str] = []
-        try:
-            while True:
-                _wait_timeout = False
-                try:
-                    _item = self._delete_queue.get(timeout=cfg.DB_WRITER_LOOP_INTERVAL)
-                    if _item is _DELETER_STOP_SENTINEL:
-                        self._flush_deletes(batch)
-                        return batch.clear()
-                    batch.append(_item)
-                except queue.Empty:
-                    _wait_timeout = True
+    def _flush_to_db(
+        self, write_batch: list[CacheMeta], delete_batch: list[str]
+    ) -> None:
+        """Flush pending operations. Deletes are applied before writes."""
+        if write_batch:
+            # Fill bucket_idx for backward compat with older otaproxy LRU
+            for entry in write_batch:
+                entry.bucket_idx = (
+                    bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
+                )
 
-                if len(batch) >= cfg.DB_FLUSH_BATCH_SIZE or (batch and _wait_timeout):
-                    self._flush_deletes(batch)
-                    batch.clear()
-        finally:
-            self._delete_orm.orm_con.close()
+            try:
+                self._orm.orm_insert_entries(write_batch, or_option="replace")
+            except Exception as e:
+                burst_suppressed_logger.exception(
+                    f"cache index: failed to flush writes to DB: {e!r}"
+                )
 
-    def _flush_writes(self, _batch: list[CacheMeta]) -> None:
-        """Write a batch of entries to SQLite in one transaction."""
-        if not _batch:
-            return
-
-        # Fill bucket_idx for backward compat with older otaproxy LRU
-        for entry in _batch:
-            entry.bucket_idx = (
-                bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
-            )
-
-        try:
-            self._write_orm.orm_insert_entries(_batch, or_option="replace")
-        except Exception as e:
-            burst_suppressed_logger.exception(
-                f"cache index: failed to flush writes to DB: {e!r}"
-            )
-
-    def _flush_deletes(self, _batch: list[str]) -> None:
-        """Delete a batch of entries from SQLite in one transaction."""
-        if not _batch:
-            return
-
-        try:
-            # fmt: off
-            self._delete_orm.orm_execute(
-                gen_sql_stmt(
-                    "DELETE", "FROM", self._delete_orm.orm_table_name,
-                    "WHERE", "file_sha256", "IN", f"({','.join('?' for _ in _batch)})"
-                ),
-                tuple(_batch),
-            )
-            # fmt: on
-        except Exception as e:
-            burst_suppressed_logger.exception(
-                f"cache index: failed to flush deletes to DB: {e!r}"
-            )
+        if delete_batch:
+            try:
+                # fmt: off
+                self._orm.orm_execute(
+                    gen_sql_stmt(
+                        "DELETE", "FROM", self._orm.orm_table_name,
+                        "WHERE", "file_sha256", "IN", f"({','.join('?' for _ in delete_batch)})"
+                    ),
+                    tuple(delete_batch),
+                )
+                # fmt: on
+            except Exception as e:
+                burst_suppressed_logger.exception(
+                    f"cache index: failed to flush deletes to DB: {e!r}"
+                )
 
 
 class CacheIndex:
@@ -210,18 +193,12 @@ class CacheIndex:
             self._ensure_db_and_load()
 
         self._db_writer = _db_writer = CacheDBWriter(self._db_f)
-        self._db_write_thread = threading.Thread(
-            target=_db_writer.start_write_thread,
+        self._db_thread = threading.Thread(
+            target=_db_writer.start_thread,
             daemon=True,
-            name="cache_index_db_writer",
+            name="cache_index_db_worker",
         )
-        self._db_delete_thread = threading.Thread(
-            target=_db_writer.start_delete_thread,
-            daemon=True,
-            name="cache_index_db_deleter",
-        )
-        self._db_write_thread.start()
-        self._db_delete_thread.start()
+        self._db_thread.start()
 
     def _force_init_db(self) -> None:
         """Delete and re-create the DB file with an empty table."""
@@ -359,5 +336,4 @@ class CacheIndex:
 
     def close(self) -> None:
         self._db_writer.close()
-        self._db_write_thread.join(timeout=DB_SHUTDOWN_TIMEOUT)
-        self._db_delete_thread.join(timeout=DB_SHUTDOWN_TIMEOUT)
+        self._db_thread.join(timeout=DB_SHUTDOWN_TIMEOUT)

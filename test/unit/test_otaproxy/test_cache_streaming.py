@@ -82,7 +82,7 @@ def _make_tracker(
     return CacheTracker(
         cache_identifier=cache_identifier,
         base_dir=str(base_dir),
-        commit_cache_cb=commit_cache_cb or (lambda *_: None),
+        commit_cache_cb=commit_cache_cb or (lambda *_: True),
         below_soft_limit_event=below_soft_limit,
         below_hard_limit_event=below_hard_limit,
     )
