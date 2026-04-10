@@ -62,9 +62,7 @@ def _expected_bucket_idx(cache_size: int) -> int:
     return bisect.bisect_right(BUCKET_SIZE_LIST, cache_size) - 1
 
 
-def _run_writer(
-    writer: CacheDBWriter, *, close_first: bool
-) -> None:
+def _run_writer(writer: CacheDBWriter, *, close_first: bool) -> None:
     """Start the CacheDBWriter thread, optionally closing the writer first."""
     if close_first:
         writer.close()
