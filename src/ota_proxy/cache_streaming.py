@@ -183,19 +183,14 @@ class CacheTracker:
         """Finalize the caching, commit the cache entry to db.
 
         At this point, the cache entry is already downloaded and complete.
-
-        NOTE(20250731): when otaproxy starts with previous cache files existed,
-                            there is chance that the `save_path` might already exist,
-                            while not committed to the database.
-                        Still commit the cache, if that file is broken, let otaclient
-                            reports it with OTA cache file protocol in next OTA download request.
-        NOTE(20250731): not considering the case that /ota-cache folder is tampered
-                            or poluted intentionally, assume that all files are normal files.
-                        If `save_dst` exists and is not a regular file, let next OTA download request handles it.
-
         NOTE(20260407): New Threshold-based strategy:
                         - Below soft limit: commit entry to in-memory index + queue DB write
                         - Above soft limit: skip commit (temp file written for current request but not persisted)
+
+        NOTE(20260410): Since we use in-memory cache index now, the time cost of commit is reduced a lot, no need
+                        to worry about the delay between cache entry commit and file finalizing.
+                        Also, if cache commit failed or not committed(due to max cache index entries reached), just
+                        drop the finalization.
         """
         if not self.cache_meta:
             return
@@ -204,14 +199,16 @@ class CacheTracker:
             return
 
         try:
+            if not self._commit_cache_cb(self.cache_meta):
+                return
+        except Exception as e:
+            burst_suppressed_logger.warning(f"failed to commit cache entry: {e}")
+            return
+
+        try:
             os.link(self.fpath, self.save_path)
         except FileExistsError:
             pass
-
-        try:
-            self._commit_cache_cb(self.cache_meta)
-        except Exception as e:
-            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
 
     # exposed API
 
@@ -394,7 +391,7 @@ class CacheTracker:
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], Any]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], bool]
 
 
 class CachingRegister:
