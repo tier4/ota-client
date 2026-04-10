@@ -291,7 +291,7 @@ class CacheIndex:
             # fmt: on
                 if _count < cfg.MAX_INDEX_ENTRIES:
                     _key = sys.intern(row.file_sha256)
-                    if not os.path.exists(os.path.join(self._base_dir, _key)):
+                    if row.cache_size != 0 and not os.path.exists(os.path.join(self._base_dir, _key)):
                         _to_remove.append(_key)
                         continue
 

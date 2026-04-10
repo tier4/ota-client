@@ -216,8 +216,12 @@ class CacheTracker:
     # exposed API
 
     def provider_write_file_in_thread(
-        self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
+        self, input_que: SimpleQueue[bytes | None]
     ) -> None:
+        # NOTE: the provider will get cache_meta set before write starts.
+        assert self.cache_meta
+        cache_meta = self.cache_meta
+
         tracker_events = self._tracker_events
         try:
             with open(self.fpath, "wb") as f:
@@ -226,10 +230,6 @@ class CacheTracker:
 
                 # NOTE(20260330): at the time open(..., "wb") returns,
                 #                 the file entry is already created.
-                # NOTE(20260403): set cache_meta before signaling writer_started,
-                #   so that subscribers seeing writer_started=True can rely on
-                #   cache_meta being set.
-                self.cache_meta = cache_meta
                 tracker_events.set_writer_started()
                 try:
                     while data := input_que.get():
@@ -261,7 +261,10 @@ class CacheTracker:
         finally:
             del self, input_que, cache_meta
 
-    def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
+    def provider_write_once_in_thread(self, data: bytes) -> None:
+        # NOTE: the provider will get cache_meta set before write starts.
+        assert self.cache_meta
+        cache_meta = self.cache_meta
         tracker_events = self._tracker_events
         try:
             if not self._below_hard_limit_event.is_set():
@@ -273,7 +276,6 @@ class CacheTracker:
                 fd = f.fileno()
                 weakref.finalize(self, _unlink_no_error, self.fpath)
 
-                self.cache_meta = cache_meta
                 f.write(data)
                 f.flush()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
@@ -288,6 +290,11 @@ class CacheTracker:
         finally:
             del self, data, cache_meta
 
+    def provider_handle_empty_file(self) -> None:
+        assert self.cache_meta
+        self._tracker_events.set_writer_finished()
+        self._commit_cache_cb(self.cache_meta)
+
     async def subscriber_wait_for_provider(self) -> bool:
         """
         Returns:
@@ -300,11 +307,8 @@ class CacheTracker:
         _wait_count = 0
         try:
             while not tracker_events.writer_started:
-                if (
-                    _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY
-                    or tracker_events.writer_failed
-                ):
-                    _err_msg = "timeout waiting provider starts caching or provider failed, abort"
+                if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
+                    _err_msg = "timeout waiting provider starts caching, abort"
                     burst_suppressed_logger.warning(_err_msg)
                     raise CacheProviderNotReady
 
@@ -316,6 +320,11 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
+
+            if tracker_events.writer_failed:
+                _err_msg = "provider failed, abort"
+                burst_suppressed_logger.warning(_err_msg)
+                raise CacheProviderNotReady
 
             return tracker_events.writer_finished
         finally:
@@ -457,10 +466,7 @@ class CacheWriterPool:
         await run_sync(self._pool.shutdown)
 
     async def stream_writing_cache(
-        self,
-        fd: AsyncGenerator[bytes],
-        tracker: CacheTracker,
-        cache_meta: CacheMeta,
+        self, fd: AsyncGenerator[bytes], tracker: CacheTracker
     ) -> AsyncGenerator[bytes]:
         """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
@@ -477,14 +483,16 @@ class CacheWriterPool:
         tracker_event = tracker._tracker_events
         try:
             _first_chunk = await fd.__anext__()
+            # or receive empty chunk from upper, also indicates an empty file
+            if len(_first_chunk) == 0:
+                tracker.provider_handle_empty_file()
+                yield _first_chunk
+                return
             yield _first_chunk
         except StopAsyncIteration:
             # no data chunk from upper, might indicate an empty file
-            await self._write_dispatcher(
-                tracker_event,
-                tracker._commit_cache_cb,
-                cache_meta,
-            )
+            tracker.provider_handle_empty_file()
+            yield b""
             return
 
         # fast path for small resource that only takes one chunk's size
@@ -495,7 +503,6 @@ class CacheWriterPool:
             await self._write_dispatcher(
                 tracker_event,
                 tracker.provider_write_once_in_thread,
-                cache_meta,
                 _first_chunk,
             )
             return  # only one chunk, directly write it and return
@@ -506,7 +513,6 @@ class CacheWriterPool:
         await self._write_dispatcher(
             tracker_event,
             tracker.provider_write_file_in_thread,
-            cache_meta,
             tee_que,
         )
         try:
@@ -516,7 +522,7 @@ class CacheWriterPool:
                 yield chunk  # to uvicorn
         except Exception as e:
             tracker_event.set_writer_failed()  # hint thread worker to abort or drop caching
-            _err_msg = f"upper file descriptor failed({cache_meta=}): {e!r}"
+            _err_msg = f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"
             burst_suppressed_logger.warning(_err_msg)
             raise CacheStreamingFailed(_err_msg) from e
         finally:

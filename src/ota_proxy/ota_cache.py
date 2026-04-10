@@ -560,10 +560,9 @@ class OTACache:
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
+            tracker.cache_meta = cache_meta
             wrapped_fd = self._cache_write_pool.stream_writing_cache(
-                fd=remote_fd,
-                tracker=tracker,
-                cache_meta=cache_meta,
+                fd=remote_fd, tracker=tracker
             )
             return wrapped_fd, resp_headers
         except Exception:
