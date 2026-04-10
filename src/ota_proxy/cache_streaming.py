@@ -661,15 +661,15 @@ class CacheReaderPool:
         """
         # First we wait for provider ready
         _cache_finished = await tracker.subscriber_wait_for_provider()
+        assert (_cache_meta := tracker.cache_meta)
 
         # If cache write is finished and file is small, read it in one shot.
         # read_file_once awaits the result, so tracker stays alive throughout.
-        if (
-            _cache_finished
-            and (_cache_meta := tracker.cache_meta)
-            and _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE
-        ):
-            return await self.read_file_once(tracker.fpath)
+        if _cache_finished:
+            if _cache_meta.cache_size == 0:
+                return b""
+            if _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
+                return await self.read_file_once(tracker.fpath)
 
         # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
         # The bound method keeps a strong reference to tracker, preventing GC
