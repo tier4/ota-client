@@ -113,6 +113,16 @@ class ECUStatusSummary(_Protocol):
 
     @property
     @abstractmethod
+    def is_aborting(self) -> bool:
+        """If this ECU is in ABORTING ota_status."""
+
+    @property
+    @abstractmethod
+    def is_aborted(self) -> bool:
+        """If this ECU is in ABORTED ota_status."""
+
+    @property
+    @abstractmethod
     def is_success(self) -> bool:
         """If this ECU is in SUCCESS ota_status."""
 
@@ -309,6 +319,14 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
     @property
     def is_in_client_update(self) -> bool:
         return self.ota_status is StatusOta.CLIENT_UPDATING
+
+    @property
+    def is_aborting(self) -> bool:
+        return self.ota_status is StatusOta.ABORTING
+
+    @property
+    def is_aborted(self) -> bool:
+        return self.ota_status is StatusOta.ABORTED
 
     @property
     def is_failed(self) -> bool:

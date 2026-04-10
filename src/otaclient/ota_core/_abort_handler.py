@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import sys
+import time
 import threading
 from contextlib import contextmanager
 from queue import Empty, Queue
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 ABORT_SIGNAL = signal.SIGUSR1
 EXIT_CODE_OTA_ABORTED = 79
+WAIT_FOR_STATUS_REPORT = 3  # seconds
 
 
 def _abort_signal_handler(_signum: int, _frame: object) -> None:  # pragma: no cover
@@ -129,6 +131,7 @@ class AbortHandler:
                 session_id=self._session_id,
             )
         )
+        time.sleep(WAIT_FOR_STATUS_REPORT)
 
         logger.info("Performing abort...")
         self._ota_client.boot_controller.on_abort()
