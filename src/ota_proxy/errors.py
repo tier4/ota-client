@@ -13,9 +13,6 @@ class StorageReachHardLimit(BaseOTACacheError): ...
 class CacheStreamingInterrupt(BaseOTACacheError): ...
 
 
-class CacheCommitFailed(BaseOTACacheError): ...
-
-
 class ReaderPoolBusy(Exception):
     """Raised when read worker thread pool is busy."""
 
