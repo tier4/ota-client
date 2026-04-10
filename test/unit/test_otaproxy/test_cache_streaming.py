@@ -193,12 +193,13 @@ class TestProviderWriteFileInThread:
         cb = mocker.MagicMock()
         tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
         que: SimpleQueue[bytes | None] = SimpleQueue()
         que.put(b"chunk1")
         que.put(b"chunk2")
         que.put(None)  # sentinel
 
-        tracker.provider_write_file_in_thread(meta, que)
+        tracker.provider_write_file_in_thread(que)
 
         assert tracker._tracker_events.writer_finished
         assert not tracker._tracker_events.writer_failed
@@ -211,7 +212,7 @@ class TestProviderWriteFileInThread:
 
     def test_writer_failed_flag_aborts(self, tmp_path: Path):
         tracker = _make_tracker(tmp_path)
-        meta = _make_cache_meta()
+        tracker.cache_meta = _make_cache_meta()
         que: SimpleQueue[bytes | None] = SimpleQueue()
         que.put(b"data")
         # pre-set failed so the loop sees it on next iteration
@@ -219,17 +220,17 @@ class TestProviderWriteFileInThread:
         que.put(b"more_data")
         que.put(None)
 
-        tracker.provider_write_file_in_thread(meta, que)
+        tracker.provider_write_file_in_thread(que)
         assert tracker._tracker_events.writer_failed
 
     def test_hard_limit_aborts(self, tmp_path: Path):
         tracker = _make_tracker(tmp_path, below_hard_limit_set=False)
-        meta = _make_cache_meta()
+        tracker.cache_meta = _make_cache_meta()
         que: SimpleQueue[bytes | None] = SimpleQueue()
         que.put(b"data")
         que.put(None)
 
-        tracker.provider_write_file_in_thread(meta, que)
+        tracker.provider_write_file_in_thread(que)
         assert tracker._tracker_events.writer_failed
 
 
@@ -238,9 +239,10 @@ class TestProviderWriteOnceInThread:
         cb = mocker.MagicMock()
         tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
         data = b"small file content"
 
-        tracker.provider_write_once_in_thread(meta, data)
+        tracker.provider_write_once_in_thread(data)
 
         assert tracker._tracker_events.writer_finished
         assert not tracker._tracker_events.writer_failed
@@ -252,11 +254,31 @@ class TestProviderWriteOnceInThread:
 
     def test_hard_limit_aborts(self, tmp_path: Path):
         tracker = _make_tracker(tmp_path, below_hard_limit_set=False)
-        meta = _make_cache_meta()
+        tracker.cache_meta = _make_cache_meta()
 
-        tracker.provider_write_once_in_thread(meta, b"data")
+        tracker.provider_write_once_in_thread(b"data")
         assert tracker._tracker_events.writer_failed
         assert not tracker._tracker_events.writer_finished
+
+
+class TestProviderHandleEmptyFile:
+    def test_sets_writer_finished_and_commits(self, tmp_path: Path, mocker):
+        cb = mocker.MagicMock()
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        meta = _make_cache_meta()
+        tracker.cache_meta = meta
+
+        tracker.provider_handle_empty_file()
+
+        assert tracker._tracker_events.writer_finished
+        assert not tracker._tracker_events.writer_failed
+        cb.assert_called_once_with(meta)
+
+    def test_asserts_cache_meta_is_set(self, tmp_path: Path):
+        tracker = _make_tracker(tmp_path)
+        # cache_meta is None by default
+        with pytest.raises(AssertionError):
+            tracker.provider_handle_empty_file()
 
 
 # ---- CacheTracker subscriber methods ----
@@ -296,14 +318,29 @@ class TestSubscriberWaitForProvider:
         with pytest.raises(CacheProviderNotReady):
             await tracker.subscriber_wait_for_provider()
 
-    async def test_provider_failed_returns_false(self, tmp_path: Path):
-        """set_writer_failed() also sets _started=True, so the wait loop
-        exits immediately and returns writer_finished (False)."""
+    async def test_provider_failed_raises(self, tmp_path: Path):
+        """set_writer_failed() sets _started=True, so the wait loop exits,
+        then the post-loop writer_failed check raises CacheProviderNotReady."""
         tracker = _make_tracker(tmp_path)
         tracker._tracker_events.set_writer_failed()
 
-        result = await tracker.subscriber_wait_for_provider()
-        assert result is False
+        with pytest.raises(CacheProviderNotReady):
+            await tracker.subscriber_wait_for_provider()
+
+    async def test_provider_fails_during_wait(self, tmp_path: Path):
+        """Provider fails while subscriber is polling — subscriber should
+        see writer_started=True (from set_writer_failed), exit the loop,
+        and raise CacheProviderNotReady from the post-loop check."""
+        tracker = _make_tracker(tmp_path)
+
+        async def _fail_later():
+            await asyncio.sleep(0.05)
+            tracker._tracker_events.set_writer_failed()
+
+        task = asyncio.create_task(_fail_later())
+        with pytest.raises(CacheProviderNotReady):
+            await tracker.subscriber_wait_for_provider()
+        await task
 
 
 class TestSubscriberStreamCacheInThread:
@@ -482,28 +519,53 @@ class TestCacheWriterPool:
         assert called.is_set()
         assert not ev.writer_failed
 
-    async def test_stream_writing_cache_empty_fd(self, tmp_path: Path):
-        """Empty async generator → commit_cache_cb called directly."""
-        tracker = _make_tracker(tmp_path)
+    async def test_stream_writing_cache_empty_fd_stop_iteration(
+        self, tmp_path: Path, mocker
+    ):
+        """Empty async generator (StopAsyncIteration) → provider_handle_empty_file called."""
+        cb = mocker.MagicMock()
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
 
         async def empty_gen() -> AsyncGenerator[bytes]:
             return
             yield b""  # noqa: unreachable, needed to make this an async generator
 
-        gen = self.pool.stream_writing_cache(empty_gen(), tracker, meta)
+        gen = self.pool.stream_writing_cache(empty_gen(), tracker)
         chunks = [chunk async for chunk in gen]
         assert chunks == []
+        assert tracker._tracker_events.writer_finished
+        cb.assert_called_once_with(meta)
+
+    async def test_stream_writing_cache_empty_fd_zero_len_chunk(
+        self, tmp_path: Path, mocker
+    ):
+        """First chunk is zero-length bytes → provider_handle_empty_file called."""
+        cb = mocker.MagicMock()
+        tracker = _make_tracker(tmp_path, commit_cache_cb=cb)
+        meta = _make_cache_meta()
+        tracker.cache_meta = meta
+
+        async def empty_chunk_gen() -> AsyncGenerator[bytes]:
+            yield b""
+
+        gen = self.pool.stream_writing_cache(empty_chunk_gen(), tracker)
+        chunks = [chunk async for chunk in gen]
+        assert chunks == [b""]
+        assert tracker._tracker_events.writer_finished
+        cb.assert_called_once_with(meta)
 
     async def test_stream_writing_cache_single_chunk(self, tmp_path: Path):
         """Single-chunk fd → provider_write_once_in_thread dispatched."""
         tracker = _make_tracker(tmp_path)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
 
         async def single_chunk_gen() -> AsyncGenerator[bytes]:
             yield b"only_chunk"
 
-        gen = self.pool.stream_writing_cache(single_chunk_gen(), tracker, meta)
+        gen = self.pool.stream_writing_cache(single_chunk_gen(), tracker)
         chunks = [chunk async for chunk in gen]
         assert chunks == [b"only_chunk"]
 
@@ -518,13 +580,14 @@ class TestCacheWriterPool:
         """Multi-chunk fd → provider_write_file_in_thread dispatched."""
         tracker = _make_tracker(tmp_path)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
 
         async def multi_chunk_gen() -> AsyncGenerator[bytes]:
             yield b"chunk1"
             yield b"chunk2"
             yield b"chunk3"
 
-        gen = self.pool.stream_writing_cache(multi_chunk_gen(), tracker, meta)
+        gen = self.pool.stream_writing_cache(multi_chunk_gen(), tracker)
         chunks = [chunk async for chunk in gen]
         assert chunks == [b"chunk1", b"chunk2", b"chunk3"]
 
@@ -537,13 +600,14 @@ class TestCacheWriterPool:
         """Exception from upstream fd → CacheStreamingFailed raised."""
         tracker = _make_tracker(tmp_path)
         meta = _make_cache_meta()
+        tracker.cache_meta = meta
 
         async def failing_gen() -> AsyncGenerator[bytes]:
             yield b"chunk1"
             yield b"chunk2"
             raise ConnectionError("upstream broke")
 
-        gen = self.pool.stream_writing_cache(failing_gen(), tracker, meta)
+        gen = self.pool.stream_writing_cache(failing_gen(), tracker)
         with pytest.raises(CacheStreamingFailed):
             async for _ in gen:
                 pass
@@ -649,6 +713,25 @@ class TestCacheReaderPool:
             chunks.append(chunk)
         assert b"".join(chunks) == b"streamed data"
         await task
+
+    async def test_subscribe_tracker_finished_empty_file(self, tmp_path: Path):
+        """Finished empty cache (cache_size=0) → returns b"" directly."""
+        tracker = _make_tracker(tmp_path)
+        meta = _make_cache_meta(cache_size=0)
+        tracker.cache_meta = meta
+        tracker._tracker_events.set_writer_finished()
+
+        result = await self.pool.subscribe_tracker(tracker)
+        assert result == b""
+
+    async def test_subscribe_tracker_provider_failed(self, tmp_path: Path):
+        """Provider failed → CacheProviderNotReady raised."""
+        tracker = _make_tracker(tmp_path)
+        tracker.cache_meta = _make_cache_meta()
+        tracker._tracker_events.set_writer_failed()
+
+        with pytest.raises(CacheProviderNotReady):
+            await self.pool.subscribe_tracker(tracker)
 
     async def test_subscribe_tracker_finished_large_file(self, tmp_path: Path):
         """Finished large cache → stream path (not read_file_once)."""

@@ -492,7 +492,6 @@ class CacheWriterPool:
         except StopAsyncIteration:
             # no data chunk from upper, might indicate an empty file
             tracker.provider_handle_empty_file()
-            yield b""
             return
 
         # fast path for small resource that only takes one chunk's size
