@@ -18,8 +18,8 @@ import logging
 import os
 import signal
 import sys
-import time
 import threading
+import time
 from contextlib import contextmanager
 from queue import Empty, Queue
 from typing import TYPE_CHECKING, Generator

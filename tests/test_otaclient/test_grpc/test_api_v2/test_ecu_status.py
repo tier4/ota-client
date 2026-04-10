@@ -29,7 +29,10 @@ from otaclient import _types as _internal_types
 from otaclient._types import MultipleECUStatusFlags
 from otaclient.configs import DefaultOTAClientConfigs
 from otaclient.configs._ecu_info import ECUInfo
-from otaclient.grpc.api_v2.ecu_status import ACTIVE_POLLING_INTERVAL, IDLE_POLLING_INTERVAL
+from otaclient.grpc.api_v2.ecu_status import (
+    ACTIVE_POLLING_INTERVAL,
+    IDLE_POLLING_INTERVAL,
+)
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from tests.utils import compare_message

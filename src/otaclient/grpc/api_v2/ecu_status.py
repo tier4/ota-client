@@ -163,7 +163,9 @@ class ECUStatusStorage:
             status.ecu_id
             for status in self._state.all_ecus_status_v2.values()
             if status.ecu_id in self._state.available_ecu_ids
-            and (status.is_in_update or status.is_in_client_update or status.is_aborting)
+            and (
+                status.is_in_update or status.is_in_client_update or status.is_aborting
+            )
             and status.ecu_id not in lost_ecus
         }
         self._state.in_update_child_ecus_id = in_update_ecus_id - {self.my_ecu_id}
