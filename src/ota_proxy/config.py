@@ -46,9 +46,9 @@ class Config:
     METRICS_UPDATE_INTERVAL = 5  # in seconds
 
     # ------ cache index config ------ #
-    MAX_INDEX_ENTRIES = 600_000  # upper bound on in-memory index size
+    # upper bound on in-memory index size, will take around ~120MB memory at max
+    MAX_INDEX_ENTRIES = 600_000
     DB_FLUSH_BATCH_SIZE = 128  # flush when batch reaches this many entries
-    DB_FLUSH_MAX_LOOPS = 5  # flush after this many 1s loops (with pending entries)
     DB_WRITER_LOOP_INTERVAL = 1  # seconds to sleep per writer loop iteration
 
     # ------ LRU size bucket (backward compatibility) ------ #
