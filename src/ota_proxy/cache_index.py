@@ -25,7 +25,7 @@ import threading
 import time
 import typing
 from pathlib import Path
-from typing import Iterable, NamedTuple
+from typing import NamedTuple
 
 from multidict import CIMultiDict
 from simple_sqlite3_orm import ORMBase, gen_sql_stmt
@@ -142,15 +142,18 @@ class CacheDBWriter:
         finally:
             self._delete_orm.orm_con.close()
 
-    def _flush_writes(self, _batch: Iterable[CacheMeta]) -> None:
+    def _flush_writes(self, _batch: list[CacheMeta]) -> None:
         """Write a batch of entries to SQLite in one transaction."""
-        # Fill bucket_idx for backward compat with older otaproxy LRU
-        for entry in _batch:
-            entry.bucket_idx = (
-                bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
-            )
+        if not _batch:
+            return
 
         for _sub_batch in batched(_batch, cfg.DB_FLUSH_BATCH_SIZE):
+            # Fill bucket_idx for backward compat with older otaproxy LRU
+            for entry in _sub_batch:
+                entry.bucket_idx = (
+                    bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
+                )
+
             try:
                 self._write_orm.orm_insert_entries(_sub_batch, or_option="replace")
             except Exception as e:
@@ -160,6 +163,9 @@ class CacheDBWriter:
 
     def _flush_deletes(self, _batch: list[str]) -> None:
         """Delete a batch of entries from SQLite in one transaction."""
+        if not _batch:
+            return
+
         for _sub_batch in batched(_batch, cfg.DB_FLUSH_BATCH_SIZE):
             try:
                 # fmt: off
