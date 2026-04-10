@@ -104,7 +104,6 @@ log_cli_level = "INFO"
 testpaths = [
   "./test",
   "./tests",
-  "./test",
 ]
 markers = [
   "performance: marks tests as performance E2E tests",
