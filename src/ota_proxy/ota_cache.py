@@ -229,7 +229,7 @@ class OTACache:
                     tmp_f.unlink(missing_ok=True)
 
             self._cache_index = CacheIndex(
-                self._db_file, self._base_dir_sync, init_db=self._init_cache
+                self._db_file, self._base_dir_sync, force_init_db=self._init_cache
             )
 
             # dispatch a background task to pulling the disk usage info

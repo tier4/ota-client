@@ -147,40 +147,38 @@ class CacheDBWriter:
         if not _batch:
             return
 
-        for _sub_batch in batched(_batch, cfg.DB_FLUSH_BATCH_SIZE):
-            # Fill bucket_idx for backward compat with older otaproxy LRU
-            for entry in _sub_batch:
-                entry.bucket_idx = (
-                    bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
-                )
+        # Fill bucket_idx for backward compat with older otaproxy LRU
+        for entry in _batch:
+            entry.bucket_idx = (
+                bisect.bisect_right(self._bucket_size_list, entry.cache_size) - 1
+            )
 
-            try:
-                self._write_orm.orm_insert_entries(_sub_batch, or_option="replace")
-            except Exception as e:
-                burst_suppressed_logger.exception(
-                    f"cache index: failed to flush writes to DB: {e!r}"
-                )
+        try:
+            self._write_orm.orm_insert_entries(_batch, or_option="replace")
+        except Exception as e:
+            burst_suppressed_logger.exception(
+                f"cache index: failed to flush writes to DB: {e!r}"
+            )
 
     def _flush_deletes(self, _batch: list[str]) -> None:
         """Delete a batch of entries from SQLite in one transaction."""
         if not _batch:
             return
 
-        for _sub_batch in batched(_batch, cfg.DB_FLUSH_BATCH_SIZE):
-            try:
-                # fmt: off
-                self._delete_orm.orm_execute(
-                    gen_sql_stmt(
-                        "DELETE", "FROM", self._delete_orm.orm_table_name,
-                        "WHERE", "file_sha256", "IN", f"({','.join('?' for _ in _sub_batch)})"
-                    ),
-                    tuple(_sub_batch),
-                )
-                # fmt: on
-            except Exception as e:
-                burst_suppressed_logger.exception(
-                    f"cache index: failed to flush deletes to DB: {e!r}"
-                )
+        try:
+            # fmt: off
+            self._delete_orm.orm_execute(
+                gen_sql_stmt(
+                    "DELETE", "FROM", self._delete_orm.orm_table_name,
+                    "WHERE", "file_sha256", "IN", f"({','.join('?' for _ in _batch)})"
+                ),
+                tuple(_batch),
+            )
+            # fmt: on
+        except Exception as e:
+            burst_suppressed_logger.exception(
+                f"cache index: failed to flush deletes to DB: {e!r}"
+            )
 
 
 class CacheIndex:
@@ -191,7 +189,7 @@ class CacheIndex:
         db_f: StrOrPath,
         base_dir: StrOrPath,
         *,
-        init_db: bool = False,
+        force_init_db: bool = False,
         table_name: str = cfg.TABLE_NAME,
     ):
         Path(base_dir).mkdir(0o700, exist_ok=True, parents=True)
@@ -204,7 +202,7 @@ class CacheIndex:
 
         self._index: dict[str, CacheIndexEntry] = {}
 
-        if init_db:
+        if force_init_db:
             logger.info("cache DB init requested ...")
             self._force_init_db()
         else:

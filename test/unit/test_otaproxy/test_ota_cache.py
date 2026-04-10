@@ -74,7 +74,7 @@ class TestCacheIndex:
 
         # Create cache files so preload doesn't discard entries
         # (preload checks os.path.exists for each entry)
-        cache_index = CacheIndex(db_f, ota_cache_folder, init_db=True)
+        cache_index = CacheIndex(db_f, ota_cache_folder, force_init_db=True)
         try:
             yield cache_index, ota_cache_folder
         finally:

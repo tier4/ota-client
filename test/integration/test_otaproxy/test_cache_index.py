@@ -221,7 +221,7 @@ class TestCacheIndexCommitAndRemove:
     ) -> Generator[tuple[CacheIndex, Path, Path], None, None]:
         base_dir = tmp_path / "ota-cache"
         base_dir.mkdir()
-        idx = CacheIndex(db_f, base_dir, init_db=True)
+        idx = CacheIndex(db_f, base_dir, force_init_db=True)
         try:
             yield idx, db_f, base_dir
         finally:
@@ -258,7 +258,7 @@ class TestCacheIndexCommitAndRemove:
         base_dir.mkdir()
 
         # Phase 1: commit entries and flush writes completely.
-        idx = CacheIndex(db_f, base_dir, init_db=True)
+        idx = CacheIndex(db_f, base_dir, force_init_db=True)
         for e in entries:
             (base_dir / e.file_sha256).touch()
             idx.commit_entry(e)
