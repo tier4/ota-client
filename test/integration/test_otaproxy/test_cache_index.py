@@ -97,7 +97,6 @@ def entries() -> list[CacheMeta]:
 def fast_db_cfg(mocker: MockerFixture) -> None:
     """Speed up DB writer loops for all tests in this module."""
     mocker.patch.object(cfg, "DB_WRITER_LOOP_INTERVAL", 0.05)
-    mocker.patch.object(cfg, "DB_FLUSH_MAX_LOOPS", 2)
 
 
 @pytest.fixture

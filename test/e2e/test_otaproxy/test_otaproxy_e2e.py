@@ -185,10 +185,11 @@ class TestOTAProxyPreloadDB:
                 _assert_download_ok(result, f"cold cache pass client#{i}")
 
         # DB should contain all entries after below_soft cold cache.
+        _unique_digests = set(ota_image_blobs.values())
         _check_cache_db(
             cache_dir,
-            min_entries=len(ota_image_blobs),
-            resources_digests=set(ota_image_blobs.values()),
+            min_entries=len(_unique_digests),
+            resources_digests=_unique_digests,
         )
 
         # --- Phase 2: Restart with DB pre-load ---

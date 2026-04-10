@@ -105,6 +105,7 @@ def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
 
 
 ENSURE_LARGE_BLOB_ENTRIES = 10
+EMPTY_FILE_COUNT = 5_000
 
 
 @pytest.fixture(scope="session")
@@ -130,6 +131,17 @@ def ota_image_blobs() -> dict[str, str]:
     logger.info(
         f"Created {len(SPECIAL_FILENAMES)} special files in {OTA_IMAGE_BLOBS_DIR}"
     )
+
+    # create empty files to exercise zero-length blob handling
+    _empty_sha256 = sha256(b"").hexdigest()
+    _empty_dir = OTA_IMAGE_BLOBS_DIR / "empty"
+    _empty_dir.mkdir(exist_ok=True, parents=True)
+    for i in range(EMPTY_FILE_COUNT):
+        _empty_name = f"empty/empty_{i:05d}.bin"
+        (OTA_IMAGE_BLOBS_DIR / _empty_name).write_bytes(b"")
+        resources_to_download[_empty_name] = _empty_sha256
+
+    logger.info(f"Created {EMPTY_FILE_COUNT} empty files in {_empty_dir}")
 
     # collect regular blobs (filename is the sha256 hex digest)
     _blobs, _count = [], 0
@@ -382,10 +394,11 @@ async def otaproxy(
 
     # For below_soft condition, after otaproxy exits we should have all DB entries written.
     if condition == SPACE_CONDITION_BELOW_SOFT:
+        _unique_digests = set(ota_image_blobs.values())
         _check_cache_db(
             cache_dir,
-            min_entries=len(ota_image_blobs),
-            resources_digests=set(ota_image_blobs.values()),
+            min_entries=len(_unique_digests),
+            resources_digests=_unique_digests,
         )
 
 
