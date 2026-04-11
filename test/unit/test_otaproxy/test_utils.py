@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import yarl
 
 from ota_proxy.utils import process_raw_url
 
@@ -127,7 +128,73 @@ from ota_proxy.utils import process_raw_url
             True,
             "https://example.com:8080/data/file.bin",
         ),
+        # @ in path (should not be interpreted as userinfo separator)
+        (
+            "http://example.com/user@host/file",
+            False,
+            "http://example.com/user%40host/file",
+        ),
+        (
+            "http://example.com/user@host/file",
+            True,
+            "https://example.com/user%40host/file",
+        ),
+        # Consecutive slashes in path (should be preserved as-is)
+        (
+            "http://example.com/data//file.bin",
+            False,
+            "http://example.com/data//file.bin",
+        ),
+        (
+            "http://example.com/data//file.bin",
+            True,
+            "https://example.com/data//file.bin",
+        ),
+        # Colon in path (e.g. versioned filenames)
+        (
+            "http://example.com/data/file:2",
+            False,
+            "http://example.com/data/file%3A2",
+        ),
+        (
+            "http://example.com/data/file:2",
+            True,
+            "https://example.com/data/file%3A2",
+        ),
+        # Semicolon in path (should not be interpreted as path parameter)
+        (
+            "http://example.com/data/part1;part2",
+            False,
+            "http://example.com/data/part1%3Bpart2",
+        ),
+        (
+            "http://example.com/data/part1;part2",
+            True,
+            "https://example.com/data/part1%3Bpart2",
+        ),
+        # Already percent-encoded input (uvicorn sends unquoted, so % gets double-encoded)
+        (
+            "http://example.com/home/user/My%20Documents/file.bin",
+            False,
+            "http://example.com/home/user/My%2520Documents/file.bin",
+        ),
+        (
+            "http://example.com/home/user/My%20Documents/file.bin",
+            True,
+            "https://example.com/home/user/My%2520Documents/file.bin",
+        ),
     ),
 )
 def test_process_raw_url(_input: str, _enable_https: bool, _expected: str):
-    assert process_raw_url(_input, _enable_https) == _expected
+    """Test that process_raw_url correctly quotes the path portion of the URL.
+
+    In our use case, everything after the netloc is a filesystem path (not a
+    standard HTTP URL with query strings or fragments). Characters like ?, #,
+    &, +, @, ;, : that have special meaning in URLs are actually part of
+    filenames and must be percent-encoded as literal path characters.
+
+    The raw URL comes from uvicorn already unquoted, so we re-quote the path
+    and return a yarl.URL with encoded=True to prevent aiohttp from
+    double-encoding it.
+    """
+    assert process_raw_url(_input, _enable_https) == yarl.URL(_expected, encoded=True)
