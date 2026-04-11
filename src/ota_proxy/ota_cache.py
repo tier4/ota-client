@@ -96,7 +96,9 @@ def create_cachemeta_for_request(
     return CacheMeta(
         file_sha256=file_sha256,
         file_compression_alg=file_compression_alg,
-        url=raw_url,
+        # NOTE(20260410): the `url` is never read out and used.
+        # url=raw_url,
+        url="",
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
     )
 

@@ -354,6 +354,7 @@ class App:
                 await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
                 return
 
+            # NOTE: scheme actually doesn't matter, later we will rewrite it anyway
             _scheme = scope.get("scheme", "http")
             url = f"{_scheme}://{_host}{url}"
 
