@@ -39,7 +39,7 @@ jobs:
           cp proto/dist/*.whl dist
 
       - name: upload artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: artifacts-python-packages
           path: dist/*.whl
@@ -67,7 +67,7 @@ jobs:
 
     - name: publish release artifacts
       if: ${{ github.event_name == 'release' }}
-      uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
       with:
         files: |
           dist/*.whl
