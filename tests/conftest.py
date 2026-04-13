@@ -257,7 +257,7 @@ class ThreadpoolExecutorFixtureMixin:
 
 
 ECU_INFO_YAML = """\
-format_vesrion: 1
+format_version: 1
 ecu_id: "autoware"
 ip_addr: "10.0.0.1"
 bootloader: "grub"

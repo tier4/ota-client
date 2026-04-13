@@ -158,6 +158,8 @@ class ECUStatusStorage:
             )
 
         # check ECUs in tracked active ECUs set that are updating
+        # NOTE: in_update_ecus_id tracks all ECUs that require active polling,
+        #   including UPDATING, CLIENT_UPDATING, and ABORTING states.
         _old_in_update_ecus_id = self._state.in_update_ecus_id
         self._state.in_update_ecus_id = in_update_ecus_id = {
             status.ecu_id

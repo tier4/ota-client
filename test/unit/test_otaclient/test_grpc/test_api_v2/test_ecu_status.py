@@ -36,7 +36,7 @@ from otaclient_api.v2 import _types as api_types
 ECU_STATUS_MODULE = "otaclient.grpc.api_v2.ecu_status"
 
 ECU_INFO_YAML = """\
-format_vesrion: 1
+format_version: 1
 ecu_id: "autoware"
 ip_addr: "10.0.0.1"
 bootloader: "grub"
