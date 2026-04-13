@@ -30,13 +30,14 @@ dynamic = [
 dependencies = [
   "anyio>=4.5.1,<5",
   "aiohttp>=3.10.11,<3.14",
-  "cryptography==46.0.5",
-  "grpcio>=1.70,<1.79",
+  "cryptography==46.0.7",
+  "grpcio>=1.70,<1.81",
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
   "otaclient_iot_logging_server_pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl#sha256:e5a2e6474a8b6f5656679877a5df40891e6a65c29830a31faed3d47d9973be60",
+  "otaclient_pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.0.0/otaclient_pb2-1.0.0-py3-none-any.whl#sha256:86a8095345c65ef5b91c658960723341eaa5e4588eb6b9c731f7401341ae8604",
   "ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl#sha256:98a411c53a01f313ddfbfcb8c8d20dcd9ced829c7282a01763c81f25c695d79c",
-  "protobuf>=4.25.8,<6.34",
+  "protobuf>=4.25.8,<7.35",
   "pydantic<3,>=2.10",
   "pydantic-settings<3,>=2.3",
   "pyyaml<7,>=6.0.1",
@@ -44,15 +45,18 @@ dependencies = [
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.7",
-  "uvicorn[standard]>=0.30,<0.42",
+  "uvicorn[standard]>=0.30,<0.45",
   "zstandard<0.26,>=0.22",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
 [dependency-groups]
 dev = [
-  "black>=24,<27",
   "coverage>=7,<8",
+  "hatch>1,<2",
+  # NOTE: on python3.8, hatch with virtualenv>=21 is broken,
+  #       see https://github.com/pypa/hatch/issues/2193
+  "virtualenv<21",
   "pre-commit>=3,<5",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.23.8,<1.4",
@@ -98,23 +102,12 @@ log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(m
 log_cli = true
 log_cli_level = "INFO"
 testpaths = [
+  "./test",
   "./tests",
 ]
 markers = [
   "performance: marks tests as performance E2E tests",
 ]
-
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-  'py39',
-  'py310',
-  'py311',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
 
 [tool.coverage.run]
 concurrency = [
@@ -133,9 +126,9 @@ source = [
   "otaclient_manifest",
 ]
 disable_warnings = [
-    "no-data-collected",
-    "module-not-measured",
-    "module-not-imported",
+  "no-data-collected",
+  "module-not-measured",
+  "module-not-imported",
 ]
 
 [tool.coverage.report]
@@ -160,6 +153,7 @@ exclude = [
   ".venv",
   "venv",
   ".tests",
+  ".test"
 ]
 ignore = [
   "proto/**",
@@ -173,9 +167,9 @@ pythonVersion = "3.8"
 [tool.ruff]
 line-length = 88
 target-version = "py38"
-# NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
+  "test/**/*.py",
   "src/**/*.py",
   "pyproject.toml",
 ]
@@ -198,10 +192,12 @@ select = [
 ]
 ignore = [
   "E266", # (too many leading '#'): sometimes we use multiple # for separting sections
-  "E203", # (white space before ':'): this error conflicts with black linting
   "E701", # (multiple statements on one line)
   "S101", # (use of assert): mostly we use assert for typing
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true

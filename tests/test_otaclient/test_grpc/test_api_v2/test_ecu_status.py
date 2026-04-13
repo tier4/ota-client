@@ -61,7 +61,9 @@ class TestECUStatusStorage:
 
         _mocked_otaclient_cfg = DefaultOTAClientConfigs()
         # NOTE: decrease the interval for faster testing
-        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = self.PROPERTY_REFRESH_INTERVAL_FOR_TEST  # type: ignore[assignment]
+        _mocked_otaclient_cfg.OVERALL_ECUS_STATUS_UPDATE_INTERVAL = (
+            self.PROPERTY_REFRESH_INTERVAL_FOR_TEST
+        )  # type: ignore[assignment]
         mocker.patch(f"{ECU_STATUS_MODULE}.cfg", _mocked_otaclient_cfg)
 
         try:
@@ -96,14 +98,12 @@ class TestECUStatusStorage:
                     ),
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                result=api_types.FailureType.NO_FAILURE,
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.SUCCESS,
-                                    version="123.x",
-                                ),
+                                ota_status=api_types.StatusOta.SUCCESS,
+                                firmware_version="123.x",
+                                failure_type=api_types.FailureType.NO_FAILURE,
                             ),
                         ],
                     ),
@@ -111,33 +111,6 @@ class TestECUStatusStorage:
                 # expected export
                 api_types.StatusResponse(
                     available_ecu_ids=["autoware", "p1", "p2"],
-                    # explicitly v1 format compatibility
-                    ecu=[
-                        api_types.StatusResponseEcu(
-                            ecu_id="autoware",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                status=api_types.StatusOta.SUCCESS,
-                                version="123.x",
-                            ),
-                        ),
-                        api_types.StatusResponseEcu(
-                            ecu_id="p1",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                status=api_types.StatusOta.SUCCESS,
-                                version="123.x",
-                            ),
-                        ),
-                        api_types.StatusResponseEcu(
-                            ecu_id="p2",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                status=api_types.StatusOta.SUCCESS,
-                                version="123.x",
-                            ),
-                        ),
-                    ],
                     ecu_v2=[
                         api_types.StatusResponseEcuV2(
                             ecu_id="autoware",
@@ -148,6 +121,12 @@ class TestECUStatusStorage:
                         ),
                         api_types.StatusResponseEcuV2(
                             ecu_id="p1",
+                            ota_status=api_types.StatusOta.SUCCESS,
+                            failure_type=api_types.FailureType.NO_FAILURE,
+                            firmware_version="123.x",
+                        ),
+                        api_types.StatusResponseEcuV2(
+                            ecu_id="p2",
                             ota_status=api_types.StatusOta.SUCCESS,
                             failure_type=api_types.FailureType.NO_FAILURE,
                             firmware_version="123.x",
@@ -203,14 +182,12 @@ class TestECUStatusStorage:
                     ),
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                result=api_types.FailureType.NO_FAILURE,
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.SUCCESS,
-                                    version="123.x",
-                                ),
+                                ota_status=api_types.StatusOta.SUCCESS,
+                                firmware_version="123.x",
+                                failure_type=api_types.FailureType.NO_FAILURE,
                             ),
                         ],
                     ),
@@ -218,59 +195,6 @@ class TestECUStatusStorage:
                 # expected export result
                 api_types.StatusResponse(
                     available_ecu_ids=["autoware", "p1", "p2"],
-                    # explicitly v1 format compatibility
-                    # NOTE: processed_files_num(v2) = files_processed_download(v1) + files_processed_copy(v1)
-                    # check api_types.UpdateStatus.convert_to_v1_StatusProgress for more details.
-                    ecu=[
-                        api_types.StatusResponseEcu(
-                            ecu_id="autoware",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                status=api_types.StatusOta.UPDATING,
-                                version="123.x",
-                                # NOTE: also see convert_to_v1_StatusProgress for more details.
-                                progress=api_types.StatusProgress(
-                                    phase=api_types.StatusProgressPhase.REGULAR,
-                                    total_regular_files=123456,
-                                    total_regular_file_size=123456,
-                                    files_processed_copy=23,
-                                    files_processed_download=100,
-                                    file_size_processed_download=400,
-                                    # NOTE: processed_files_size(456) - downloaded_files_size(400)
-                                    file_size_processed_copy=56,
-                                    download_bytes=789,
-                                    regular_files_processed=123,
-                                ),
-                            ),
-                        ),
-                        api_types.StatusResponseEcu(
-                            ecu_id="p1",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                status=api_types.StatusOta.UPDATING,
-                                version="123.x",
-                                progress=api_types.StatusProgress(
-                                    phase=api_types.StatusProgressPhase.REGULAR,
-                                    total_regular_files=123456,
-                                    files_processed_download=100,
-                                    file_size_processed_download=400,
-                                    files_processed_copy=23,
-                                    file_size_processed_copy=56,
-                                    download_bytes=789,
-                                    regular_files_processed=123,
-                                    total_elapsed_time=api_types.Duration(seconds=123),
-                                ),
-                            ),
-                        ),
-                        api_types.StatusResponseEcu(
-                            ecu_id="p2",
-                            result=api_types.FailureType.NO_FAILURE,
-                            status=api_types.Status(
-                                version="123.x",
-                                status=api_types.StatusOta.SUCCESS,
-                            ),
-                        ),
-                    ],
                     ecu_v2=[
                         api_types.StatusResponseEcuV2(
                             ecu_id="autoware",
@@ -306,6 +230,12 @@ class TestECUStatusStorage:
                                 downloaded_files_num=100,
                                 downloaded_files_size=400,
                             ),
+                        ),
+                        api_types.StatusResponseEcuV2(
+                            ecu_id="p2",
+                            ota_status=api_types.StatusOta.SUCCESS,
+                            failure_type=api_types.FailureType.NO_FAILURE,
+                            firmware_version="123.x",
                         ),
                     ],
                 ),
@@ -357,20 +287,18 @@ class TestECUStatusStorage:
                     # p2: updating, doesn't require network
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.UPDATING,
-                                    progress=api_types.StatusProgress(
-                                        phase=api_types.StatusProgressPhase.POST_PROCESSING,
-                                    ),
+                                ota_status=api_types.StatusOta.UPDATING,
+                                update_status=api_types.UpdateStatus(
+                                    phase=api_types.UpdatePhase.APPLYING_UPDATE,
                                 ),
-                            )
+                            ),
                         ],
                     ),
                 ],
-                # expected overal ECUs status report
+                # expected overall ECUs status report
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
@@ -406,20 +334,18 @@ class TestECUStatusStorage:
                     # p2: updating, requires network
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.UPDATING,
-                                    progress=api_types.StatusProgress(
-                                        phase=api_types.StatusProgressPhase.REGULAR,
-                                    ),
+                                ota_status=api_types.StatusOta.UPDATING,
+                                update_status=api_types.UpdateStatus(
+                                    phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
                                 ),
-                            )
+                            ),
                         ],
                     ),
                 ],
-                # expected overal ECUs status report
+                # expected overall ECUs status report
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"p2"},
@@ -457,17 +383,15 @@ class TestECUStatusStorage:
                     # p2: SUCCESS
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.SUCCESS,
-                                ),
-                            )
+                                ota_status=api_types.StatusOta.SUCCESS,
+                            ),
                         ],
                     ),
                 ],
-                # expected overal ECUs status report set by on_ecus_accept_update_request,
+                # expected overall ECUs status report set by on_ecus_accept_update_request,
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware"},
@@ -501,9 +425,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert (
-                getattr(self.ecu_storage._state, k) == v
-            ), f"status_report attr {k} mismatch"
+            assert getattr(self.ecu_storage._state, k) == v, (
+                f"status_report attr {k} mismatch"
+            )
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v
@@ -536,21 +460,19 @@ class TestECUStatusStorage:
                     # p2: UPDATING
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.UPDATING,
-                                    progress=api_types.StatusProgress(
-                                        phase=api_types.StatusProgressPhase.REGULAR,
-                                    ),
+                                ota_status=api_types.StatusOta.UPDATING,
+                                update_status=api_types.UpdateStatus(
+                                    phase=api_types.UpdatePhase.DOWNLOADING_OTA_FILES,
                                 ),
-                            )
+                            ),
                         ],
                     ),
                 ],
                 ["autoware"],
-                # expected overal ECUs status report set by on_ecus_accept_update_request
+                # expected overall ECUs status report set by on_ecus_accept_update_request
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p2"},
@@ -591,18 +513,16 @@ class TestECUStatusStorage:
                     # p2: SUCCESS
                     api_types.StatusResponse(
                         available_ecu_ids=["p2"],
-                        ecu=[
-                            api_types.StatusResponseEcu(
+                        ecu_v2=[
+                            api_types.StatusResponseEcuV2(
                                 ecu_id="p2",
-                                status=api_types.Status(
-                                    status=api_types.StatusOta.SUCCESS,
-                                ),
-                            )
+                                ota_status=api_types.StatusOta.SUCCESS,
+                            ),
                         ],
                     ),
                 ],
                 ["p1"],
-                # expected overal ECUs status report set by on_ecus_accept_update_request,
+                # expected overall ECUs status report set by on_ecus_accept_update_request,
                 {
                     "lost_ecus_id": set(),
                     "in_update_ecus_id": {"autoware", "p1"},
@@ -649,9 +569,9 @@ class TestECUStatusStorage:
 
         # --- assertion --- #
         for k, v in properties_dict.items():
-            assert (
-                getattr(self.ecu_storage._state, k) == v
-            ), f"status_report attr {k} mismatch"
+            assert getattr(self.ecu_storage._state, k) == v, (
+                f"status_report attr {k} mismatch"
+            )
 
         for k, v in flags_status.items():
             assert getattr(self.ecu_status_flags, k).is_set() == v

@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from http import HTTPStatus
-from urllib.parse import urlparse
 
 import aiohttp
 from multidict import CIMultiDict, CIMultiDictProxy
@@ -223,33 +222,25 @@ class App:
         try:
             _common_err_msg = f"request for {url=} failed"
             if isinstance(exc, (ReaderPoolBusy, CacheProviderNotReady)):
-                _err_msg = f"{_common_err_msg} due to otaproxy is busy: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
+                burst_suppressed_logger.warning("otaproxy internal busy")
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "otaproxy internal busy", send
                 )
             elif isinstance(exc, aiohttp.ClientResponseError):
-                _err_msg = f"{_common_err_msg} due to HTTP error: {exc!r}"
-                burst_suppressed_logger.warning(_err_msg)
-                # passthrough 4xx(currently 403 and 404) to otaclient
                 await self._respond_with_error(
                     exc.status, f"HTTP status from remote: {exc.status}", send
                 )
             elif isinstance(exc, aiohttp.ClientConnectionError):
-                _err_msg = f"{_common_err_msg} due to connection error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.BAD_GATEWAY, "Failed to connect to remote", send
                 )
             elif isinstance(exc, aiohttp.ClientError):
-                _err_msg = f"{_common_err_msg} due to aiohttp client error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.SERVICE_UNAVAILABLE, "HTTP client error", send
                 )
             elif isinstance(exc, (BaseOTACacheError, StopAsyncIteration)):
                 _err_msg = f"{_common_err_msg} due to handled ota_cache internal error: {exc!r}"
-                burst_suppressed_logger.error(_err_msg)
+                burst_suppressed_logger.warning(_err_msg)
                 await self._respond_with_error(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     "otaproxy internal error",
@@ -278,7 +269,7 @@ class App:
         try:
             _common_err_msg = f"request for {url=} failed"
             if isinstance(exc, (BaseOTACacheError, StopAsyncIteration)):
-                burst_suppressed_logger.error(
+                burst_suppressed_logger.warning(
                     f"{_common_err_msg=} due to handled ota_cache internal error: {exc!r}"
                 )
                 await self._send_chunk_one(b"", send)
@@ -343,12 +334,28 @@ class App:
             await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
             return
 
-        url = scope["path"]
-        _url = urlparse(url)
-        if not _url.scheme or not _url.path:
-            msg = f"INVALID URL {url}."
-            await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
-            return
+        url: str = scope["path"]
+        for name, value in scope["headers"]:
+            if name == b"host":
+                _host = value.decode("ascii")
+                break
+        else:
+            return await self._respond_with_error(
+                HTTPStatus.BAD_REQUEST, "missing `host` header", send
+            )
+
+        # httptools strips absolute URLs to just the path component.
+        # Reconstruct the full URL from the Host header for proxy requests.
+        # Reject non-proxy requests where Host matches our own listen address.
+        if url.startswith("/"):
+            _server = scope.get("server")
+            if _server and _host == f"{_server[0]}:{_server[1]}":
+                msg = "We are not HTTP server but a proxy server."
+                await self._respond_with_error(HTTPStatus.BAD_REQUEST, msg, send)
+                return
+
+            _scheme = scope.get("scheme", "http")
+            url = f"{_scheme}://{_host}{url}"
 
         if self._se.locked():
             burst_suppressed_logger.warning(

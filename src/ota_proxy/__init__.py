@@ -75,8 +75,10 @@ def run_otaproxy(
         log_level="error",
         lifespan="on",
         loop="uvloop",
-        # NOTE: must use h11, other http implementation will break HTTP proxy
-        http="h11",
+        # NOTE: httptools is used for performance. server_app.http_handler
+        #   reconstructs the absolute URL from the Host header when httptools
+        #   strips it to just the path component.
+        http="httptools",
     )
     _server = uvicorn.Server(_config)
 

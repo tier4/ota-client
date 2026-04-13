@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import logging
 import os
 import shutil
 import sys
@@ -26,8 +25,6 @@ from pathlib import Path
 
 from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import is_directory
-
-logger = logging.getLogger(__name__)
 
 DEFAULT_FILE_CHUNK_SIZE = 1024**2  # 1MiB
 TMP_FILE_PREFIX = ".ota_io_tmp_"

@@ -79,9 +79,9 @@ def get_boot_controller(
     logger.info(f"use boot_controller for {bootloader_type=}")
 
     if bootloader_type == BootloaderType.GRUB:
-        from ._grub import GrubController
+        from ._grub_new import GrubBootController
 
-        return GrubController
+        return GrubBootController
     if (
         bootloader_type == BootloaderType.CBOOT
         or bootloader_type == BootloaderType.JETSON_CBOOT

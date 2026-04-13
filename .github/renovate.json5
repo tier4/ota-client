@@ -47,6 +47,7 @@
       "dependencies"
     ],
     "gitIgnoredAuthors": [
+      "github-actions[bot]+sync-lockfile",
       "github-actions[bot]+sync-lockfile@users.noreply.github.com"
     ]
   },

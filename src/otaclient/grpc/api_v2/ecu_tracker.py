@@ -39,7 +39,6 @@ _ACTIVE_POLL_LOCAL_ON_STARTUP = 0.1
 
 
 class ECUTracker:
-
     def __init__(
         self,
         ecu_status_storage: ECUStatusStorage,
@@ -65,9 +64,8 @@ class ECUTracker:
                     timeout=cfg.QUERYING_SUBECU_STATUS_TIMEOUT,
                     request=api_types.StatusRequest(),
                 )
-                if self._startup_matrix[this_ecu_id] and (
-                    _ecu_resp.find_ecu_v2(this_ecu_id)
-                    or _ecu_resp.find_ecu(this_ecu_id)
+                if self._startup_matrix[this_ecu_id] and _ecu_resp.find_ecu_v2(
+                    this_ecu_id
                 ):
                     self._startup_matrix[this_ecu_id] = False
                 await self._ecu_status_storage.update_from_child_ecu(_ecu_resp)

@@ -525,6 +525,8 @@ class TestAbortHandler:
         handler = self._make_handler(mocker)
         # Mock os.kill to prevent process kill
         mocker.patch("otaclient.ota_core._abort_handler.os.kill")
+        # Mock time.sleep to avoid waiting for WAIT_FOR_STATUS_REPORT
+        mocker.patch("otaclient.ota_core._abort_handler.time.sleep")
 
         handler._state = AbortState.ABORTING
         handler._perform_abort()
