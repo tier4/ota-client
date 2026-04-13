@@ -17,11 +17,10 @@ from __future__ import annotations
 from queue import Queue
 
 import pytest
-import pytest_mock
 
 from otaclient._status_monitor import StatusReport
-from otaclient._types import AbortRequestV2, AbortState, OTAStatus
-from otaclient.ota_core._abort_handler import AbortHandler, WAIT_FOR_STATUS_REPORT
+from otaclient._types import AbortState, OTAStatus
+from otaclient.ota_core._abort_handler import WAIT_FOR_STATUS_REPORT, AbortHandler
 
 
 class TestAbortHandlerStatusWait:
