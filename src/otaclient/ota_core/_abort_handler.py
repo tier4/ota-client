@@ -19,6 +19,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from contextlib import contextmanager
 from queue import Empty, Queue
 from typing import TYPE_CHECKING, Generator
@@ -43,6 +44,11 @@ logger = logging.getLogger(__name__)
 
 ABORT_SIGNAL = signal.SIGUSR1
 EXIT_CODE_OTA_ABORTED = 79
+# Time to wait after reporting ABORTING status before proceeding with abort.
+# report_status is async (queue-based), so without this delay the process may
+# be killed by SIGUSR1 before the status collector thread has a chance to
+# write the ABORTING status to shared memory.
+WAIT_FOR_STATUS_REPORT = 3  # seconds
 
 
 def _abort_signal_handler(_signum: int, _frame: object) -> None:  # pragma: no cover
@@ -129,6 +135,7 @@ class AbortHandler:
                 session_id=self._session_id,
             )
         )
+        time.sleep(WAIT_FOR_STATUS_REPORT)
 
         logger.info("Performing abort...")
         self._ota_client.boot_controller.on_abort()
