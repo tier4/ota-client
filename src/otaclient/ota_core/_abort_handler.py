@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 
 ABORT_SIGNAL = signal.SIGUSR1
 EXIT_CODE_OTA_ABORTED = 79
+# Time to wait after reporting ABORTING status before proceeding with abort.
+# report_status is async (queue-based), so without this delay the process may
+# be killed by SIGUSR1 before the status collector thread has a chance to
+# write the ABORTING status to shared memory.
 WAIT_FOR_STATUS_REPORT = 3  # seconds
 
 
