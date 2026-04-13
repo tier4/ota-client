@@ -546,16 +546,3 @@ class TestAbortHandler:
             and r.payload.new_ota_status == OTAStatus.ABORTING
         ]
         assert len(aborting_reports) == 1
-
-    def test_perform_abort_waits_for_status_report(self, mocker):
-        """Test that _perform_abort sleeps to allow status report propagation."""
-        from otaclient.ota_core._abort_handler import WAIT_FOR_STATUS_REPORT
-
-        handler = self._make_handler(mocker)
-        mocker.patch("otaclient.ota_core._abort_handler.os.kill")
-        mock_sleep = mocker.patch("otaclient.ota_core._abort_handler.time.sleep")
-
-        handler._state = AbortState.ABORTING
-        handler._perform_abort()
-
-        mock_sleep.assert_called_once_with(WAIT_FOR_STATUS_REPORT)

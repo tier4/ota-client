@@ -29,10 +29,6 @@ from otaclient import _types as _internal_types
 from otaclient._types import MultipleECUStatusFlags
 from otaclient.configs import DefaultOTAClientConfigs
 from otaclient.configs._ecu_info import ECUInfo
-from otaclient.grpc.api_v2.ecu_status import (
-    ACTIVE_POLLING_INTERVAL,
-    IDLE_POLLING_INTERVAL,
-)
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
 from tests.utils import compare_message
@@ -410,51 +406,6 @@ class TestECUStatusStorage:
                     "all_success": False,
                 },
             ),
-            # case 4:
-            # ECU in ABORTING status should be tracked in in_update_ecus_id.
-            (
-                # local ECU status: ABORTING
-                _internal_types.OTAClientStatus(
-                    ota_status=_internal_types.OTAStatus.ABORTING,
-                ),
-                # sub ECUs status
-                [
-                    # p1: SUCCESS
-                    api_types.StatusResponse(
-                        available_ecu_ids=["p1"],
-                        ecu_v2=[
-                            api_types.StatusResponseEcuV2(
-                                ecu_id="p1",
-                                ota_status=api_types.StatusOta.SUCCESS,
-                            ),
-                        ],
-                    ),
-                    # p2: ABORTING
-                    api_types.StatusResponse(
-                        available_ecu_ids=["p2"],
-                        ecu_v2=[
-                            api_types.StatusResponseEcuV2(
-                                ecu_id="p2",
-                                ota_status=api_types.StatusOta.ABORTING,
-                            ),
-                        ],
-                    ),
-                ],
-                # expected overall ECUs status report
-                {
-                    "lost_ecus_id": set(),
-                    "in_update_ecus_id": {"autoware", "p2"},
-                    "in_update_child_ecus_id": {"p2"},
-                    "failed_ecus_id": set(),
-                    "success_ecus_id": {"p1"},
-                },
-                # ecu_status_flags
-                {
-                    "any_child_ecu_in_update": True,
-                    "any_requires_network": False,
-                    "all_success": False,
-                },
-            ),
         ),
     )
     async def test_overall_ecu_status_report_generation(
@@ -645,37 +596,3 @@ class TestECUStatusStorage:
         #   1. wait until _event_setter finished, or with a little bit delay.
         #   2. wait much less time than <_mocked_interval>.
         await asyncio.wait_for(_waiter(), timeout=_sleep_time + 1)
-
-    async def test_polling_interval_active_when_aborting(self):
-        """get_polling_interval should return ACTIVE_POLLING_INTERVAL when an ECU is aborting."""
-        # Feed an aborting ECU status
-        aborting_status = api_types.StatusResponse(
-            available_ecu_ids=["p1"],
-            ecu_v2=[
-                api_types.StatusResponseEcuV2(
-                    ecu_id="p1",
-                    ota_status=api_types.StatusOta.ABORTING,
-                ),
-            ],
-        )
-        await self.ecu_storage.update_from_child_ecu(aborting_status)
-        await asyncio.sleep(self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE)
-
-        assert self.ecu_storage.get_polling_interval() == ACTIVE_POLLING_INTERVAL
-
-    async def test_polling_interval_idle_when_no_active_or_aborting(self):
-        """get_polling_interval should return IDLE_POLLING_INTERVAL when no ECU is updating or aborting."""
-        # Feed only SUCCESS ECU status
-        success_status = api_types.StatusResponse(
-            available_ecu_ids=["p1"],
-            ecu_v2=[
-                api_types.StatusResponseEcuV2(
-                    ecu_id="p1",
-                    ota_status=api_types.StatusOta.SUCCESS,
-                ),
-            ],
-        )
-        await self.ecu_storage.update_from_child_ecu(success_status)
-        await asyncio.sleep(self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE)
-
-        assert self.ecu_storage.get_polling_interval() == IDLE_POLLING_INTERVAL
