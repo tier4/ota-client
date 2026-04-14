@@ -98,7 +98,7 @@ def detect_storage_device_type(rootfs_devpath: str) -> str:
             )
             return "L3"
 
-        if rotational is True:
+        if rotational:
             logger.info(f"detected SATA HDD: {parent_devpath}, classified as L3")
             return "L3"
         logger.info(f"detected SATA SSD: {parent_devpath}, classified as L2")
