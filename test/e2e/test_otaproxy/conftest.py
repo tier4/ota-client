@@ -16,7 +16,7 @@
 Provides:
     - ota_image_blobs: Dict of filename -> sha256 for all blobs (including special).
     - ota_image_server: Launches standalone HTTP server serving OTA image blobs.
-    - otaproxy / otaproxy_no_cache: In-process otaproxy with/without caching.
+    - launch_otaproxy_with_cache: Context manager to start an in-process otaproxy.
     - run_download_client: Helper to launch the standalone download client subprocess.
 """
 
@@ -27,7 +27,6 @@ import heapq
 import json
 import logging
 import random
-import shutil
 import signal
 import sqlite3
 import subprocess
@@ -198,21 +197,12 @@ def ota_image_server(ota_image_blobs) -> Generator[str]:
     try:
         _wait_for_ready(proc)
         base_url = f"http://127.0.0.1:{OTA_IMAGE_SERVER_PORT}"
-        logger.info("OTA image server started at %s", base_url)
+        logger.info(f"OTA image server started at {base_url}")
         yield base_url
     finally:
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=10)
         logger.info("OTA image server stopped")
-
-
-@pytest.fixture()
-def cache_dir(tmp_path: Path) -> Generator[Path]:
-    """Provide a temporary cache directory for otaproxy."""
-    d = tmp_path / "ota-cache"
-    d.mkdir()
-    yield d
-    shutil.rmtree(d, ignore_errors=True)
 
 
 def _resolve_space_state(condition: str, tick: int) -> tuple[bool, bool]:
@@ -293,11 +283,11 @@ async def _launch_otaproxy(
         await asyncio.sleep(0.05)
 
     proxy_url = f"http://127.0.0.1:{port}"
-    logger.info("otaproxy started at %s", proxy_url)
+    logger.info(f"otaproxy started at {proxy_url}")
     return proxy_url, server, serve_task
 
 
-def _check_cache_db(
+def check_cache_db(
     cache_dir: Path, min_entries: int, resources_digests: set[str]
 ) -> None:
     """Verify the cache sqlite db has entries with valid metadata."""
@@ -320,7 +310,7 @@ def _check_cache_db(
         assert row["cache_size"] >= 0, f"Invalid cache_size in row: {dict(row)}"
         assert 0 < row["last_access"] <= now, f"Invalid last_access in row: {dict(row)}"
 
-    logger.info("Cache db: %d entries, all valid", len(rows))
+    logger.info(f"Cache db: {len(rows)} entries, all valid")
 
 
 @asynccontextmanager
@@ -330,6 +320,8 @@ async def launch_otaproxy_with_cache(
     condition: str,
     *,
     init_cache: bool = True,
+    port: int = OTAPROXY_PORT,
+    upper_proxy: str = "",
 ) -> AsyncGenerator[tuple[str, Path, str]]:
     """Start an in-process otaproxy with caching and a mocked space checker.
 
@@ -338,6 +330,8 @@ async def launch_otaproxy_with_cache(
         mocker: pytest-mock fixture for patching the space checker.
         condition: One of the ``SPACE_CONDITION_*`` constants.
         init_cache: Passed to ``OTACache``; ``False`` reuses the existing DB.
+        port: TCP port to listen on (default: ``OTAPROXY_PORT``).
+        upper_proxy: URL of the upper proxy for chaining (default: no proxy).
 
     Yields:
         A tuple of (proxy_url, cache_dir, space_condition).
@@ -350,74 +344,55 @@ async def launch_otaproxy_with_cache(
         init_cache=init_cache,
         base_dir=str(cache_dir),
         db_file=str(cache_dir / "cache_db"),
-        upper_proxy="",
+        upper_proxy=upper_proxy,
         enable_https=False,
     )
 
-    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
-    logger.info("otaproxy started (condition=%s, init_cache=%s)", condition, init_cache)
+    proxy_url, server, server_task = await _launch_otaproxy(port, ota_cache)
+    logger.info(
+        f"otaproxy started (port={port}, condition={condition}, "
+        f"init_cache={init_cache}, upper_proxy={upper_proxy or '(none)'})"
+    )
     try:
         yield proxy_url, cache_dir, condition
     finally:
         server.should_exit = True
         await server_task
-        logger.info(
-            "otaproxy stopped (port %d, condition=%s)", OTAPROXY_PORT, condition
-        )
+        logger.info(f"otaproxy stopped (port {port}, condition={condition})")
 
 
-@pytest.fixture(
-    params=[
-        SPACE_CONDITION_BELOW_SOFT,
-        SPACE_CONDITION_BELOW_HARD,
-        SPACE_CONDITION_EXCEED_HARD,
-    ]
-)
-async def otaproxy(
-    request,
-    cache_dir: Path,
-    mocker: MockerFixture,
-    ota_image_server: str,
-    ota_image_blobs,
-) -> AsyncGenerator[tuple[str, Path, str]]:
-    """Run otaproxy in-process with caching enabled.
+@asynccontextmanager
+async def launch_otaproxy_no_cache(
+    *,
+    port: int = OTAPROXY_PORT,
+    upper_proxy: str = "",
+) -> AsyncGenerator[str]:
+    """Start an in-process otaproxy in relay-only mode (no caching).
 
-    Parametrized over disk space conditions to test cache rotation.
+    Args:
+        port: TCP port to listen on (default: ``OTAPROXY_PORT``).
+        upper_proxy: URL of the upper proxy for chaining (default: no proxy).
 
     Yields:
-        A tuple of (proxy_url, cache_dir, space_condition).
-    """
-    condition: str = request.param
-
-    async with launch_otaproxy_with_cache(cache_dir, mocker, condition) as ctx:
-        yield ctx
-
-    # For below_soft condition, after otaproxy exits we should have all DB entries written.
-    if condition == SPACE_CONDITION_BELOW_SOFT:
-        _unique_digests = set(ota_image_blobs.values())
-        _check_cache_db(
-            cache_dir,
-            min_entries=len(_unique_digests),
-            resources_digests=_unique_digests,
-        )
-
-
-@pytest.fixture()
-async def otaproxy_no_cache(ota_image_server: str) -> AsyncGenerator[str]:
-    """Run otaproxy in-process without caching.
-
-    Returns:
         The proxy URL.
     """
     ota_cache = OTACache(
-        cache_enabled=False, init_cache=False, upper_proxy="", enable_https=False
+        cache_enabled=False,
+        init_cache=False,
+        upper_proxy=upper_proxy,
+        enable_https=False,
     )
-    proxy_url, server, server_task = await _launch_otaproxy(OTAPROXY_PORT, ota_cache)
-    yield proxy_url
-
-    server.should_exit = True
-    await server_task
-    logger.info("otaproxy (no cache) stopped")
+    proxy_url, server, server_task = await _launch_otaproxy(port, ota_cache)
+    logger.info(
+        f"otaproxy (no cache) started (port={port}, "
+        f"upper_proxy={upper_proxy or '(none)'})"
+    )
+    try:
+        yield proxy_url
+    finally:
+        server.should_exit = True
+        await server_task
+        logger.info(f"otaproxy (no cache) stopped (port {port})")
 
 
 @pytest.fixture(scope="session")
@@ -427,7 +402,7 @@ def manifest_path(
     """Write the blob manifest as a JSON file for the download client."""
     p = tmp_path_factory.mktemp("manifest") / "manifest.json"
     p.write_text(json.dumps(ota_image_blobs))
-    logger.info("Manifest written to %s (%d entries)", p, len(ota_image_blobs))
+    logger.info(f"Manifest written to {p} ({len(ota_image_blobs)} entries)")
     return p
 
 
