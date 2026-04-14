@@ -18,8 +18,11 @@ from .config import config as cfg
 if sys.version_info < (3, 12):
     from itertools import islice
 
-    def batched(iterable, n, *, strict=False):
-        """Copied from python documentation."""
+    def batched(iterable, n, *, strict=False):  # pragma: no cover
+        """Python version of batched, copied from python documentation.
+
+        See https://docs.python.org/3/library/itertools.html#itertools.batched.
+        """
         # batched('ABCDEFG', 3) → ABC DEF G
         if n < 1:
             raise ValueError("n must be at least one")
@@ -30,7 +33,7 @@ if sys.version_info < (3, 12):
             yield batch
 
 else:
-    from itertools import batched  # noqa
+    from itertools import batched  # noqa: F401
 
 
 async def read_file(
