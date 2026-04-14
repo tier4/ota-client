@@ -44,7 +44,7 @@ class StorageDeviceType(StrEnum):
         Thread count ranges per storage tier (scaled by CPU count):
             L1 (NVMe SSD):  24 - 32 threads
             L2 (SATA SSD):  16 - 24 threads
-            L3 (eMMC/HDD):  12 - 16 threads
+            L3 (eMMC/HDD):  8 - 12 threads
         """
         cpu_count = os.cpu_count() or 4
 
@@ -53,7 +53,7 @@ class StorageDeviceType(StrEnum):
         elif self == StorageDeviceType.L2:
             threads = min(24, max(16, cpu_count * 3))
         else:  # L3
-            threads = min(16, max(12, cpu_count * 2))
+            threads = min(12, max(8, cpu_count * 2))
 
         logger.info(
             f"download threads calculated: {threads} "
