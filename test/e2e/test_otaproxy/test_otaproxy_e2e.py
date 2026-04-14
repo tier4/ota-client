@@ -193,7 +193,7 @@ class TestOTAProxyChain:
                 min_entries=len(_unique_digests),
                 resources_digests=_unique_digests,
             )
-            for i, sub_cache_dir in enumerate(sub_cache_dirs):
+            for sub_cache_dir in sub_cache_dirs:
                 check_cache_db(
                     sub_cache_dir,
                     min_entries=len(_unique_digests),
@@ -220,7 +220,7 @@ class TestOTAProxyChain:
 
             # Layer 2: Sub proxies (no cache, each uses gateway as upper proxy).
             sub_urls = []
-            for i, port in enumerate(SUB_PROXY_PORTS):
+            for port in SUB_PROXY_PORTS:
                 sub_url = await stack.enter_async_context(
                     launch_otaproxy_no_cache(port=port, upper_proxy=gateway_url)
                 )

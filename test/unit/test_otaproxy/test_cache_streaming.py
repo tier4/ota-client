@@ -530,7 +530,7 @@ class TestCacheWriterPool:
 
         async def empty_gen() -> AsyncGenerator[bytes]:
             return
-            yield b""  # noqa: unreachable, needed to make this an async generator
+            yield b""  # noqa: S1763
 
         gen = self.pool.stream_writing_cache(empty_gen(), tracker)
         chunks = [chunk async for chunk in gen]
