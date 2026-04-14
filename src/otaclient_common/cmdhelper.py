@@ -34,6 +34,83 @@ from otaclient_common.linux import subprocess_run_wrapper
 
 logger = logging.getLogger(__name__)
 
+MMCBLK_DEV_PREFIX = "mmcblk"
+NVMESSD_DEV_PREFIX = "nvme"
+SDX_DEV_PREFIX = "sd"
+
+
+def _read_sysfs_rotational(parent_devname: str) -> bool | None:
+    """Read the rotational attribute from sysfs for a block device.
+
+    Returns:
+        True if rotational (HDD), False if non-rotational (SSD),
+        None if the attribute cannot be read.
+    """
+    sysfs_path = Path(f"/sys/block/{parent_devname}/queue/rotational")
+    try:
+        return sysfs_path.read_text().strip() == "1"
+    except OSError:
+        logger.debug(f"failed to read sysfs rotational for {parent_devname}")
+        return None
+
+
+def detect_storage_device_type(rootfs_devpath: str) -> str:
+    """Detect the storage device type of the rootfs device.
+
+    Classification:
+        "L1" (NVMe SSD):  device name starts with "nvme".
+        "L2" (SATA SSD):  device name starts with "sd" and is non-rotational.
+        "L3" (eMMC/HDD):  device name starts with "mmcblk", or starts with "sd"
+                           and is rotational, or any unknown device type.
+
+    Args:
+        rootfs_devpath: the devpath of the rootfs partition device
+            (e.g., "/dev/nvme0n1p1", "/dev/sda1", "/dev/mmcblk0p1").
+
+    Returns:
+        A string ("L1", "L2", or "L3") indicating the performance tier.
+    """
+    try:
+        parent_devpath = get_parent_dev(rootfs_devpath, raise_exception=True)
+    except Exception:
+        logger.warning(
+            f"failed to get parent device for {rootfs_devpath}, "
+            f"assuming L3 (conservative)"
+        )
+        return "L3"
+
+    parent_devname = Path(parent_devpath).name
+
+    if parent_devname.startswith(NVMESSD_DEV_PREFIX):
+        logger.info(f"detected NVMe SSD: {parent_devpath}, classified as L1")
+        return "L1"
+
+    if parent_devname.startswith(MMCBLK_DEV_PREFIX):
+        logger.info(f"detected eMMC: {parent_devpath}, classified as L3")
+        return "L3"
+
+    if parent_devname.startswith(SDX_DEV_PREFIX):
+        rotational = _read_sysfs_rotational(parent_devname)
+        if rotational is None:
+            logger.warning(
+                f"cannot determine if {parent_devpath} is SSD or HDD, "
+                f"assuming L3 (conservative)"
+            )
+            return "L3"
+
+        if rotational is True:
+            logger.info(f"detected SATA HDD: {parent_devpath}, classified as L3")
+            return "L3"
+        logger.info(f"detected SATA SSD: {parent_devpath}, classified as L2")
+        return "L2"
+
+    logger.warning(
+        f"unknown device type: {parent_devpath} ({parent_devname}), "
+        f"assuming L3 (conservative)"
+    )
+    return "L3"
+
+
 # fmt: off
 PartitionToken = Literal[
     "UUID", "PARTUUID",
