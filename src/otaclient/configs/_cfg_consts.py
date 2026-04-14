@@ -15,10 +15,51 @@
 
 from __future__ import annotations
 
+import logging
+import os
+
 from otaclient_common import replace_root
 from otaclient_common._typing import StrEnum
 
 CANONICAL_ROOT = "/"
+
+logger = logging.getLogger(__name__)
+
+
+class StorageDeviceType(StrEnum):
+    """Classification of rootfs storage device performance tier.
+
+    L1: High-performance storage (NVMe SSD).
+    L2: Medium-performance storage (SATA SSD).
+    L3: Low-performance storage (eMMC, SATA HDD, or unknown).
+    """
+
+    L1 = "L1"
+    L2 = "L2"
+    L3 = "L3"
+
+    def map_device_rank_to_download_threads(self) -> int:
+        """Calculate download thread count based on this storage tier and CPU count.
+
+        Thread count ranges per storage tier (scaled by CPU count):
+            L1 (NVMe SSD):  24 - 32 threads
+            L2 (SATA SSD):  16 - 24 threads
+            L3 (eMMC/HDD):  12 - 16 threads
+        """
+        cpu_count = os.cpu_count() or 4
+
+        if self == StorageDeviceType.L1:
+            threads = min(32, max(24, cpu_count * 4))
+        elif self == StorageDeviceType.L2:
+            threads = min(24, max(16, cpu_count * 3))
+        else:  # L3
+            threads = min(16, max(12, cpu_count * 2))
+
+        logger.info(
+            f"download threads calculated: {threads} "
+            f"(device_type={self}, cpu_count={cpu_count})"
+        )
+        return threads
 
 
 class CreateStandbyMechanism(StrEnum):
