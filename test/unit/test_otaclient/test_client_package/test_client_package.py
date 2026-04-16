@@ -23,8 +23,8 @@ from typing import Optional
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from _otaclient_version import __version__
 
+from _otaclient_version import __version__
 from otaclient.client_package import (
     Manifest,
     OTAClientPackageDownloader,
@@ -369,14 +369,11 @@ class TestGetAvailablePackageMetadata:
     ):
         ota_client_package._manifest = Manifest(**manifest_data)
 
-        with (
-            patch("platform.machine", return_value=machine),
-            patch("platform.processor", return_value=arch),
-            patch.object(Path, "is_file", return_value=is_squashfs_exists),
-            patch(
-                "otaclient.client_package.shutil.which",
-                return_value="/fake/zstd" if is_zstd_supported else None,
-            ),
+        with patch("platform.machine", return_value=machine), patch(
+            "platform.processor", return_value=arch
+        ), patch.object(Path, "is_file", return_value=is_squashfs_exists), patch(
+            "otaclient.client_package.shutil.which",
+            return_value="/fake/zstd" if is_zstd_supported else None,
         ):
             package = ota_client_package._get_available_package_metadata()
             assert package.filename == expected_filename
@@ -387,11 +384,9 @@ class TestGetAvailablePackageMetadata:
     ):
         ota_client_package._manifest = Manifest(**DUMMY_MANIFEST_DICT)
 
-        with (
-            patch("platform.machine", return_value="riscv64"),
-            patch("platform.processor", return_value="riscv64"),
-            pytest.raises(ValueError, match="unsupported platform"),
-        ):
+        with patch("platform.machine", return_value="riscv64"), patch(
+            "platform.processor", return_value="riscv64"
+        ), pytest.raises(ValueError, match="unsupported platform"):
             ota_client_package._get_available_package_metadata()
 
     def test_raises_when_no_matching_package(
@@ -403,11 +398,9 @@ class TestGetAvailablePackageMetadata:
         )
         ota_client_package._manifest = Manifest(**manifest_dict)
 
-        with (
-            patch("platform.machine", return_value="x86_64"),
-            patch("platform.processor", return_value="x86_64"),
-            pytest.raises(ValueError, match="No suitable package found"),
-        ):
+        with patch("platform.machine", return_value="x86_64"), patch(
+            "platform.processor", return_value="x86_64"
+        ), pytest.raises(ValueError, match="No suitable package found"):
             ota_client_package._get_available_package_metadata()
 
 
@@ -503,20 +496,16 @@ class TestDownloadClientPackage:
     ):
         condition = threading.Condition()
 
-        with (
-            patch.object(
-                ota_client_package, "_prepare_manifest", return_value=iter([[]])
-            ) as mock_manifest,
-            patch.object(
-                ota_client_package,
-                "_prepare_client_package",
-                return_value=iter([[]]),
-            ) as mock_package,
-            patch.object(
-                ota_client_package,
-                "is_same_client_package_version",
-                return_value=is_same_version,
-            ),
+        with patch.object(
+            ota_client_package, "_prepare_manifest", return_value=iter([[]])
+        ) as mock_manifest, patch.object(
+            ota_client_package,
+            "_prepare_client_package",
+            return_value=iter([[]]),
+        ) as mock_package, patch.object(
+            ota_client_package,
+            "is_same_client_package_version",
+            return_value=is_same_version,
         ):
             download_info = list(ota_client_package.download_client_package(condition))
 
