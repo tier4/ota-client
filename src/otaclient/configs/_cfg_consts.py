@@ -56,11 +56,6 @@ class StorageDeviceType(StrEnum):
             threads = min(24, max(16, cpu_count_factor))
         else:  # L3
             threads = min(16, max(10, cpu_count_factor))
-
-        logger.info(
-            f"download threads calculated: {threads} "
-            f"(device_type={self}, cpu_count={cpu_count})"
-        )
         return threads
 
 
