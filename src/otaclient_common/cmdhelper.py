@@ -49,8 +49,8 @@ def _read_sysfs_rotational(parent_devname: str) -> bool | None:
     sysfs_path = Path(f"/sys/block/{parent_devname}/queue/rotational")
     try:
         return sysfs_path.read_text().strip() == "1"
-    except OSError:
-        logger.debug(f"failed to read sysfs rotational for {parent_devname}")
+    except Exception as e:
+        logger.warning(f"failed to read sysfs rotational for {parent_devname}: {e!r}")
         return None
 
 
@@ -71,7 +71,7 @@ def detect_storage_device_type(rootfs_devpath: str) -> str:
         A string ("L1", "L2", or "L3") indicating the performance tier.
     """
     try:
-        parent_devpath = get_parent_dev(rootfs_devpath, raise_exception=True)
+        parent_devpath = get_parent_dev(rootfs_devpath, raise_exception=True).strip()
     except Exception:
         logger.warning(
             f"failed to get parent device for {rootfs_devpath}, "
