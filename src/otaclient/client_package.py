@@ -131,6 +131,15 @@ class OTAClientPackageDownloader:
         _package_filename = _available_package_metadata.filename
         _package_file = str(self._package_install_dir / _package_filename)
         _downloaded_package_path = self._download_dir / _package_filename
+
+        # ------ step 3: parse checksum for hash verification ------ #
+        _checksum = _available_package_metadata.checksum
+        _digest_alg, _, _digest = _checksum.partition(":")
+        if not _digest_alg or not _digest:
+            raise ValueError(
+                f"invalid checksum format: {_checksum!r}, expected '<algorithm>:<hex_digest>'"
+            )
+
         with condition:
             yield [
                 DownloadInfo(
@@ -138,6 +147,9 @@ class OTAClientPackageDownloader:
                         self._rootfs_url, _package_file.lstrip("/")
                     ),
                     dst=_downloaded_package_path,
+                    original_size=_available_package_metadata.size,
+                    digest_alg=_digest_alg,
+                    digest=_digest,
                 )
             ]
             condition.wait()  # wait for download finished
