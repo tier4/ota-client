@@ -43,7 +43,7 @@ class StorageDeviceType(StrEnum):
     L2 = "L2"
     L3 = "L3"
 
-    def map_device_rank_to_download_threads(self, cpu_count: int) -> int:
+    def map_to_download_threads(self, cpu_count: int) -> int:
         """Calculate download thread count based on this storage tier and CPU count."""
         # use the same way ThreadPoolExecutor determines the default workers num
         cpu_count_factor = (cpu_count or 4) + 4

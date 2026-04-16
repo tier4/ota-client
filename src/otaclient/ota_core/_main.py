@@ -18,6 +18,7 @@ from __future__ import annotations
 import atexit
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
 import signal
 import threading
@@ -174,14 +175,27 @@ class OTAClient:
             return
         self._metrics.bootloader_type = self.boot_controller.bootloader_type
 
-        # Dynamically determine how much download threads we need based on the rootfs dev type.
-        _storage_rank = StorageDeviceType(
-            detect_storage_device_type(self.boot_controller.get_standby_slot_dev())
-        )
-        self._download_threads = _storage_rank.map_device_rank_to_download_threads()
-        logger.info(
-            f"dynamically configure the download threads to {self._download_threads}(storage rank: {_storage_rank})"
-        )
+        cpu_count = os.cpu_count() or 4
+        try:
+            # Dynamically determine how much download threads we need based on the rootfs dev type.
+            _storage_rank = StorageDeviceType(
+                detect_storage_device_type(self.boot_controller.get_standby_slot_dev())
+            )
+            self._download_threads = _storage_rank.map_to_download_threads(cpu_count)
+            logger.info(
+                f"dynamically configure the download threads to {self._download_threads}(storage rank: {_storage_rank})"
+            )
+        except Exception as e:
+            logger.exception(
+                f"failed on dynamically determine the download_threads setting: {e!r}"
+            )
+
+            self._download_threads = StorageDeviceType.L3.map_to_download_threads(
+                cpu_count
+            )
+            logger.warning(
+                f"assume L3 rank, set download_threads to {self._download_threads}"
+            )
 
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()

@@ -123,16 +123,12 @@ class TestStorageDeviceTypeMapDownloadThreads:
     )
     def test_thread_calculation(
         self,
-        mocker: MockerFixture,
         device_type: StorageDeviceType,
         cpu_count: int,
         expected: int,
     ):
-        mocker.patch("os.cpu_count", return_value=cpu_count)
-        assert device_type.map_device_rank_to_download_threads() == expected
+        assert device_type.map_to_download_threads(cpu_count) == expected
 
-    def test_cpu_count_none_defaults_to_4(self, mocker: MockerFixture):
-        mocker.patch("os.cpu_count", return_value=None)
-        # cpu_count defaults to 4, factor = 4 + 4 = 8
-        # L3: min(16, max(10, 8)) = 10
-        assert StorageDeviceType.L3.map_device_rank_to_download_threads() == 10
+    def test_cpu_count_zero_defaults_to_4(self):
+        """When cpu_count is 0 (falsy), it defaults to 4, so factor = 8."""
+        assert StorageDeviceType.L3.map_to_download_threads(0) == 10
