@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from otaclient_common import replace_root
 from otaclient_common._typing import StrEnum
@@ -44,19 +43,15 @@ class StorageDeviceType(StrEnum):
     L2 = "L2"
     L3 = "L3"
 
-    def map_device_rank_to_download_threads(self) -> int:
+    def map_device_rank_to_download_threads(self, cpu_count: int) -> int:
         """Calculate download thread count based on this storage tier and CPU count."""
         # use the same way ThreadPoolExecutor determines the default workers num
-        cpu_count = os.cpu_count()
         cpu_count_factor = (cpu_count or 4) + 4
-
         if self == StorageDeviceType.L1:
-            threads = min(32, max(24, cpu_count_factor))
-        elif self == StorageDeviceType.L2:
-            threads = min(24, max(16, cpu_count_factor))
-        else:  # L3
-            threads = min(16, max(10, cpu_count_factor))
-        return threads
+            return min(32, max(24, cpu_count_factor))
+        if self == StorageDeviceType.L2:
+            return min(24, max(16, cpu_count_factor))
+        return min(16, max(10, cpu_count_factor))
 
 
 class CreateStandbyMechanism(StrEnum):
