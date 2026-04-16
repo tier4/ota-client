@@ -20,9 +20,26 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient.configs._cfg_consts import StorageDeviceType
-from otaclient_common.cmdhelper import detect_storage_device_type
+from otaclient_common.cmdhelper import (
+    _read_sysfs_rotational,
+    detect_storage_device_type,
+)
 
 _CMDHELPER = "otaclient_common.cmdhelper"
+
+
+class TestReadSysfsRotational:
+    def test_rotational_returns_true_for_hdd(self, mocker: MockerFixture):
+        mocker.patch("pathlib.Path.read_text", return_value="1\n")
+        assert _read_sysfs_rotational("sda") is True
+
+    def test_non_rotational_returns_false_for_ssd(self, mocker: MockerFixture):
+        mocker.patch("pathlib.Path.read_text", return_value="0\n")
+        assert _read_sysfs_rotational("sda") is False
+
+    def test_oserror_returns_none(self, mocker: MockerFixture):
+        mocker.patch("pathlib.Path.read_text", side_effect=OSError("No such file"))
+        assert _read_sysfs_rotational("sda") is None
 
 
 class TestDetectStorageDeviceType:
@@ -80,18 +97,28 @@ class TestDetectStorageDeviceType:
 
 
 class TestStorageDeviceTypeMapDownloadThreads:
+    """Test thread count calculation: factor = (cpu_count or 4) + 4.
+
+    L1: min(32, max(24, factor)) → range [24, 32]
+    L2: min(24, max(16, factor)) → range [16, 24]
+    L3: min(16, max(10, factor)) → range [10, 16]
+    """
+
     @pytest.mark.parametrize(
         "device_type, cpu_count, expected",
         [
-            pytest.param(StorageDeviceType.L1, 8, 32, id="L1_8cpu"),
+            # L1: range [24, 32]
             pytest.param(StorageDeviceType.L1, 4, 24, id="L1_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L1, 16, 32, id="L1_16cpu_clamped_max"),
-            pytest.param(StorageDeviceType.L2, 8, 24, id="L2_8cpu"),
+            pytest.param(StorageDeviceType.L1, 24, 28, id="L1_24cpu_mid_range"),
+            pytest.param(StorageDeviceType.L1, 32, 32, id="L1_32cpu_clamped_max"),
+            # L2: range [16, 24]
             pytest.param(StorageDeviceType.L2, 4, 16, id="L2_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L2, 16, 24, id="L2_16cpu_clamped_max"),
-            pytest.param(StorageDeviceType.L3, 8, 12, id="L3_8cpu_clamped_max"),
-            pytest.param(StorageDeviceType.L3, 4, 8, id="L3_4cpu"),
-            pytest.param(StorageDeviceType.L3, 16, 12, id="L3_16cpu_clamped_max"),
+            pytest.param(StorageDeviceType.L2, 16, 20, id="L2_16cpu_mid_range"),
+            pytest.param(StorageDeviceType.L2, 24, 24, id="L2_24cpu_clamped_max"),
+            # L3: range [10, 16]
+            pytest.param(StorageDeviceType.L3, 4, 10, id="L3_4cpu_clamped_min"),
+            pytest.param(StorageDeviceType.L3, 8, 12, id="L3_8cpu_mid_range"),
+            pytest.param(StorageDeviceType.L3, 16, 16, id="L3_16cpu_clamped_max"),
         ],
     )
     def test_thread_calculation(
@@ -106,5 +133,6 @@ class TestStorageDeviceTypeMapDownloadThreads:
 
     def test_cpu_count_none_defaults_to_4(self, mocker: MockerFixture):
         mocker.patch("os.cpu_count", return_value=None)
-        # cpu_count defaults to 4, L3: min(12, max(8, 4*2)) = 8
-        assert StorageDeviceType.L3.map_device_rank_to_download_threads() == 8
+        # cpu_count defaults to 4, factor = 4 + 4 = 8
+        # L3: min(16, max(10, 8)) = 10
+        assert StorageDeviceType.L3.map_device_rank_to_download_threads() == 10
