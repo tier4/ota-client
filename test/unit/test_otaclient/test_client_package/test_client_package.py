@@ -518,9 +518,7 @@ class TestDownloadClientPackage:
                 return_value=is_same_version,
             ),
         ):
-            download_info = list(
-                ota_client_package.download_client_package(condition)
-            )
+            download_info = list(ota_client_package.download_client_package(condition))
 
             assert len(download_info) == expected_yields
             mock_manifest.assert_called_once()
