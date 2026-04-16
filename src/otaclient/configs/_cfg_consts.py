@@ -34,9 +34,9 @@ class StorageDeviceType(StrEnum):
 
     Thread count ranges per storage tier (scaled by CPU count):
 
-    - L1 (NVMe SSD):  24 - 32 threads
-    - L2 (SATA SSD):  16 - 24 threads
-    - L3 (eMMC/HDD):  10 - 16 threads
+    - L1 (NVMe SSD):  16 - 24 threads
+    - L2 (SATA SSD):  10 - 20 threads
+    - L3 (eMMC/HDD):  8 - 12 threads
     """
 
     L1 = "L1"
@@ -48,10 +48,10 @@ class StorageDeviceType(StrEnum):
         # use the same way ThreadPoolExecutor determines the default workers num
         cpu_count_factor = (cpu_count or 4) + 4
         if self == StorageDeviceType.L1:
-            return min(32, max(24, cpu_count_factor))
-        if self == StorageDeviceType.L2:
             return min(24, max(16, cpu_count_factor))
-        return min(16, max(10, cpu_count_factor))
+        if self == StorageDeviceType.L2:
+            return min(20, max(10, cpu_count_factor))
+        return min(12, max(8, cpu_count_factor))
 
 
 class CreateStandbyMechanism(StrEnum):

@@ -99,26 +99,26 @@ class TestDetectStorageDeviceType:
 class TestStorageDeviceTypeMapDownloadThreads:
     """Test thread count calculation: factor = (cpu_count or 4) + 4.
 
-    L1: min(32, max(24, factor)) → range [24, 32]
-    L2: min(24, max(16, factor)) → range [16, 24]
-    L3: min(16, max(10, factor)) → range [10, 16]
+    L1: min(24, max(16, factor)) → range [16, 24]
+    L2: min(20, max(10, factor)) → range [10, 20]
+    L3: min(12, max(8, factor)) → range [8, 12]
     """
 
     @pytest.mark.parametrize(
         "device_type, cpu_count, expected",
         [
-            # L1: range [24, 32]
-            pytest.param(StorageDeviceType.L1, 4, 24, id="L1_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L1, 24, 28, id="L1_24cpu_mid_range"),
-            pytest.param(StorageDeviceType.L1, 32, 32, id="L1_32cpu_clamped_max"),
-            # L2: range [16, 24]
-            pytest.param(StorageDeviceType.L2, 4, 16, id="L2_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L2, 16, 20, id="L2_16cpu_mid_range"),
-            pytest.param(StorageDeviceType.L2, 24, 24, id="L2_24cpu_clamped_max"),
-            # L3: range [10, 16]
-            pytest.param(StorageDeviceType.L3, 4, 10, id="L3_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L3, 8, 12, id="L3_8cpu_mid_range"),
-            pytest.param(StorageDeviceType.L3, 16, 16, id="L3_16cpu_clamped_max"),
+            # L1: range [16, 24]
+            pytest.param(StorageDeviceType.L1, 4, 16, id="L1_4cpu_clamped_min"),
+            pytest.param(StorageDeviceType.L1, 16, 20, id="L1_16cpu_mid_range"),
+            pytest.param(StorageDeviceType.L1, 24, 24, id="L1_24cpu_clamped_max"),
+            # L2: range [10, 20]
+            pytest.param(StorageDeviceType.L2, 4, 10, id="L2_4cpu_clamped_min"),
+            pytest.param(StorageDeviceType.L2, 12, 16, id="L2_12cpu_mid_range"),
+            pytest.param(StorageDeviceType.L2, 24, 20, id="L2_24cpu_clamped_max"),
+            # L3: range [8, 12]
+            pytest.param(StorageDeviceType.L3, 2, 8, id="L3_2cpu_clamped_min"),
+            pytest.param(StorageDeviceType.L3, 6, 10, id="L3_6cpu_mid_range"),
+            pytest.param(StorageDeviceType.L3, 16, 12, id="L3_16cpu_clamped_max"),
         ],
     )
     def test_thread_calculation(
@@ -131,4 +131,4 @@ class TestStorageDeviceTypeMapDownloadThreads:
 
     def test_cpu_count_zero_defaults_to_4(self):
         """When cpu_count is 0 (falsy), it defaults to 4, so factor = 8."""
-        assert StorageDeviceType.L3.map_to_download_threads(0) == 10
+        assert StorageDeviceType.L3.map_to_download_threads(0) == 8
