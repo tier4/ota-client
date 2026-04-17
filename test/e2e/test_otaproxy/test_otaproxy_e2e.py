@@ -165,10 +165,14 @@ class TestOTAProxyChain:
                 _assert_download_ok(result, f"cold [{condition}] sub#{i}")
 
             # --- Phase 2: Warm cache ---
-            # Under below_soft all caches are preserved, so use a dummy
-            # upstream to prove data is served entirely from cache.
-            # Under other conditions some entries may be evicted by cache
-            # rotation, so fall back to the real upstream.
+            # Under below_soft, all blobs fetched in phase 1 are expected to
+            # remain persisted in cache, so use a dummy upstream to prove the
+            # warm run is served entirely from cache.
+            # Under above-soft-limit conditions, otaproxy may still tee the
+            # response to the client but skip persistence; above the hard
+            # limit, it may proxy directly without caching. Use the real
+            # upstream in those cases because a full warm-cache hit is not
+            # guaranteed by the current space-management strategy.
             if condition == SPACE_CONDITION_BELOW_SOFT:
                 logger.info(
                     f"Full cached downloading with dummy upstream under {condition} ..."
