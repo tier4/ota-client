@@ -115,8 +115,9 @@ class TestOTAProxyChain:
     ):
         """Downloads through a two-hop proxy chain populate caches at each layer.
 
-        Parametrized over disk space conditions to exercise cache rotation
-        and cache disabling under pressure.
+        Parametrized over disk space conditions to verify threshold-based
+        behavior: persist below the soft limit, skip persistence above the
+        soft limit, and proxy directly above the hard limit.
         """
         # Create separate cache directories for each proxy.
         gateway_cache_dir = tmp_path / "gateway-cache"
