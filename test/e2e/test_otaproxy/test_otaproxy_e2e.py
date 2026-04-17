@@ -11,21 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""End-to-end tests for OTA proxy.
+"""End-to-end tests for OTA proxy with multi-layer proxy chain.
 
-Test paths covered:
-    1. No cache   - otaproxy relays data without caching.
-    2. Cold cache - otaproxy downloads from upstream and populates cache.
-    3. Warm cache - otaproxy serves from local cache (no upstream hit).
+Test topology::
 
-Each cached test path is parametrized over disk space conditions
-(below_soft_limit, below_hard_limit, exceed_hard_limit) to exercise
-LRU cache rotation and cache disabling.
+    image_server <-- gateway_proxy <-- sub_proxy_0 <-- client_0
+                                   <-- sub_proxy_1 <-- client_1
+                                   <-- sub_proxy_2 <-- client_2
 
-otaproxy runs **in-process** (managed by async fixtures).
+The gateway proxy faces the image server directly (no upper proxy).
+Each sub proxy uses the gateway as its upper proxy.
+Each download client routes through its own sub proxy.
+
+otaproxy instances run **in-process** (managed by async context managers).
 The download client runs as a **standalone subprocess** that downloads
 all blobs through the proxy and validates SHA256 integrity.
-Multiple concurrent clients (3) hit the proxy simultaneously.
 """
 
 from __future__ import annotations
@@ -33,22 +33,32 @@ from __future__ import annotations
 import asyncio
 import gc
 import logging
-import sqlite3
 import time
+from contextlib import AsyncExitStack
 from pathlib import Path
 
-from ota_proxy.config import config as ota_proxy_cfg
+import pytest
+from pytest_mock import MockerFixture
 
 from ._download_client import DownloadResult
 from .conftest import (
     CONCURRENT_START_DELAY,
+    SPACE_CONDITION_BELOW_HARD,
     SPACE_CONDITION_BELOW_SOFT,
+    SPACE_CONDITION_EXCEED_HARD,
     RunDownloadClient,
+    check_cache_db,
+    launch_otaproxy_no_cache,
+    launch_otaproxy_with_cache,
 )
 
 logger = logging.getLogger(__name__)
 
-CONCURRENT_CLIENTS = 3
+# Ports for the multi-layer proxy chain test.
+GATEWAY_PORT = 18090
+SUB_PROXY_PORTS = [18091, 18092, 18093]
+SUB_PROXY_COUNT = len(SUB_PROXY_PORTS)
+DUMMY_OTA_IMAGE_SERVER = "http://127.0.0.1:65500"
 
 
 def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
@@ -66,121 +76,231 @@ def _assert_download_ok(result: DownloadResult, label: str = "") -> None:
         logger.info(
             f"downloader run has failures but handled: {result['recorded_failed']}"
         )
-    logger.info("%s%d/%d blobs OK", prefix, result["ok"], result["total"])
+    logger.info(f"{prefix}{result['ok']}/{result['total']} blobs OK")
 
 
-async def _run_concurrent_clients(
-    run_download_client: RunDownloadClient,
-    proxy_url: str,
-    ota_image_server: str,
-    n: int = CONCURRENT_CLIENTS,
-) -> list[DownloadResult]:
-    """Launch n download clients that all start downloading at the same moment.
+class TestOTAProxyChain:
+    """Test multi-layer otaproxy chain.
 
-    Each subprocess is spawned immediately but waits until a shared future
-    unix timestamp before issuing any HTTP requests.
+    Topology::
+
+        image_server <-- gateway_proxy <-- sub_proxy_0 <-- client_0
+                                       <-- sub_proxy_1 <-- client_1
+                                       <-- sub_proxy_2 <-- client_2
+
+    The gateway proxy faces the image server directly (no upper proxy).
+    Each sub proxy uses the gateway as its upper proxy.
+    Each download client routes through its own sub proxy.
+
+    Validates that downloads succeed through a two-hop proxy chain
+    and that caching works correctly at every layer.
     """
-    start_at = time.time() + CONCURRENT_START_DELAY
-    tasks = [
-        run_download_client(proxy_url, ota_image_server, start_at=start_at)
-        for _ in range(n)
-    ]
-    return await asyncio.gather(*tasks)
 
-
-def _check_cache_db(
-    cache_dir: Path, min_entries: int, resources_digests: set[str]
-) -> None:
-    """Verify the cache sqlite db has entries with valid metadata."""
-    db_path = cache_dir / "cache_db"
-    assert db_path.is_file(), f"Cache db not found at {db_path}"
-
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute(f"SELECT * FROM {ota_proxy_cfg.TABLE_NAME}")
-        rows = cur.fetchall()
-
-    assert len(rows) >= min_entries, (
-        f"Expected at least {min_entries} cache db entries, got {len(rows)}"
+    @pytest.mark.parametrize(
+        "condition",
+        [
+            SPACE_CONDITION_BELOW_SOFT,
+            SPACE_CONDITION_BELOW_HARD,
+            SPACE_CONDITION_EXCEED_HARD,
+        ],
     )
-
-    now = time.time()
-    for row in rows:
-        _file_sha256 = row["file_sha256"]
-        assert _file_sha256 in resources_digests, f"Resource {_file_sha256=} not found!"
-        assert row["cache_size"] >= 0, f"Invalid cache_size in row: {dict(row)}"
-        assert 0 < row["last_access"] <= now, f"Invalid last_access in row: {dict(row)}"
-
-    logger.info("Cache db: %d entries, all valid", len(rows))
-
-
-class TestOTAProxyNoCache:
-    """Test otaproxy in relay-only mode (no caching)."""
-
-    async def test_download_all_blobs_no_cache(
+    async def test_proxy_chain_cold_and_warm_cache(
         self,
-        otaproxy_no_cache: str,
-        ota_image_server: str,
-        run_download_client: RunDownloadClient,
-    ):
-        """All blobs should be downloadable and intact through the proxy."""
-        results = await _run_concurrent_clients(
-            run_download_client, otaproxy_no_cache, ota_image_server
-        )
-        for i, result in enumerate(results):
-            _assert_download_ok(result, f"no-cache client#{i}")
-
-
-class TestOTAProxyWithCache:
-    """Test otaproxy cache enabled path.
-
-    Parametrized over space conditions via the ``otaproxy`` fixture.
-    After a cold cache run, a second download should be served from
-    cache (under normal pressure) or still succeed via upstream fallback.
-    """
-
-    async def test_warm_cache_serves_from_cache(
-        self,
-        otaproxy: tuple[str, Path, str],
+        condition: str,
+        tmp_path: Path,
+        mocker: MockerFixture,
         ota_image_blobs: dict[str, str],
         ota_image_server: str,
         run_download_client: RunDownloadClient,
     ):
-        """Second download run should succeed regardless of space condition."""
-        proxy_url, cache_dir, condition = otaproxy
+        """Downloads through a two-hop proxy chain populate caches at each layer.
 
-        # First pass: populate cache (cold) with concurrent clients.
-        results_cold = await _run_concurrent_clients(
-            run_download_client, proxy_url, ota_image_server
-        )
-        for i, result in enumerate(results_cold):
-            _assert_download_ok(result, f"cold cache pass [{condition}] client#{i}")
+        Parametrized over disk space conditions to verify threshold-based
+        behavior: persist below the soft limit, skip persistence above the
+        soft limit, and proxy directly above the hard limit.
+        """
+        # Create separate cache directories for each proxy.
+        gateway_cache_dir = tmp_path / "gateway-cache"
+        gateway_cache_dir.mkdir()
+        sub_cache_dirs = []
+        for i in range(SUB_PROXY_COUNT):
+            d = tmp_path / f"sub-cache-{i}"
+            d.mkdir()
+            sub_cache_dirs.append(d)
 
-        # Second pass: served from warm cache (or upstream fallback).
-        # If the condition is BELOW_SOFT, which all caches will be preserved, test full cached downloading
-        # without involving the OTA image server.
+        async with AsyncExitStack() as stack:
+            # Layer 1: Gateway proxy (faces image server directly).
+            gateway_url, _, _ = await stack.enter_async_context(
+                launch_otaproxy_with_cache(
+                    gateway_cache_dir,
+                    mocker,
+                    condition,
+                    port=GATEWAY_PORT,
+                )
+            )
+
+            # Layer 2: Sub proxies (each uses gateway as upper proxy).
+            sub_urls = []
+            for i, port in enumerate(SUB_PROXY_PORTS):
+                sub_url, _, _ = await stack.enter_async_context(
+                    launch_otaproxy_with_cache(
+                        sub_cache_dirs[i],
+                        mocker,
+                        condition,
+                        port=port,
+                        upper_proxy=gateway_url,
+                    )
+                )
+                sub_urls.append(sub_url)
+
+            # --- Phase 1: Cold cache ---
+            # Each client downloads all blobs through its own sub proxy.
+            start_at = time.time() + CONCURRENT_START_DELAY
+            cold_tasks = [
+                run_download_client(sub_url, ota_image_server, start_at=start_at)
+                for sub_url in sub_urls
+            ]
+            results_cold = await asyncio.gather(*cold_tasks)
+            for i, result in enumerate(results_cold):
+                _assert_download_ok(result, f"cold [{condition}] sub#{i}")
+
+            # --- Phase 2: Warm cache ---
+            # Under below_soft, all blobs fetched in phase 1 are expected to
+            # remain persisted in cache, so use a dummy upstream to prove the
+            # warm run is served entirely from cache.
+            # Under above-soft-limit conditions, otaproxy may still tee the
+            # response to the client but skip persistence; above the hard
+            # limit, it may proxy directly without caching. Use the real
+            # upstream in those cases because a full warm-cache hit is not
+            # guaranteed by the current space-management strategy.
+            if condition == SPACE_CONDITION_BELOW_SOFT:
+                logger.info(
+                    f"Full cached downloading with dummy upstream under {condition} ..."
+                )
+                warm_upstream = DUMMY_OTA_IMAGE_SERVER
+            else:
+                warm_upstream = ota_image_server
+
+            start_at = time.time() + CONCURRENT_START_DELAY
+            warm_tasks = [
+                run_download_client(sub_url, warm_upstream, start_at=start_at)
+                for sub_url in sub_urls
+            ]
+            results_warm = await asyncio.gather(*warm_tasks)
+            for i, result in enumerate(results_warm):
+                _assert_download_ok(result, f"warm [{condition}] sub#{i}")
+
+        # Under below_soft, all cache DBs should have every entry.
         if condition == SPACE_CONDITION_BELOW_SOFT:
-            logger.info(
-                "Full cached downloading with dummy OTA image server under below_soft condition ..."
+            _unique_digests = set(ota_image_blobs.values())
+            check_cache_db(
+                gateway_cache_dir,
+                min_entries=len(_unique_digests),
+                resources_digests=_unique_digests,
             )
-            results_warm = await _run_concurrent_clients(
-                run_download_client, proxy_url, "http://127.0.0.1:65500"
-            )
-            # After warm pass, db should still have valid entries.
-            _check_cache_db(
-                cache_dir,
-                min_entries=len(ota_image_blobs),
-                resources_digests=set(ota_image_blobs.values()),
-            )
-        else:
-            results_warm = await _run_concurrent_clients(
-                run_download_client, proxy_url, ota_image_server
+            for sub_cache_dir in sub_cache_dirs:
+                check_cache_db(
+                    sub_cache_dir,
+                    min_entries=len(_unique_digests),
+                    resources_digests=_unique_digests,
+                )
+
+        # Verify no temp files left in any cache directory.
+        gc.collect()
+        for d in [gateway_cache_dir, *sub_cache_dirs]:
+            tmp_files = list(d.glob("tmp*"))
+            assert not tmp_files, f"[{condition}] Temp files left in {d}: {tmp_files}"
+
+    async def test_proxy_chain_no_cache(
+        self,
+        ota_image_server: str,
+        run_download_client: RunDownloadClient,
+    ):
+        """All blobs should be downloadable through a relay-only proxy chain."""
+        async with AsyncExitStack() as stack:
+            # Layer 1: Gateway proxy (no cache, faces image server directly).
+            gateway_url = await stack.enter_async_context(
+                launch_otaproxy_no_cache(port=GATEWAY_PORT)
             )
 
-        for i, result in enumerate(results_warm):
-            _assert_download_ok(result, f"warm cache pass [{condition}] client#{i}")
+            # Layer 2: Sub proxies (no cache, each uses gateway as upper proxy).
+            sub_urls = []
+            for port in SUB_PROXY_PORTS:
+                sub_url = await stack.enter_async_context(
+                    launch_otaproxy_no_cache(port=port, upper_proxy=gateway_url)
+                )
+                sub_urls.append(sub_url)
 
-        # CacheTracker uses weakref.finalize to clean up tmp files.
+            # Each client downloads all blobs through its own sub proxy.
+            start_at = time.time() + CONCURRENT_START_DELAY
+            tasks = [
+                run_download_client(sub_url, ota_image_server, start_at=start_at)
+                for sub_url in sub_urls
+            ]
+            results = await asyncio.gather(*tasks)
+            for i, result in enumerate(results):
+                _assert_download_ok(result, f"no-cache chain sub#{i}")
+
+
+class TestOTAProxyPreloadDB:
+    """Test otaproxy DB pre-load on restart.
+
+    Validates that after a cold cache run with space always below soft limit,
+    restarting otaproxy (init_cache=False) correctly pre-loads the DB
+    and serves all blobs from warm cache without hitting upstream.
+    """
+
+    async def test_warm_cache_after_restart(
+        self,
+        tmp_path: Path,
+        mocker: MockerFixture,
+        ota_image_blobs: dict[str, str],
+        ota_image_server: str,
+        run_download_client: RunDownloadClient,
+    ):
+        """After cold cache, restart otaproxy and verify warm cache via DB pre-load."""
+        condition = SPACE_CONDITION_BELOW_SOFT
+        cache_dir = tmp_path / "ota-cache"
+        cache_dir.mkdir()
+
+        # --- Phase 1: Cold cache (fresh DB) ---
+        async with launch_otaproxy_with_cache(
+            cache_dir, mocker, condition, init_cache=True
+        ) as (proxy_url, _, _):
+            start_at = time.time() + CONCURRENT_START_DELAY
+            tasks = [
+                run_download_client(proxy_url, ota_image_server, start_at=start_at)
+                for _ in range(SUB_PROXY_COUNT)
+            ]
+            results_cold = await asyncio.gather(*tasks)
+            for i, result in enumerate(results_cold):
+                _assert_download_ok(result, f"cold cache pass client#{i}")
+
+        # DB should contain all entries after below_soft cold cache.
+        _unique_digests = set(ota_image_blobs.values())
+        check_cache_db(
+            cache_dir,
+            min_entries=len(_unique_digests),
+            resources_digests=_unique_digests,
+        )
+
+        # --- Phase 2: Restart with DB pre-load ---
+        async with launch_otaproxy_with_cache(
+            cache_dir, mocker, condition, init_cache=False
+        ) as (proxy_url, _, _):
+            # Warm cache with dummy upstream: all blobs must be served from cache.
+            logger.info("Testing warm cache after restart with dummy upstream ...")
+            start_at = time.time() + CONCURRENT_START_DELAY
+            tasks = [
+                run_download_client(
+                    proxy_url, DUMMY_OTA_IMAGE_SERVER, start_at=start_at
+                )
+                for _ in range(SUB_PROXY_COUNT)
+            ]
+            results_warm = await asyncio.gather(*tasks)
+            for i, result in enumerate(results_warm):
+                _assert_download_ok(result, f"warm cache after restart client#{i}")
+
         gc.collect()
         tmp_files = list(cache_dir.glob("tmp*"))
-        assert not tmp_files, f"[{condition}] Temp files left in cache dir: {tmp_files}"
+        assert not tmp_files, f"Temp files left in cache dir: {tmp_files}"
