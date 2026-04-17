@@ -20,6 +20,7 @@ import os
 import os.path as os_path
 import shutil
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -398,6 +399,10 @@ class OTACache:
             # fallback to use URL based hash, and clear compression_alg for such case
             cache_identifier = url_based_hash(raw_url)
 
+        # This will make the cache look up over the cache index faster as
+        #   the keys in the cache index are interned.
+        cache_identifier = sys.intern(cache_identifier)
+
         index_entry = self._cache_index.lookup_entry(cache_identifier)
         if not index_entry:
             return
@@ -521,6 +526,8 @@ class OTACache:
             # fallback to use URL based hash, and clear compression_alg for such case
             cache_identifier = url_based_hash(raw_url)
             compression_alg = None
+
+        cache_identifier = sys.intern(cache_identifier)
 
         # Get a tracker: we are the subscriber
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
