@@ -132,7 +132,14 @@ class CacheDBWriter:
     def _flush_to_db(
         self, write_batch: list[CacheMeta], delete_batch: list[str]
     ) -> None:
-        """Flush pending operations. Deletes are applied before writes."""
+        """Flush pending operations. Deletes are applied after writes.
+
+        NOTE that we intentionally ignore the order of each single deletion and insertion,
+            but simply batch them, and always apply deletions batch after writes.
+
+            This is fine as sqlite3 DB is just for persisting cache metadata for next otaproxy restarts,
+            it doesn't affect the current otaproxy session.
+        """
         if write_batch:
             # Fill bucket_idx for backward compat with older otaproxy LRU
             for entry in write_batch:
