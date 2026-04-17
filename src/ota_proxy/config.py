@@ -13,12 +13,7 @@
 # limitations under the License.
 
 
-import contextlib
 import os
-import sqlite3
-from functools import cached_property
-
-from simple_sqlite3_orm import utils
 
 
 class Config:
@@ -43,14 +38,20 @@ class Config:
     MAX_PENDING_READ = 512
 
     # ------ storage quota ------ #
-    DISK_USE_LIMIT_SOFT_P = 70  # in p%
+    DISK_USE_LIMIT_SOFT_P = 75  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%
     DISK_USE_PULL_INTERVAL = 2  # in seconds
 
     # ------ metrics config ------ #
     METRICS_UPDATE_INTERVAL = 5  # in seconds
 
-    # ------ LRU cache config ------ #
+    # ------ cache index config ------ #
+    # upper bound on in-memory index size, will take around ~120MB memory at max
+    MAX_INDEX_ENTRIES = 600_000
+    DB_FLUSH_BATCH_SIZE = 128  # flush when batch reaches this many entries
+    DB_WRITER_LOOP_INTERVAL = 1  # seconds to sleep per writer loop iteration
+
+    # ------ LRU size bucket (backward compatibility) ------ #
     # value is the largest numbers of files that
     # might need to be deleted for the bucket to hold a new entry
     # if we have to reserve space for this file.
@@ -72,9 +73,6 @@ class Config:
 
     # ------ db config ------ #
     DB_FILE = f"{BASE_DIR}/cache_db"
-    # serializing the access
-    READ_DB_THREADS = WRITE_DB_THREAD = 1
-    DB_THREAD_WAIT_TIMEOUT = 30  # seconds
 
     # ota-cache table
     # NOTE: use table name to keep track of table scheme version
@@ -99,23 +97,4 @@ class Config:
     MAX_CONCURRENT_REQUESTS = 1024
 
 
-class _Sqlite3FeatureFlags:
-    # RETURNING statement is available only after sqlite3 v3.35.0
-    RETURNING_AVAILABLE = sqlite3.sqlite_version_info >= (3, 35, 0)
-    STRICT_AVAILABLE = sqlite3.sqlite_version_info >= (3, 37, 0)
-
-    @cached_property
-    def SQLITE_ENABLE_UPDATE_DELETE_LIMIT(self) -> bool:
-        try:
-            with contextlib.closing(sqlite3.connect(":memory:")) as conn:
-                return bool(
-                    utils.check_pragma_compile_time_options(
-                        conn, "SQLITE_ENABLE_UPDATE_DELETE_LIMIT"
-                    )
-                )
-        except Exception:
-            return False
-
-
-sqlite3_feature_flags = _Sqlite3FeatureFlags()
 config = Config()

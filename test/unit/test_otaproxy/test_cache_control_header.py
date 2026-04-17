@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -23,8 +24,18 @@ from ota_proxy import OTAFileCacheControl
 @pytest.mark.parametrize(
     "raw_str, expected",
     (
+        # empty input returns default
+        ("", OTAFileCacheControl()),
         ("no_cache", OTAFileCacheControl(no_cache=True)),
         ("retry_caching", OTAFileCacheControl(retry_caching=True)),
+        # key-value only (no bool directives)
+        (
+            "file_sha256=sha256value,file_compression_alg=zst",
+            OTAFileCacheControl(
+                file_sha256="sha256value",
+                file_compression_alg="zst",
+            ),
+        ),
         (
             "no_cache, file_sha256=sha256value, file_compression_alg=zst",
             OTAFileCacheControl(
@@ -32,6 +43,11 @@ from ota_proxy import OTAFileCacheControl
                 file_sha256="sha256value",
                 file_compression_alg="zst",
             ),
+        ),
+        # unknown directives are ignored
+        (
+            "unknown_dir,no_cache,bogus=123",
+            OTAFileCacheControl(no_cache=True),
         ),
     ),
 )
@@ -42,6 +58,10 @@ def test__parse_header(raw_str, expected):
 @pytest.mark.parametrize(
     "kwargs, expected",
     (
+        # empty kwargs returns empty string
+        ({}, ""),
+        # all falsy values returns empty string
+        ({"no_cache": False, "retry_caching": False}, ""),
         ({"no_cache": True, "retry_caching": False}, "no_cache"),
         (
             {"no_cache": True, "file_sha256": "sha256_value"},
@@ -57,13 +77,19 @@ def test__parse_header(raw_str, expected):
         ),
     ),
 )
-def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
+def test__export_kwargs_as_header(kwargs: dict[str, Any], expected: str):
     assert OTAFileCacheControl.export_kwargs_as_header(**kwargs) == expected
 
 
 @pytest.mark.parametrize(
     "_input, kwargs, expected",
     (
+        # empty kwargs returns input unchanged
+        (
+            "file_sha256=sha256_value,file_compression_alg=zst",
+            {},
+            "file_sha256=sha256_value,file_compression_alg=zst",
+        ),
         (
             "file_sha256=sha256_value,file_compression_alg=zst",
             {"no_cache": True, "retry_caching": True},
@@ -81,5 +107,5 @@ def test__export_kwargs_as_header(kwargs: Dict[str, Any], expected: str):
         ),
     ),
 )
-def test__update_header_str(_input: str, kwargs: Dict[str, Any], expected: str):
+def test__update_header_str(_input: str, kwargs: dict[str, Any], expected: str):
     assert OTAFileCacheControl.update_header_str(_input, **kwargs) == expected

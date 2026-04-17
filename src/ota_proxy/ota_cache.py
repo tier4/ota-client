@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +20,7 @@ import os
 import os.path as os_path
 import shutil
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -44,6 +44,7 @@ from .cache_control_header import (
     export_kwargs_as_header_string,
     parse_header,
 )
+from .cache_index import CacheIndex
 from .cache_streaming import (
     CacheReaderPool,
     CacheTracker,
@@ -51,13 +52,11 @@ from .cache_streaming import (
     CachingRegister,
 )
 from .config import config as cfg
-from .db import CacheMeta, check_db, init_db
+from .db import CacheMeta
 from .errors import (
     BaseOTACacheError,
-    CacheCommitFailed,
 )
 from .external_cache import mount_external_cache, umount_external_cache
-from .lru_cache_helper import LRUCacheHelper
 from .utils import process_raw_url, read_file, url_based_hash
 
 logger = logging.getLogger(__name__)
@@ -98,7 +97,9 @@ def create_cachemeta_for_request(
     return CacheMeta(
         file_sha256=file_sha256,
         file_compression_alg=file_compression_alg,
-        url=raw_url,
+        # NOTE(20260410): the `url` is never read out and used.
+        # url=raw_url,
+        url="",
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
     )
 
@@ -147,22 +148,18 @@ class OTACache:
         self._closed = True
         self._shutdown_lock = asyncio.Lock()
 
-        self.table_name = table_name = cfg.TABLE_NAME
+        self.table_name = cfg.TABLE_NAME
         self._chunk_size = cfg.REMOTE_READ_CHUNK_SIZE
         self._cache_enabled = cache_enabled
         self._init_cache = init_cache
         self._enable_https = enable_https
 
         _base_dir = Path(base_dir) if base_dir else Path(cfg.BASE_DIR)
-        self._db_file = db_f = Path(db_file) if db_file else Path(cfg.DB_FILE)
+        self._db_file = Path(db_file) if db_file else Path(cfg.DB_FILE)
 
         _base_dir.mkdir(parents=True, exist_ok=True)
         self._base_dir = anyio.Path(_base_dir)
         self._base_dir_sync = Path(_base_dir)
-        if not check_db(self._db_file, table_name):
-            logger.info(f"db file is broken, force init db file at {db_f}")
-            db_f.unlink(missing_ok=True)
-            self._init_cache = True  # force init cache on db file cleanup
 
         self._external_cache_data_dir = None
         self._external_cache_mp = None
@@ -176,11 +173,9 @@ class OTACache:
             )
 
         self._external_nfs_cache_data_dir = None
-        _is_external_nfs_cache_mounted = cmdhelper.is_target_mounted(
+        if external_nfs_cache_mnt_point and cmdhelper.is_target_mounted(
             external_nfs_cache_mnt_point, raise_exception=False
-        )
-
-        if external_nfs_cache_mnt_point and _is_external_nfs_cache_mounted:
+        ):
             logger.info(
                 f"external NFS cache source is mounted at: {external_nfs_cache_mnt_point}"
             )
@@ -222,21 +217,19 @@ class OTACache:
 
         self._read_pool = CacheReaderPool()
         if self._cache_enabled:
-            # purge cache dir if requested(init_cache=True) or ota_cache invalid,
-            #   and then recreate the cache folder and cache db file.
             if self._init_cache:
-                logger.warning("purge and init ota_cache")
-                shutil.rmtree(str(self._base_dir), ignore_errors=True)
-                await self._base_dir.mkdir(exist_ok=True, parents=True)
-                # init db file with table created
-                self._db_file.unlink(missing_ok=True)
+                logger.warning(
+                    f"purge OTA cache dir {self._base_dir_sync} as forced init"
+                )
+                shutil.rmtree(self._base_dir_sync, ignore_errors=True)
+            else:
+                # No need to use async version anyway
+                for tmp_f in self._base_dir_sync.glob(f"{cfg.TMP_FILE_PREFIX}*"):
+                    tmp_f.unlink(missing_ok=True)
 
-                init_db(self._db_file, cfg.TABLE_NAME)
-
-            # reuse the previously left ota_cache
-            else:  # cleanup unfinished tmp files
-                async for tmp_f in self._base_dir.glob(f"{cfg.TMP_FILE_PREFIX}*"):
-                    await tmp_f.unlink(missing_ok=True)
+            self._cache_index = CacheIndex(
+                self._db_file, self._base_dir_sync, force_init_db=self._init_cache
+            )
 
             # dispatch a background task to pulling the disk usage info
             _free_space_check_thread = threading.Thread(
@@ -246,8 +239,6 @@ class OTACache:
             )
             _free_space_check_thread.start()
 
-            # init cache helper(and connect to ota_cache db)
-            self._lru_helper = LRUCacheHelper(self._db_file)
             self._on_going_caching = CachingRegister()
 
             if self._upper_proxy:
@@ -285,8 +276,8 @@ class OTACache:
                 await self._session.close()
 
                 if self._cache_enabled:
-                    await self._lru_helper.close()
                     await self._cache_write_pool.close()
+                    self._cache_index.close()
 
                 if self._external_cache_mp:
                     await run_sync(umount_external_cache, self._external_cache_mp)
@@ -300,9 +291,8 @@ class OTACache:
         This method keep loop querying the disk usage.
         There are 2 types of threshold defined here, hard limit and soft limit:
         1. soft limit:
-            When disk usage reaching soft limit, OTACache will reserve free space(size of the entry)
-            for newly cached entry by deleting old cached entries in LRU flavour.
-            If the reservation of free space failed, the newly cached entry will be deleted.
+            When reach soft limit, the cache teeing will still work, but cache files
+            finalizing will be skipped.
         2. hard limit:
             When disk usage reaching hard limit, OTACache will stop caching any new entries.
 
@@ -348,67 +338,6 @@ class OTACache:
                     f"{cfg.DISK_USE_LIMIT_SOFT_P=}%), cache enabled again"
                 )
             time.sleep(cfg.DISK_USE_PULL_INTERVAL)
-
-    def _reserve_space(self, size: int) -> bool:
-        """A helper that calls lru_helper's rotate_cache method.
-
-        Args:
-            size: the size of the target that we need to reserve space for
-
-        Returns:
-            A bool indicates whether the space reserving is successful or not.
-        """
-        _hashes = self._lru_helper.rotate_cache(size)
-        # NOTE: distinguish between [] and None! The fore one means we don't need
-        #       cache rotation for saving the cache file, the latter one means
-        #       cache rotation failed.
-        if _hashes is not None:
-            for entry_hash in _hashes:
-                # remove cache entry
-                f = self._base_dir_sync / entry_hash
-                f.unlink(missing_ok=True)
-            return True
-        return False
-
-    def _commit_cache_callback(self, meta: CacheMeta):
-        """The callback for committing CacheMeta to cache_db.
-
-        NOTE(20250618): this callback now is synced and exepcted to be run
-                        within a worker thread.
-        NOTE(20250618): now on failed db commit, this method will raise exception
-                        to indicate caller to drop the cache.
-
-        If caching is successful, and the space usage is reaching soft limit,
-        we will try to ensure free space for already cached file.
-        If space cannot be reserved, the meta will not be committed.
-
-        Args:
-            meta: inst of CacheMeta that represents a cached file.
-        """
-        try:
-            if not self._storage_below_soft_limit_event.is_set():
-                # case 1: try to reserve space for the saved cache entry
-                if self._reserve_space(meta.cache_size):
-                    if not self._lru_helper.commit_entry(meta):
-                        burst_suppressed_logger.warning(
-                            f"failed to commit cache for {meta.url=}"
-                        )
-                else:
-                    # case 2: cache successful, but reserving space failed,
-                    # NOTE(20221018): let cache tracker remove the tmp file
-                    burst_suppressed_logger.warning(
-                        f"failed to reserve space for {meta.url=}"
-                    )
-            else:
-                # case 3: commit cache and finish up
-                if not self._lru_helper.commit_entry(meta):
-                    burst_suppressed_logger.warning(
-                        f"failed to commit cache entry for {meta.url=}"
-                    )
-        except Exception as e:
-            _err_msg = f"failed on callback for {meta=}: {e!r}"
-            burst_suppressed_logger.error(_err_msg)
-            raise CacheCommitFailed(_err_msg) from e
 
     # retrieve_file handlers
 
@@ -466,14 +395,18 @@ class OTACache:
             # fallback to use URL based hash, and clear compression_alg for such case
             cache_identifier = url_based_hash(raw_url)
 
-        meta_db_entry = await self._lru_helper.lookup_entry(cache_identifier)
-        if not meta_db_entry:
+        # This will make the cache look up over the cache index faster as
+        #   the keys in the cache index are interned.
+        cache_identifier = sys.intern(cache_identifier)
+
+        index_entry = self._cache_index.lookup_entry(cache_identifier)
+        if not index_entry:
             return
 
         # NOTE: handle empty file entry, for empty file entry, we will not actually
         #       create empty file in cache folder.
-        if meta_db_entry.cache_size == 0:
-            return b"", meta_db_entry.export_headers_to_client()
+        if index_entry.cache_size == 0:
+            return b"", index_entry.export_headers(cache_identifier)
 
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
@@ -493,7 +426,7 @@ class OTACache:
 
                 # the file is not a regular file?
                 Path(cache_file).unlink(missing_ok=True)
-                await self._lru_helper.remove_entry(cache_identifier)
+                self._cache_index.remove_entry(cache_identifier)
                 return
             except FileNotFoundError:
                 pass  # file is not yet created
@@ -503,11 +436,13 @@ class OTACache:
             # NOTE(20260403): not do the cleanup at here, let the new cache handler do it.
             return
 
+        _headers = index_entry.export_headers(cache_identifier)
+
         # fast path for small file, read one and directly return bytes
-        if meta_db_entry.cache_size <= self._chunk_size:
+        if index_entry.cache_size <= self._chunk_size:
             return (
                 await self._read_pool.read_file_once(cache_file),
-                meta_db_entry.export_headers_to_client(),
+                _headers,
             )
 
         local_fd = await self._read_pool.stream_read_file(cache_file)
@@ -515,12 +450,12 @@ class OTACache:
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
 
-        return local_fd, meta_db_entry.export_headers_to_client()
+        return local_fd, _headers
 
     async def _retrieve_file_by_external_cache(
         self,
         client_cache_policy: OTAFileCacheControl,
-        cache_data_dir: StrOrPath | None = None,
+        cache_data_dir: anyio.Path | None = None,
     ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
         """Common implementation for external cache lookup.
 
@@ -588,6 +523,8 @@ class OTACache:
             cache_identifier = url_based_hash(raw_url)
             compression_alg = None
 
+        cache_identifier = sys.intern(cache_identifier)
+
         # Get a tracker: we are the subscriber
         if tracker := self._on_going_caching.get_tracker(cache_identifier):
             _subscribed_fd = await self._read_pool.subscribe_tracker(tracker)
@@ -603,7 +540,8 @@ class OTACache:
         tracker = CacheTracker(
             cache_identifier=cache_identifier,
             base_dir=str(self._base_dir),
-            commit_cache_cb=self._commit_cache_callback,
+            commit_cache_cb=self._cache_index.commit_entry,
+            below_soft_limit_event=self._storage_below_soft_limit_event,
             below_hard_limit_event=self._storage_below_hard_limit_event,
         )
         try:
@@ -612,8 +550,11 @@ class OTACache:
             # NOTE(20260403): only provider can do the cleanup for retry_cache
             # if set, cleanup any previous cache file before starting new cache
             if cache_policy.retry_caching:
-                await self._lru_helper.remove_entry(cache_identifier)
-                await (self._base_dir / cache_identifier).unlink(missing_ok=True)
+                self._cache_index.remove_entry(cache_identifier)
+                try:
+                    os.unlink(os.path.join(self._base_dir, cache_identifier))
+                except Exception:
+                    pass
 
             remote_fd, resp_headers = await self._retrieve_file_by_downloading(
                 raw_url, headers=headers_from_client
@@ -624,10 +565,9 @@ class OTACache:
                 compression_alg,
                 resp_headers_from_upper=resp_headers,
             )
+            tracker.cache_meta = cache_meta
             wrapped_fd = self._cache_write_pool.stream_writing_cache(
-                fd=remote_fd,
-                tracker=tracker,
-                cache_meta=cache_meta,
+                fd=remote_fd, tracker=tracker
             )
             return wrapped_fd, resp_headers
         except Exception:

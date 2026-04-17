@@ -32,7 +32,6 @@ from __future__ import annotations
 import asyncio
 import socket
 from http import HTTPStatus
-from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -43,12 +42,12 @@ from ota_proxy._consts import HEADER_CONTENT_TYPE
 from ota_proxy.server_app import App
 
 
-def _make_ota_cache_mock() -> MagicMock:
+def _make_ota_cache_mock(mocker):
     """Return a MagicMock that satisfies the OTACache interface."""
-    mock = MagicMock()
-    mock.start = AsyncMock()
-    mock.close = AsyncMock()
-    mock.retrieve_file = AsyncMock()
+    mock = mocker.MagicMock()
+    mock.start = mocker.AsyncMock()
+    mock.close = mocker.AsyncMock()
+    mock.retrieve_file = mocker.AsyncMock()
     return mock
 
 
@@ -67,7 +66,7 @@ class TestUvicornCompatibility:
     """
 
     @pytest.fixture
-    async def live_server(self):
+    async def live_server(self, mocker):
         """Start uvicorn in-process and yield (server, port, mock_cache, content).
 
         loop="none" keeps uvicorn on the current event loop so that the fixture
@@ -76,7 +75,7 @@ class TestUvicornCompatibility:
         __init__.py.
         """
         content = b"test-payload"
-        mock_cache = _make_ota_cache_mock()
+        mock_cache = _make_ota_cache_mock(mocker)
         mock_cache.retrieve_file.return_value = (
             content,
             CIMultiDict({HEADER_CONTENT_TYPE: "application/octet-stream"}),
@@ -112,13 +111,13 @@ class TestUvicornCompatibility:
             server.should_exit = True
             await serve_task
 
-    def test_production_config_params_are_accepted(self):
+    def test_production_config_params_are_accepted(self, mocker):
         """uvicorn.Config must not raise with our production parameter set.
 
         This test validates that the uvicorn version installed in the project
         still accepts loop="uvloop", http="httptools", and lifespan="on".
         """
-        mock_cache = _make_ota_cache_mock()
+        mock_cache = _make_ota_cache_mock(mocker)
         app = App(mock_cache)
         # Must not raise regardless of uvicorn version
         config = uvicorn.Config(
