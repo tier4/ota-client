@@ -50,11 +50,7 @@ async def read_file(
 
 def read_file_once(fpath: StrOrPath | anyio.Path) -> bytes:
     with open(fpath, "rb") as f:
-        fd = f.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-        data = f.read()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-    return data
+        return f.read()
 
 
 def url_based_hash(raw_url: str) -> str:

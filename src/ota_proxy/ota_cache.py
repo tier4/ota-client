@@ -410,7 +410,7 @@ class OTACache:
         # NOTE: handle empty file entry, for empty file entry, we will not actually
         #       create empty file in cache folder.
         if index_entry.cache_size == 0:
-            return b"", index_entry.export_headers(cache_identifier)
+            return b"", index_entry.headers
 
         # NOTE: db_entry.file_sha256 can be either
         #           1. valid sha256 value for corresponding plain uncompressed OTA file
@@ -440,13 +440,11 @@ class OTACache:
             # NOTE(20260403): not do the cleanup at here, let the new cache handler do it.
             return
 
-        _headers = index_entry.export_headers(cache_identifier)
-
         # fast path for small file, read one and directly return bytes
         if index_entry.cache_size <= self._chunk_size:
             return (
                 await self._read_pool.read_file_once(cache_file),
-                _headers,
+                index_entry.headers,
             )
 
         local_fd = await self._read_pool.stream_read_file(cache_file)
@@ -454,7 +452,7 @@ class OTACache:
         #       do the job. If cache is invalid, otaclient will use CacheControlHeader's retry_cache
         #       directory to indicate invalid cache.
 
-        return local_fd, _headers
+        return local_fd, index_entry.headers
 
     async def _retrieve_file_by_external_cache(
         self,
