@@ -32,6 +32,7 @@ from otaclient._types import (
     UpdatePhase,
     UpdateProgress,
     UpdateTiming,
+    VersionDetail,
 )
 from otaclient._utils import SharedOTAClientStatusWriter
 from otaclient_common._logging import get_burst_suppressed_logger
@@ -61,6 +62,7 @@ atexit.register(_global_shutdown)
 @dataclass
 class SetOTAClientMetaReport:
     firmware_version: str = ""
+    version_detail: VersionDetail | None = None
 
 
 @dataclass
@@ -268,6 +270,8 @@ class OTAClientStatusCollector:
         # ------ update otaclient meta ------ #
         if isinstance(payload, SetOTAClientMetaReport):
             status_storage.firmware_version = payload.firmware_version
+            if payload.version_detail is not None:
+                status_storage.version_detail = payload.version_detail
             return True
 
         # ------ on session start/end ------ #

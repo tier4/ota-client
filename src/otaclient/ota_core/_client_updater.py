@@ -73,7 +73,10 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
 
     def _execute_client_update(self):
         """Implementation of OTA updating."""
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+        logger.info(
+            f"execute local update({ecu_info.ecu_id=}): "
+            f"{self.update_version=}, {self.release_name=}, {self.release_id=}, {self.image_id=}"
+        )
 
         try:
             self._process_metadata(only_metadata_verification=True)

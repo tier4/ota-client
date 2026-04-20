@@ -84,6 +84,9 @@ class TestOTAUpdaterWithAbortHandler:
         updater._status_report_queue = self.status_report_queue
         updater.session_id = "test_session_id"
         updater.update_version = "test_version"
+        updater.release_name = ""
+        updater.release_id = ""
+        updater.image_id = ""
         updater.ecu_status_flags = mocker.MagicMock()
         updater._metrics = mocker.MagicMock()
         updater._shm_metrics_reader = None

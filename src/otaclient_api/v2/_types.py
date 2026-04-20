@@ -299,6 +299,9 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
     ota_status: StatusOta
     otaclient_version: str
     update_status: UpdateStatus
+    release_name: str
+    release_id: str
+    image_id: str
 
     def __init__(
         self,
@@ -310,6 +313,9 @@ class StatusResponseEcuV2(ECUStatusSummary, MessageWrapper[pb2.StatusResponseEcu
         failure_reason: _Optional[str] = ...,
         failure_traceback: _Optional[str] = ...,
         update_status: _Optional[_Union[UpdateStatus, _Mapping]] = ...,
+        release_name: _Optional[str] = ...,
+        release_id: _Optional[str] = ...,
+        image_id: _Optional[str] = ...,
     ) -> None: ...
 
     @property
@@ -382,6 +388,9 @@ class UpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     ecu_id: str
     url: str
     version: str
+    release_name: str
+    release_id: str
+    image_id: str
 
     def __init__(
         self,
@@ -390,6 +399,9 @@ class UpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
         version: _Optional[str] = ...,
         url: _Optional[str] = ...,
         cookies: _Optional[str] = ...,
+        release_name: _Optional[str] = ...,
+        release_id: _Optional[str] = ...,
+        image_id: _Optional[str] = ...,
     ) -> None: ...
 
 
@@ -453,6 +465,9 @@ class ClientUpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     ecu_id: str
     url: str
     version: str
+    release_name: str
+    release_id: str
+    image_id: str
 
     def __init__(
         self,
@@ -461,6 +476,9 @@ class ClientUpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
         version: _Optional[str] = ...,
         url: _Optional[str] = ...,
         cookies: _Optional[str] = ...,
+        release_name: _Optional[str] = ...,
+        release_id: _Optional[str] = ...,
+        image_id: _Optional[str] = ...,
     ) -> None: ...
 
 

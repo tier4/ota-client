@@ -35,7 +35,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import AbortState, UpdatePhase
+from otaclient._types import AbortState, UpdatePhase, VersionDetail
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
@@ -311,7 +311,17 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         os.chmod(self._ota_meta_store_on_standby, 0o700)
 
         self._preserve_client_squashfs_at_post_update()
-        self._boot_controller.post_update(self.update_version)
+        _version_detail: VersionDetail | None = None
+        if self.release_name and self.release_id and self.image_id:
+            _version_detail = VersionDetail(
+                release_name=self.release_name,
+                release_id=self.release_id,
+                image_id=self.image_id,
+            )
+        self._boot_controller.post_update(
+            self.update_version,
+            version_detail=_version_detail,
+        )
 
     def _finalize_update(self) -> None:
         """Finalize-Update: wait for all sub ECUs, and then reboot."""
@@ -363,7 +373,10 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         zone transition methods (enter/exit_critical_zone, enter_final_phase)
         which raise OTAAbortSignal if abort is in progress.
         """
-        logger.info(f"execute local update({ecu_info.ecu_id=}): {self.update_version=}")
+        logger.info(
+            f"execute local update({ecu_info.ecu_id=}): "
+            f"{self.update_version=}, {self.release_name=}, {self.release_id=}, {self.image_id=}"
+        )
         try:
             self._process_metadata()
 

@@ -4,6 +4,7 @@
 
 ```bash
 # at the project root
+export OTACLIENT_VERSION=<DESIRED_VERSION>
 sudo docker build \
     -f docker/app_img/Dockerfile \
     --no-cache \
@@ -16,7 +17,11 @@ sudo docker build \
 
 ```bash
 # at the project root
+sudo docker rm -f otaclient_app_export || true
 sudo docker create --name otaclient_app_export otaclient_app:${OTACLIENT_VERSION}
+
+mkdir -p dist
+rm -rf dist/otaclient_*.squashfs
 sudo docker export otaclient_app_export | mksquashfs - dist/otaclient_${OTACLIENT_VERSION}.squashfs \
     -tar -b 1M \
     -mkfs-time 1729810800 \

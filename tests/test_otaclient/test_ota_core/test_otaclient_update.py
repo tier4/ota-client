@@ -101,6 +101,9 @@ class TestOTAClientUpdater:
             metrics=OTAMetricsData(),
             standby_slot_dev="dummy_dev",
             shm_metrics_reader=None,  # type: ignore
+            release_name="",
+            release_id="",
+            image_id="",
         )
 
         # Patch the _session_workdir attribute after instance creation

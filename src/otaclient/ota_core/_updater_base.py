@@ -66,6 +66,9 @@ class OTAUpdateInterfaceArgs(TypedDict):
     session_id: str
     metrics: OTAMetricsData
     shm_metrics_reader: SharedOTAClientMetricsReader
+    release_name: str
+    release_id: str
+    image_id: str
 
 
 class OTAUpdateInitializer:
@@ -83,8 +86,14 @@ class OTAUpdateInitializer:
         session_id: str,
         metrics: OTAMetricsData,
         shm_metrics_reader: SharedOTAClientMetricsReader,
+        release_name: str = "",
+        release_id: str = "",
+        image_id: str = "",
     ) -> None:
         self.update_version = version
+        self.release_name = release_name
+        self.release_id = release_id
+        self.image_id = image_id
         self.update_start_timestamp = int(time.time())
         self.session_id = session_id
         self._status_report_queue = status_report_queue

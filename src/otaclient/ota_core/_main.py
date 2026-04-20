@@ -97,6 +97,8 @@ HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
+SKIP_CLIENT_UPDATE = False  # for testing purpose, skip client update
+
 
 class OTAClient:
     """The adapter between OTAClient gRPC interface and the OTA implementation."""
@@ -201,11 +203,13 @@ class OTAClient:
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
         self.current_version = self.boot_controller.load_version()
+        self.current_version_detail = self.boot_controller.load_version_detail()
 
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
+                    version_detail=self.current_version_detail,
                 ),
             )
         )
@@ -357,6 +361,9 @@ class OTAClient:
                 session_id=new_session_id,
                 metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
+                release_name=request.release_name,
+                release_id=request.release_id,
+                image_id=request.image_id,
             )
 
             _no_ca_err = "no CA chains are installed, reject any OTA update"
@@ -447,6 +454,10 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
+        if SKIP_CLIENT_UPDATE:
+            logger.warning("SKIP_CLIENT_UPDATE is set to True, skip client update")
+            return
+
         if _env.is_running_as_downloaded_dynamic_app():
             # Duplicates client update should not be allowed.
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
@@ -505,6 +516,9 @@ class OTAClient:
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
+                release_name=request.release_name,
+                release_id=request.release_id,
+                image_id=request.image_id,
             ).execute()
         except ota_errors.OTAError:
             logger.warning("client update failed")

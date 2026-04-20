@@ -24,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -66,6 +66,16 @@ class TestOTAStatusFilesControl:
         self.finalize_switch_boot_flag = threading.Event()
         self.finalize_switch_boot_func = partial(
             _dummy_finalize_switch_boot, self.finalize_switch_boot_flag
+        )
+
+    def _make_status_control(self) -> OTAStatusFilesControl:
+        return OTAStatusFilesControl(
+            active_slot=self.slot_a,
+            standby_slot=self.slot_b,
+            current_ota_status_dir=self.slot_a_ota_status_dir,
+            standby_ota_status_dir=self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
+            force_initialize=False,
         )
 
     @pytest.mark.parametrize(
@@ -368,3 +378,73 @@ class TestOTAStatusFilesControl:
         # Both current and standby status files should be set to FAILURE
         assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
         assert read_str_from_file(self.slot_b_status_file) == OTAStatus.FAILURE
+
+    def test_post_update_with_version_detail(self):
+        """Test that post_update_standby stores version_detail JSON file."""
+        status_control = self._make_status_control()
+
+        # ------ execution ------ #
+        _version_detail = VersionDetail(
+            release_name="release_v1",
+            release_id="rid_001",
+            image_id="img_001",
+        )
+        status_control.post_update_standby(
+            version="dummy_version",
+            version_detail=_version_detail,
+        )
+
+        # ------ assertion ------ #
+        assert read_str_from_file(self.slot_b_status_file) == OTAStatus.UPDATING
+        assert read_str_from_file(self.slot_b_slot_in_use_file) == self.slot_b
+
+        # version_detail file should exist on standby slot
+        loaded = status_control.load_standby_slot_version_detail()
+        assert loaded is not None
+        assert loaded.release_name == "release_v1"
+        assert loaded.release_id == "rid_001"
+        assert loaded.image_id == "img_001"
+
+    def test_post_update_without_version_detail(self):
+        """Test that post_update_standby without version_detail does not create the file."""
+        status_control = self._make_status_control()
+
+        status_control.post_update_standby(version="dummy_version")
+
+        # version_detail should be None when no file exists
+        assert status_control.load_standby_slot_version_detail() is None
+
+    def test_load_version_detail_from_active_slot(self):
+        """Test loading version_detail from the active slot."""
+        import json
+
+        # ------ setup ------ #
+        _data = {
+            "release_name": "active_release",
+            "release_id": "active_rid",
+            "image_id": "active_img",
+        }
+        write_str_to_file_atomic(
+            self.slot_a_ota_status_dir / otaclient_cfg.OTA_VERSION_DETAIL_FNAME,
+            json.dumps(_data),
+        )
+
+        loaded = self._make_status_control().load_active_slot_version_detail()
+
+        # ------ assertion ------ #
+        assert loaded is not None
+        assert loaded.release_name == "active_release"
+        assert loaded.release_id == "active_rid"
+        assert loaded.image_id == "active_img"
+
+    def test_load_version_detail_returns_none_when_missing(self):
+        """Test that load_version_detail returns None when file is missing."""
+        assert self._make_status_control().load_active_slot_version_detail() is None
+
+    def test_load_version_detail_returns_none_on_invalid_json(self):
+        """Test that load_version_detail returns None on invalid JSON."""
+        write_str_to_file_atomic(
+            self.slot_a_ota_status_dir / otaclient_cfg.OTA_VERSION_DETAIL_FNAME,
+            "not valid json{{{",
+        )
+        assert self._make_status_control().load_active_slot_version_detail() is None
