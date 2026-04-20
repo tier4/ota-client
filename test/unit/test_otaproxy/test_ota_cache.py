@@ -24,6 +24,7 @@ import pytest
 from multidict import CIMultiDict, CIMultiDictProxy
 
 from ota_proxy import config as cfg
+from ota_proxy._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from ota_proxy.cache_index import CacheIndex
 from ota_proxy.db import CacheMeta
 from ota_proxy.ota_cache import OTACache
@@ -117,6 +118,62 @@ class TestCacheIndex:
         for entry in entries_to_remove:
             idx.remove_entry(entry.file_sha256)
             assert idx.lookup_entry(entry.file_sha256) is None
+
+
+class TestCacheIndexEntryHeaders:
+    """CacheIndex.commit_entry pre-computes CacheIndexEntry.headers so that
+    ota_cache.py can return them directly without rebuilding per request."""
+
+    def test_committed_entry_exposes_precomputed_headers(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
+        base_dir = tmp_path_factory.mktemp("cache_index_headers") / "ota-cache"
+        base_dir.mkdir()
+        db_f = base_dir / "db_f"
+        idx = CacheIndex(db_f, base_dir, force_init_db=True)
+        try:
+            real_sha = "b" * 64
+            meta = CacheMeta(
+                file_sha256=real_sha,
+                url="http://example.com/compressed",
+                cache_size=1024,
+                file_compression_alg="zst",
+                content_encoding="zstd",
+            )
+            (base_dir / real_sha).touch()
+            assert idx.commit_entry(meta)
+
+            looked_up = idx.lookup_entry(real_sha)
+            assert looked_up is not None
+            assert looked_up.cache_size == 1024
+            assert looked_up.headers[HEADER_CONTENT_ENCODING] == "zstd"
+            cache_ctrl = looked_up.headers[HEADER_OTA_FILE_CACHE_CONTROL]
+            assert f"file_sha256={real_sha}" in cache_ctrl
+            assert "file_compression_alg=zst" in cache_ctrl
+        finally:
+            idx.close()
+
+    def test_url_based_hash_entry_headers_omit_cache_control(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
+        """URL-based hash entries do not have a known file sha, so the
+        ota-file-cache-control header must not be emitted."""
+        base_dir = tmp_path_factory.mktemp("cache_index_url_headers") / "ota-cache"
+        base_dir.mkdir()
+        db_f = base_dir / "db_f"
+        idx = CacheIndex(db_f, base_dir, force_init_db=True)
+        try:
+            url = "http://example.com/opaque"
+            key = url_based_hash(url)
+            meta = CacheMeta(file_sha256=key, url=url, cache_size=32)
+            (base_dir / key).touch()
+            assert idx.commit_entry(meta)
+
+            looked_up = idx.lookup_entry(key)
+            assert looked_up is not None
+            assert HEADER_OTA_FILE_CACHE_CONTROL not in looked_up.headers
+        finally:
+            idx.close()
 
 
 #

@@ -27,7 +27,7 @@ import typing
 from pathlib import Path
 from typing import NamedTuple
 
-from multidict import CIMultiDict
+from multidict import CIMultiDict, CIMultiDictProxy
 from simple_sqlite3_orm import ORMBase, gen_sql_stmt
 from simple_sqlite3_orm.utils import enable_wal_mode
 
@@ -51,20 +51,29 @@ flush the pending commits."""
 
 class CacheIndexEntry(NamedTuple):
     cache_size: int
-    file_compression_alg: str | None
-    content_encoding: str | None
+    headers: CIMultiDictProxy[str]
+    """Pre-computed response headers for this cache entry."""
 
-    def export_headers(self, file_sha256: str) -> CIMultiDict[str]:
-        res: CIMultiDict[str] = CIMultiDict()
-        if self.content_encoding:
-            res[HEADER_CONTENT_ENCODING] = self.content_encoding
 
-        if file_sha256 and not file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
-            res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
-                file_sha256=file_sha256,
-                file_compression_alg=self.file_compression_alg or "",
-            )
-        return res
+def _build_index_entry_headers(
+    file_sha256: str,  # NOTE: already interned by the caller
+    *,
+    content_encoding: str | None,
+    file_compression_alg: str | None,
+) -> CIMultiDictProxy[str]:
+    """Build the response headers CIMultiDictProxy for a cache index entry."""
+    res: CIMultiDict[str] = CIMultiDict()
+    if content_encoding:
+        res[HEADER_CONTENT_ENCODING] = sys.intern(content_encoding)
+
+    if file_sha256 and not file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
+        res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+            file_sha256=file_sha256,
+            file_compression_alg=sys.intern(file_compression_alg)
+            if file_compression_alg
+            else "",
+        )
+    return CIMultiDictProxy(res)
 
 
 _STOP_SENTINEL = typing.cast("CacheMeta", object())
@@ -279,12 +288,11 @@ class CacheIndex:
 
                     _res[_key] = CacheIndexEntry(
                         cache_size=row.cache_size,
-                        file_compression_alg=sys.intern(row.file_compression_alg)
-                        if row.file_compression_alg
-                        else None,
-                        content_encoding=sys.intern(row.content_encoding)
-                        if row.content_encoding
-                        else None,
+                        headers=_build_index_entry_headers(
+                            _key,
+                            content_encoding=row.content_encoding,
+                            file_compression_alg=row.file_compression_alg,
+                        ),
                     )
                     _count += 1
                 else:
@@ -319,12 +327,11 @@ class CacheIndex:
         key = sys.intern(entry.file_sha256)
         index_entry = CacheIndexEntry(
             cache_size=entry.cache_size,
-            file_compression_alg=sys.intern(entry.file_compression_alg)
-            if entry.file_compression_alg
-            else None,
-            content_encoding=sys.intern(entry.content_encoding)
-            if entry.content_encoding
-            else None,
+            headers=_build_index_entry_headers(
+                key,
+                content_encoding=entry.content_encoding,
+                file_compression_alg=entry.file_compression_alg,
+            ),
         )
 
         if len(self._index) >= cfg.MAX_INDEX_ENTRIES:
