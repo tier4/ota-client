@@ -30,7 +30,7 @@ dynamic = [
 dependencies = [
   "anyio>=4.5.1,<5",
   "aiohttp[speedups]>=3.10.11,<3.14",
-  "cryptography==46.0.3",
+  "cryptography==46.0.7",
   "grpcio==1.70.0",
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
@@ -44,8 +44,8 @@ dependencies = [
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.7",
-  "uvicorn[standard]>=0.30,<0.41",
-  "zstandard<0.24,>=0.22",
+  "uvicorn[standard]>=0.30,<0.45",
+  "zstandard<0.26,>=0.22",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
