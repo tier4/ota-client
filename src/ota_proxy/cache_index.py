@@ -27,7 +27,7 @@ import typing
 from pathlib import Path
 from typing import NamedTuple
 
-from multidict import CIMultiDict
+from multidict import CIMultiDict, CIMultiDictProxy
 from simple_sqlite3_orm import ORMBase, gen_sql_stmt
 from simple_sqlite3_orm.utils import enable_wal_mode
 
@@ -51,7 +51,7 @@ flush the pending commits."""
 
 class CacheIndexEntry(NamedTuple):
     cache_size: int
-    headers: CIMultiDict[str]
+    headers: CIMultiDictProxy[str]
     """Pre-computed response headers for this cache entry."""
 
 
@@ -60,7 +60,7 @@ def _build_index_entry_headers(
     *,
     content_encoding: str | None,
     file_compression_alg: str | None,
-) -> CIMultiDict[str]:
+) -> CIMultiDictProxy[str]:
     """Build the response headers CIMultiDict for a cache index entry."""
     res: CIMultiDict[str] = CIMultiDict()
     if content_encoding:
@@ -73,7 +73,7 @@ def _build_index_entry_headers(
             if file_compression_alg
             else "",
         )
-    return res
+    return CIMultiDictProxy(res)
 
 
 _STOP_SENTINEL = typing.cast("CacheMeta", object())
