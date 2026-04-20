@@ -56,7 +56,7 @@ class CacheIndexEntry(NamedTuple):
 
 
 def _build_index_entry_headers(
-    file_sha256: str,
+    file_sha256: str,  # NOTE: already interned by the caller
     *,
     content_encoding: str | None,
     file_compression_alg: str | None,
@@ -68,7 +68,7 @@ def _build_index_entry_headers(
 
     if file_sha256 and not file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
         res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
-            file_sha256=sys.intern(file_sha256),
+            file_sha256=file_sha256,
             file_compression_alg=sys.intern(file_compression_alg)
             if file_compression_alg
             else "",

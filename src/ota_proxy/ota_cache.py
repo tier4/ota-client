@@ -379,7 +379,7 @@ class OTACache:
 
     async def _retrieve_file_by_cache_lookup(
         self, *, raw_url: str, cache_policy: OTAFileCacheControl
-    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str]] | None:
+    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDictProxy[str]] | None:
         """
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
@@ -501,10 +501,7 @@ class OTACache:
         raw_url: str,
         cache_policy: OTAFileCacheControl,
         headers_from_client: CIMultiDict[str],
-    ) -> (
-        tuple[AsyncGenerator[bytes] | bytes, CIMultiDictProxy[str] | CIMultiDict[str]]
-        | None
-    ):
+    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDictProxy[str]] | None:
         """
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.

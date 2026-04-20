@@ -20,7 +20,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from multidict import CIMultiDict
+from multidict import CIMultiDict, CIMultiDictProxy
 from simple_sqlite3_orm import (
     ConstrainRepr,
     CreateTableParams,
@@ -69,7 +69,7 @@ class CacheMeta(TableSpec):
             tuple(getattr(self, attrn) for attrn in self.__class__.model_fields)
         )
 
-    def export_headers_to_client(self) -> CIMultiDict[str]:
+    def export_headers_to_client(self) -> CIMultiDictProxy[str]:
         """Export required headers for client.
 
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
@@ -86,7 +86,7 @@ class CacheMeta(TableSpec):
                 file_sha256=self.file_sha256,
                 file_compression_alg=self.file_compression_alg or "",
             )
-        return res
+        return CIMultiDictProxy(res)
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
