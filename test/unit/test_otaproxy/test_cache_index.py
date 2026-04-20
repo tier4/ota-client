@@ -18,11 +18,16 @@ import bisect
 import time
 
 import pytest
+from multidict import CIMultiDictProxy
 
-from ota_proxy.cache_index import CacheDBWriter
+from ota_proxy._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
+from ota_proxy.cache_index import CacheDBWriter, _build_index_entry_headers
 from ota_proxy.config import config as cfg
 from ota_proxy.db import CacheMeta, init_db
 from ota_proxy.utils import url_based_hash
+
+_REAL_SHA256 = "a" * 64
+_URL_HASH = url_based_hash("http://example.com/f")
 
 BUCKET_SIZE_LIST = list(cfg.BUCKET_FILE_SIZE_DICT)
 
@@ -93,3 +98,86 @@ class TestBucketIdxCalculation:
 
         assert entry.bucket_idx == expected_idx
         assert entry.bucket_idx == _expected_bucket_idx(cache_size)
+
+
+#
+# ------------ Tests: _build_index_entry_headers ------------ #
+#
+
+
+class TestBuildIndexEntryHeaders:
+    """Pre-computed CacheIndexEntry.headers must match the legacy export_headers
+    output: content-encoding only when set, ota-file-cache-control only for
+    real sha256 hashes (not URL-based), and the result must be a read-only
+    CIMultiDictProxy so it can be safely shared across requests."""
+
+    def test_returns_cimultidictproxy(self):
+        res = _build_index_entry_headers(
+            _REAL_SHA256, content_encoding=None, file_compression_alg=None
+        )
+        assert isinstance(res, CIMultiDictProxy)
+
+    def test_real_sha256_without_compression_sets_cache_control_only(self):
+        res = _build_index_entry_headers(
+            _REAL_SHA256, content_encoding=None, file_compression_alg=None
+        )
+        assert HEADER_CONTENT_ENCODING not in res
+        cache_ctrl = res[HEADER_OTA_FILE_CACHE_CONTROL]
+        assert f"file_sha256={_REAL_SHA256}" in cache_ctrl
+
+    def test_real_sha256_with_compression_embeds_alg_in_cache_control(self):
+        res = _build_index_entry_headers(
+            _REAL_SHA256, content_encoding="zstd", file_compression_alg="zst"
+        )
+        assert res[HEADER_CONTENT_ENCODING] == "zstd"
+        cache_ctrl = res[HEADER_OTA_FILE_CACHE_CONTROL]
+        assert f"file_sha256={_REAL_SHA256}" in cache_ctrl
+        assert "file_compression_alg=zst" in cache_ctrl
+
+    def test_url_based_hash_omits_cache_control(self):
+        """URL-based hash entries must not expose ota-file-cache-control."""
+        res = _build_index_entry_headers(
+            _URL_HASH, content_encoding="gzip", file_compression_alg=None
+        )
+        assert HEADER_OTA_FILE_CACHE_CONTROL not in res
+        assert res[HEADER_CONTENT_ENCODING] == "gzip"
+
+    def test_empty_file_sha256_omits_cache_control(self):
+        res = _build_index_entry_headers(
+            "", content_encoding=None, file_compression_alg=None
+        )
+        assert HEADER_OTA_FILE_CACHE_CONTROL not in res
+        assert HEADER_CONTENT_ENCODING not in res
+
+
+#
+# ------------ Tests: CacheMeta.export_headers_to_client ------------ #
+#
+
+
+class TestCacheMetaExportHeaders:
+    """CacheMeta.export_headers_to_client must mirror _build_index_entry_headers
+    and must return a read-only CIMultiDictProxy to match the ota_cache.py
+    return-type contract."""
+
+    def test_returns_cimultidictproxy(self):
+        meta = CacheMeta(file_sha256=_REAL_SHA256, url="http://example.com/f")
+        assert isinstance(meta.export_headers_to_client(), CIMultiDictProxy)
+
+    def test_url_based_hash_has_no_cache_control(self):
+        meta = CacheMeta(
+            file_sha256=_URL_HASH, url="http://example.com/f", content_encoding="gzip"
+        )
+        res = meta.export_headers_to_client()
+        assert HEADER_OTA_FILE_CACHE_CONTROL not in res
+        assert res[HEADER_CONTENT_ENCODING] == "gzip"
+
+    def test_real_sha256_emits_cache_control_with_compression(self):
+        meta = CacheMeta(
+            file_sha256=_REAL_SHA256,
+            url="http://example.com/f",
+            file_compression_alg="zst",
+        )
+        cache_ctrl = meta.export_headers_to_client()[HEADER_OTA_FILE_CACHE_CONTROL]
+        assert f"file_sha256={_REAL_SHA256}" in cache_ctrl
+        assert "file_compression_alg=zst" in cache_ctrl
