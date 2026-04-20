@@ -61,7 +61,7 @@ def _build_index_entry_headers(
     content_encoding: str | None,
     file_compression_alg: str | None,
 ) -> CIMultiDictProxy[str]:
-    """Build the response headers CIMultiDict for a cache index entry."""
+    """Build the response headers CIMultiDictProxy for a cache index entry."""
     res: CIMultiDict[str] = CIMultiDict()
     if content_encoding:
         res[HEADER_CONTENT_ENCODING] = sys.intern(content_encoding)
