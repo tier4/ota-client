@@ -18,6 +18,7 @@ from __future__ import annotations
 import atexit
 import logging
 import multiprocessing.queues as mp_queue
+import os
 import shutil
 import threading
 import time
@@ -60,7 +61,7 @@ from otaclient._utils import (
     get_traceback,
 )
 from otaclient.boot_control import get_boot_controller
-from otaclient.configs._cfg_consts import CANONICAL_ROOT
+from otaclient.configs._cfg_consts import CANONICAL_ROOT, StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
@@ -71,7 +72,12 @@ from otaclient.ota_core._updater import (
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
 from otaclient_common._io import remove_file
-from otaclient_common.cmdhelper import ensure_mount, ensure_umount, mount_tmpfs
+from otaclient_common.cmdhelper import (
+    detect_storage_device_type,
+    ensure_mount,
+    ensure_umount,
+    mount_tmpfs,
+)
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._client_updater import OTAClientUpdater
@@ -198,6 +204,28 @@ class OTAClient:
             )
             return
         self._metrics.bootloader_type = self.boot_controller.bootloader_type
+
+        cpu_count = os.cpu_count() or 4
+        try:
+            # Dynamically determine how much download threads we need based on the rootfs dev type.
+            _storage_rank = StorageDeviceType(
+                detect_storage_device_type(self.boot_controller.get_standby_slot_dev())
+            )
+            self._download_threads = _storage_rank.map_to_download_threads(cpu_count)
+            logger.info(
+                f"dynamically configure the download threads to {self._download_threads}(storage rank: {_storage_rank})"
+            )
+        except Exception as e:
+            logger.exception(
+                f"failed on dynamically determine the download_threads setting: {e!r}"
+            )
+
+            self._download_threads = StorageDeviceType.L3.map_to_download_threads(
+                cpu_count
+            )
+            logger.warning(
+                f"assume L3 rank, set download_threads to {self._download_threads}"
+            )
 
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
@@ -341,7 +369,7 @@ class OTAClient:
         download_pool = create_downloader_pool(
             request.cookies_json,
             self.proxy,
-            download_threads=cfg.DOWNLOAD_THREADS,
+            download_threads=self._download_threads,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
         )
@@ -454,7 +482,7 @@ class OTAClient:
         download_pool = create_downloader_pool(
             request.cookies_json,
             self.proxy,
-            download_threads=cfg.DOWNLOAD_THREADS,
+            download_threads=self._download_threads,
             hash_func=sha256,
             chunk_size=cfg.CHUNK_SIZE,
         )
