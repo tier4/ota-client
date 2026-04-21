@@ -29,8 +29,8 @@ dynamic = [
 ]
 dependencies = [
   "anyio>=4.5.1,<5",
-  "aiohttp>=3.10.11,<3.14",
-  "cryptography==46.0.3",
+  "aiohttp[speedups]>=3.10.11,<3.14",
+  "cryptography==46.0.7",
   "grpcio==1.70.0",
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
@@ -44,14 +44,13 @@ dependencies = [
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.7",
-  "uvicorn[standard]>=0.30,<0.41",
-  "zstandard<0.24,>=0.22",
+  "uvicorn[standard]>=0.30,<0.45",
+  "zstandard<0.26,>=0.22",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
 [dependency-groups]
 dev = [
-  "black>=24,<26",
   "coverage>=7,<8",
   "pre-commit>=3,<5",
   "pytest~=8.3",
@@ -100,20 +99,9 @@ log_format = "%(asctime)s %(levelname)s %(filename)s %(funcName)s,%(lineno)d %(m
 log_cli = true
 log_cli_level = "INFO"
 testpaths = [
+  "./test",
   "./tests",
 ]
-
-[tool.black]
-line-length = 88
-target-version = [
-  'py38',
-  'py39',
-  'py310',
-  'py311',
-]
-extend-exclude = '''(
-  ^.*(_pb2.pyi?|_pb2_grpc.pyi?)$
-)'''
 
 [tool.coverage.run]
 concurrency = [
@@ -132,9 +120,9 @@ source = [
   "otaclient_manifest",
 ]
 disable_warnings = [
-    "no-data-collected",
-    "module-not-measured",
-    "module-not-imported",
+  "no-data-collected",
+  "module-not-measured",
+  "module-not-imported",
 ]
 
 [tool.coverage.report]
@@ -159,6 +147,7 @@ exclude = [
   ".venv",
   "venv",
   ".tests",
+  ".test"
 ]
 ignore = [
   "proto/**",
@@ -175,6 +164,7 @@ target-version = "py38"
 # NOTE: not include tests and tools for now
 include = [
   "tests/**/*.py",
+  "test/**/*.py",
   "src/**/*.py",
   "pyproject.toml",
 ]
@@ -197,10 +187,12 @@ select = [
 ]
 ignore = [
   "E266", # (too many leading '#'): sometimes we use multiple # for separting sections
-  "E203", # (white space before ':'): this error conflicts with black linting
   "E701", # (multiple statements on one line)
   "S101", # (use of assert): mostly we use assert for typing
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = true

@@ -18,11 +18,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import os.path as os_path
 import threading
 import time
 import weakref
 from concurrent.futures import Future, ThreadPoolExecutor
-from pathlib import Path
+from itertools import count
 from queue import SimpleQueue
 from typing import Any, AsyncGenerator, Callable, TypeVar
 
@@ -54,6 +55,10 @@ _reader_failed_sentinel = object()
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
+# will have a random nonce at every startup
+TMP_FNAME_NONCE = os.urandom(4).hex()
+TMP_FNAME_COUNTER = count()
+
 # cache tracker
 
 
@@ -64,33 +69,43 @@ def _unlink_no_error(fpath):
         pass
 
 
-class CacheTrackerEvents:
-    def __init__(self):
-        self._writer_started = threading.Event()
-        self._writer_finished = threading.Event()
-        self._writer_failed = threading.Event()
+class CacheTrackerEvents:  # pragma: no cover
+    """One-way Flag storage for tracking CacheTracker's status.
+
+    As the flag set is one-way(failed flag will not get reserved once is set),
+    we can safely use this CacehTrackerEvents in multi-thread environment without
+    a lock. Also, only failed flag will be set accross threads.
+    """
+
+    __slots__ = ("_started", "_finished", "_failed")
+
+    def __init__(self) -> None:
+        self._started = False
+        self._finished = False
+        self._failed = False
 
     @property
     def writer_failed(self) -> bool:
-        return self._writer_failed.is_set()
+        return self._failed
 
     @property
     def writer_finished(self) -> bool:
-        return self._writer_finished.is_set()
+        return self._finished
 
     @property
     def writer_started(self) -> bool:
-        return self._writer_started.is_set()
+        return self._started
 
-    def set_writer_failed(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
-        self._writer_failed.set()
+    def set_writer_failed(self) -> None:
+        self._started = True
+        self._failed = True
 
-    def set_writer_started(self) -> None:  # pragma: no cover
-        self._writer_started.set()
+    def set_writer_started(self) -> None:
+        self._started = True
 
-    def set_writer_finished(self) -> None:  # pragma: no cover
-        self._writer_finished.set()
+    def set_writer_finished(self) -> None:
+        self._started = True
+        self._finished = True
 
 
 class CacheTracker:
@@ -124,6 +139,9 @@ class CacheTracker:
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
 
+    _tmp_fname_nonce = TMP_FNAME_NONCE
+    _tmp_fname_counter = TMP_FNAME_COUNTER
+
     @classmethod
     def _tmp_file_naming(cls, cache_identifier: str) -> str:
         """Create fname for tmp caching entry.
@@ -135,24 +153,28 @@ class CacheTracker:
         """
         return (
             f"{cfg.TMP_FILE_PREFIX}{cls.FNAME_PART_SEPARATOR}"
-            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}{(os.urandom(4)).hex()}"
+            f"{cache_identifier}{cls.FNAME_PART_SEPARATOR}"
+            f"{cls._tmp_fname_nonce}{cls.FNAME_PART_SEPARATOR}{next(cls._tmp_fname_counter)}"
         )
 
     def __init__(
         self,
         cache_identifier: str,
         *,
-        base_dir: Path,
+        base_dir: str,
         commit_cache_cb: _CACHE_ENTRY_REGISTER_CALLBACK,
+        below_soft_limit_event: threading.Event,
         below_hard_limit_event: threading.Event,
-    ):
-        self.fpath = base_dir / self._tmp_file_naming(cache_identifier)
-        self.save_path = base_dir / cache_identifier
+    ) -> None:
+        self.fpath = os_path.join(base_dir, self._tmp_file_naming(cache_identifier))
+        self.save_path = os_path.join(base_dir, cache_identifier)
+
         self.cache_meta: CacheMeta | None = None
         self._commit_cache_cb = commit_cache_cb
 
         self._tracker_events = CacheTrackerEvents()
-        self._space_availability_event = below_hard_limit_event
+        self._below_soft_limit_event = below_soft_limit_event
+        self._below_hard_limit_event = below_hard_limit_event
 
         self._bytes_written = 0
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
@@ -161,57 +183,57 @@ class CacheTracker:
         """Finalize the caching, commit the cache entry to db.
 
         At this point, the cache entry is already downloaded and complete.
+        NOTE(20260407): New Threshold-based strategy:
+                        - Below soft limit: commit entry to in-memory index + queue DB write
+                        - Above soft limit: skip commit (temp file written for current request but not persisted)
 
-        NOTE(20250731): when otaproxy starts with previous cache files existed,
-                            there is chance that the `save_path` might already exist,
-                            while not committed to the database.
-                        Still commit the cache, if that file is broken, let otaclient
-                            reports it with OTA cache file protocol in next OTA download request.
-        NOTE(20250731): not considering the case that /ota-cache folder is tampered
-                            or poluted intentionally, assume that all files are normal files.
-                        If `save_dst` exists and is not a regular file, we just give up caching this file.
+        NOTE(20260410): Since we use in-memory cache index now, the time cost of commit is reduced a lot, no need
+                        to worry about the delay between cache entry commit and file finalizing.
+                        Also, if cache commit failed or not committed(due to max cache index entries reached), just
+                        drop the finalization.
         """
         if not self.cache_meta:
             return
 
-        if self.save_path.is_symlink():
-            self.save_path.unlink()
-        if self.save_path.exists():
-            if not self.save_path.is_file():
-                burst_suppressed_logger.warning(
-                    f"potential poluted /ota-cache folder, {self.save_path} exists but not a file!"
-                )
-                return
-        else:
-            os.link(self.fpath, self.save_path)
+        if not self._below_soft_limit_event.is_set():
+            return
 
         try:
-            self._commit_cache_cb(self.cache_meta)
+            if not self._commit_cache_cb(self.cache_meta):
+                return
         except Exception as e:
-            burst_suppressed_logger.warning(f"failed to commit cache to db: {e}")
+            burst_suppressed_logger.warning(f"failed to commit cache entry: {e}")
+            return
+
+        try:
+            os.link(self.fpath, self.save_path)
+        except FileExistsError:
+            pass
 
     # exposed API
 
     def provider_write_file_in_thread(
-        self, cache_meta: CacheMeta, input_que: SimpleQueue[bytes | None]
+        self, input_que: SimpleQueue[bytes | None]
     ) -> None:
+        # NOTE: the provider will get cache_meta set before write starts.
+        assert self.cache_meta
+        cache_meta = self.cache_meta
+
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                # first create the file
-                f.write(b"")
-                f.flush()
-
-                self.cache_meta = cache_meta
                 weakref.finalize(self, _unlink_no_error, self.fpath)
+
+                # NOTE(20260330): at the time open(..., "wb") returns,
+                #                 the file entry is already created.
+                tracker_events.set_writer_started()
                 try:
                     while data := input_que.get():
                         # caller set failed flag, or space hard limit is reached, abort
                         if tracker_events.writer_failed:
                             raise CacheStreamingFailed("upper data source failed")
-                        if not self._space_availability_event.is_set():
+                        if not self._below_hard_limit_event.is_set():
                             _err_msg = f"abort caching {cache_meta} on space hard limit reached"
                             burst_suppressed_logger.warning(_err_msg)
                             raise StorageReachHardLimit(_err_msg)
@@ -225,8 +247,8 @@ class CacheTracker:
             #   subscriber faster. Whether the database entry is committed or not
             #   doesn't matter here, the subscriber doesn't need to fail if caching
             #   finished but db commit failed.
-            tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written
+            tracker_events.set_writer_finished()
 
             if not tracker_events.writer_failed:
                 self._finalize_cache()
@@ -234,37 +256,47 @@ class CacheTracker:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, input_que, cache_meta
 
-    def provider_write_once_in_thread(self, cache_meta: CacheMeta, data: bytes) -> None:
+    def provider_write_once_in_thread(self, data: bytes) -> None:
+        # NOTE: the provider will get cache_meta set before write starts.
+        assert self.cache_meta
+        cache_meta = self.cache_meta
         tracker_events = self._tracker_events
-        tracker_events.set_writer_started()
         try:
-            if not self._space_availability_event.is_set():
+            if not self._below_hard_limit_event.is_set():
                 _err_msg = f"abort caching {cache_meta} on space hard limit reached"
                 burst_suppressed_logger.warning(_err_msg)
                 raise StorageReachHardLimit(_err_msg)
 
             with open(self.fpath, "wb") as f:
                 fd = f.fileno()
-                self.cache_meta = cache_meta
+                weakref.finalize(self, _unlink_no_error, self.fpath)
+
                 f.write(data)
                 f.flush()
-                weakref.finalize(self, _unlink_no_error, self.fpath)
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-            tracker_events.set_writer_finished()
             cache_meta.cache_size = self._bytes_written = len(data)
+
+            # as the data is small, directly set writer to finish
+            tracker_events.set_writer_finished()
             self._finalize_cache()
         except Exception as e:
             tracker_events.set_writer_failed()
             burst_suppressed_logger.error(f"caching {cache_meta} failed: {e!r}")
         finally:
-            tracker_events.set_writer_finished()
             del self, data, cache_meta
 
-    async def subscriber_wait_for_provider(self) -> None:
+    def provider_handle_empty_file(self) -> None:
+        assert self.cache_meta
+        self._tracker_events.set_writer_finished()
+        self._commit_cache_cb(self.cache_meta)
+
+    async def subscriber_wait_for_provider(self) -> bool:
         """
+        Returns:
+            A bool indicates whether the cache write is finished.
+
         Raises:
             CacheProviderNotReady if timeout waiting cache provider.
         """
@@ -272,11 +304,8 @@ class CacheTracker:
         _wait_count = 0
         try:
             while not tracker_events.writer_started:
-                if (
-                    _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY
-                    or tracker_events.writer_failed
-                ):
-                    _err_msg = "timeout waiting provider starts caching or provider failed, abort"
+                if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
+                    _err_msg = "timeout waiting provider starts caching, abort"
                     burst_suppressed_logger.warning(_err_msg)
                     raise CacheProviderNotReady
 
@@ -288,6 +317,13 @@ class CacheTracker:
                     )
                 )
                 _wait_count += 1
+
+            if tracker_events.writer_failed:
+                _err_msg = "provider failed, abort"
+                burst_suppressed_logger.warning(_err_msg)
+                raise CacheProviderNotReady
+
+            return tracker_events.writer_finished
         finally:
             del self, tracker_events
 
@@ -355,7 +391,7 @@ class CacheTracker:
 
 
 # a callback that register the cache entry indicates by input CacheMeta inst to the cache_db
-_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], None]
+_CACHE_ENTRY_REGISTER_CALLBACK = Callable[[CacheMeta], bool]
 
 
 class CachingRegister:
@@ -427,10 +463,7 @@ class CacheWriterPool:
         await run_sync(self._pool.shutdown)
 
     async def stream_writing_cache(
-        self,
-        fd: AsyncGenerator[bytes],
-        tracker: CacheTracker,
-        cache_meta: CacheMeta,
+        self, fd: AsyncGenerator[bytes], tracker: CacheTracker
     ) -> AsyncGenerator[bytes]:
         """A cache streamer that get data chunk from <fd> and tees to multiple destination.
 
@@ -447,14 +480,15 @@ class CacheWriterPool:
         tracker_event = tracker._tracker_events
         try:
             _first_chunk = await fd.__anext__()
+            # or receive empty chunk from upper, also indicates an empty file
+            if len(_first_chunk) == 0:
+                tracker.provider_handle_empty_file()
+                yield _first_chunk
+                return
             yield _first_chunk
         except StopAsyncIteration:
             # no data chunk from upper, might indicate an empty file
-            await self._write_dispatcher(
-                tracker_event,
-                tracker._commit_cache_cb,
-                cache_meta,
-            )
+            tracker.provider_handle_empty_file()
             return
 
         # fast path for small resource that only takes one chunk's size
@@ -465,7 +499,6 @@ class CacheWriterPool:
             await self._write_dispatcher(
                 tracker_event,
                 tracker.provider_write_once_in_thread,
-                cache_meta,
                 _first_chunk,
             )
             return  # only one chunk, directly write it and return
@@ -476,7 +509,6 @@ class CacheWriterPool:
         await self._write_dispatcher(
             tracker_event,
             tracker.provider_write_file_in_thread,
-            cache_meta,
             tee_que,
         )
         try:
@@ -486,7 +518,7 @@ class CacheWriterPool:
                 yield chunk  # to uvicorn
         except Exception as e:
             tracker_event.set_writer_failed()  # hint thread worker to abort or drop caching
-            _err_msg = f"upper file descriptor failed({cache_meta=}): {e!r}"
+            _err_msg = f"upper file descriptor failed({tracker.cache_meta=}): {e!r}"
             burst_suppressed_logger.warning(_err_msg)
             raise CacheStreamingFailed(_err_msg) from e
         finally:
@@ -615,18 +647,31 @@ class CacheReaderPool:
             await self._read_dispatcher(read_file_once, fpath)
         )
 
-    async def subscribe_tracker(self, tracker: CacheTracker) -> AsyncGenerator[bytes]:
+    async def subscribe_tracker(
+        self, tracker: CacheTracker
+    ) -> AsyncGenerator[bytes] | bytes:
         """
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
             CacheProviderNotReady if timeout waiting cache provider ready.
         """
-        # first we wait for provider ready
-        await tracker.subscriber_wait_for_provider()
+        # First we wait for provider ready
+        _cache_finished = await tracker.subscriber_wait_for_provider()
+        assert (_cache_meta := tracker.cache_meta)
 
+        # If cache write is finished and file is small, read it in one shot.
+        # read_file_once awaits the result, so tracker stays alive throughout.
+        if _cache_finished:
+            if _cache_meta.cache_size == 0:
+                return b""
+            if _cache_meta.cache_size <= cfg.REMOTE_READ_CHUNK_SIZE:
+                return await self.read_file_once(tracker.fpath)
+
+        # For ongoing cache or finished large files, use subscriber_stream_cache_in_thread.
+        # The bound method keeps a strong reference to tracker, preventing GC
+        # from deleting the tmp file before the reader opens it.
         interrupt_thread_worker = threading.Event()
         que = asyncio.Queue()
-        # then wait for task picked by reader thread worker pool
         await self._read_dispatcher(
             tracker.subscriber_stream_cache_in_thread,
             que,

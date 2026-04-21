@@ -20,15 +20,12 @@ from contextlib import closing
 from pathlib import Path
 from typing import Optional
 
-from multidict import CIMultiDict
+from multidict import CIMultiDict, CIMultiDictProxy
 from simple_sqlite3_orm import (
-    AsyncORMBase,
     ConstrainRepr,
     CreateTableParams,
     ORMBase,
-    ORMThreadPoolBase,
     TableSpec,
-    gen_sql_stmt,
     utils,
 )
 from typing_extensions import Annotated
@@ -38,7 +35,6 @@ from otaclient_common._typing import StrOrPath
 from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from .cache_control_header import export_kwargs_as_header_string
 from .config import config as cfg
-from .config import sqlite3_feature_flags
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +65,11 @@ class CacheMeta(TableSpec):
     content_encoding: Optional[str] = None
 
     def __hash__(self) -> int:
-        return hash(tuple(getattr(self, attrn) for attrn in self.model_fields))
+        return hash(
+            tuple(getattr(self, attrn) for attrn in self.__class__.model_fields)
+        )
 
-    def export_headers_to_client(self) -> CIMultiDict[str]:
+    def export_headers_to_client(self) -> CIMultiDictProxy[str]:
         """Export required headers for client.
 
         Currently includes content-type, content-encoding and ota-file-cache-control headers.
@@ -88,7 +86,7 @@ class CacheMeta(TableSpec):
                 file_sha256=self.file_sha256,
                 file_compression_alg=self.file_compression_alg or "",
             )
-        return res
+        return CIMultiDictProxy(res)
 
 
 class CacheMetaORM(ORMBase[CacheMeta]):
@@ -108,74 +106,6 @@ class CacheMetaORM(ORMBase[CacheMeta]):
             if_not_exists=True,
         ),
     ]
-
-
-class CacheMetaORMPool(ORMThreadPoolBase[CacheMeta]):
-    orm_bootstrap_table_name = DB_TABLE_NAME
-    bucket_fn, last_access_fn = "bucket_idx", "last_access"
-    file_sha256_fn = "file_sha256"
-
-    # fmt: off
-    count_entries_with_limit = gen_sql_stmt(
-        "SELECT", "count(*)", "FROM", orm_bootstrap_table_name,
-        "WHERE", f"{bucket_fn}=:{bucket_fn}",
-        "ORDER BY", last_access_fn,
-        "LIMIT :limit"
-    )
-    select_entries_with_limit = gen_sql_stmt(
-        "SELECT", "*", "FROM", orm_bootstrap_table_name,
-        "WHERE", f"{bucket_fn}=:{bucket_fn}",
-        "ORDER BY", last_access_fn,
-        "LIMIT :limit"
-    )
-    delete_stmt = gen_sql_stmt(
-        "DELETE", "FROM", orm_bootstrap_table_name,
-        "WHERE", f"{bucket_fn}=:{bucket_fn}",
-        "ORDER BY", last_access_fn,
-        "LIMIT :limit"
-    )
-    rotate_stmt = gen_sql_stmt(
-        "DELETE", "FROM", orm_bootstrap_table_name,
-        "WHERE", file_sha256_fn, "IN", "(",
-            "SELECT", file_sha256_fn, "FROM", orm_bootstrap_table_name,
-            "WHERE", f"{bucket_fn}=:{bucket_fn}",
-            "ORDER BY", last_access_fn,
-            "LIMIT :limit",
-        ")",
-        "RETURNING", "*",
-    )
-    # fmt: on
-
-    def _rotate_in_thread(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
-        _params = {self.bucket_fn: bucket_idx, "limit": num}
-        with self._thread_scope_orm._con as con:
-            # check if we have enough entries to rotate
-            cur = con.execute(self.count_entries_with_limit, _params)
-            cur.row_factory = None
-            if not (_raw_res := cur.fetchone()) or _raw_res[0] < num:
-                return
-
-            if not sqlite3_feature_flags.RETURNING_AVAILABLE:
-                # first select entries met the requirements
-                cur = con.execute(self.select_entries_with_limit, _params)
-                rows_to_remove = list(cur)
-
-                # delete the target entries
-                con.execute(self.delete_stmt, _params)
-                return rows_to_remove
-
-            cur = con.execute(self.rotate_stmt, _params)
-            return list(cur)
-
-    def rotate_cache(self, bucket_idx: int, num: int) -> list[CacheMeta] | None:
-        """
-        NOTE: this is a blocking method.
-        """
-        return self._pool.submit(self._rotate_in_thread, bucket_idx, num).result()
-
-
-class AsyncCacheMetaORM(AsyncORMBase[CacheMeta]):
-    orm_bootstrap_table_name = DB_TABLE_NAME
 
 
 def init_db(db_f: StrOrPath, table_name: str) -> None:
