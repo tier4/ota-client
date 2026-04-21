@@ -69,9 +69,7 @@ def _build_index_entry_headers(
     if file_sha256 and not file_sha256.startswith(cfg.URL_BASED_HASH_PREFIX):
         res[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
             file_sha256=file_sha256,
-            file_compression_alg=sys.intern(file_compression_alg)
-            if file_compression_alg
-            else "",
+            file_compression_alg=file_compression_alg if file_compression_alg else "",
         )
     return CIMultiDictProxy(res)
 
