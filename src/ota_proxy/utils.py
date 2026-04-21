@@ -49,12 +49,16 @@ async def read_file(
 
 
 def read_file_once(fpath: StrOrPath | anyio.Path) -> bytes:
+    """Read the whole file with once call.
+
+    This function is to serve small files read.
+
+    NOTE(20260420): for small files read, it increases the kernel
+                    page cache pages with much slower speed and much
+                    small amount, so let kernel handles the cache pages.
+    """
     with open(fpath, "rb") as f:
-        fd = f.fileno()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
-        data = f.read()
-        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
-    return data
+        return f.read()
 
 
 def url_based_hash(raw_url: str) -> str:
