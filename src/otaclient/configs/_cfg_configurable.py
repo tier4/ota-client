@@ -67,7 +67,6 @@ class _OTAClientSettings(BaseModel):
     DOWNLOAD_BACKOFF_MAX: int = 3  # seconds
     DOWNLOAD_BACKOFF_FACTOR: float = 0.1  # seconds
 
-    DOWNLOAD_THREADS: int = 6
     MAX_CONCURRENT_DOWNLOAD_TASKS: int = 128
     DOWNLOAD_INACTIVE_TIMEOUT: int = 5 * 60  # seconds
     MAX_RETRY_ON_ENTRY_COUNT: int = 300  # counts. almost 5 minutes
