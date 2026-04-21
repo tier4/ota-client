@@ -100,8 +100,8 @@ class TestStorageDeviceTypeMapDownloadThreads:
     """Test thread count calculation: factor = (cpu_count or 4) + 4.
 
     L1: min(24, max(16, factor)) → range [16, 24]
-    L2: min(20, max(10, factor)) → range [10, 20]
-    L3: min(12, max(8, factor)) → range [8, 12]
+    L2: min(20, max(16, factor)) → range [16, 20]
+    L3: min(14, max(8, factor))  → range [8, 14]
     """
 
     @pytest.mark.parametrize(
@@ -111,14 +111,14 @@ class TestStorageDeviceTypeMapDownloadThreads:
             pytest.param(StorageDeviceType.L1, 4, 16, id="L1_4cpu_clamped_min"),
             pytest.param(StorageDeviceType.L1, 16, 20, id="L1_16cpu_mid_range"),
             pytest.param(StorageDeviceType.L1, 24, 24, id="L1_24cpu_clamped_max"),
-            # L2: range [10, 20]
-            pytest.param(StorageDeviceType.L2, 4, 10, id="L2_4cpu_clamped_min"),
-            pytest.param(StorageDeviceType.L2, 12, 16, id="L2_12cpu_mid_range"),
+            # L2: range [16, 20]
+            pytest.param(StorageDeviceType.L2, 4, 16, id="L2_4cpu_clamped_min"),
+            pytest.param(StorageDeviceType.L2, 12, 16, id="L2_12cpu_at_min"),
             pytest.param(StorageDeviceType.L2, 24, 20, id="L2_24cpu_clamped_max"),
-            # L3: range [8, 12]
+            # L3: range [8, 14]
             pytest.param(StorageDeviceType.L3, 2, 8, id="L3_2cpu_clamped_min"),
             pytest.param(StorageDeviceType.L3, 6, 10, id="L3_6cpu_mid_range"),
-            pytest.param(StorageDeviceType.L3, 16, 12, id="L3_16cpu_clamped_max"),
+            pytest.param(StorageDeviceType.L3, 16, 14, id="L3_16cpu_clamped_max"),
         ],
     )
     def test_thread_calculation(
@@ -129,6 +129,10 @@ class TestStorageDeviceTypeMapDownloadThreads:
     ):
         assert device_type.map_to_download_threads(cpu_count) == expected
 
-    def test_cpu_count_zero_defaults_to_4(self):
-        """When cpu_count is 0 (falsy), it defaults to 4, so factor = 8."""
-        assert StorageDeviceType.L3.map_to_download_threads(0) == 8
+    @pytest.mark.parametrize(
+        "cpu_count",
+        [pytest.param(0, id="zero"), pytest.param(None, id="none")],
+    )
+    def test_falsy_cpu_count_defaults_to_4(self, cpu_count):
+        """When cpu_count is falsy (0 or None), it defaults to 4, so factor = 8."""
+        assert StorageDeviceType.L3.map_to_download_threads(cpu_count) == 8
