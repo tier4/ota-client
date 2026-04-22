@@ -60,6 +60,8 @@ dev = [
   "pytest-mock~=3.14",
   "requests-mock~=1.12",
   "ruff",
+  # See https://github.com/pypa/hatch/issues/2193
+  'virtualenv<21; python_version<"3.10"',
 ]
 
 [tool.hatch.version]
@@ -147,7 +149,7 @@ exclude = [
   ".venv",
   "venv",
   ".tests",
-  ".test"
+  ".test",
 ]
 ignore = [
   "proto/**",
