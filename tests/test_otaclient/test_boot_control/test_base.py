@@ -22,7 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
@@ -80,6 +80,22 @@ class TestBootControllerBase:
         # Test load_version
         assert controller.load_version() == "1.0.0"
         controller._ota_status_control.load_active_slot_version.assert_called_once()
+
+        # Test load_version_detail
+        _mock_detail = VersionDetail(
+            release_name="r1", release_id="rid1", image_id="img1"
+        )
+        controller._ota_status_control.load_active_slot_version_detail.return_value = (
+            _mock_detail
+        )
+        assert controller.load_version_detail() == _mock_detail
+        controller._ota_status_control.load_active_slot_version_detail.assert_called_once()
+
+        # Test load_version_detail returns None
+        controller._ota_status_control.load_active_slot_version_detail.return_value = (
+            None
+        )
+        assert controller.load_version_detail() is None
 
         # Test get_booted_ota_status
         assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
@@ -144,6 +160,22 @@ class TestBootControllerBase:
         controller._mp_control.umount_all.assert_called_once()
 
         # Verify platform-specific method was called
+        assert controller.post_update_platform_called is True
+
+    def test_post_update_with_version_detail(self):
+        """Test post_update passes version_detail to ota_status_control."""
+        controller = ConcreteBootController()
+
+        _version_detail = VersionDetail(
+            release_name="r1", release_id="rid1", image_id="img1"
+        )
+        controller.post_update(update_version="2.0.0", version_detail=_version_detail)
+
+        controller._ota_status_control.post_update_standby.assert_called_once_with(
+            version="2.0.0",
+            version_detail=_version_detail,
+        )
+        controller._mp_control.umount_all.assert_called_once()
         assert controller.post_update_platform_called is True
 
     def test_post_update_failure_handling(self):

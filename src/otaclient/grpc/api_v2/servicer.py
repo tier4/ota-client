@@ -221,6 +221,9 @@ class OTAClientAPIServicer:
                 cookies_json=req_ecu.cookies,
                 request_id=request_id,
                 session_id=new_session_id,
+                release_name=req_ecu.release_name,
+                release_id=req_ecu.release_id,
+                image_id=req_ecu.image_id,
             )
         elif isinstance(req_ecu, api_types.RollbackRequestEcu) and (
             request_cls is RollbackRequestV2

@@ -35,7 +35,7 @@ dependencies = [
   "multidict<7.0,>=4.5",
   "msgpack>=1,<1.2",
   "otaclient_iot_logging_server_pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl#sha256:e5a2e6474a8b6f5656679877a5df40891e6a65c29830a31faed3d47d9973be60",
-  "otaclient_pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.0.0/otaclient_pb2-1.0.0-py3-none-any.whl#sha256:86a8095345c65ef5b91c658960723341eaa5e4588eb6b9c731f7401341ae8604",
+  "otaclient_pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.1.0/otaclient_pb2-1.1.0-py3-none-any.whl#sha256:f10ffc958ff18ca16ebf62b083e0e4903fb24a26c3fec0386c6ec2a05387fdc5",
   "ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl#sha256:98a411c53a01f313ddfbfcb8c8d20dcd9ced829c7282a01763c81f25c695d79c",
   "protobuf>=4.25.8,<7.35",
   "pydantic<3,>=2.10",

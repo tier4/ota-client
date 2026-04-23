@@ -117,6 +117,7 @@ class Consts:
     # ota status files
     OTA_STATUS_FNAME = "status"
     OTA_VERSION_FNAME = "version"
+    OTA_VERSION_DETAIL_FNAME = "version_detail"
     SLOT_IN_USE_FNAME = "slot_in_use"
 
     DEFAULT_VERSION_STR = ""

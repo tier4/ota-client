@@ -16,11 +16,12 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from pathlib import Path
 from typing import Callable, Optional, Union
 
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -213,6 +214,17 @@ class OTAStatusFilesControl:
             _version,
         )
 
+    def _store_standby_version_detail(self, version_detail: VersionDetail):
+        _data = {
+            "release_name": version_detail.release_name,
+            "release_id": version_detail.release_id,
+            "image_id": version_detail.image_id,
+        }
+        write_str_to_file_atomic(
+            self.standby_ota_status_dir / cfg.OTA_VERSION_DETAIL_FNAME,
+            json.dumps(_data),
+        )
+
     # helper methods
 
     def _is_switching_boot(self, active_slot: str) -> bool:
@@ -243,7 +255,12 @@ class OTAStatusFilesControl:
         self._store_current_status(OTAStatus.FAILURE)
         self._store_current_slot_in_use(self.standby_slot)
 
-    def post_update_standby(self, *, version: str):
+    def post_update_standby(
+        self,
+        *,
+        version: str,
+        version_detail: Optional[VersionDetail] = None,
+    ):
         """On pre_update stage, set standby slot's status to UPDATING,
         set slot_in_use to standby slot, and set version.
 
@@ -257,6 +274,8 @@ class OTAStatusFilesControl:
         # store status to standby slot
         self._store_standby_status(OTAStatus.UPDATING)
         self._store_standby_version(version)
+        if version_detail is not None:
+            self._store_standby_version_detail(version_detail)
         self._store_standby_slot_in_use(self.standby_slot)
 
     def pre_rollback_current(self):
@@ -278,6 +297,32 @@ class OTAStatusFilesControl:
             self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
             _default=cfg.DEFAULT_VERSION_STR,
         )
+
+    def _load_version_detail_from_dir(
+        self, ota_status_dir: Path
+    ) -> Optional[VersionDetail]:
+        """Try to load version_detail JSON. Returns None if not available."""
+        _detail_str = read_str_from_file(
+            ota_status_dir / cfg.OTA_VERSION_DETAIL_FNAME, _default=""
+        )
+        if not _detail_str:
+            return None
+        try:
+            _data = json.loads(_detail_str)
+            return VersionDetail(
+                release_name=_data.get("release_name", ""),
+                release_id=_data.get("release_id", ""),
+                image_id=_data.get("image_id", ""),
+            )
+        except Exception:
+            logger.warning("failed to parse version_detail")
+            return None
+
+    def load_active_slot_version_detail(self) -> Optional[VersionDetail]:
+        return self._load_version_detail_from_dir(self.current_ota_status_dir)
+
+    def load_standby_slot_version_detail(self) -> Optional[VersionDetail]:
+        return self._load_version_detail_from_dir(self.standby_ota_status_dir)
 
     def on_failure(self):
         """Store FAILURE to status file on failure."""

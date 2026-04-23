@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 
 logger = logging.getLogger(__name__)
 
@@ -320,8 +320,15 @@ class MockBootController:
         )
         self._standby_slot_path.mkdir(parents=True, exist_ok=True)
 
-    def post_update(self, update_version: str) -> None:
-        logger.info(f"MockBootController: post_update(version={update_version})")
+    def post_update(
+        self,
+        update_version: str,
+        *,
+        version_detail: VersionDetail | None = None,
+    ) -> None:
+        logger.info(
+            f"MockBootController: post_update(version={update_version}, version_detail={version_detail})"
+        )
         self._standby_version = update_version
 
     def finalizing_update(self, *, chroot: str | None = None) -> None:

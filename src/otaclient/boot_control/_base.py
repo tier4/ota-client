@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 
 from ._ota_status_control import OTAStatusFilesControl
 from ._slot_mnt_helper import SlotMountHelper
@@ -67,6 +67,10 @@ class BootControllerBase(ABC):
     def load_version(self) -> str:
         """Read the version info from the current slot."""
         return self._ota_status_control.load_active_slot_version()
+
+    def load_version_detail(self) -> VersionDetail | None:
+        """Read the version detail from the current slot."""
+        return self._ota_status_control.load_active_slot_version_detail()
 
     def load_standby_slot_version(self) -> str:
         """Read the version info from the standby slot."""
@@ -133,7 +137,12 @@ class BootControllerBase(ABC):
                 _err_msg, module=self.__class__.__module__
             ) from e
 
-    def post_update(self, update_version: str):
+    def post_update(
+        self,
+        update_version: str,
+        *,
+        version_detail: VersionDetail | None = None,
+    ):
         """Template method for post-update setup.
 
         Common flow:
@@ -145,7 +154,10 @@ class BootControllerBase(ABC):
             logger.info(f"{self.bootloader_type}: post-update setup...")
 
             # Step 1: Update standby slot's ota-status
-            self._ota_status_control.post_update_standby(version=update_version)
+            self._ota_status_control.post_update_standby(
+                version=update_version,
+                version_detail=version_detail,
+            )
 
             # Step 2: Platform-specific operations (fstab, boot config, firmware, etc.)
             self._post_update_platform_specific(update_version=update_version)

@@ -201,11 +201,13 @@ class OTAClient:
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
         self.current_version = self.boot_controller.load_version()
+        self.current_version_detail = self.boot_controller.load_version_detail()
 
         status_report_queue.put_nowait(
             StatusReport(
                 payload=SetOTAClientMetaReport(
                     firmware_version=self.current_version,
+                    version_detail=self.current_version_detail,
                 ),
             )
         )
@@ -357,6 +359,9 @@ class OTAClient:
                 session_id=new_session_id,
                 metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
+                release_name=request.release_name,
+                release_id=request.release_id,
+                image_id=request.image_id,
             )
 
             _no_ca_err = "no CA chains are installed, reject any OTA update"
@@ -505,6 +510,9 @@ class OTAClient:
                 client_update_control_flags=self._client_update_control_flags,
                 metrics=self._metrics,
                 shm_metrics_reader=self._shm_metrics_reader,
+                release_name=request.release_name,
+                release_id=request.release_id,
+                image_id=request.image_id,
             ).execute()
         except ota_errors.OTAError:
             logger.warning("client update failed")

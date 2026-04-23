@@ -19,7 +19,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Protocol
 
-from otaclient._types import OTAStatus
+from otaclient._types import OTAStatus, VersionDetail
 
 from ._ota_status_control import OTAStatusFilesControl
 
@@ -60,6 +60,10 @@ class BootControllerProtocol(Protocol):
         """Read the version info from the current slot."""
 
     @abstractmethod
+    def load_version_detail(self) -> VersionDetail | None:
+        """Read the version detail from the current slot."""
+
+    @abstractmethod
     def load_standby_slot_version(self) -> str:
         """Read the version info from the standby slot."""
 
@@ -79,7 +83,12 @@ class BootControllerProtocol(Protocol):
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool): ...
 
     @abstractmethod
-    def post_update(self, update_version: str) -> None: ...
+    def post_update(
+        self,
+        update_version: str,
+        *,
+        version_detail: VersionDetail | None = None,
+    ) -> None: ...
 
     @abstractmethod
     def finalizing_update(self, *, chroot: str | None = None) -> None:

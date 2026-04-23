@@ -57,6 +57,11 @@ def convert_to_apiv2_status(_in: OTAClientStatus) -> api_types.StatusResponseEcu
         ota_status=api_types.StatusOta[_in.ota_status],
     )
 
+    if _in.version_detail is not None:
+        base_res.release_name = _in.version_detail.release_name
+        base_res.release_id = _in.version_detail.release_id
+        base_res.image_id = _in.version_detail.image_id
+
     if _in.ota_status != OTAStatus.UPDATING or not (
         _in.update_meta
         and _in.update_phase

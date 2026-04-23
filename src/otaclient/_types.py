@@ -107,6 +107,15 @@ class AbortState(StrEnum):
 
 
 @dataclass
+class VersionDetail:
+    """Extended version metadata stored as version_detail JSON file."""
+
+    release_name: str = ""
+    release_id: str = ""
+    image_id: str = ""
+
+
+@dataclass
 class UpdateMeta:
     update_firmware_version: str = ""
     image_size_uncompressed: int = 0
@@ -148,6 +157,7 @@ class OTAClientStatus:
     ecu_id: ClassVar[str] = ecu_info.ecu_id
     otaclient_version: ClassVar[str] = __version__
     firmware_version: str = ""
+    version_detail: Optional[VersionDetail] = None
 
     ota_status: OTAStatus = OTAStatus.INITIALIZED
     session_id: str = ""
@@ -210,6 +220,9 @@ class UpdateRequestV2(IPCRequest):
     version: str
     url_base: str
     cookies_json: str
+    release_name: str = ""
+    release_id: str = ""
+    image_id: str = ""
 
 
 @dataclass
@@ -224,6 +237,9 @@ class ClientUpdateRequestV2(IPCRequest):
     version: str
     url_base: str
     cookies_json: str
+    release_name: str = ""
+    release_id: str = ""
+    image_id: str = ""
 
 
 @dataclass
