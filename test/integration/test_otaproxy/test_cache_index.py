@@ -305,7 +305,9 @@ class TestCacheIndexDBInitFailure:
             side_effect=RuntimeError("simulated init_db failure"),
         )
 
-        idx = CacheIndex(tmp_path / "cache.db", tmp_path / "ota-cache", force_init_db=True)
+        idx = CacheIndex(
+            tmp_path / "cache.db", tmp_path / "ota-cache", force_init_db=True
+        )
         try:
             assert idx._db_writer is None
             assert idx._db_thread is None
