@@ -284,3 +284,111 @@ class TestCacheIndexCommitAndRemove:
         for key in to_remove_keys:
             assert key not in remaining
         assert len(remaining) == DB_ENTRIES - ENTRIES_TO_REMOVE
+
+
+# ---- CacheIndex degraded-mode (DB init failure) ---- #
+
+
+class TestCacheIndexDBInitFailure:
+    """CacheIndex must gracefully degrade when DB init/validation fails.
+
+    Persistence is best-effort: the in-memory index is the source of truth
+    during a proxy session, and a broken SQLite file must not crash startup.
+    """
+
+    def test_force_init_failure_degrades(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """force_init_db=True with a failing init_db must disable DB persistence."""
+        mocker.patch(
+            "ota_proxy.cache_index.init_db",
+            side_effect=RuntimeError("simulated init_db failure"),
+        )
+
+        idx = CacheIndex(tmp_path / "cache.db", tmp_path / "ota-cache", force_init_db=True)
+        try:
+            assert idx._db_writer is None
+            assert idx._db_thread is None
+        finally:
+            idx.close()
+
+    def test_check_db_failure_then_reinit_failure_degrades(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """check_db raising + subsequent force-init failing must disable DB."""
+        mocker.patch(
+            "ota_proxy.cache_index.check_db",
+            side_effect=sqlite3.DatabaseError("simulated DB corruption"),
+        )
+        mocker.patch(
+            "ota_proxy.cache_index.init_db",
+            side_effect=RuntimeError("simulated init_db failure"),
+        )
+
+        idx = CacheIndex(tmp_path / "cache.db", tmp_path / "ota-cache")
+        try:
+            assert idx._db_writer is None
+            assert idx._db_thread is None
+        finally:
+            idx.close()
+
+    def test_check_db_invalid_then_reinit_failure_degrades(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """check_db returning False + force-init failing must disable DB."""
+        mocker.patch("ota_proxy.cache_index.check_db", return_value=False)
+        mocker.patch(
+            "ota_proxy.cache_index.init_db",
+            side_effect=RuntimeError("simulated init_db failure"),
+        )
+
+        idx = CacheIndex(tmp_path / "cache.db", tmp_path / "ota-cache")
+        try:
+            assert idx._db_writer is None
+            assert idx._db_thread is None
+        finally:
+            idx.close()
+
+    def test_degraded_mode_operations_are_safe(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """In degraded mode, commit/lookup/remove/close must all work in-memory only."""
+        mocker.patch(
+            "ota_proxy.cache_index.init_db",
+            side_effect=RuntimeError("simulated init_db failure"),
+        )
+
+        base_dir = tmp_path / "ota-cache"
+        idx = CacheIndex(tmp_path / "cache.db", base_dir, force_init_db=True)
+        try:
+            assert idx._db_writer is None
+
+            sample = [
+                CacheMeta(
+                    file_sha256=url_based_hash(f"http://example.com/degraded/{i}"),
+                    url=f"http://example.com/degraded/{i}",
+                    cache_size=1024,
+                    last_access=int(time.time()),
+                )
+                for i in range(5)
+            ]
+
+            # commit_entry populates the in-memory index and returns True
+            for e in sample:
+                assert idx.commit_entry(e) is True
+                assert idx.lookup_entry(e.file_sha256) is not None
+
+            # remove_entry clears the in-memory index entry
+            to_remove = sample[0]
+            idx.remove_entry(to_remove.file_sha256)
+            assert idx.lookup_entry(to_remove.file_sha256) is None
+
+            # remaining entries untouched
+            for e in sample[1:]:
+                assert idx.lookup_entry(e.file_sha256) is not None
+
+            # removing a key that isn't tracked must be a no-op
+            idx.remove_entry("nonexistent")
+        finally:
+            # close() must be a safe no-op even without writer/thread
+            idx.close()

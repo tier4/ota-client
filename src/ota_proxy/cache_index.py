@@ -199,36 +199,54 @@ class CacheIndex:
 
         self._index: dict[str, CacheIndexEntry] = {}
 
-        if force_init_db:
-            logger.info("cache DB init requested ...")
-            self._force_init_db()
-        else:
-            # Validate DB and load, re-init on failure
-            self._ensure_db_and_load()
+        _use_db = True
+        try:
+            if force_init_db:
+                logger.info("cache DB init requested ...")
+                self._force_init_db()
+            else:
+                # Validate DB and load, re-init on failure
+                self._ensure_db_and_load()
+        except Exception as e:
+            logger.error(
+                f"failed to init DB, will disable DB for persisting cache meta: {e!r}"
+            )
+            _use_db = False
 
-        self._db_writer = _db_writer = CacheDBWriter(self._db_f)
-        self._db_thread = threading.Thread(
-            target=_db_writer.start_thread,
-            daemon=True,
-            name="cache_index_db_worker",
-        )
-        self._db_thread.start()
+        if _use_db:
+            self._db_writer = _db_writer = CacheDBWriter(self._db_f)
+            self._db_thread = threading.Thread(
+                target=_db_writer.start_thread,
+                daemon=True,
+                name="cache_index_db_worker",
+            )
+            self._db_thread.start()
+        else:
+            self._db_writer = None
+            self._db_thread = None
 
     def _force_init_db(self) -> None:
         """Delete and re-create the DB file with an empty table."""
         logger.info("force init cache DB ...")
-        self._db_f.unlink(missing_ok=True)
-        init_db(self._db_f, self._table_name)
-        logger.info(f"cache index: re-initialized DB at {self._db_f}")
+        try:
+            self._db_f.unlink(missing_ok=True)
+            init_db(self._db_f, self._table_name)
+            logger.info(f"cache index: re-initialized DB at {self._db_f}")
+        except Exception as e:
+            logger.exception(f"failed to force init DB file at {self._db_f}: {e!r}")
+            raise
 
     def _ensure_db_and_load(self) -> None:
         """Validate DB, load entries into index. Re-init DB on any failure."""
-        if not check_db(self._db_f, self._table_name):
-            logger.warning(
-                f"cache index: DB validation failed, re-initializing {self._db_f}"
-            )
-            self._force_init_db()
-            return
+        try:
+            _db_file_ok = check_db(self._db_f, self._table_name)
+        except Exception as e:
+            logger.exception(f"DB file broken, force init: {e!r}")
+            return self._force_init_db()
+
+        if not _db_file_ok:
+            logger.warning(f"{self._db_f} failed the integrity check, force init ...")
+            return self._force_init_db()
 
         try:
             _res, _exceed = self._preload_from_db()
@@ -242,7 +260,7 @@ class CacheIndex:
             logger.info("pre-load DB finished")
         except Exception as e:
             logger.exception(
-                f"cache index: failed to load from DB, re-initializing {self._db_f}: {e!r}"
+                f"cache index: failed to load from DB, force re-initializing {self._db_f}: {e!r}"
             )
 
             self._index.clear()
@@ -316,7 +334,8 @@ class CacheIndex:
     def remove_entry(self, file_sha256: str) -> None:
         """Remove entry from in-memory index and register remove from DB."""
         self._index.pop(file_sha256, None)
-        self._db_writer.remove_entry(file_sha256)
+        if self._db_writer:
+            self._db_writer.remove_entry(file_sha256)
 
     def commit_entry(self, entry: CacheMeta) -> bool:
         """Add entry to in-memory index and queue DB write."""
@@ -343,9 +362,11 @@ class CacheIndex:
 
         # with GIL, write to dict is atomic
         self._index[key] = index_entry
-        self._db_writer.register_entry(entry)
+        if self._db_writer:
+            self._db_writer.register_entry(entry)
         return True
 
     def close(self) -> None:
-        self._db_writer.close()
-        self._db_thread.join(timeout=DB_SHUTDOWN_TIMEOUT)
+        if self._db_writer and self._db_thread:
+            self._db_writer.close()
+            self._db_thread.join(timeout=DB_SHUTDOWN_TIMEOUT)
