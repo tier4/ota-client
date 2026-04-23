@@ -97,8 +97,6 @@ HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 
-SKIP_CLIENT_UPDATE = False  # for testing purpose, skip client update
-
 
 class OTAClient:
     """The adapter between OTAClient gRPC interface and the OTA implementation."""
@@ -454,10 +452,6 @@ class OTAClient:
         NOTE that client update API will not raise any exceptions. The failure information
             is available via status API.
         """
-        if SKIP_CLIENT_UPDATE:
-            logger.warning("SKIP_CLIENT_UPDATE is set to True, skip client update")
-            return
-
         if _env.is_running_as_downloaded_dynamic_app():
             # Duplicates client update should not be allowed.
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
