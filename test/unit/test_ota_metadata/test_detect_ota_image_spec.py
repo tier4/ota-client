@@ -101,8 +101,5 @@ def test_check_if_ota_image_v1_retries_then_gives_up(
     assert (
         check_if_ota_image_v1("https://example.com/ota", downloader_pool=pool) is False
     )
-    assert (
-        downloader._session.get.call_count
-        == detect_ota_image_ver.RETRY_TIMES
-    )
+    assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES
     pool.release_instance.assert_called_once()

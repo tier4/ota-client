@@ -33,9 +33,7 @@ class TestDownloadMetafiles:
     """Test cases for OTAMetadata.download_metafiles method."""
 
     @pytest.fixture
-    def ota_metadata(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> OTAMetadata:
+    def ota_metadata(self, tmp_path: Path, mocker: MockerFixture) -> OTAMetadata:
         session_dir = tmp_path / "session"
         session_dir.mkdir(parents=True)
         # NOTE: Use `Mock` (not `MagicMock`) so the spec'd `__len__` from Dict
