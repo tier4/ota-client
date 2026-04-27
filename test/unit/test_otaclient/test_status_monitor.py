@@ -85,7 +85,6 @@ class TestStatusMonitor:
     ):
         status_collector, msg_queue = ota_status_collector
 
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
@@ -112,7 +111,6 @@ class TestStatusMonitor:
             ),
         )
 
-        # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
 
         otaclient_status = status_collector.otaclient_status
@@ -127,7 +125,6 @@ class TestStatusMonitor:
         self, ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]]
     ) -> None:
         status_collector, msg_queue = ota_status_collector
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -148,7 +145,6 @@ class TestStatusMonitor:
             )
         )
 
-        # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
 
         otaclient_status = status_collector.otaclient_status
@@ -174,7 +170,6 @@ class TestStatusMonitor:
 
         _invalid_session_id = "invalid_session_id"
 
-        # put an update meta change report
         msg_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
@@ -185,8 +180,6 @@ class TestStatusMonitor:
                 session_id=_invalid_session_id,
             )
         )
-
-        # put an update phase chagne report
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -196,8 +189,6 @@ class TestStatusMonitor:
                 session_id=_invalid_session_id,
             )
         )
-
-        # put an update progress change report
         msg_queue.put_nowait(
             StatusReport(
                 payload=UpdateProgressReport(
@@ -219,7 +210,6 @@ class TestStatusMonitor:
         status_collector, msg_queue = ota_status_collector
         _now = int(time.time())
 
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -242,7 +232,6 @@ class TestStatusMonitor:
                 )
             )
 
-        # NOTE: we know what to download after delta being calculated
         msg_queue.put_nowait(
             StatusReport(
                 payload=SetUpdateMetaReport(
@@ -254,7 +243,6 @@ class TestStatusMonitor:
             )
         )
 
-        # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
 
         otaclient_status = status_collector.otaclient_status
@@ -278,7 +266,6 @@ class TestStatusMonitor:
         status_collector, msg_queue = ota_status_collector
         _now = int(time.time())
 
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -308,7 +295,6 @@ class TestStatusMonitor:
             _errors_count += _errors
             _downloaded_bytes_sum += _downloaded_bytes
 
-        # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
 
         otaclient_status = status_collector.otaclient_status
@@ -334,7 +320,6 @@ class TestStatusMonitor:
 
         _now = int(time.time())
 
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAUpdatePhaseChangeReport(
@@ -357,7 +342,6 @@ class TestStatusMonitor:
                 )
             )
 
-        # ------ assertion ------ #
         time.sleep(2)  # wait for reports being processed
         otaclient_status = status_collector.otaclient_status
         assert otaclient_status
@@ -433,7 +417,6 @@ class TestStatusMonitor:
     ) -> None:
         status_collector, msg_queue = ota_status_collector
 
-        # ------ execution ------ #
         msg_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(

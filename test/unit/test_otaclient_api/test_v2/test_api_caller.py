@@ -25,7 +25,8 @@ from otaclient_api.v2.api_caller import (
     ECUNoResponse,
     OTAClientCall,
 )
-from tests.utils import compare_message
+
+from ._compare import compare_message
 
 
 class _DummyOTAClientService(v2_grpc.OtaClientServiceServicer):

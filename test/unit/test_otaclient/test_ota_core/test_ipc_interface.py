@@ -56,20 +56,17 @@ class TestOTAClient:
             return_value=False
         )
         client_update_control_flags = mocker.MagicMock()
-        # --- mock setup --- #
+
         self.control_flags = ecu_status_flags
         self.ota_updater = mocker.MagicMock(spec=OTAUpdaterForLegacyOTAImage)
         self.ota_client_updater = mocker.MagicMock(spec=OTAClientUpdater)
 
         self.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
-
-        # patch boot_controller for otaclient initializing
         self.boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
         self.boot_controller.get_booted_ota_status = mocker.MagicMock(
             return_value=OTAStatus.SUCCESS
         )
 
-        # patch inject mocked updater
         mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForLegacyOTAImage",
             return_value=self.ota_updater,
@@ -83,7 +80,6 @@ class TestOTAClient:
             return_value=self.boot_controller,
         )
 
-        # start otaclient
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,
             status_report_queue=status_report_queue,
@@ -96,7 +92,6 @@ class TestOTAClient:
     def test_update_normal_finished(self, mocker: pytest_mock.MockerFixture):
         mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
 
-        # --- execution --- #
         self.ota_client.update(
             request=UpdateRequestV2(
                 version=self.UPDATE_FIRMWARE_VERSION,
@@ -107,7 +102,6 @@ class TestOTAClient:
             )
         )
 
-        # --- assert on update finished(before reboot) --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
 
@@ -119,11 +113,9 @@ class TestOTAClient:
         )
         mock_publish = mocker.patch.object(type(self.ota_client._metrics), "publish")
 
-        # inject exception
         _error = OTAErrorRecoverable("interrupted by test as expected", module=__name__)
         self.ota_updater.execute.side_effect = _error
 
-        # --- execution --- #
         self.ota_client.update(
             request=UpdateRequestV2(
                 version=self.UPDATE_FIRMWARE_VERSION,
@@ -134,7 +126,6 @@ class TestOTAClient:
             )
         )
 
-        # --- assertion on interrupted OTA update --- #
         self.ota_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
 
@@ -145,7 +136,6 @@ class TestOTAClient:
         """Test client update with normal completion."""
         from otaclient._types import ClientUpdateRequestV2
 
-        # --- execution --- #
         self.ota_client.client_update(
             request=ClientUpdateRequestV2(
                 version=self.UPDATE_FIRMWARE_VERSION,
@@ -156,7 +146,6 @@ class TestOTAClient:
             )
         )
 
-        # --- assert on update finished --- #
         self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.CLIENT_UPDATING
 
@@ -164,7 +153,6 @@ class TestOTAClient:
         """Test client update with interruption."""
         from otaclient._types import ClientUpdateRequestV2
 
-        # inject exception
         _error = OTAErrorRecoverable(
             "client update interrupted by test as expected", module=__name__
         )
@@ -173,7 +161,6 @@ class TestOTAClient:
             mocker.MagicMock()
         )
 
-        # --- execution --- #
         self.ota_client.client_update(
             request=ClientUpdateRequestV2(
                 version=self.UPDATE_FIRMWARE_VERSION,
@@ -184,6 +171,5 @@ class TestOTAClient:
             )
         )
 
-        # --- assertion on interrupted client update --- #
         self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
