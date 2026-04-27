@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+"""Integration tests for `load_ca_cert_chains` against subprocess-generated CA chains."""
 
 from __future__ import annotations
 
@@ -23,11 +23,8 @@ import pytest
 from cryptography.x509 import load_pem_x509_certificate
 
 from ota_metadata.utils.cert_store import CACertStoreInvalid, load_ca_cert_chains
-from tests.conftest import TEST_DIR
-from tests.conftest import TestConfiguration as cfg
 
-GEN_CERTS_SCRIPT = TEST_DIR / "keys" / "gen_certs.sh"
-TEST_BASE_SIGN_PEM = Path(cfg.CERTS_DIR) / "sign.pem"
+GEN_CERTS_SCRIPT = Path(__file__).parent / "keys" / "gen_certs.sh"
 
 
 @pytest.fixture
