@@ -29,6 +29,7 @@ from otaclient.configs._ecu_info import ECUInfo, parse_ecu_info
 from otaclient.grpc.api_v2.ecu_status import (
     ACTIVE_POLLING_INTERVAL,
     IDLE_POLLING_INTERVAL,
+    LocalECUStatusNotReady,
 )
 from otaclient.grpc.api_v2.servicer import ECUStatusStorage
 from otaclient_api.v2 import _types as api_types
@@ -195,3 +196,72 @@ class TestECUStatusStorageAbortingStatus:
         await asyncio.sleep(self.SAFE_INTERVAL_FOR_PROPERTY_UPDATE)
 
         assert self.ecu_storage.get_polling_interval() == IDLE_POLLING_INTERVAL
+
+
+class TestECUStatusStorageExportLocalECUNotReady:
+    """Tests for export() gating during the local ECU startup race."""
+
+    @pytest.fixture(autouse=True)
+    async def setup_test(self, mocker: MockerFixture, ecu_info_fixture: ECUInfo):
+        self.ecu_info = ecu_info = ecu_info_fixture
+        mocker.patch(f"{ECU_STATUS_MODULE}.ecu_info", ecu_info)
+
+        self.ecu_status_flags = ecu_status_flags = MultipleECUStatusFlags(
+            any_child_ecu_in_update=threading.Event(),  # type: ignore[assignment]
+            any_requires_network=threading.Event(),  # type: ignore[assignment]
+            all_success=threading.Event(),  # type: ignore[assignment]
+        )
+        self.ecu_storage = ECUStatusStorage(ecu_status_flags=ecu_status_flags)
+
+        try:
+            yield
+        finally:
+            self.ecu_storage._debug_properties_update_shutdown_event.set()
+
+    async def test_export_raises_when_local_ecu_status_not_ready(self):
+        """During the startup window before the local OTA core writes its first
+        status into shared memory, my_ecu_id is absent from all_ecus_status_v2.
+        export() must raise LocalECUStatusNotReady so the gRPC layer returns
+        UNAVAILABLE instead of a response that omits the local ECU from ecu_v2.
+        """
+        # No update_from_local_ecu call: simulate the cold-start window.
+        # A child ECU's status arriving first must not unblock export().
+        await self.ecu_storage.update_from_child_ecu(
+            api_types.StatusResponse(
+                available_ecu_ids=["p1"],
+                ecu_v2=[
+                    api_types.StatusResponseEcuV2(
+                        ecu_id="p1",
+                        ota_status=api_types.StatusOta.SUCCESS,
+                    ),
+                ],
+            )
+        )
+
+        with pytest.raises(LocalECUStatusNotReady):
+            await self.ecu_storage.export()
+
+    async def test_export_proxy_ecu_without_local_status_does_not_raise(self):
+        """When the local ECU is configured as a proxy/aggregator (not in its
+        own available_ecu_ids), missing local status is the steady state and
+        export() must return normally with the child ECUs' statuses.
+        """
+        # Simulate proxy config: drop my_ecu_id from available_ecu_ids.
+        self.ecu_storage._state.available_ecu_ids.pop(self.ecu_storage.my_ecu_id, None)
+
+        await self.ecu_storage.update_from_child_ecu(
+            api_types.StatusResponse(
+                available_ecu_ids=["p1"],
+                ecu_v2=[
+                    api_types.StatusResponseEcuV2(
+                        ecu_id="p1",
+                        ota_status=api_types.StatusOta.SUCCESS,
+                    ),
+                ],
+            )
+        )
+
+        exported = await self.ecu_storage.export()
+        assert self.ecu_storage.my_ecu_id not in list(exported.available_ecu_ids)
+        assert exported.find_ecu_v2("p1") is not None
+        assert exported.find_ecu_v2(self.ecu_storage.my_ecu_id) is None
