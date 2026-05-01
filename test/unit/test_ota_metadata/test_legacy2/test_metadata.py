@@ -11,18 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-Tests for OTAMetadata.download_metafiles method.
-"""
+"""Tests for OTAMetadata.download_metafiles method."""
 
 from __future__ import annotations
 
 import logging
-import shutil
-import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -37,40 +32,32 @@ logger = logging.getLogger(__name__)
 class TestDownloadMetafiles:
     """Test cases for OTAMetadata.download_metafiles method."""
 
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
-        self.session_dir = Path(self.temp_dir) / "session"
-        self.session_dir.mkdir(parents=True)
-
-        # Mock CA store
-        self.ca_store = Mock(spec=CAChainStore)
-
-        # Create test OTAMetadata instance
-        self.ota_metadata = OTAMetadata(
+    @pytest.fixture
+    def ota_metadata(self, tmp_path: Path, mocker: MockerFixture) -> OTAMetadata:
+        session_dir = tmp_path / "session"
+        session_dir.mkdir(parents=True)
+        # NOTE: Use `Mock` (not `MagicMock`) so the spec'd `__len__` from Dict
+        # isn't auto-configured to return 0; OTAMetadata's constructor checks
+        # `if not ca_chains_store:` and would otherwise reject the empty mock.
+        ca_store = mocker.Mock(spec=CAChainStore)
+        return OTAMetadata(
             base_url="https://example.com/ota",
-            session_dir=self.session_dir,
-            ca_chains_store=self.ca_store,
+            session_dir=session_dir,
+            ca_chains_store=ca_store,
         )
 
-    def teardown_method(self):
-        """Clean up test fixtures."""
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    def test_download_metafiles_basic_flow(self, mocker: MockerFixture):
+    def test_download_metafiles_basic_flow(
+        self, ota_metadata: OTAMetadata, mocker: MockerFixture
+    ):
         """Test basic flow of download_metafiles method."""
-        # Mock the internal helper methods
-        mock_prepare_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_metadata"
-        )
+        mock_prepare_metadata = mocker.patch.object(ota_metadata, "_prepare_metadata")
         mock_prepare_ota_image_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_ota_image_metadata"
+            ota_metadata, "_prepare_ota_image_metadata"
         )
         mock_prepare_persist_meta = mocker.patch.object(
-            self.ota_metadata, "_prepare_persist_meta"
+            ota_metadata, "_prepare_persist_meta"
         )
 
-        # Set up mock return values
         metadata_downloads = [
             DownloadInfo(
                 url="https://example.com/ota/metadata.jwt",
@@ -112,38 +99,30 @@ class TestDownloadMetafiles:
         mock_prepare_ota_image_metadata.return_value = iter([ota_image_downloads])
         mock_prepare_persist_meta.return_value = iter([persist_downloads])
 
-        # Execute the method
         condition = threading.Condition()
-        generator = self.ota_metadata.download_metafiles(condition)
+        downloads = list(ota_metadata.download_metafiles(condition))
 
-        # Collect all yielded download info lists
-        downloads = list(generator)
-
-        # Verify the results
         assert len(downloads) == 3
         assert downloads[0] == metadata_downloads
         assert downloads[1] == ota_image_downloads
         assert downloads[2] == persist_downloads
 
-        # Verify method calls
         mock_prepare_metadata.assert_called_once()
         mock_prepare_ota_image_metadata.assert_called_once()
         mock_prepare_persist_meta.assert_called_once()
 
-    def test_download_metafiles_only_metadata_verification(self, mocker: MockerFixture):
+    def test_download_metafiles_only_metadata_verification(
+        self, ota_metadata: OTAMetadata, mocker: MockerFixture
+    ):
         """Test download_metafiles with only_metadata_verification=True."""
-        # Mock the internal helper methods
-        mock_prepare_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_metadata"
-        )
+        mock_prepare_metadata = mocker.patch.object(ota_metadata, "_prepare_metadata")
         mock_prepare_ota_image_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_ota_image_metadata"
+            ota_metadata, "_prepare_ota_image_metadata"
         )
         mock_prepare_persist_meta = mocker.patch.object(
-            self.ota_metadata, "_prepare_persist_meta"
+            ota_metadata, "_prepare_persist_meta"
         )
 
-        # Set up mock return values
         metadata_downloads = [
             DownloadInfo(
                 url="https://example.com/ota/metadata.jwt",
@@ -153,48 +132,37 @@ class TestDownloadMetafiles:
 
         mock_prepare_metadata.return_value = iter([metadata_downloads])
 
-        # Execute the method with only_metadata_verification=True
         condition = threading.Condition()
-        generator = self.ota_metadata.download_metafiles(
-            condition, only_metadata_verification=True
+        downloads = list(
+            ota_metadata.download_metafiles(condition, only_metadata_verification=True)
         )
 
-        # Collect all yielded download info lists
-        downloads = list(generator)
-
-        # Verify the results
         assert len(downloads) == 1
         assert downloads[0] == metadata_downloads
 
-        # Verify method calls
         mock_prepare_metadata.assert_called_once()
         mock_prepare_ota_image_metadata.assert_not_called()
         mock_prepare_persist_meta.assert_not_called()
 
-    def test_download_metafiles_exception_handling(self, mocker: MockerFixture):
+    def test_download_metafiles_exception_handling(
+        self, ota_metadata: OTAMetadata, mocker: MockerFixture
+    ):
         """Test exception handling in download_metafiles method."""
-        # Mock the internal helper methods
-        mock_prepare_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_metadata"
-        )
+        mock_prepare_metadata = mocker.patch.object(ota_metadata, "_prepare_metadata")
         mock_prepare_ota_image_metadata = mocker.patch.object(
-            self.ota_metadata, "_prepare_ota_image_metadata"
+            ota_metadata, "_prepare_ota_image_metadata"
         )
 
-        # Set up mock to raise exception
         test_exception = Exception("Test exception")
         mock_prepare_metadata.side_effect = test_exception
 
-        # Execute the method and expect exception
         condition = threading.Condition()
-        generator = self.ota_metadata.download_metafiles(condition)
+        generator = ota_metadata.download_metafiles(condition)
 
         with pytest.raises(Exception) as exc_info:
             list(generator)
 
-        # Verify the exception is propagated
         assert exc_info.value is test_exception
 
-        # Verify method calls
         mock_prepare_metadata.assert_called_once()
         mock_prepare_ota_image_metadata.assert_not_called()

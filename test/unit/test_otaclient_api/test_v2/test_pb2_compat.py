@@ -34,7 +34,8 @@ from otaclient_pb2.v2 import otaclient_v2_pb2 as v2
 from otaclient_pb2.v2 import otaclient_v2_pb2_grpc as v2_grpc
 
 from otaclient_api.v2 import _types as api_types
-from tests.utils import compare_message
+
+from ._compare import compare_message
 
 # ---------------------------------------------------------------------------
 # Symbol existence
