@@ -61,6 +61,23 @@ IDLE_POLLING_INTERVAL = 10  # second
 ACTIVE_POLLING_INTERVAL = 1  # seconds
 
 
+class LocalECUStatusNotReady(Exception):
+    """Raised by export() during the startup race for an OTA-managed local ECU.
+
+    When the local ECU is listed in its own available_ecu_ids but the OTA core
+    has not yet written its first OTAClientStatus into shared memory, the
+    storage has no entry for my_ecu_id. Returning a StatusResponse in that
+    state would advertise my_ecu_id in available_ecu_ids while omitting it
+    from ecu_v2, which downstream agents can misinterpret as a healthy ECU
+    with no status. The gRPC layer maps this exception to UNAVAILABLE so the
+    caller will retry instead.
+
+    NOTE: this is *not* raised when the local ECU is configured as a pure
+    proxy/aggregator (i.e. my_ecu_id not in available_ecu_ids). In that
+    configuration, missing local status is the steady state.
+    """
+
+
 @dataclass
 class ECUStatusState:
     """State container for ECUStatusStorage."""
@@ -369,10 +386,27 @@ class ECUStatusStorage:
         NOTE: to align with preivous behavior that disconnected ECU should have no
               entry in status API response, simulate this behavior by skipping
               disconnected ECU's status report entry.
+
+        Raises:
+            LocalECUStatusNotReady: if the local ECU's status has not yet been
+                collected. The gRPC layer maps this to UNAVAILABLE so callers
+                retry rather than receive a response that omits the local ECU.
         """
         res = api_types.StatusResponse()
 
         async with self._writer_lock:
+            # Only gate on local status when this ECU is itself OTA-managed
+            # (listed in its own available_ecu_ids). When the local ECU is
+            # configured as a pure proxy/aggregator (not in available_ecu_ids),
+            # missing local status is the steady state, not a startup race.
+            if (
+                self.my_ecu_id in self._state.available_ecu_ids
+                and self.my_ecu_id not in self._state.all_ecus_status_v2
+            ):
+                raise LocalECUStatusNotReady(
+                    f"local ECU {self.my_ecu_id!r} status not yet collected"
+                )
+
             res.available_ecu_ids.extend(self._state.available_ecu_ids)
 
             # NOTE(20230802): export all reachable ECUs' status, no matter they are in
