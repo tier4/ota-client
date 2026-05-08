@@ -35,129 +35,22 @@ from otaclient.boot_control._grub_new import GrubBootController
 from otaclient.errors import BootControlPostUpdateFailed, BootControlPreUpdateFailed
 
 from .conftest import (
-    GRUB_CFG_CONTENT,
-    INITRD_FNAME,
-    KERNEL_FNAME,
-    KERNEL_VERSION,
-    SAMPLE_FSTAB,
-    SLOT_B_UUID,
-    _create_dummy_kernel,
-    _create_rootfs,
+    GRUB_INITRD_FNAME,
+    GRUB_KERNEL_FNAME,
+    GRUB_KERNEL_VERSION,
+    GRUB_NEW_INITRD_FNAME,
+    GRUB_NEW_KERNEL_FNAME,
+    GRUB_SAMPLE_FSTAB,
+    GRUB_SLOT_B_UUID,
+    _create_grub_rootfs,
+    _setup_fresh_grub_ecu_boot,
+    _setup_new_grub_managed_boot,
+    _setup_old_grub_managed_boot,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers for setting up different /boot scenarios
-# ---------------------------------------------------------------------------
-
-
-def _setup_new_grub_managed_boot(
-    boot_dir: Path,
-    *,
-    ota_status: str = "SUCCESS",
-    slot_in_use: str = "ota-slot_a",
-) -> None:
-    """Set up /boot as if already managed by the new grub boot control."""
-    # --- /boot/ota-slot_a/ with kernel, initrd, and OTA status files ---
-    slot_a_dir = boot_dir / "ota-slot_a"
-    _create_dummy_kernel(slot_a_dir)
-    (slot_a_dir / "grub").mkdir(exist_ok=True)
-    (slot_a_dir / "status").write_text(ota_status)
-    (slot_a_dir / "slot_in_use").write_text(slot_in_use)
-    (slot_a_dir / "version").write_text("2.0.0")
-
-    # --- /boot/ota-slot_b/ (standby, minimal) ---
-    slot_b_dir = boot_dir / "ota-slot_b"
-    slot_b_dir.mkdir(parents=True, exist_ok=True)
-    (slot_b_dir / "grub").mkdir(exist_ok=True)
-
-    # --- /boot/grub/grub.cfg as OTA-managed ---
-    managed_cfg = OTAManagedCfg(
-        raw_contents=GRUB_CFG_CONTENT.strip(),
-        grub_version="2.12",
-    )
-    (boot_dir / "grub" / "grub.cfg").write_text(managed_cfg.export())
-
-    # --- /boot/grub/grubenv ---
-    (boot_dir / "grub" / "grubenv").write_text("saved_entry=ota-slot_a\n")
-
-    # --- /boot/grub/ota-slot_a.cfg ---
-    (boot_dir / "grub" / "ota-slot_a.cfg").write_text(
-        "menuentry 'ota-slot_a' { linux /ota-slot_a/vmlinuz-" + KERNEL_VERSION + " }\n"
-    )
-
-    # --- /boot/efi (created by controller init for UEFI systems) ---
-    (boot_dir / "efi").mkdir(exist_ok=True)
-
-    # --- kernel copies at /boot root (backward compat) ---
-    (boot_dir / KERNEL_FNAME).write_text("dummy-kernel")
-    (boot_dir / INITRD_FNAME).write_text("dummy-initrd")
-
-
-def _setup_fresh_ecu_boot(boot_dir: Path) -> None:
-    """Set up /boot as a fresh ECU, not managed by OTA.
-
-    Kernel and initrd are at /boot root. grub.cfg is a normal
-    (non-OTA-managed) file.
-    """
-    _create_dummy_kernel(boot_dir)
-    (boot_dir / "grub" / "grub.cfg").write_text(GRUB_CFG_CONTENT)
-
-
-def _setup_old_grub_managed_boot(boot_dir: Path) -> None:
-    """Set up /boot as if managed by the old grub boot control.
-
-    Old layout:
-      /boot/grub/grub.cfg -> ../ota-partition/grub.cfg  (symlink)
-      /boot/ota-partition -> ota-partition.sda3           (symlink)
-      /boot/ota-partition.sda3/                           (active slot)
-      /boot/ota-partition.sda4/                           (standby slot)
-      /boot/vmlinuz-ota -> ota-partition/vmlinuz-ota      (symlink)
-      /boot/initrd.img-ota -> ota-partition/initrd.img-ota
-      /boot/vmlinuz-ota.standby -> ota-partition.sda4/vmlinuz-ota
-      /boot/initrd.img-ota.standby -> ota-partition.sda4/initrd.img-ota
-
-    No actual kernel files at /boot root.
-    """
-    # --- active slot: ota-partition.sda3 ---
-    active_part = boot_dir / "ota-partition.sda3"
-    active_part.mkdir(parents=True)
-    (active_part / KERNEL_FNAME).write_text("dummy-kernel")
-    (active_part / INITRD_FNAME).write_text("dummy-initrd")
-    (active_part / "vmlinuz-ota").symlink_to(KERNEL_FNAME)
-    (active_part / "initrd.img-ota").symlink_to(INITRD_FNAME)
-    (active_part / "grub.cfg").write_text(GRUB_CFG_CONTENT)
-    (active_part / "status").write_text("SUCCESS")
-    (active_part / "slot_in_use").write_text("sda3")
-    (active_part / "version").write_text("1.0.0")
-
-    # --- standby slot: ota-partition.sda4 (minimal) ---
-    standby_part = boot_dir / "ota-partition.sda4"
-    standby_part.mkdir(parents=True)
-    (standby_part / KERNEL_FNAME).write_text("dummy-kernel-standby")
-    (standby_part / INITRD_FNAME).write_text("dummy-initrd-standby")
-    (standby_part / "vmlinuz-ota").symlink_to(KERNEL_FNAME)
-    (standby_part / "initrd.img-ota").symlink_to(INITRD_FNAME)
-
-    # --- /boot/ota-partition symlink -> ota-partition.sda3 ---
-    (boot_dir / "ota-partition").symlink_to("ota-partition.sda3")
-
-    # --- /boot/grub/grub.cfg symlink -> ../ota-partition/grub.cfg ---
-    grub_cfg_path = boot_dir / "grub" / "grub.cfg"
-    grub_cfg_path.unlink(missing_ok=True)
-    grub_cfg_path.symlink_to("../ota-partition/grub.cfg")
-
-    # --- global ota kernel/initrd symlinks (no actual files at /boot root) ---
-    (boot_dir / "vmlinuz-ota").symlink_to("ota-partition/vmlinuz-ota")
-    (boot_dir / "initrd.img-ota").symlink_to("ota-partition/initrd.img-ota")
-    (boot_dir / "vmlinuz-ota.standby").symlink_to("ota-partition.sda4/vmlinuz-ota")
-    (boot_dir / "initrd.img-ota.standby").symlink_to(
-        "ota-partition.sda4/initrd.img-ota"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Assertion helpers
-# ---------------------------------------------------------------------------
+#
+# ------------ Assertion helpers ------------ #
+#
 
 
 def _assert_ota_managed_grub_cfg(boot_dir: Path) -> None:
@@ -178,8 +71,8 @@ def _assert_slot_boot_dir(boot_dir: Path, slot_id: str) -> None:
     """Assert that the slot boot directory has the expected structure."""
     slot_dir = boot_dir / slot_id
     assert slot_dir.is_dir()
-    assert (slot_dir / KERNEL_FNAME).is_file()
-    assert (slot_dir / INITRD_FNAME).is_file()
+    assert (slot_dir / GRUB_KERNEL_FNAME).is_file()
+    assert (slot_dir / GRUB_INITRD_FNAME).is_file()
     assert (slot_dir / "grub").is_dir(), "slot dir must have a dummy grub/ subdir"
 
 
@@ -197,7 +90,7 @@ def _assert_slot_boot_cfg(boot_dir: Path, slot_id: str) -> None:
     assert cfg_path.is_file()
     content = cfg_path.read_text()
     assert f"'{slot_id}'" in content, f"boot cfg must reference slot id {slot_id}"
-    assert KERNEL_VERSION in content, "boot cfg must reference the kernel version"
+    assert GRUB_KERNEL_VERSION in content, "boot cfg must reference the kernel version"
 
 
 def _assert_old_grub_legacy_preserved(boot_dir: Path) -> None:
@@ -214,23 +107,23 @@ def _assert_old_grub_legacy_preserved(boot_dir: Path) -> None:
     assert active_legacy.is_dir(), (
         f"active legacy folder {active_legacy} should be preserved after migration"
     )
-    assert (active_legacy / KERNEL_FNAME).is_file(), (
+    assert (active_legacy / GRUB_KERNEL_FNAME).is_file(), (
         "active legacy folder must still contain the booted kernel"
     )
-    assert (active_legacy / INITRD_FNAME).is_file(), (
+    assert (active_legacy / GRUB_INITRD_FNAME).is_file(), (
         "active legacy folder must still contain the booted initrd"
     )
 
 
 def _assert_boot_root_kernel_copies(boot_dir: Path) -> None:
     """Assert kernel/initrd copies exist at /boot root (backward compat)."""
-    assert (boot_dir / KERNEL_FNAME).is_file()
-    assert (boot_dir / INITRD_FNAME).is_file()
+    assert (boot_dir / GRUB_KERNEL_FNAME).is_file()
+    assert (boot_dir / GRUB_INITRD_FNAME).is_file()
 
 
-# ---------------------------------------------------------------------------
-# Test cases
-# ---------------------------------------------------------------------------
+#
+# ------------ Test cases ------------ #
+#
 
 
 class TestGrubBootControllerNormalStartup:
@@ -323,7 +216,7 @@ class TestGrubBootControllerFreshECU:
 
     def test_bootstrap_from_fresh_ecu(self, boot_dir: Path, rootfs_dir: Path):
         """Fresh ECU triggers full bootstrap: slot dirs, boot cfg, grub.cfg, grubenv."""
-        _setup_fresh_ecu_boot(boot_dir)
+        _setup_fresh_grub_ecu_boot(boot_dir)
 
         controller = GrubBootController()
 
@@ -406,9 +299,9 @@ class TestGrubBootControllerMigrateFromOldGrub:
         # that is cleaned up after bootstrap, so we cannot assert on it here.
 
 
-# ---------------------------------------------------------------------------
-# Pre-update hook tests
-# ---------------------------------------------------------------------------
+#
+# ------------ Pre-update hook tests ------------ #
+#
 
 
 class TestGrubBootControllerPreUpdate:
@@ -474,7 +367,7 @@ class TestGrubBootControllerPreUpdate:
 
         # Hook 1: prepare_standby_dev called with correct args
         mock_prepare.assert_called_once_with(
-            erase_standby=erase_standby, fsuuid=SLOT_B_UUID
+            erase_standby=erase_standby, fsuuid=GRUB_SLOT_B_UUID
         )
 
         # Mounts called
@@ -550,9 +443,9 @@ class TestGrubBootControllerPreUpdate:
             controller.pre_update(standby_as_ref=False, erase_standby=True)
 
 
-# ---------------------------------------------------------------------------
-# Post-update tests
-# ---------------------------------------------------------------------------
+#
+# ------------ Post-update tests ------------ #
+#
 
 
 def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> None:
@@ -567,11 +460,11 @@ def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> No
     # Kernel at <standby_mp>/boot/
     standby_boot = standby_mp / "boot"
     standby_boot.mkdir(parents=True, exist_ok=True)
-    (standby_boot / KERNEL_FNAME).write_text("new-kernel")
-    (standby_boot / INITRD_FNAME).write_text("new-initrd")
+    (standby_boot / GRUB_KERNEL_FNAME).write_text("new-kernel")
+    (standby_boot / GRUB_INITRD_FNAME).write_text("new-initrd")
 
     # Config files at <standby_mp>/etc/
-    _create_rootfs(standby_mp)
+    _create_grub_rootfs(standby_mp)
 
     # OTA config files from the new image
     standby_ota = standby_mp / "boot" / "ota"
@@ -582,12 +475,7 @@ def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> No
     # Active slot mount (bind-mounted ro in real life)
     active_mp = mnt_dir / "active"
     (active_mp / "etc").mkdir(parents=True, exist_ok=True)
-    (active_mp / "etc" / "fstab").write_text(SAMPLE_FSTAB)
-
-
-NEW_KERNEL_VERSION = "6.12.0-1-generic"
-NEW_KERNEL_FNAME = f"vmlinuz-{NEW_KERNEL_VERSION}"
-NEW_INITRD_FNAME = f"initrd.img-{NEW_KERNEL_VERSION}"
+    (active_mp / "etc" / "fstab").write_text(GRUB_SAMPLE_FSTAB)
 
 
 class TestGrubBootControllerPostUpdate:
@@ -674,18 +562,18 @@ class TestGrubBootControllerPostUpdate:
         assert (slot_b_dir / "slot_in_use").read_text() == "ota-slot_b"
 
         # === Boot files copied to standby boot slot dir ===
-        assert (slot_b_dir / KERNEL_FNAME).is_file()
-        assert (slot_b_dir / KERNEL_FNAME).read_text() == "new-kernel"
-        assert (slot_b_dir / INITRD_FNAME).is_file()
-        assert (slot_b_dir / INITRD_FNAME).read_text() == "new-initrd"
+        assert (slot_b_dir / GRUB_KERNEL_FNAME).is_file()
+        assert (slot_b_dir / GRUB_KERNEL_FNAME).read_text() == "new-kernel"
+        assert (slot_b_dir / GRUB_INITRD_FNAME).is_file()
+        assert (slot_b_dir / GRUB_INITRD_FNAME).read_text() == "new-initrd"
 
         # === Backward compat copies at /boot root ===
-        assert (boot_dir / KERNEL_FNAME).is_file()
-        assert (boot_dir / INITRD_FNAME).is_file()
+        assert (boot_dir / GRUB_KERNEL_FNAME).is_file()
+        assert (boot_dir / GRUB_INITRD_FNAME).is_file()
 
-        # === Standby rootfs: fstab updated with SLOT_B_UUID for root ===
+        # === Standby rootfs: fstab updated with GRUB_SLOT_B_UUID for root ===
         standby_fstab = (mnt_dir / "standby" / "etc" / "fstab").read_text()
-        assert f"UUID={SLOT_B_UUID}" in standby_fstab
+        assert f"UUID={GRUB_SLOT_B_UUID}" in standby_fstab
 
         # === Standby rootfs: /etc/default/grub updated with OTA defaults ===
         standby_grub_default = (
@@ -798,16 +686,16 @@ class TestGrubBootControllerPostUpdate:
         standby_mp = mnt_dir / "standby"
         standby_boot = standby_mp / "boot"
         standby_boot.mkdir(parents=True, exist_ok=True)
-        (standby_boot / NEW_KERNEL_FNAME).write_text("new-standby-kernel")
-        (standby_boot / NEW_INITRD_FNAME).write_text("new-standby-initrd")
+        (standby_boot / GRUB_NEW_KERNEL_FNAME).write_text("new-standby-kernel")
+        (standby_boot / GRUB_NEW_INITRD_FNAME).write_text("new-standby-initrd")
 
         # Set up rootfs in standby mount for setup_slot_rootfs_for_ota_boot
-        _create_rootfs(standby_mp)
+        _create_grub_rootfs(standby_mp)
 
         # Set up active slot mount point with fstab for reference
         active_mp = mnt_dir / "active"
         (active_mp / "etc").mkdir(parents=True, exist_ok=True)
-        (active_mp / "etc" / "fstab").write_text(SAMPLE_FSTAB)
+        (active_mp / "etc" / "fstab").write_text(GRUB_SAMPLE_FSTAB)
 
         return controller
 
@@ -825,12 +713,12 @@ class TestGrubBootControllerPostUpdate:
         controller.post_update("3.0.0")
 
         # Active slot's kernel files should be kept
-        assert (boot_dir / KERNEL_FNAME).is_file()
-        assert (boot_dir / INITRD_FNAME).is_file()
+        assert (boot_dir / GRUB_KERNEL_FNAME).is_file()
+        assert (boot_dir / GRUB_INITRD_FNAME).is_file()
 
         # New standby kernel files should be present (copied by setup_boot_slot_dir)
-        assert (boot_dir / NEW_KERNEL_FNAME).is_file()
-        assert (boot_dir / NEW_INITRD_FNAME).is_file()
+        assert (boot_dir / GRUB_NEW_KERNEL_FNAME).is_file()
+        assert (boot_dir / GRUB_NEW_INITRD_FNAME).is_file()
 
         # Old kernel/initrd files should be removed
         assert not (boot_dir / "vmlinuz-5.15.0-100-generic").exists()
@@ -880,20 +768,20 @@ class TestGrubBootControllerPostUpdate:
         standby_mp = mnt_dir / "standby"
         standby_boot = standby_mp / "boot"
         standby_boot.mkdir(parents=True, exist_ok=True)
-        (standby_boot / KERNEL_FNAME).write_text("same-kernel")
-        (standby_boot / INITRD_FNAME).write_text("same-initrd")
-        _create_rootfs(standby_mp)
+        (standby_boot / GRUB_KERNEL_FNAME).write_text("same-kernel")
+        (standby_boot / GRUB_INITRD_FNAME).write_text("same-initrd")
+        _create_grub_rootfs(standby_mp)
 
         active_mp = mnt_dir / "active"
         (active_mp / "etc").mkdir(parents=True, exist_ok=True)
-        (active_mp / "etc" / "fstab").write_text(SAMPLE_FSTAB)
+        (active_mp / "etc" / "fstab").write_text(GRUB_SAMPLE_FSTAB)
 
         controller.pre_update(standby_as_ref=False, erase_standby=True)
         controller.post_update("3.0.0")
 
         # Active/standby kernel files kept
-        assert (boot_dir / KERNEL_FNAME).is_file()
-        assert (boot_dir / INITRD_FNAME).is_file()
+        assert (boot_dir / GRUB_KERNEL_FNAME).is_file()
+        assert (boot_dir / GRUB_INITRD_FNAME).is_file()
 
         # Old files removed
         assert not (boot_dir / "vmlinuz-5.15.0-100-generic").exists()

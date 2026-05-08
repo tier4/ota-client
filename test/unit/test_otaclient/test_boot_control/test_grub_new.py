@@ -216,9 +216,9 @@ class TestMenuentryRegexPatterns:
         assert ma.group("entry_id") == expected_id
 
 
-# ============================================================
-# iter_menuentries
-# ============================================================
+#
+# ------------ iter_menuentries ------------ #
+#
 
 
 class TestIterMenuentries:
@@ -262,9 +262,9 @@ class TestIterMenuentries:
             list(iter_menuentries(input_str))
 
 
-# ============================================================
-# _BootMenuEntry._find_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry._find_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryFindMenuentry:
@@ -353,9 +353,9 @@ class TestBootMenuEntryFixupFpath:
         assert result == expected
 
 
-# ============================================================
-# _BootMenuEntry._fixup_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry._fixup_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryFixupMenuentry:
@@ -425,9 +425,9 @@ class TestBootMenuEntryFixupMenuentry:
         assert parsed[0] == result.strip()
 
 
-# ============================================================
-# _BootMenuEntry.generate_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry.generate_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryGenerateMenuentry:
@@ -491,9 +491,9 @@ class TestBootMenuEntryGenerateMenuentry:
             )
 
 
-# ============================================================
-# _GrubBootHelperFuncs._update_grub_default
-# ============================================================
+#
+# ------------ _GrubBootHelperFuncs._update_grub_default ------------ #
+#
 
 
 class TestUpdateGrubDefault:
@@ -725,7 +725,7 @@ class TestListPartitions:
 
 
 #
-# ------ _GrubBootControl._generate_fstab ------
+# ------------ _GrubBootControl._generate_fstab ------------ #
 #
 
 
