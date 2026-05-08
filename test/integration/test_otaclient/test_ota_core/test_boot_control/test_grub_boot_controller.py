@@ -109,8 +109,8 @@ def _setup_old_grub_managed_boot(boot_dir: Path) -> None:
     Old layout:
       /boot/grub/grub.cfg -> ../ota-partition/grub.cfg  (symlink)
       /boot/ota-partition -> ota-partition.sda3           (symlink)
-      /boot/ota-partition.sda3/                           (actual files)
-      /boot/ota-partition.sda4/                           (standby)
+      /boot/ota-partition.sda3/                           (active slot)
+      /boot/ota-partition.sda4/                           (standby slot)
       /boot/vmlinuz-ota -> ota-partition/vmlinuz-ota      (symlink)
       /boot/initrd.img-ota -> ota-partition/initrd.img-ota
       /boot/vmlinuz-ota.standby -> ota-partition.sda4/vmlinuz-ota
@@ -200,15 +200,26 @@ def _assert_slot_boot_cfg(boot_dir: Path, slot_id: str) -> None:
     assert KERNEL_VERSION in content, "boot cfg must reference the kernel version"
 
 
-def _assert_old_grub_files_cleaned_up(boot_dir: Path) -> None:
-    """Assert all old grub boot control artifacts are removed."""
-    assert not (boot_dir / "ota-partition").exists(), (
-        "/boot/ota-partition should be removed"
-    )
+def _assert_old_grub_legacy_preserved(boot_dir: Path) -> None:
+    """Assert old grub's active legacy folder is preserved across migration.
 
-    for pattern in ["ota-partition.sda*", "vmlinuz-ota*", "initrd.img-ota*"]:
-        matches = list(boot_dir.glob(pattern))
-        assert not matches, f"old files matching {pattern} should be removed: {matches}"
+    Per the backward-compat plan, MIGRATE_FROM_OLD bootstrap does NOT wipe
+    the legacy folder — it stays as old grub left it so that a Group B old
+    controller running on the system continues to skip its own bootstrap.
+    """
+    assert (boot_dir / "ota-partition").is_symlink(), (
+        "/boot/ota-partition symlink should still be present after migration"
+    )
+    active_legacy = boot_dir / "ota-partition.sda3"
+    assert active_legacy.is_dir(), (
+        f"active legacy folder {active_legacy} should be preserved after migration"
+    )
+    assert (active_legacy / KERNEL_FNAME).is_file(), (
+        "active legacy folder must still contain the booted kernel"
+    )
+    assert (active_legacy / INITRD_FNAME).is_file(), (
+        "active legacy folder must still contain the booted initrd"
+    )
 
 
 def _assert_boot_root_kernel_copies(boot_dir: Path) -> None:
@@ -265,28 +276,40 @@ class TestGrubBootControllerNormalStartup:
     ):
         """Case 1c: Previous OTA was handled by old grub boot controller.
 
-        When the old grub boot control layout is detected, the new grub boot
-        controller triggers a bootstrap to migrate to the new layout. The final
-        OTA status is INITIALIZED. INITIALIZED status is considered to be
-        SUCCESS on FMS.
+        When the old grub boot control layout is detected, the new grub
+        controller migrates the OTA status files (status / version /
+        slot_in_use, with slot_in_use translated old → new) into the new
+        slot folder, then triggers a bootstrap to install the new layout.
+        ``resetup_requested`` is False in this case — `OTAStatusFilesControl`
+        must read the migrated status, not overwrite it with INITIALIZED.
         """
         _setup_old_grub_managed_boot(boot_dir)
 
         controller = GrubBootController()
 
-        # bootstrap was triggered due to old layout detection
-        assert controller._boot_control.resetup_requested is True
-        assert controller.get_booted_ota_status() == OTAStatus.INITIALIZED
+        # MIGRATE_FROM_OLD does NOT force-reinitialise OTA status — the
+        # files were migrated in-place and must be read by OTAStatusFilesControl.
+        assert controller._boot_control.resetup_requested is False
+        # Old grub had recorded status=SUCCESS for the active slot; that must
+        # carry over verbatim — no INITIALIZED reset.
+        assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
 
-        # new layout created
+        # New layout was installed
         _assert_slot_boot_dir(boot_dir, "ota-slot_a")
         _assert_slot_boot_cfg(boot_dir, "ota-slot_a")
         _assert_ota_managed_grub_cfg(boot_dir)
         _assert_grubenv_contains(boot_dir, "saved_entry=ota-slot_a")
         _assert_boot_root_kernel_copies(boot_dir)
 
-        # old files cleaned up
-        _assert_old_grub_files_cleaned_up(boot_dir)
+        # Migrated status files present in the new slot folder, with
+        # slot_in_use translated from "sda3" to "ota-slot_a".
+        slot_a_dir = boot_dir / "ota-slot_a"
+        assert (slot_a_dir / "status").read_text() == "SUCCESS"
+        assert (slot_a_dir / "version").read_text() == "1.0.0"
+        assert (slot_a_dir / "slot_in_use").read_text() == "ota-slot_a"
+
+        # Legacy folder preserved (Group B no-bootstrap invariant)
+        _assert_old_grub_legacy_preserved(boot_dir)
 
 
 class TestGrubBootControllerFreshECU:
@@ -337,7 +360,12 @@ class TestGrubBootControllerMigrateFromOldGrub:
         """Ensure all mocks and path redirections are active."""
 
     def test_migrate_from_old_grub(self, boot_dir: Path, rootfs_dir: Path):
-        """Old grub layout triggers bootstrap, migrates to new layout, cleans up old files."""
+        """Old grub layout triggers OTA-status migration + bootstrap to new layout.
+
+        The legacy ``ota-partition.sda<pid>/`` folder is intentionally left
+        untouched so a Group B old controller running on the system continues
+        to skip its own bootstrap predicate.
+        """
         _setup_old_grub_managed_boot(boot_dir)
 
         # verify old layout is in place before migration
@@ -347,9 +375,9 @@ class TestGrubBootControllerMigrateFromOldGrub:
 
         controller = GrubBootController()
 
-        # bootstrap was triggered
-        assert controller._boot_control.resetup_requested is True
-        assert controller.get_booted_ota_status() == OTAStatus.INITIALIZED
+        # MIGRATE_FROM_OLD: status files migrated, force-init disabled
+        assert controller._boot_control.resetup_requested is False
+        assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
 
         # new layout created
         _assert_slot_boot_dir(boot_dir, "ota-slot_a")
@@ -364,8 +392,15 @@ class TestGrubBootControllerMigrateFromOldGrub:
         # kernel copies at /boot root
         _assert_boot_root_kernel_copies(boot_dir)
 
-        # old files cleaned up
-        _assert_old_grub_files_cleaned_up(boot_dir)
+        # Migrated status files present in the new slot folder.
+        slot_a_dir = boot_dir / "ota-slot_a"
+        assert (slot_a_dir / "status").read_text() == "SUCCESS"
+        assert (slot_a_dir / "version").read_text() == "1.0.0"
+        # slot_in_use translated old "sda3" → new "ota-slot_a"
+        assert (slot_a_dir / "slot_in_use").read_text() == "ota-slot_a"
+
+        # legacy folder PRESERVED (no longer cleaned up — see plan §3.1, §3.6)
+        _assert_old_grub_legacy_preserved(boot_dir)
 
         # NOTE: 30_ota hook is written into a bind-mounted TemporaryDirectory
         # that is cleaned up after bootstrap, so we cannot assert on it here.
