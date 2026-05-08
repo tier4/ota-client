@@ -1198,11 +1198,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         os.chmod(_hook_fpath, 0o750)
 
     def setup_ota_boot_cfg_for_slot(
-        self,
-        _kernel_ver: str,
-        *,
-        slot_id: OTASlotBootID,
-        slot_mp: Path,
+        self, _kernel_ver: str, *, slot_id: OTASlotBootID, slot_mp: Path
     ) -> None:
         """Generate boot cfg for `slot_mp` with `slot_id` and write to `boot_cfg_fpath`.
 
