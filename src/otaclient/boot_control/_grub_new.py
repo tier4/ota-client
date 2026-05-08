@@ -145,6 +145,9 @@ def _detect_boot_control_setup_case() -> _GrubBootControlSetupCase:
         return _GrubBootControlSetupCase.FRESH
 
     if not OTAManagedCfg.validate_managed_config(_grub_cfg_text):
+        logger.warning(
+            "faile to validate the /boot/grub/grub.cfg file, re-setup required"
+        )
         return _GrubBootControlSetupCase.FRESH
     return _GrubBootControlSetupCase.ALREADY_NEW
 
@@ -815,8 +818,15 @@ class _GrubBootControl(_GrubBootHelperFuncs):
     def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path) -> None:
         _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)
         # NOTE: for bootstrapping, we don't refer to another slot for fstab!
+        # NOTE(22060508): when doing bootstrap, the active slot's fstab itself is the
+        #                 source of truth!
+        _fstab_fpath = replace_root(
+            boot_cfg.FSTAB_FILE_PATH, cfg.CANONICAL_ROOT, slot_mp
+        )
         self.setup_slot_rootfs_for_ota_boot(
-            slot_fsuuid=_current_slot_info.uuid, slot_mp=slot_mp
+            slot_fsuuid=_current_slot_info.uuid,
+            slot_mp=slot_mp,
+            reference_fstab=read_str_from_file(_fstab_fpath),
         )
 
     def _bootstrap_setup_boot_cfg(self, _boot_files: BootFiles, slot_mp: Path) -> None:
