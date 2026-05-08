@@ -145,7 +145,9 @@ def _build_fstab(*entries: str, comments: tuple = ()) -> str:
     return "".join(lines)
 
 
-def _make_grub_ctrl(mocker, *, boot_uuid: str, efi_uuid: str | None) -> _GrubBootControl:
+def _make_grub_ctrl(
+    mocker, *, boot_uuid: str, efi_uuid: str | None
+) -> _GrubBootControl:
     """Bypass ``__init__`` and attach a minimally-mocked ``boot_slots``.
 
     Used by the per-helper tests that need a controller with just enough
@@ -546,7 +548,11 @@ class TestPostUpdateLegacyWipe:
         """Activate path redirection / mocks."""
 
     def _setup_standby_for_post_update(
-        self, mnt_dir: Path, rootfs_dir: Path, *, kernel_ver: str = GRUB_NEW_KERNEL_VERSION
+        self,
+        mnt_dir: Path,
+        rootfs_dir: Path,
+        *,
+        kernel_ver: str = GRUB_NEW_KERNEL_VERSION,
     ) -> None:
         """Synthesise a standby rootfs with a new kernel installed."""
         standby_mp = mnt_dir / "standby"
@@ -1246,7 +1252,9 @@ class TestDetectBootControlSetupCase:
 
     def test_already_new_when_managed_footer_valid(self, grub_cfg_path: Path):
         """OTA-managed footer present and valid → ALREADY_NEW (no-op)."""
-        managed = OTAManagedCfg(raw_contents=GRUB_CFG_CONTENT.strip(), grub_version="2.12")
+        managed = OTAManagedCfg(
+            raw_contents=GRUB_CFG_CONTENT.strip(), grub_version="2.12"
+        )
         grub_cfg_path.write_text(managed.export())
         assert (
             _detect_boot_control_setup_case() == _GrubBootControlSetupCase.ALREADY_NEW
