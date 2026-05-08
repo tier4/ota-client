@@ -794,20 +794,23 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         (_slot_boot_dir / "grub").mkdir(parents=True, exist_ok=True)
 
         _kernel, _initrd = _boot_files.kernel, _boot_files.initrd
+        _slot_kernel = _slot_boot_dir / _kernel.name
+        _slot_initrd = _slot_boot_dir / _initrd.name
         # in case of bootstrap triggers by damaged already setup system
-        if _kernel != _slot_boot_dir / _kernel.name:
-            copyfile_atomic(_kernel, _slot_boot_dir / _kernel.name)
-        if _initrd != _slot_boot_dir / _initrd.name:
-            copyfile_atomic(_initrd, _slot_boot_dir / _initrd.name)
+        if _kernel != _slot_kernel:
+            copyfile_atomic(_kernel, _slot_kernel)
+        if _initrd != _slot_initrd:
+            copyfile_atomic(_initrd, _slot_initrd)
 
-        # NOTE(20260311): IMPORTANT! For backward compatibility, also copy
-        #                 the boot files to the root of /boot folder.
-        #                 This is for old grub boot control bootstraps itself.
+        # NOTE(20260311): For backward compatibility, also expose the boot
+        #                 files at the root of /boot via hardlink from the
+        #                 slot dir. This is for old grub boot control to
+        #                 bootstrap itself.
         _boot_dir = Path(boot_cfg.BOOT_DPATH)
-        if _kernel != _boot_dir / _kernel.name:
-            copyfile_atomic(_kernel, _boot_dir / _kernel.name)
-        if _initrd != _boot_dir / _initrd.name:
-            copyfile_atomic(_initrd, _boot_dir / _initrd.name)
+        for _src in (_slot_kernel, _slot_initrd):
+            _dst = _boot_dir / _src.name
+            remove_file(_dst)
+            os.link(_src, _dst)
 
     def _bootstrap_setup_rootfs_for_ota_boot(self, slot_mp: Path) -> None:
         _current_slot_info = self.get_slot_info(self.boot_slots.current_slot)
@@ -1095,20 +1098,28 @@ class _GrubBootControl(_GrubBootHelperFuncs):
     def setup_boot_slot_dir(
         self, _kernel_ver: str, *, slot_id: OTASlotBootID, slot_mp: Path
     ) -> None:
-        """Copy the boot files from slot rootfs to boot slot dir."""
-        # prepare the boot slot dir
-        # NOTE(20260310): IMPORTANT! For backward compatibility, also copy
-        #                 the boot files to the root of /boot folder.
-        #                 This is for old grub boot control bootstraps itself.
+        """Copy the boot files from slot rootfs to boot slot dir.
+
+        NOTE(20260310): For backward compatibility, also expose the boot
+                        files at the root of /boot via hardlink from the
+                        slot dir. This is for old grub boot control to
+                        bootstrap itself.
+        """
         _boot_slot_dir = self.get_boot_slot_dir(slot_id)
+        _boot_dir = Path(boot_cfg.BOOT_DPATH)
         _slot_boot = slot_mp / "boot"
+
         for f in itertools.chain(
             _slot_boot.glob(f"{VMLINUZ_PREFIX}{_kernel_ver}"),
             _slot_boot.glob(f"{INITRD_PREFIX}{_kernel_ver}"),
         ):
             if f.is_file() and not f.is_symlink():
-                copyfile_atomic(f, _boot_slot_dir / f.name)
-                copyfile_atomic(f, Path(boot_cfg.BOOT_DPATH) / f.name)
+                _slot_dst = _boot_slot_dir / f.name
+                copyfile_atomic(f, _slot_dst)
+
+                _boot_root_dst = _boot_dir / f.name
+                remove_file(_boot_root_dst)
+                os.link(_slot_dst, _boot_root_dst)
 
     def cleanup_old_boot_root_files(
         self, *, active_kernel_ver: str, standby_kernel_ver: str
