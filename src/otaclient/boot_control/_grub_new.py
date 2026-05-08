@@ -39,8 +39,10 @@ from otaclient_common._io import (
     copyfile_atomic,
     read_str_from_file,
     remove_file,
+    symlink_atomic,
     write_str_to_file_atomic,
 )
+from otaclient_common._typing import StrEnum
 from otaclient_common.linux import subprocess_run_wrapper
 
 from ._grub_common import (
@@ -91,6 +93,60 @@ MENUENTRY_ID_PA = re.compile(
 
 DEV_PATH_PA = re.compile(r"^/dev/(?P<dev_name>\w*[a-z])(?P<partition_id>\d+)$")
 EFI_PARTTYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+
+#
+# ------------ old grub boot controller backward compatibility ------------ #
+#
+# Based on the git history for the old grub boot control, we can divide two supported
+# groups for the otaclient version:
+#
+# 1. GROUP A: otaclient >= 3.8, < 3.10
+# 2. GROUP B: otaclient >= 3.10, < 3.14
+#
+# GROUP A and B are divided since https://github.com/tier4/ota-client/pull/601.
+#
+# The backward compatibility is designed as follow:
+#
+# 1. **Group B no-bootstrap (otaclient >= 3.10.x).** A Group B old controller
+#    running on new grub boot control managed system must NOT trip its bootstrap
+#    predicate, while old otaclient can still do the OTA on the system without problem,
+#    and smoothly fallback to old grub boot control after OTA.
+# 2. **Group A bootstrap-success (otaclient < 3.10.x).** Group A's bootstrap
+#    predicate always trips on new grub boot control managed system (because pre-3.10
+#    otaclient applies very strict check to ensure the system is managed by old grub
+#    control), re-setup the system to using old grub boot control.
+
+
+class _GrubBootControlSetupCase(StrEnum):
+    """Detected layout state of `/boot/grub/grub.cfg` at controller startup."""
+
+    FRESH = "FRESH"
+    """grub.cfg is missing/unreadable, or a regular file without OTA-managed footer."""
+    MIGRATE_FROM_OLD = "MIGRATE_FROM_OLD"
+    """grub.cfg is a symlink → old grub controller maintained it."""
+    ALREADY_NEW = "ALREADY_NEW"
+    """grub.cfg is a regular file with a valid OTA-managed footer."""
+
+
+def _detect_boot_control_setup_case() -> _GrubBootControlSetupCase:
+    _grub_cfg_fpath = Path(boot_cfg.GRUB_CFG_FPATH)
+
+    # Symlink-check first: only old grub maintains grub.cfg as a symlink
+    # → ../ota-partition/grub.cfg (true for both Group A and Group B).
+    if _grub_cfg_fpath.is_symlink():
+        return _GrubBootControlSetupCase.MIGRATE_FROM_OLD
+    if not _grub_cfg_fpath.exists():
+        return _GrubBootControlSetupCase.FRESH
+
+    try:
+        _grub_cfg_text = _grub_cfg_fpath.read_text()
+    except OSError as e:
+        logger.warning(f"failed to read {_grub_cfg_fpath}: {e!r}, re-setup required")
+        return _GrubBootControlSetupCase.FRESH
+
+    if not OTAManagedCfg.validate_managed_config(_grub_cfg_text):
+        return _GrubBootControlSetupCase.FRESH
+    return _GrubBootControlSetupCase.ALREADY_NEW
 
 
 @contextlib.contextmanager
@@ -482,23 +538,6 @@ class _GrubBootHelperFuncs:
         return _stdout
 
     @staticmethod
-    def _detect_boot_control_setup() -> bool:
-        """Detect whether the ECU has grub boot control properly setup."""
-        _grub_cfg = Path(boot_cfg.GRUB_CFG_FPATH)
-        if _grub_cfg.is_symlink():
-            return False  # old grub boot control setup
-        if not _grub_cfg.exists():
-            return False  # grub.cfg missing — fresh install without grub setup
-        try:
-            _grub_cfg_text = _grub_cfg.read_text()
-        except OSError as e:
-            logger.warning(f"failed to read {_grub_cfg}: {e!r}, re-setup required")
-            return False
-        if not OTAManagedCfg.validate_managed_config(_grub_cfg_text):
-            return False  # grub.cfg is not OTA-managed (first time setup or externally modified)
-        return True
-
-    @staticmethod
     def _grub_mkconfig_on_mp(_slot_mp: Path, _boot_source: str) -> str:
         with prepare_chroot_env(_slot_mp, boot_source=_boot_source):
             try:
@@ -689,12 +728,23 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         if boot_slots.is_uefi:
             Path(cfg.EFI_DPATH).mkdir(exist_ok=True)
 
-        if _require_resetup := not self._detect_boot_control_setup():
-            logger.warning(
-                "detect OTA boot control unmanaged system, bootstrap boot control now!"
-            )
+        self._setup_case = case = _detect_boot_control_setup_case()
+        # Only FRESH should trigger fresh-defaults overwrite of status files;
+        # MIGRATE_FROM_OLD migrates them in-place, ALREADY_NEW leaves them.
+        self.resetup_requested = case == _GrubBootControlSetupCase.FRESH
+
+        if case != _GrubBootControlSetupCase.ALREADY_NEW:
+            if case == _GrubBootControlSetupCase.MIGRATE_FROM_OLD:
+                logger.warning(
+                    "detect old-grub-managed system, "
+                    "migrating OTA status files before bootstrap ..."
+                )
+                self._migrate_status_files_from_old_grub_control()
+            else:
+                logger.warning(
+                    "detect OTA boot control unmanaged system, bootstrap boot control now!"
+                )
             self._bootstrap_boot_control()
-        self.resetup_requested = _require_resetup
 
     def _bootstrap_retrieve_booted_kernel_initramfs(self) -> BootFiles:
         """Detect the current booted kernel and initramfs.
@@ -804,20 +854,6 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 follow_symlink=False,
             )
 
-    def _bootstrap_cleanup_old_ota_boot_setup(self):
-        """Cleanup the old OTA boot setup, otherwise recovery/migration
-        procedure will not be triggered when downgrade.
-        """
-        remove_file(Path(boot_cfg.BOOT_DPATH) / boot_cfg.LEGACY_OTA_PARTITION_FNAME)
-
-        _boot_dir = Path(boot_cfg.BOOT_DPATH)
-        for _entry in itertools.chain(
-            _boot_dir.glob("ota-partition.sda*"),
-            _boot_dir.glob("vmlinuz-ota*"),
-            _boot_dir.glob("initrd.img-ota*"),
-        ):
-            remove_file(_entry)
-
     def _bootstrap_boot_control(self) -> None:
         """Bootstrap OTA boot control on a system not yet managed by OTA.
 
@@ -857,11 +893,132 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 # with base grub.cfg written, officially switch to OTA managed boot control
                 logger.info("write /boot/grub.cfg and finish up bootstrapping ...")
                 self._bootstrap_manage_boot_control(slot_mp)
-
-                logger.warning("unconditionally cleanup the old OTA setup ...")
-                self._bootstrap_cleanup_old_ota_boot_setup()
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
+
+        # NOTE(20260507): Group B backward compatibility — populate the legacy
+        #                 ota-partition.sda<active_pid>/ folder with real-file
+        #                 kernel + initrd so a Group B old controller's bootstrap
+        #                 predicate (is_file vmlinuz-<uname-r>) passes.
+        #
+        #                 FRESH-only: in MIGRATE_FROM_OLD the legacy folder is
+        #                 already in good shape (old grub left it that way).
+        if self._setup_case == _GrubBootControlSetupCase.FRESH:
+            self._mirror_legacy_compat_for_slot(_slot_id)
+
+    # ---------- backward-compat helpers ---------- #
+
+    def _legacy_compat_dir_for_slot(self, slot_id: OTASlotBootID) -> Path:
+        """`/boot/ota-partition.sda<pid>/` for the given slot."""
+        return Path(boot_cfg.BOOT_DPATH) / self.boot_slots.old_slot_id_mapping[slot_id]
+
+    def _translate_slot_in_use_old_to_new(self, old_value: str) -> OTASlotBootID:
+        """Translate old-format ``slot_in_use`` (e.g. ``"sda3"``) to new format
+        (e.g. ``"ota-slot_a"``).
+
+        On unrecognised input, falls back to the current slot value and logs.
+        """
+        _legacy_target = f"{boot_cfg.LEGACY_OTA_PARTITION_FNAME}.{old_value}"
+        for _slot_id, _legacy_folder in self.boot_slots.old_slot_id_mapping.items():
+            if _legacy_target == _legacy_folder:
+                return _slot_id
+
+        _fallback = self.boot_slots.current_slot
+        logger.warning(
+            f"unrecognised old slot_in_use value {old_value!r}; "
+            f"falling back to current slot {_fallback!r}"
+        )
+        return _fallback
+
+    def _migrate_status_files_from_old_grub_control(self) -> None:
+        """Carry old-grub OTA status files into the new active slot folder.
+
+        Used in MIGRATE_FROM_OLD only, BEFORE `_bootstrap_boot_control` rewrites
+        the boot layout:
+
+        - `status`, `version` and `version_detail` are hardlinked.
+        - `slot_in_use` is translated old→new (`"sda3"` → `"ota-slot_a"`).
+        """
+        _active_slot = self.boot_slots.current_slot
+        _src_dir = self._legacy_compat_dir_for_slot(_active_slot)
+        _dst_dir = self.get_boot_slot_dir(_active_slot)
+        _dst_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"migrating old-grub OTA status files: {_src_dir} → {_dst_dir} ...")
+
+        for _fname in (
+            cfg.OTA_STATUS_FNAME,
+            cfg.OTA_VERSION_FNAME,
+            cfg.OTA_VERSION_DETAIL_FNAME,
+        ):
+            _src = _src_dir / _fname
+            _dst = _dst_dir / _fname
+            if _src.is_file() and not _src.is_symlink():
+                remove_file(_dst)
+                os.link(_src, _dst)
+            # NOTE: OTAStatusFilesControl will handle the case when `status` file is missing.
+
+        _slot_in_use_src = _src_dir / cfg.SLOT_IN_USE_FNAME
+        _old_value = read_str_from_file(_slot_in_use_src, _default="").strip()
+        if not _old_value:
+            logger.info(
+                f"old slot_in_use is empty or missing at {_slot_in_use_src}, skipping"
+            )
+            return
+
+        _new_value = self._translate_slot_in_use_old_to_new(_old_value)
+        write_str_to_file_atomic(_dst_dir / cfg.SLOT_IN_USE_FNAME, _new_value)
+        logger.info(f"migrated slot_in_use: {_old_value!r} → {_new_value!r}")
+
+    def _mirror_legacy_compat_for_slot(self, slot_id: OTASlotBootID) -> None:
+        """Mirror `/boot/ota-slot_<id>/` → `/boot/ota-partition.sda<pid>/`.
+
+        To make the mirrored folder synced with the new boot slot folder,
+        all regular files are hardlinked to the mirrored legacy folder.
+
+        Used at the END of FRESH bootstrap only. Populate the legacy folder
+        with real-file kernel + initrd so a Group B old controller's bootstrap
+        predicate (`is_file vmlinuz-<uname-r>` AND matching initrd) passes and
+        NOT triggering old grub boot control bootstrap.
+        """
+        _src = self.get_boot_slot_dir(slot_id)
+        _dst = self._legacy_compat_dir_for_slot(slot_id)
+
+        _dst.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"mirror new boot slot folder → legacy compat folder: {_src} → {_dst}"
+        )
+
+        _seen_names: set[str] = set()
+        for _src_entry in _src.iterdir():
+            _name = _src_entry.name
+            _seen_names.add(_name)
+            _dst_entry = _dst / _name
+
+            if _src_entry.is_symlink():
+                # symlink_atomic doesn't unconditionally clobber a directory dst
+                remove_file(_dst_entry)
+                symlink_atomic(_dst_entry, os.readlink(_src_entry))
+            elif _src_entry.is_dir():
+                # NOTE: there is no subdir in old boot slot folder
+                continue
+            elif _src_entry.is_file():  # real file, use hardlink
+                remove_file(_dst_entry)
+                os.link(_src_entry, _dst_entry)
+
+        # prune anything in legacy whose name is not in source
+        for _dst_entry in _dst.iterdir():
+            if _dst_entry.name in _seen_names:
+                continue
+            logger.info(f"pruning stale legacy entry at {_dst}: {_dst_entry}")
+            remove_file(_dst_entry)
+
+    def _wipe_legacy_compat_for_slot(self, slot_id: OTASlotBootID) -> None:
+        """Recursively remove `/boot/ota-partition.sda<pid>/` for `slot_id`."""
+        _legacy_dir = self._legacy_compat_dir_for_slot(slot_id)
+        logger.info(f"wiping legacy compat folder for {slot_id}: {_legacy_dir}")
+        remove_file(_legacy_dir)
+
+    # ------------ end of backward compat helpers ------------ #
 
     def _generate_fstab(
         self, *, base_fstab: str, reference_fstab: str | None = None, slot_fsuuid: str
@@ -1185,6 +1342,14 @@ class GrubBootController(BootControllerBase):
         self._boot_control.setup_boot_slot_dir(
             _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
         )
+
+        # NOTE(20260507): wipe the legacy compat folder for the just-populated
+        #                 (standby) slot. This is for handling the case of
+        #                 the new image carries a Group B old otaclient.
+        #                 The backward compat implemented here doesn't fully implement
+        #                 the old grub boot control, so we must let the old controller
+        #                 bootstraps and rebuilds its boot control setup.
+        self._boot_control._wipe_legacy_compat_for_slot(_standby_slot_id)
 
         logger.info(f"setup standby slot({_standby_slot_id=}) rootfs for OTA boot ...")
         self._boot_control.setup_slot_rootfs_for_ota_boot(
