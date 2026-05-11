@@ -739,10 +739,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         if case != _GrubBootControlSetupCase.ALREADY_NEW:
             if case == _GrubBootControlSetupCase.MIGRATE_FROM_OLD:
                 logger.warning(
-                    "detect old-grub-managed system, "
-                    "migrating OTA status files before bootstrap ..."
+                    "detect old-grub-managed system, migrating with all OTA status files preserved ..."
                 )
-                self._migrate_status_files_from_old_grub_control()
+                self._migrate_from_old_grub_control()
             else:
                 logger.warning(
                     "detect OTA boot control unmanaged system, bootstrap boot control now!"
@@ -938,12 +937,12 @@ class _GrubBootControl(_GrubBootHelperFuncs):
 
         _fallback = self.boot_slots.current_slot
         logger.warning(
-            f"unrecognised old slot_in_use value {old_value!r}; "
-            f"falling back to current slot {_fallback!r}"
+            "unrecognised old slot_in_use value, "
+            f"falling back to current slot {_fallback.value}"
         )
         return _fallback
 
-    def _migrate_status_files_from_old_grub_control(self) -> None:
+    def _migrate_from_old_grub_control(self) -> None:
         """Carry old-grub OTA status files into the new active slot folder.
 
         Used in MIGRATE_FROM_OLD only, BEFORE `_bootstrap_boot_control` rewrites
@@ -980,7 +979,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
 
         _new_value = self._translate_slot_in_use_old_to_new(_old_value)
         write_str_to_file_atomic(_dst_dir / cfg.SLOT_IN_USE_FNAME, _new_value)
-        logger.info(f"migrated slot_in_use: {_old_value!r} → {_new_value!r}")
+        logger.info(f"migrated slot_in_use: {_new_value.value}")
 
     def _mirror_legacy_compat_for_slot(self, slot_id: OTASlotBootID) -> None:
         """Mirror `/boot/ota-slot_<id>/` → `/boot/ota-partition.sda<pid>/`.
