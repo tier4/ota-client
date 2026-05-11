@@ -908,29 +908,19 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
+        # NOTE(20260511): now that new grub owns the system, drop the
+        #                 top-level old-grub symlinks (/boot/vmlinuz-ota*,
+        #                 /boot/initrd.img-ota*, /boot/ota-partition) that a
+        #                 prior old-grub install may have left behind. New
+        #                 grub does not consume them, old grub controller will
+        #                 simply re-create all of them when re-bootstrap/OTA.
+        self._cleanup_old_grub_top_level_artifacts()
+
     # ---------- backward-compat helpers ---------- #
 
     def _legacy_compat_dir_for_slot(self, slot_id: OTASlotBootID) -> Path:
         """`/boot/ota-partition.sda<pid>/` for the given slot."""
         return Path(boot_cfg.BOOT_DPATH) / self.boot_slots.old_slot_id_mapping[slot_id]
-
-    def _translate_slot_in_use_old_to_new(self, old_value: str) -> OTASlotBootID:
-        """Translate old-format ``slot_in_use`` (e.g. ``"sda3"``) to new format
-        (e.g. ``"ota-slot_a"``).
-
-        On unrecognised input, falls back to the current slot value and logs.
-        """
-        _legacy_target = f"{boot_cfg.LEGACY_OTA_PARTITION_FNAME}.{old_value}"
-        for _slot_id, _legacy_folder in self.boot_slots.old_slot_id_mapping.items():
-            if _legacy_target == _legacy_folder:
-                return _slot_id
-
-        _fallback = self.boot_slots.current_slot
-        logger.warning(
-            "unrecognised old slot_in_use value, "
-            f"falling back to current slot {_fallback.value}"
-        )
-        return _fallback
 
     def _migrate_from_old_grub_control(self) -> None:
         """Carry old-grub OTA status files into the new active slot folder.
@@ -967,7 +957,11 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             )
             return
 
-        _new_value = self._translate_slot_in_use_old_to_new(_old_value)
+        _new_value = OTASlotBootID.from_old_slot_id(
+            _old_value,
+            old_slot_id_mapping=self.boot_slots.old_slot_id_mapping,
+            fallback=_active_slot,
+        )
         write_str_to_file_atomic(_dst_dir / cfg.SLOT_IN_USE_FNAME, _new_value)
         logger.info(f"migrated slot_in_use: {_new_value.value}")
 
@@ -975,12 +969,9 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         """Mirror `/boot/ota-slot_<id>/` → `/boot/ota-partition.sda<pid>/`.
 
         To make the mirrored folder synced with the new boot slot folder,
-        all regular files are hardlinked to the mirrored legacy folder.
-
-        Used at the END of FRESH bootstrap only. Populate the legacy folder
-        with real-file kernel + initrd so a Group B old controller's bootstrap
-        predicate (`is_file vmlinuz-<uname-r>` AND matching initrd) passes and
-        NOT triggering old grub boot control bootstrap.
+        regular files are hardlinked to the mirrored legacy folder.
+        For `slot_in_use`, instead of hardlink, we do a translation from new
+        style to old style slot_id.
         """
         _src = self.get_boot_slot_dir(slot_id)
         _dst = self._legacy_compat_dir_for_slot(slot_id)
@@ -996,7 +987,20 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             _seen_names.add(_name)
             _dst_entry = _dst / _name
 
-            if _src_entry.is_symlink():
+            if _name == cfg.SLOT_IN_USE_FNAME:
+                # slot_in_use needs new→old format translation; cannot hardlink.
+                _new_value = read_str_from_file(_src_entry, _default="").strip()
+                if not _new_value:
+                    continue
+
+                _old_value = OTASlotBootID.to_old_slot_id(
+                    _new_value,
+                    old_slot_id_mapping=self.boot_slots.old_slot_id_mapping,
+                    fallback=self.boot_slots.current_slot,
+                )
+                remove_file(_dst_entry)
+                write_str_to_file_atomic(_dst_entry, _old_value)
+            elif _src_entry.is_symlink():
                 # symlink_atomic doesn't unconditionally clobber a directory dst
                 remove_file(_dst_entry)
                 symlink_atomic(_dst_entry, os.readlink(_src_entry))
@@ -1029,6 +1033,21 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _active = self.boot_slots.current_slot
         if not self._legacy_compat_dir_for_slot(_active).exists():
             self._mirror_legacy_compat_for_slot(_active)
+
+    def _cleanup_old_grub_top_level_artifacts(self) -> None:
+        """Remove symlinks used by old grub boot control.
+
+        See old grub boot control source code for the symlink names.
+        """
+        _boot_dir = Path(boot_cfg.BOOT_DPATH)
+        for _name in (
+            "vmlinuz-ota",
+            "initrd.img-ota",
+            "vmlinuz-ota.standby",
+            "initrd.img-ota.standby",
+            boot_cfg.LEGACY_OTA_PARTITION_FNAME,
+        ):
+            remove_file(_boot_dir / _name)
 
     # ------------ end of backward compat helpers ------------ #
 
