@@ -1021,7 +1021,11 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         remove_file(_legacy_dir)
 
     def _ensure_legacy_compat_for_current_slot(self) -> None:
-        """Mirror the legacy compat folder for the active slot if it is absent."""
+        """Mirror the legacy compat folder for the active slot if it is absent.
+
+        No need to worry about out-of-sync with new boot slot folder after OTA,
+        as we will always cleanup the legacy compat boot slot folder at post OTA phase.
+        """
         _active = self.boot_slots.current_slot
         if not self._legacy_compat_dir_for_slot(_active).exists():
             self._mirror_legacy_compat_for_slot(_active)
@@ -1259,6 +1263,7 @@ class GrubBootController(BootControllerBase):
                 #                 force initialize the ota_status files.
                 force_initialize=self._boot_control.resetup_requested,
             )
+
             # NOTE(20260511): ensure the legacy compat folder for the active
             #                 slot exists so a Group B old controller's
             #                 bootstrap predicate (is_file vmlinuz-<uname-r>)
