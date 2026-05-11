@@ -908,16 +908,6 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             finally:
                 cmdhelper.ensure_umount(slot_mp, ignore_error=True)
 
-        # NOTE(20260507): Group B backward compatibility — populate the legacy
-        #                 ota-partition.sda<active_pid>/ folder with real-file
-        #                 kernel + initrd so a Group B old controller's bootstrap
-        #                 predicate (is_file vmlinuz-<uname-r>) passes.
-        #
-        #                 FRESH-only: in MIGRATE_FROM_OLD the legacy folder is
-        #                 already in good shape (old grub left it that way).
-        if self._setup_case == _GrubBootControlSetupCase.FRESH:
-            self._mirror_legacy_compat_for_slot(_slot_id)
-
     # ---------- backward-compat helpers ---------- #
 
     def _legacy_compat_dir_for_slot(self, slot_id: OTASlotBootID) -> Path:
@@ -1029,6 +1019,12 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         _legacy_dir = self._legacy_compat_dir_for_slot(slot_id)
         logger.info(f"wiping legacy compat folder for {slot_id}: {_legacy_dir}")
         remove_file(_legacy_dir)
+
+    def _ensure_legacy_compat_for_current_slot(self) -> None:
+        """Mirror the legacy compat folder for the active slot if it is absent."""
+        _active = self.boot_slots.current_slot
+        if not self._legacy_compat_dir_for_slot(_active).exists():
+            self._mirror_legacy_compat_for_slot(_active)
 
     # ------------ end of backward compat helpers ------------ #
 
@@ -1263,6 +1259,12 @@ class GrubBootController(BootControllerBase):
                 #                 force initialize the ota_status files.
                 force_initialize=self._boot_control.resetup_requested,
             )
+            # NOTE(20260511): ensure the legacy compat folder for the active
+            #                 slot exists so a Group B old controller's
+            #                 bootstrap predicate (is_file vmlinuz-<uname-r>)
+            #                 passes. Run AFTER OTAStatusFilesControl as OTAstatusFilesControl
+            #                 might change the status file.
+            boot_control._ensure_legacy_compat_for_current_slot()
             logger.info("grub boot control start up finished")
         except Exception as e:
             _err_msg = f"failed on start grub boot controller: {e!r}"
