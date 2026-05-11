@@ -16,17 +16,20 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Dict, Optional
 
-from _otaclient_version import version
 from typing_extensions import Self
 
+from _otaclient_version import version
 from otaclient_common._typing import StrEnum
 
 from .configs import grub_new_cfg as boot_cfg
+
+logger = logging.getLogger(__name__)
 
 OTA_MANAGED_CFG_HEADER = (
     "# OTAClient managed configuration file, DO NOT EDIT!\n"
@@ -148,6 +151,50 @@ class OTAManagedCfg:
 class OTASlotBootID(StrEnum):
     slot_a = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_A_SUFFIX}"
     slot_b = f"{boot_cfg.OTA_BOOT_SLOT_BASE}{boot_cfg.SLOT_B_SUFFIX}"
+
+    @classmethod
+    def from_old_slot_id(
+        cls,
+        old_value: str,
+        *,
+        old_slot_id_mapping: dict["OTASlotBootID", str],
+        fallback: "OTASlotBootID",
+    ) -> "OTASlotBootID":
+        """Translate old-format ``slot_in_use`` value (e.g. ``"sda3"``) to the
+        matching new-format ``OTASlotBootID`` (e.g. ``OTASlotBootID.slot_a``).
+        """
+        _legacy_target = f"{boot_cfg.LEGACY_OTA_PARTITION_FNAME}.{old_value}"
+        for _slot_id, _legacy_folder in old_slot_id_mapping.items():
+            if _legacy_target == _legacy_folder:
+                return _slot_id
+        logger.warning(
+            "unrecognised old slot_in_use value, "
+            f"falling back to current slot {fallback}"
+        )
+        return fallback
+
+    @classmethod
+    def to_old_slot_id(
+        cls,
+        new_value: str,
+        *,
+        old_slot_id_mapping: Dict["OTASlotBootID", str],
+        fallback: "OTASlotBootID",
+    ) -> str:
+        """Translate new-format ``slot_in_use`` value (e.g. ``"ota-slot_a"``)
+        to the old format string (e.g. ``"sda3"``).
+        """
+        _legacy_prefix = f"{boot_cfg.LEGACY_OTA_PARTITION_FNAME}."
+        for _slot_id, _legacy_folder in old_slot_id_mapping.items():
+            if new_value == _slot_id:
+                return _legacy_folder[len(_legacy_prefix) :]
+
+        _fallback_old = old_slot_id_mapping[fallback][len(_legacy_prefix) :]
+        logger.warning(
+            "unrecognised new slot_in_use value, "
+            f"falling back to current slot {_fallback_old}"
+        )
+        return _fallback_old
 
 
 @dataclass
