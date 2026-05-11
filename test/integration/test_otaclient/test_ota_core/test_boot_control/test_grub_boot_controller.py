@@ -99,9 +99,18 @@ def _assert_old_grub_legacy_preserved(boot_dir: Path) -> None:
     Per the backward-compat plan, MIGRATE_FROM_OLD bootstrap does NOT wipe
     the legacy folder — it stays as old grub left it so that a Group B old
     controller running on the system continues to skip its own bootstrap.
+
+    Note: the top-level ``/boot/ota-partition`` symlink (and other
+    old-grub-format top-level ``*-ota[.standby]`` symlinks) ARE removed at
+    the end of ``_bootstrap_boot_control`` — those are consumed only by old
+    grub, and old grub's own bootstrap re-creates them if the system ever
+    falls back. We assert here that the legacy *folder* with its kernel /
+    initrd is preserved, which is what Group B's bootstrap predicate cares
+    about.
     """
-    assert (boot_dir / "ota-partition").is_symlink(), (
-        "/boot/ota-partition symlink should still be present after migration"
+    assert not (boot_dir / "ota-partition").exists(), (
+        "/boot/ota-partition top-level symlink must be removed during "
+        "new-grub takeover (cleanup at end of _bootstrap_boot_control)"
     )
     active_legacy = boot_dir / "ota-partition.sda3"
     assert active_legacy.is_dir(), (
@@ -136,19 +145,39 @@ class TestGrubBootControllerNormalStartup:
         """Ensure all mocks and path redirections are active."""
 
     def test_startup_ota_status_success(self, boot_dir: Path):
-        """Case 1a: OTA status is SUCCESS — no bootstrap, boot unchanged."""
+        """Case 1a: OTA status is SUCCESS — no bootstrap, new-side state
+        unchanged.
+
+        Note: the controller's ensure-step (plan §3.2) DOES populate the
+        active-slot legacy folder on this first ALREADY_NEW startup,
+        because the new-grub-managed test fixture doesn't pre-create it.
+        That folder appearing is intentional (it's the post-OTA-reboot
+        recovery path), and is asserted explicitly below.
+        """
         _setup_new_grub_managed_boot(boot_dir, ota_status="SUCCESS")
-        # snapshot boot dir before init
-        files_before = set(boot_dir.rglob("*"))
+        # Snapshot the new-side state — that's what "no bootstrap" must
+        # leave untouched.
+        slot_a = boot_dir / "ota-slot_a"
+        slot_a_files_before = {p.relative_to(slot_a) for p in slot_a.rglob("*")}
+        grub_cfg_before = (boot_dir / "grub" / "grub.cfg").read_text()
 
         controller = GrubBootController()
 
         assert controller._boot_control.resetup_requested is False
         assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
 
-        # /boot should be unchanged
-        files_after = set(boot_dir.rglob("*"))
-        assert files_before == files_after
+        # No bootstrap: the new-side state is byte-for-byte unchanged.
+        slot_a_files_after = {p.relative_to(slot_a) for p in slot_a.rglob("*")}
+        assert slot_a_files_before == slot_a_files_after
+        assert (boot_dir / "grub" / "grub.cfg").read_text() == grub_cfg_before
+
+        # The ensure-step restored the active-slot legacy folder (mirrored
+        # from /boot/ota-slot_a/), so a Group B old controller's bootstrap
+        # predicate would pass if it ever ran on this system.
+        active_legacy = boot_dir / "ota-partition.sda3"
+        assert active_legacy.is_dir()
+        assert (active_legacy / GRUB_KERNEL_FNAME).is_file()
+        assert (active_legacy / GRUB_INITRD_FNAME).is_file()
 
     def test_startup_ota_status_updating(self, boot_dir: Path):
         """Case 1b: OTA status is UPDATING — finalize_switch_boot is triggered."""
