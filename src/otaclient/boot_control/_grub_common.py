@@ -178,7 +178,7 @@ class OTASlotBootID(StrEnum):
         cls,
         new_value: str,
         *,
-        old_slot_id_mapping: Dict["OTASlotBootID", str],
+        old_slot_id_mapping: dict["OTASlotBootID", str],
         fallback: "OTASlotBootID",
     ) -> str:
         """Translate new-format ``slot_in_use`` value (e.g. ``"ota-slot_a"``)

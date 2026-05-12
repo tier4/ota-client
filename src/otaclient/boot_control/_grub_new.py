@@ -146,7 +146,7 @@ def _detect_boot_control_setup_case() -> _GrubBootControlSetupCase:
 
     if not OTAManagedCfg.validate_managed_config(_grub_cfg_text):
         logger.warning(
-            "faile to validate the /boot/grub/grub.cfg file, re-setup required"
+            "failed to validate the /boot/grub/grub.cfg file, re-setup required"
         )
         return _GrubBootControlSetupCase.FRESH
     return _GrubBootControlSetupCase.ALREADY_NEW

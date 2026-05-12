@@ -293,8 +293,7 @@ class OTAStatusFilesControl:
     def load_active_slot_version(self) -> str:
         try:
             return read_str_from_file(
-                self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
-                _default=cfg.DEFAULT_VERSION_STR,
+                self.current_ota_status_dir / cfg.OTA_VERSION_FNAME
             )[:MAX_VERSION_STRING_LEN]
         except Exception as e:
             logger.warning(f"failed to load current slot's version: {e!r}")
@@ -303,8 +302,7 @@ class OTAStatusFilesControl:
     def load_standby_slot_version(self) -> str:
         try:
             return read_str_from_file(
-                self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
-                _default=cfg.DEFAULT_VERSION_STR,
+                self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME
             )[:MAX_VERSION_STRING_LEN]
         except Exception as e:
             logger.warning(f"failed to load standby slot's version: {e!r}")
