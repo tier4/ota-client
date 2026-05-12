@@ -17,9 +17,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import grpc
 from otaclient_pb2.v2 import otaclient_v2_pb2 as pb2
 from otaclient_pb2.v2 import otaclient_v2_pb2_grpc as pb2_grpc
 
+from otaclient.grpc.api_v2.ecu_status import LocalECUStatusNotReady
 from otaclient_api.v2 import _types
 
 
@@ -50,5 +52,9 @@ class OtaClientServiceV2(pb2_grpc.OtaClientServiceServicer):
         return response.export_pb()
 
     async def Status(self, request: pb2.StatusRequest, context) -> pb2.StatusResponse:
-        response = await self._stub.status(_types.StatusRequest.convert(request))
+        try:
+            response = await self._stub.status(_types.StatusRequest.convert(request))
+        except LocalECUStatusNotReady as e:
+            await context.abort(grpc.StatusCode.UNAVAILABLE, str(e))
+            raise  # context.abort() never returns; satisfy type checkers
         return response.export_pb()
