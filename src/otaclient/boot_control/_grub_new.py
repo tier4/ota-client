@@ -550,7 +550,7 @@ class _GrubBootHelperFuncs:
 
                 return _res.stdout.decode()
             except CalledProcessError as e:
-                logger.error(
+                logger.exception(
                     f"grub-mkconfig on {_slot_mp=} failed: {e!r}\nstderr: {e.stderr.decode()}\nstdout: {e.stdout.decode()}"
                 )
                 raise GrubBootControllerError(
@@ -1352,7 +1352,7 @@ class GrubBootController(BootControllerBase):
         _boot_slot_dir = self._boot_control.get_boot_slot_dir(self._standby_slot)
         remove_file(_boot_slot_dir)
         # NOTE: a dummy `grub` is required for grub-mkconfig to work properly!
-        (_boot_slot_dir / "grub").mkdir(parents=True)
+        (_boot_slot_dir / "grub").mkdir(exist_ok=True, parents=True)
         remove_file(self._boot_control.get_boot_cfg_fpath(self._standby_slot))
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
