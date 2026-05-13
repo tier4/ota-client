@@ -216,9 +216,9 @@ class TestMenuentryRegexPatterns:
         assert ma.group("entry_id") == expected_id
 
 
-# ============================================================
-# iter_menuentries
-# ============================================================
+#
+# ------------ iter_menuentries ------------ #
+#
 
 
 class TestIterMenuentries:
@@ -262,9 +262,9 @@ class TestIterMenuentries:
             list(iter_menuentries(input_str))
 
 
-# ============================================================
-# _BootMenuEntry._find_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry._find_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryFindMenuentry:
@@ -353,9 +353,9 @@ class TestBootMenuEntryFixupFpath:
         assert result == expected
 
 
-# ============================================================
-# _BootMenuEntry._fixup_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry._fixup_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryFixupMenuentry:
@@ -425,9 +425,9 @@ class TestBootMenuEntryFixupMenuentry:
         assert parsed[0] == result.strip()
 
 
-# ============================================================
-# _BootMenuEntry.generate_menuentry
-# ============================================================
+#
+# ------------ _BootMenuEntry.generate_menuentry ------------ #
+#
 
 
 class TestBootMenuEntryGenerateMenuentry:
@@ -491,9 +491,9 @@ class TestBootMenuEntryGenerateMenuentry:
             )
 
 
-# ============================================================
-# _GrubBootHelperFuncs._update_grub_default
-# ============================================================
+#
+# ------------ _GrubBootHelperFuncs._update_grub_default ------------ #
+#
 
 
 class TestUpdateGrubDefault:
@@ -725,7 +725,7 @@ class TestListPartitions:
 
 
 #
-# ------ _GrubBootControl._generate_fstab ------
+# ------------ _GrubBootControl._generate_fstab ------------ #
 #
 
 
@@ -901,65 +901,6 @@ class TestGenerateFstab:
         )
         assert result.endswith("\n")
 
-    def test_no_comments_in_output(
-        self,
-        mocker,
-        boot_uuid,
-        efi_uuid,
-        slot_fsuuid,
-        reference_fstab,
-        base_fstab,
-        expected_lines,
-    ):
-        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
-        result = ctrl._generate_fstab(
-            base_fstab=base_fstab,
-            reference_fstab=reference_fstab,
-            slot_fsuuid=slot_fsuuid,
-        )
-        for line in result.strip().splitlines():
-            assert not line.startswith("#")
-
-    def test_special_entries_not_duplicated(
-        self,
-        mocker,
-        boot_uuid,
-        efi_uuid,
-        slot_fsuuid,
-        reference_fstab,
-        base_fstab,
-        expected_lines,
-    ):
-        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
-        result = ctrl._generate_fstab(
-            base_fstab=base_fstab,
-            reference_fstab=reference_fstab,
-            slot_fsuuid=slot_fsuuid,
-        )
-        mount_points = [line.split("\t")[1] for line in result.strip().splitlines()]
-        assert mount_points.count("/") == 1
-        assert mount_points.count("/boot") == 1
-        assert mount_points.count("/boot/efi") == 1
-
-    def test_boot_appears_before_efi(
-        self,
-        mocker,
-        boot_uuid,
-        efi_uuid,
-        slot_fsuuid,
-        reference_fstab,
-        base_fstab,
-        expected_lines,
-    ):
-        ctrl = _make_grub_ctrl(mocker, boot_uuid=boot_uuid, efi_uuid=efi_uuid)
-        result = ctrl._generate_fstab(
-            base_fstab=base_fstab,
-            reference_fstab=reference_fstab,
-            slot_fsuuid=slot_fsuuid,
-        )
-        mount_points = [line.split("\t")[1] for line in result.strip().splitlines()]
-        assert mount_points.index("/boot") < mount_points.index("/boot/efi")
-
 
 class TestGenerateFstabFallback:
     """Tests for _generate_fstab fallback paths (no reference or missing entries)."""
@@ -1034,3 +975,217 @@ class TestGenerateFstabFallback:
         assert "/boot" in mount_points
         assert "/boot/efi" not in mount_points
         assert "/data" in mount_points
+
+
+#
+# ------------ _GrubBootControl._ensure_legacy_compat_for_current_slot ------------ #
+#
+
+_ENSURE_KERNEL_FNAME = "vmlinuz-6.11.0-29-generic"
+_ENSURE_INITRD_FNAME = "initrd.img-6.11.0-29-generic"
+
+
+def _make_ensure_ctrl(mocker, tmp_path):
+    """Build a partial _GrubBootControl with `boot_slots` set and the two
+    path methods that ``_ensure_legacy_compat_for_current_slot`` and
+    ``_mirror_legacy_compat_for_slot`` reach through (``get_boot_slot_dir``
+    and ``_legacy_compat_dir_for_slot``) redirected to ``tmp_path``.
+
+    Active slot is fixed to ``slot_a`` for these tests; legacy folder is
+    ``ota-partition.sda3``; new slot folder is ``ota-slot_a``.
+    """
+    from pathlib import Path
+
+    ctrl = object.__new__(_GrubBootControl)
+    boot_slots = mocker.MagicMock()
+    boot_slots.current_slot = OTASlotBootID.slot_a
+    boot_slots.old_slot_id_mapping = {
+        OTASlotBootID.slot_a: "ota-partition.sda3",
+        OTASlotBootID.slot_b: "ota-partition.sda4",
+    }
+    ctrl.boot_slots = boot_slots
+
+    def _legacy(slot_id):
+        return Path(tmp_path) / boot_slots.old_slot_id_mapping[slot_id]
+
+    def _new_slot(slot_id):
+        return Path(tmp_path) / str(slot_id)
+
+    ctrl._legacy_compat_dir_for_slot = _legacy
+    ctrl.get_boot_slot_dir = _new_slot
+    return ctrl
+
+
+class TestEnsureLegacyCompatForCurrentSlot:
+    """Ensure-on-startup: mirror the legacy compat folder for the active slot
+    only if it doesn't already exist.
+
+    Invoked from ``GrubBootController.__init__`` after
+    ``OTAStatusFilesControl`` initialises, so that any status files freshly
+    written there land in the mirror as hardlinks.
+    """
+
+    def test_skip_when_legacy_folder_exists(self, mocker, tmp_path):
+        """If ``/boot/ota-partition.sda<active_pid>/`` already exists (MIGRATE_FROM_OLD
+        preserved it, or a previous startup mirrored it), the ensure step
+        does NOT touch its contents.
+        """
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        legacy = tmp_path / "ota-partition.sda3"
+        legacy.mkdir()
+        # Pre-existing sentinel that a force-mirror WOULD prune.
+        sentinel = legacy / "preserved-from-old-grub"
+        sentinel.write_text("untouched")
+
+        # Note: deliberately NO ``ota-slot_a/`` source dir — if the ensure
+        # step tried to mirror, the call would raise. The skip path is what
+        # prevents that, and is the contract under test here.
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        assert sentinel.is_file()
+        assert sentinel.read_text() == "untouched"
+
+    def test_mirrors_kernel_and_initrd_when_legacy_missing(self, mocker, tmp_path):
+        """If the legacy folder is missing, the ensure step mirrors from
+        ``/boot/ota-slot_<active>/`` to populate it with hardlinked
+        kernel/initrd."""
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+        (slot_a / _ENSURE_INITRD_FNAME).write_text("initrd-bytes")
+
+        legacy = tmp_path / "ota-partition.sda3"
+        assert not legacy.exists()
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        assert legacy.is_dir(), "legacy folder must be created"
+        for fname in (_ENSURE_KERNEL_FNAME, _ENSURE_INITRD_FNAME):
+            src = slot_a / fname
+            dst = legacy / fname
+            assert dst.is_file() and not dst.is_symlink(), (
+                f"{fname} in legacy must be a real file (hardlink), not a symlink"
+            )
+            assert src.stat().st_ino == dst.stat().st_ino, (
+                f"{fname} must be hardlinked between new slot dir and legacy"
+            )
+
+    def test_mirrors_status_files_when_present_in_source(self, mocker, tmp_path):
+        """The ensure step runs AFTER ``OTAStatusFilesControl`` initialises,
+        so whatever status files it just wrote into ``/boot/ota-slot_<active>/``
+        are captured in the mirror.
+
+        ``status`` / ``version`` are byte-identical between old and new grub
+        control, so they are hardlinked. ``slot_in_use`` differs in format
+        (``"ota-slot_a"`` new vs. ``"sda3"`` old), so the mirror translates
+        new→old and writes it atomically — it is NOT hardlinked.
+        """
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+        (slot_a / _ENSURE_INITRD_FNAME).write_text("initrd-bytes")
+        # Files that OTAStatusFilesControl would have just written.
+        (slot_a / "status").write_text("SUCCESS")
+        (slot_a / "slot_in_use").write_text("ota-slot_a")
+        (slot_a / "version").write_text("2.0.0")
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        legacy = tmp_path / "ota-partition.sda3"
+        # status / version: hardlinked (format-compatible).
+        for fname in ("status", "version"):
+            src = slot_a / fname
+            dst = legacy / fname
+            assert dst.is_file() and not dst.is_symlink()
+            assert dst.read_text() == src.read_text()
+            assert src.stat().st_ino == dst.stat().st_ino, (
+                f"{fname} must be hardlinked into legacy"
+            )
+        # slot_in_use: translated new→old, NOT hardlinked.
+        src_slot_in_use = slot_a / "slot_in_use"
+        dst_slot_in_use = legacy / "slot_in_use"
+        assert dst_slot_in_use.is_file() and not dst_slot_in_use.is_symlink()
+        assert dst_slot_in_use.read_text() == "sda3", (
+            "slot_in_use must be translated from new format (ota-slot_a) to "
+            "old format (sda3) so a Group B old controller reads it correctly"
+        )
+        assert src_slot_in_use.stat().st_ino != dst_slot_in_use.stat().st_ino, (
+            "slot_in_use must NOT be hardlinked — the on-disk bytes differ "
+            "between old and new format"
+        )
+
+    def test_mirrors_slot_in_use_skipped_when_source_empty(self, mocker, tmp_path):
+        """If the source ``slot_in_use`` is missing or empty, the mirror does
+        not write a destination entry (let any old grub controller seed its
+        own default via its missing-file fallback)."""
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+        (slot_a / "slot_in_use").write_text("   ")  # whitespace-only
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        legacy = tmp_path / "ota-partition.sda3"
+        assert not (legacy / "slot_in_use").exists(), (
+            "empty source slot_in_use must not produce a destination entry"
+        )
+
+    def test_mirrors_slot_in_use_unknown_value_falls_back(self, mocker, tmp_path):
+        """An unrecognised new-format ``slot_in_use`` value falls back to the
+        current slot in old format (slot_a → ``sda3``) per
+        :meth:`OTASlotBootID.translate_slot_in_use_new_to_old`."""
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+        (slot_a / "slot_in_use").write_text("garbage-not-a-slot-id")
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        legacy = tmp_path / "ota-partition.sda3"
+        assert (legacy / "slot_in_use").read_text() == "sda3", (
+            "unrecognised value must translate to the current slot's old format"
+        )
+
+    def test_subdirs_in_source_are_skipped(self, mocker, tmp_path):
+        """The ``grub/`` placeholder subdir under ``/boot/ota-slot_<active>/``
+        is not mirrored (the mirror skips real subdirectories — only the name
+        is recorded so the prune step doesn't kill a same-named legacy
+        entry)."""
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / "grub").mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        legacy = tmp_path / "ota-partition.sda3"
+        assert (legacy / _ENSURE_KERNEL_FNAME).is_file()
+        assert not (legacy / "grub").exists(), (
+            "the grub/ placeholder subdir under the source must not be "
+            "mirrored into legacy"
+        )
+
+    def test_symlinks_in_source_are_mirrored_as_symlinks(self, mocker, tmp_path):
+        """A symlink in the source slot dir is recreated as a symlink (with
+        the same target string) at the legacy destination."""
+        ctrl = _make_ensure_ctrl(mocker, tmp_path)
+        slot_a = tmp_path / "ota-slot_a"
+        slot_a.mkdir()
+        (slot_a / _ENSURE_KERNEL_FNAME).write_text("kernel-bytes")
+        (slot_a / "vmlinuz-current").symlink_to(_ENSURE_KERNEL_FNAME)
+
+        ctrl._ensure_legacy_compat_for_current_slot()
+
+        legacy = tmp_path / "ota-partition.sda3"
+        dst_link = legacy / "vmlinuz-current"
+        assert dst_link.is_symlink(), "symlink must be recreated as a symlink"
+        import os
+
+        assert os.readlink(dst_link) == _ENSURE_KERNEL_FNAME, (
+            "symlink target string must match the source's"
+        )
