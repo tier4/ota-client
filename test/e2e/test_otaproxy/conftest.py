@@ -44,6 +44,7 @@ from pytest_mock import MockerFixture
 
 from ota_proxy import App, OTACache
 from ota_proxy import config as otaproxy_cfg
+from ota_proxy.cache_streaming import CacheWriterPool
 
 from ._download_client import DownloadResult
 
@@ -83,6 +84,13 @@ HTTP_SERVER_SCRIPT = Path(__file__).parent / "_ota_image_server.py"
 SPACE_CONDITION_BELOW_SOFT = "below_soft_limit"
 SPACE_CONDITION_BELOW_HARD = "below_hard_limit"
 SPACE_CONDITION_EXCEED_HARD = "exceed_hard_limit"
+
+# Raise CacheWriterPool's pending-write semaphore for tests so the
+# dispatcher's "drop caching" path cannot fire under the 3-fan-in
+# proxy-chain saturation. With the production default (384) the
+# below_soft_limit run flakes because dropped writes leave gaps that
+# the dummy-upstream warm phase then cannot fill.
+_TEST_MAX_PENDING_WRITE = 65536
 
 
 def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
@@ -338,6 +346,10 @@ async def launch_otaproxy_with_cache(
     """
     mocker.patch.object(
         OTACache, "_background_check_free_space", _make_mocked_space_checker(condition)
+    )
+    mocker.patch.dict(
+        CacheWriterPool.__init__.__kwdefaults__,
+        {"max_pending": _TEST_MAX_PENDING_WRITE},
     )
     ota_cache = OTACache(
         cache_enabled=True,
