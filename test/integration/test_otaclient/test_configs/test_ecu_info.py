@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 from ipaddress import IPv4Address
@@ -26,26 +25,25 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
 
 @pytest.mark.parametrize(
     "ecu_info_yaml, expected_res",
-    (
+    [
         # --- case 1: invalid ecu_info --- #
-        # case 1.1: valid yaml(empty file), invalid ecu_info
-        (
+        pytest.param(
             "# this is an empty file",
             (False, DEFAULT_ECU_INFO),
+            id="empty_yaml_falls_back_to_default",
         ),
-        # case 1.2: valid yaml(array), invalid ecu_info
-        (
-            ("- this is an\n- yaml file that\n- contains a array\n"),
+        pytest.param(
+            "- this is an\n- yaml file that\n- contains a array\n",
             (False, DEFAULT_ECU_INFO),
+            id="yaml_array_falls_back_to_default",
         ),
-        # case 1.2: invalid yaml
-        (
+        pytest.param(
             "    - \n not a \n [ valid yaml",
             (False, DEFAULT_ECU_INFO),
+            id="invalid_yaml_falls_back_to_default",
         ),
         # --- case 2: single ECU --- #
-        # case 2.1: basic single ECU
-        (
+        pytest.param(
             (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
@@ -60,9 +58,9 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     bootloader=BootloaderType.JETSON_CBOOT,
                 ),
             ),
+            id="single_ecu_jetson_cboot",
         ),
-        # case 2.2: single ECU with bootloader type specified
-        (
+        pytest.param(
             (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
@@ -77,10 +75,10 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     bootloader=BootloaderType.GRUB,
                 ),
             ),
+            id="single_ecu_grub",
         ),
         # --- case 3: multiple ECUs --- #
-        # case 3.1: basic multiple ECUs
-        (
+        pytest.param(
             (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
@@ -112,9 +110,9 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     ],
                 ),
             ),
+            id="multi_ecu_grub_main",
         ),
-        # case 3.2: multiple ECUs, with main ECU's bootloader specified
-        (
+        pytest.param(
             (
                 "format_version: 1\n"
                 'ecu_id: "autoware"\n'
@@ -146,8 +144,9 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
                     ],
                 ),
             ),
+            id="multi_ecu_jetson_uefi_main",
         ),
-    ),
+    ],
 )
 def test_ecu_info(
     tmp_path: Path, ecu_info_yaml: str, expected_res: tuple[bool, ECUInfo]

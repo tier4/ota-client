@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from functools import partial
 from pathlib import Path
 from typing import Optional
-from unittest.mock import patch
 
 import pytest
+from pytest_mock import MockerFixture
 
 from otaclient._types import OTAStatus, VersionDetail
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
@@ -68,64 +68,70 @@ class TestOTAStatusFilesControl:
             _dummy_finalize_switch_boot, self.finalize_switch_boot_flag
         )
 
-    def _make_status_control(self) -> OTAStatusFilesControl:
+    def _make_status_control(
+        self,
+        *,
+        active_slot: Optional[str] = None,
+        standby_slot: Optional[str] = None,
+        current_ota_status_dir: Optional[Path] = None,
+        standby_ota_status_dir: Optional[Path] = None,
+        finalizing_result: bool = True,
+        force_initialize: bool = False,
+    ) -> OTAStatusFilesControl:
         return OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
+            active_slot=active_slot or self.slot_a,
+            standby_slot=standby_slot or self.slot_b,
+            current_ota_status_dir=current_ota_status_dir or self.slot_a_ota_status_dir,
+            standby_ota_status_dir=standby_ota_status_dir or self.slot_b_ota_status_dir,
+            finalize_switching_boot=partial(
+                self.finalize_switch_boot_func, finalizing_result
+            ),
+            force_initialize=force_initialize,
         )
 
     @pytest.mark.parametrize(
         (
-            "test_case,input_slot_a_status,input_slot_a_slot_in_use,force_initialize,"
-            "output_slot_a_status,output_slot_a_slot_in_use"
+            "input_slot_a_status",
+            "input_slot_a_slot_in_use",
+            "force_initialize",
+            "output_slot_a_status",
+            "output_slot_a_slot_in_use",
         ),
-        (
-            (
-                "test_initialize",
-                # input
+        [
+            pytest.param(
                 None,
                 "",
                 False,
-                # output
                 OTAStatus.INITIALIZED,
                 SLOT_A_ID,
+                id="initialize_when_status_files_missing",
             ),
-            (
-                "test_force_initialize",
-                # input
+            pytest.param(
                 OTAStatus.SUCCESS,
                 SLOT_A_ID,
                 True,
-                # output
                 OTAStatus.INITIALIZED,
                 SLOT_A_ID,
+                id="force_initialize_resets_to_initialized",
             ),
-            (
-                "test_normal_boot",
-                # input
+            pytest.param(
                 OTAStatus.SUCCESS,
                 SLOT_A_ID,
                 False,
-                # output
                 OTAStatus.SUCCESS,
                 SLOT_A_ID,
+                id="normal_boot_loads_success",
             ),
-        ),
+        ],
     )
     def test_ota_status_files_loading(
         self,
-        test_case: str,
         input_slot_a_status: Optional[OTAStatus],
         input_slot_a_slot_in_use: str,
         force_initialize: bool,
         output_slot_a_status: OTAStatus,
         output_slot_a_slot_in_use: str,
     ):
-        logger.info(f"{test_case=}")
         # ------ setup ------ #
         write_str_to_file_atomic(
             self.slot_a_status_file,
@@ -134,14 +140,7 @@ class TestOTAStatusFilesControl:
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, input_slot_a_slot_in_use)
 
         # ------ execution ------ #
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=force_initialize,
-        )
+        status_control = self._make_status_control(force_initialize=force_initialize)
 
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
@@ -156,15 +155,7 @@ class TestOTAStatusFilesControl:
 
     def test_pre_update(self):
         """Test update from slot_a to slot_b."""
-        # ------ direct init ------ #
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
-        )
+        status_control = self._make_status_control()
 
         # ------ execution ------ #
         status_control.pre_update_current()
@@ -180,15 +171,7 @@ class TestOTAStatusFilesControl:
         )
 
     def test_post_update(self):
-        # ------ direct init ------ #
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
-        )
+        status_control = self._make_status_control()
 
         # ------ execution ------ #
         status_control.post_update_standby(version="dummy_version")
@@ -200,25 +183,14 @@ class TestOTAStatusFilesControl:
         assert read_str_from_file(self.slot_b_slot_in_use_file) == self.slot_b
 
     @pytest.mark.parametrize(
-        ("test_case,finalizing_result"),
-        (
-            (
-                "test_finalizing_failed",
-                False,
-            ),
-            (
-                "test_finalizing_succeeded",
-                True,
-            ),
-        ),
+        "finalizing_result",
+        [
+            pytest.param(False, id="finalizing_failed"),
+            pytest.param(True, id="finalizing_succeeded"),
+        ],
     )
-    def test_switching_boot(
-        self,
-        test_case: str,
-        finalizing_result: bool,
-    ):
+    def test_switching_boot(self, finalizing_result: bool):
         """First reboot after OTA from slot_a to slot_b."""
-        logger.info(f"{test_case=}")
         # ------ setup ------ #
         write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.FAILURE)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_b)
@@ -227,15 +199,12 @@ class TestOTAStatusFilesControl:
 
         # ------ execution ------ #
         # otaclient boots on slot_b
-        status_control = OTAStatusFilesControl(
+        status_control = self._make_status_control(
             active_slot=self.slot_b,
             standby_slot=self.slot_a,
             current_ota_status_dir=self.slot_b_ota_status_dir,
             standby_ota_status_dir=self.slot_a_ota_status_dir,
-            finalize_switching_boot=partial(
-                self.finalize_switch_boot_func, finalizing_result
-            ),
-            force_initialize=False,
+            finalizing_result=finalizing_result,
         )
 
         # ------ assertion ------ #
@@ -274,13 +243,11 @@ class TestOTAStatusFilesControl:
 
         # ------ execution ------ #
         # otaclient accidentally boots on slot_b
-        status_control = OTAStatusFilesControl(
+        status_control = self._make_status_control(
             active_slot=self.slot_b,
             standby_slot=self.slot_a,
             current_ota_status_dir=self.slot_b_ota_status_dir,
             standby_ota_status_dir=self.slot_a_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
         )
 
         # ------ assertion ------ #
@@ -293,32 +260,23 @@ class TestOTAStatusFilesControl:
     #                 is_running_as_downloaded_dynamic_app here.
     @pytest.mark.parametrize(
         "initial_status",
-        [
-            OTAStatus.FAILURE,
-            OTAStatus.SUCCESS,
-        ],
-    )
-    @patch(
-        "otaclient.boot_control._ota_status_control._env.is_running_as_downloaded_dynamic_app",
-        return_value=True,
+        [OTAStatus.FAILURE, OTAStatus.SUCCESS],
     )
     def test_dynamic_client_running_status_handling(
-        self, mock_is_dynamic_client_running, initial_status: OTAStatus
+        self, initial_status: OTAStatus, mocker: MockerFixture
     ):
         """Test that any status is converted to SUCCESS when dynamic client is running."""
+        mocker.patch(
+            "otaclient.boot_control._ota_status_control._env.is_running_as_downloaded_dynamic_app",
+            return_value=True,
+        )
+
         # ------ setup ------ #
         write_str_to_file_atomic(self.slot_a_status_file, initial_status)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
 
         # ------ execution ------ #
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
-        )
+        status_control = self._make_status_control()
 
         # ------ assertion ------ #
         assert not self.finalize_switch_boot_flag.is_set()
@@ -337,15 +295,7 @@ class TestOTAStatusFilesControl:
         # ------ setup ------ #
         write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.SUCCESS)
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
-
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
-        )
+        status_control = self._make_status_control()
 
         # ------ execution ------ #
         status_control.on_abort()
@@ -361,15 +311,7 @@ class TestOTAStatusFilesControl:
         write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
         # Create standby slot status file to simulate mid-update state
         write_str_to_file_atomic(self.slot_b_status_file, OTAStatus.UPDATING)
-
-        status_control = OTAStatusFilesControl(
-            active_slot=self.slot_a,
-            standby_slot=self.slot_b,
-            current_ota_status_dir=self.slot_a_ota_status_dir,
-            standby_ota_status_dir=self.slot_b_ota_status_dir,
-            finalize_switching_boot=partial(self.finalize_switch_boot_func, True),
-            force_initialize=False,
-        )
+        status_control = self._make_status_control()
 
         # ------ execution ------ #
         status_control.on_failure()
@@ -416,8 +358,6 @@ class TestOTAStatusFilesControl:
 
     def test_load_version_detail_from_active_slot(self):
         """Test loading version_detail from the active slot."""
-        import json
-
         # ------ setup ------ #
         _data = {
             "release_name": "active_release",
