@@ -62,7 +62,6 @@ def test_wait_and_log_timeout(caplog: pytest.LogCaptureFixture):
     _msg = "condition that will timeout"
     timeout = 5  # timeout after 5 seconds
 
-    # Test that wait_and_log returns False when it times out
     result = wait_and_log(
         _flag.is_set,
         _msg,
@@ -73,5 +72,4 @@ def test_wait_and_log_timeout(caplog: pytest.LogCaptureFixture):
         timeout=timeout,
     )
 
-    # Verify the function returned False (condition wasn't met)
     assert result is False

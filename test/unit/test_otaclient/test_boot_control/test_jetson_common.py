@@ -32,9 +32,10 @@ from otaclient.boot_control._jetson_common import (
     parse_nv_tegra_release,
     update_extlinux_cfg,
 )
-from tests.conftest import TEST_DIR
 
-TEST_DATA_DIR = TEST_DIR / "data"
+# test/unit/test_otaclient/test_boot_control/test_jetson_common.py
+#  parents[3] == test/, where shared text fixtures live under data/
+TEST_DATA_DIR = Path(__file__).parents[3] / "data"
 
 
 @pytest.mark.parametrize(
@@ -145,7 +146,7 @@ def test_parse_nv_tegra_release(_in: str, _expect: BSPVersion):
         ),
     ),
 )
-def test_update_extlinux_conf(_template_f: Path, _updated_f: Path, partuuid: str):
+def test_update_extlinux_conf(_template_f: str, _updated_f: str, partuuid: str):
     _in = (TEST_DATA_DIR / _template_f).read_text()
     _expected = (TEST_DATA_DIR / _updated_f).read_text()
     assert update_extlinux_cfg(_in, partuuid) == _expected
