@@ -355,10 +355,8 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         mocker: MockerFixture,
     ):
         """Test BSP version compatibility checking logic."""
-        # Create a mock JetsonUEFIBootControl instance
         boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
 
-        # Mock the _firmware_bsp_ver_control with standby and current slot BSP versions
         mock_fw_bsp_ver_control = mocker.MagicMock()
         mock_fw_bsp_ver_control.standby_slot_bsp_ver = BSPVersion.parse(
             current_bsp_version
@@ -368,7 +366,6 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         )
         boot_control._firmware_bsp_ver_control = mock_fw_bsp_ver_control
 
-        # Call the real method
         result, _ = JetsonUEFIBootControl.current_slot_bsp_ver_check(
             boot_control, download_bsp_version
         )
@@ -379,18 +376,15 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         self, mocker: MockerFixture
     ):
         """Test that uses current slot BSP version when standby slot BSP version is None."""
-        # Create a mock JetsonUEFIBootControl instance
         boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
 
-        # Mock the _firmware_bsp_ver_control with None standby_slot_bsp_ver
-        # When standby is None, it should use current slot version (R35.4.1)
-        # and check against download version (R36), which should fail
+        # When standby is None, fall back to current slot version (R35.4.1)
+        # against download version (R35.4.1) — same generation should match.
         mock_fw_bsp_ver_control = mocker.MagicMock()
         mock_fw_bsp_ver_control.standby_slot_bsp_ver = None
         mock_fw_bsp_ver_control.current_slot_bsp_ver = BSPVersion.parse("R35.4.1")
         boot_control._firmware_bsp_ver_control = mock_fw_bsp_ver_control
 
-        # Call the real method - should return False (R35 != R36)
         result, _ = JetsonUEFIBootControl.current_slot_bsp_ver_check(
             boot_control,
             "R35.4.1",

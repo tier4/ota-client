@@ -31,10 +31,8 @@ class TestNvidiaJetsonCheckBSPLegacy:
     @pytest.fixture
     def mock_ota_updater(self, mocker: MockerFixture):
         """Create a mock OTA updater instance."""
-        # Mock the boot controller
         mock_boot_controller = mocker.MagicMock(spec=JetsonUEFIBootControl)
 
-        # Create updater instance with minimal setup
         updater = mocker.MagicMock(spec=OTAUpdaterForLegacyOTAImage)
         updater._boot_controller = mock_boot_controller
         updater._downloader_pool = mocker.MagicMock(spec=DownloaderPool)
@@ -55,16 +53,13 @@ class TestNvidiaJetsonCheckBSPLegacy:
         """Test that the check is skipped when BSP version file is not found."""
         updater, mock_boot_controller = mock_ota_updater
 
-        # Mock download to return None (file not found)
         mocker.patch(
             "otaclient.ota_core._download_bsp_version_file.download",
             return_value=None,
         )
 
-        # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify current_slot_bsp_ver_check was not called
         mock_boot_controller.current_slot_bsp_ver_check.assert_not_called()
 
     def test_bsp_version_check_success(
@@ -73,7 +68,6 @@ class TestNvidiaJetsonCheckBSPLegacy:
         """Test successful BSP version compatibility check."""
         updater, mock_boot_controller = mock_ota_updater
 
-        # Mock successful download
         raw_bsp_content = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
 # KERNEL_VARIANT: oot
 TARGET_USERSPACE_LIB_DIR=nvidia"""
@@ -82,20 +76,16 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
             return_value=raw_bsp_content,
         )
 
-        # Mock parse_nv_tegra_release
         parsed_version = BSPVersion(36, 4, 0)
         mocker.patch(
             "otaclient.boot_control._jetson_common.parse_nv_tegra_release",
             return_value=parsed_version,
         )
 
-        # Mock successful compatibility check
         mock_boot_controller.current_slot_bsp_ver_check.return_value = (True, "R36.4.0")
 
-        # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify the check was called with parsed version
         mock_boot_controller.current_slot_bsp_ver_check.assert_called_once_with(
             parsed_version
         )
@@ -106,7 +96,6 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         """Test that incompatible BSP versions raise BootControlBSPVersionCompatibilityFailed."""
         updater, mock_boot_controller = mock_ota_updater
 
-        # Mock successful download
         raw_bsp_content = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
 # KERNEL_VARIANT: oot
 TARGET_USERSPACE_LIB_DIR=nvidia"""
@@ -115,26 +104,22 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
             return_value=raw_bsp_content,
         )
 
-        # Mock parse_nv_tegra_release
         parsed_version = BSPVersion(36, 4, 0)
         mocker.patch(
             "otaclient.boot_control._jetson_common.parse_nv_tegra_release",
             return_value=parsed_version,
         )
 
-        # Mock failed compatibility check
         mock_boot_controller.current_slot_bsp_ver_check.return_value = (
             False,
             "R35.4.1",
         )
 
-        # Should raise BootControlBSPVersionCompatibilityFailed
         with pytest.raises(
             ota_errors.BootControlBSPVersionCompatibilityFailed
         ) as exc_info:
             updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify error message contains BSP version info
         assert "doesn't match" in str(exc_info.value)
         assert "R35.4.1" in str(exc_info.value)
 
@@ -144,16 +129,13 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         """Test that empty download content is handled as file not found."""
         updater, mock_boot_controller = mock_ota_updater
 
-        # Mock download to return empty string
         mocker.patch(
             "otaclient.ota_core._download_bsp_version_file.download",
             return_value="",
         )
 
-        # Should not raise any exception (treated as file not found)
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify current_slot_bsp_ver_check was not called
         mock_boot_controller.current_slot_bsp_ver_check.assert_not_called()
 
     def test_integration_with_parse_nv_tegra_release(
@@ -162,7 +144,6 @@ TARGET_USERSPACE_LIB_DIR=nvidia"""
         """Test integration with actual parse_nv_tegra_release function."""
         updater, mock_boot_controller = mock_ota_updater
 
-        # Mock download with realistic BSP content
         raw_bsp_content = """# R35 (release), REVISION: 4.1, GCID: 33958178, BOARD: t186ref, EABI: aarch64, DATE: Tue Aug  1 19:57:35 UTC 2023
 # KERNEL_VARIANT: oot
 TARGET_USERSPACE_LIB_DIR=nvidia
@@ -173,13 +154,10 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         )
 
         # Don't mock parse_nv_tegra_release - use the real function
-        # Mock successful compatibility check
         mock_boot_controller.current_slot_bsp_ver_check.return_value = (True, "R35.4.1")
 
-        # Should not raise any exception
         updater._nvidia_jetson_check_bsp_legacy()
 
-        # Verify the check was called with the correctly parsed version
         expected_version = BSPVersion(35, 4, 1)
         mock_boot_controller.current_slot_bsp_ver_check.assert_called_once_with(
             expected_version
