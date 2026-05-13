@@ -32,9 +32,9 @@ from .conftest import (
     OTA_MANAGED_GRUB_CFG,
 )
 
-# ============================================================
-# OTAManagedCfg
-# ============================================================
+#
+# ------------ OTAManagedCfg ------------ #
+#
 
 
 class TestOTAManagedCfgInit:
@@ -374,9 +374,9 @@ class TestOTAManagedCfgValidate:
         assert OTAManagedCfg.validate_managed_config(invalid_config) is None
 
 
-# ============================================================
-# OTASlotBootID
-# ============================================================
+#
+# ------------ OTASlotBootID ------------ #
+#
 
 
 class TestOTASlotBootID:
@@ -394,9 +394,183 @@ class TestOTASlotBootID:
         assert isinstance(slot, str)
 
 
-# ============================================================
-# SlotInfo
-# ============================================================
+# UEFI test layout: slot_a → sda3, slot_b → sda4.
+_UEFI_OLD_SLOT_ID_MAPPING = {
+    OTASlotBootID.slot_a: "ota-partition.sda3",
+    OTASlotBootID.slot_b: "ota-partition.sda4",
+}
+# Legacy BIOS test layout: slot_a → sda2, slot_b → sda3. Verifies the
+# translation works against an arbitrary partition layout, not just the UEFI
+# one used in most of the suite.
+_BIOS_OLD_SLOT_ID_MAPPING = {
+    OTASlotBootID.slot_a: "ota-partition.sda2",
+    OTASlotBootID.slot_b: "ota-partition.sda3",
+}
+
+
+class TestOTASlotBootIDFromOldSlotId:
+    """``OTASlotBootID.from_old_slot_id`` maps the old-format
+    ``"sda<pid>"`` string to a new-format ``OTASlotBootID``, falling back to
+    the supplied ``fallback`` argument on unrecognised input.
+
+    Used at the case-2 (MIGRATE_FROM_OLD) seam by
+    ``_migrate_from_old_grub_control`` to carry over old-grub-era
+    ``slot_in_use`` into the new slot folder.
+    """
+
+    @pytest.mark.parametrize(
+        "old_value, mapping, expected",
+        [
+            pytest.param(
+                "sda3", _UEFI_OLD_SLOT_ID_MAPPING, OTASlotBootID.slot_a, id="uefi_a"
+            ),
+            pytest.param(
+                "sda4", _UEFI_OLD_SLOT_ID_MAPPING, OTASlotBootID.slot_b, id="uefi_b"
+            ),
+            pytest.param(
+                "sda2", _BIOS_OLD_SLOT_ID_MAPPING, OTASlotBootID.slot_a, id="bios_a"
+            ),
+            pytest.param(
+                "sda3", _BIOS_OLD_SLOT_ID_MAPPING, OTASlotBootID.slot_b, id="bios_b"
+            ),
+        ],
+    )
+    def test_translates_known_values(self, old_value, mapping, expected):
+        result = OTASlotBootID.from_old_slot_id(
+            old_value,
+            old_slot_id_mapping=mapping,
+            fallback=OTASlotBootID.slot_a,
+        )
+        assert result == expected
+
+    def test_returns_strenum_compatible_str(self):
+        """The return is an ``OTASlotBootID`` instance and is str-equal to the
+        new-format string. ``StrEnum`` lets it round-trip through atomic
+        writes without explicit ``.value`` conversion."""
+        result = OTASlotBootID.from_old_slot_id(
+            "sda3",
+            old_slot_id_mapping=_UEFI_OLD_SLOT_ID_MAPPING,
+            fallback=OTASlotBootID.slot_a,
+        )
+        assert isinstance(result, OTASlotBootID)
+        assert result == "ota-slot_a"
+
+    @pytest.mark.parametrize(
+        "bad_input",
+        [
+            pytest.param("sda9", id="unknown_partition_id"),
+            pytest.param("", id="empty_string"),
+            pytest.param("ota-partition.sda3", id="full_legacy_folder_name"),
+            pytest.param("ota-slot_a", id="new_format_value"),
+        ],
+    )
+    def test_unknown_value_falls_back(self, bad_input, caplog):
+        result = OTASlotBootID.from_old_slot_id(
+            bad_input,
+            old_slot_id_mapping=_UEFI_OLD_SLOT_ID_MAPPING,
+            fallback=OTASlotBootID.slot_b,
+        )
+        assert result == OTASlotBootID.slot_b, (
+            "unrecognised input must yield the supplied fallback"
+        )
+        assert any("unrecognised" in rec.message for rec in caplog.records), (
+            "expected a warning log on miss"
+        )
+
+
+class TestOTASlotBootIDToOldSlotId:
+    """``OTASlotBootID.to_old_slot_id`` maps a new-format
+    ``OTASlotBootID`` value to the old-format ``"sda<pid>"`` string, falling
+    back to the old format of the supplied ``fallback`` on unrecognised input.
+
+    Used at the mirror seam by ``_mirror_legacy_compat_for_slot`` to write
+    ``slot_in_use`` into the legacy compat folder in the format old grub
+    expects.
+    """
+
+    @pytest.mark.parametrize(
+        "new_value, mapping, expected",
+        [
+            pytest.param("ota-slot_a", _UEFI_OLD_SLOT_ID_MAPPING, "sda3", id="uefi_a"),
+            pytest.param("ota-slot_b", _UEFI_OLD_SLOT_ID_MAPPING, "sda4", id="uefi_b"),
+            pytest.param("ota-slot_a", _BIOS_OLD_SLOT_ID_MAPPING, "sda2", id="bios_a"),
+            pytest.param("ota-slot_b", _BIOS_OLD_SLOT_ID_MAPPING, "sda3", id="bios_b"),
+        ],
+    )
+    def test_translates_known_values(self, new_value, mapping, expected):
+        result = OTASlotBootID.to_old_slot_id(
+            new_value,
+            old_slot_id_mapping=mapping,
+            fallback=OTASlotBootID.slot_a,
+        )
+        assert result == expected
+        assert isinstance(result, str)
+        assert not isinstance(result, OTASlotBootID), (
+            "new→old returns a plain str, not the new-format enum"
+        )
+
+    @pytest.mark.parametrize(
+        "bad_input",
+        [
+            pytest.param("garbage-value", id="arbitrary_string"),
+            pytest.param("", id="empty_string"),
+            pytest.param("sda3", id="old_format_value"),
+            pytest.param("ota-slot_c", id="unknown_slot_id"),
+        ],
+    )
+    def test_unknown_value_falls_back(self, bad_input, caplog):
+        result = OTASlotBootID.to_old_slot_id(
+            bad_input,
+            old_slot_id_mapping=_UEFI_OLD_SLOT_ID_MAPPING,
+            fallback=OTASlotBootID.slot_b,
+        )
+        assert result == "sda4", (
+            "fallback=OTASlotBootID.slot_b → 'sda4' under UEFI test layout"
+        )
+        assert any("unrecognised" in rec.message for rec in caplog.records)
+
+    def test_fallback_uses_supplied_mapping_not_uefi_default(self):
+        """Fallback consults the supplied ``old_slot_id_mapping``, not a
+        hardcoded UEFI assumption — so BIOS-layout callers get the right
+        BIOS-format old value."""
+        result = OTASlotBootID.to_old_slot_id(
+            "garbage",
+            old_slot_id_mapping=_BIOS_OLD_SLOT_ID_MAPPING,
+            fallback=OTASlotBootID.slot_a,
+        )
+        assert result == "sda2", (
+            "fallback=slot_a under BIOS layout → 'sda2' (sda3 would be the UEFI value)"
+        )
+
+    @pytest.mark.parametrize(
+        "old_value, mapping",
+        [
+            pytest.param("sda3", _UEFI_OLD_SLOT_ID_MAPPING, id="uefi_a"),
+            pytest.param("sda4", _UEFI_OLD_SLOT_ID_MAPPING, id="uefi_b"),
+            pytest.param("sda2", _BIOS_OLD_SLOT_ID_MAPPING, id="bios_a"),
+            pytest.param("sda3", _BIOS_OLD_SLOT_ID_MAPPING, id="bios_b"),
+        ],
+    )
+    def test_round_trip_old_new_old(self, old_value, mapping):
+        """``old → new → old`` is identity for any valid old input under any
+        partition layout. Validates the two helpers stay symmetric.
+        """
+        new_value = OTASlotBootID.from_old_slot_id(
+            old_value,
+            old_slot_id_mapping=mapping,
+            fallback=OTASlotBootID.slot_a,
+        )
+        round_tripped = OTASlotBootID.to_old_slot_id(
+            new_value,
+            old_slot_id_mapping=mapping,
+            fallback=OTASlotBootID.slot_a,
+        )
+        assert round_tripped == old_value
+
+
+#
+# ------------ SlotInfo ------------ #
+#
 
 
 class TestSlotInfo:
@@ -437,9 +611,9 @@ class TestSlotInfo:
         assert slot.slot_id is slot_id
 
 
-# ============================================================
-# read_fstab_dict
-# ============================================================
+#
+# ------------ read_fstab_dict ------------ #
+#
 
 
 SAMPLE_FSTAB = """\

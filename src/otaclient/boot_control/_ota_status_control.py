@@ -29,6 +29,7 @@ from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 logger = logging.getLogger(__name__)
 
 FinalizeSwitchBootFunc = Callable[[], bool]
+MAX_VERSION_STRING_LEN = 2048
 
 
 class OTAStatusFilesControl:
@@ -63,8 +64,11 @@ class OTAStatusFilesControl:
         self.current_ota_status_dir.mkdir(exist_ok=True, parents=True)
         self._load_slot_in_use_file()
         self._load_status_file()
+
         logger.info(
-            f"ota_status files parsing completed, ota_status is {self._ota_status.name}"
+            f"ota_status files parsing completed:\n"
+            f"ota_status: {self._ota_status.name}\n"
+            f"version: {self.load_active_slot_version()}"
         )
 
     def _load_status_file(self):
@@ -287,16 +291,22 @@ class OTAStatusFilesControl:
         self._store_standby_status(OTAStatus.ROLLBACKING)
 
     def load_active_slot_version(self) -> str:
-        return read_str_from_file(
-            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            _default=cfg.DEFAULT_VERSION_STR,
-        )
+        try:
+            return read_str_from_file(
+                self.current_ota_status_dir / cfg.OTA_VERSION_FNAME
+            )[:MAX_VERSION_STRING_LEN]
+        except Exception as e:
+            logger.warning(f"failed to load current slot's version: {e!r}")
+            return cfg.DEFAULT_VERSION_STR
 
     def load_standby_slot_version(self) -> str:
-        return read_str_from_file(
-            self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME,
-            _default=cfg.DEFAULT_VERSION_STR,
-        )
+        try:
+            return read_str_from_file(
+                self.standby_ota_status_dir / cfg.OTA_VERSION_FNAME
+            )[:MAX_VERSION_STRING_LEN]
+        except Exception as e:
+            logger.warning(f"failed to load standby slot's version: {e!r}")
+            return cfg.DEFAULT_VERSION_STR
 
     def _load_version_detail_from_dir(
         self, ota_status_dir: Path
