@@ -11,21 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Top-level test helpers shared across unit / integration / e2e tiers.
-
-Currently provides:
-    - ``ota_status_collector``: class-scoped ``OTAClientStatusCollector``
-      thread + in-process report queue, used by ``_status_monitor`` and
-      OTAClient IPC tests.
-    - ``launch_http_server_subprocess``: context manager that spawns
-      ``_utils/_http_server.py`` as a child process serving a given
-      directory and yields the base URL. Use this whenever a test needs
-      a real HTTP boundary between the system-under-test and a fixture
-      tree.
-
-Standalone helper scripts (anything invoked as a subprocess rather than
-imported) live under ``test/_utils/``.
-"""
 
 from __future__ import annotations
 
