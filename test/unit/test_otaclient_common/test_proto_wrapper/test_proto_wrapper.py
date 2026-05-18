@@ -19,12 +19,31 @@ from typing import Any
 
 import pytest
 from google.protobuf.duration_pb2 import Duration as _pb2_Duration
+from google.protobuf.message import Message as _Message
 
 from otaclient_common import proto_wrapper
-from tests.utils import compare_message
 
 from . import example_pb2 as pb2
 from . import example_pb2_wrapper as wrapper
+
+
+def _compare_message(left, right):
+    """Recursively compare two protobuf-like messages.
+
+    NOTE: we don't directly compare two protobuf messages by `==` due to the
+    behavior difference between empty Duration and unset Duration.
+    """
+    if (_proto_class := type(left)) is not type(right):
+        raise TypeError(f"{type(left)=} != {type(right)=}")
+
+    for _attrn in _proto_class.__slots__:
+        _attrv_l, _attrv_r = getattr(left, _attrn), getattr(right, _attrn)
+        assert type(_attrv_l) is type(_attrv_r), f"compare failed on {_attrn=}"
+
+        if isinstance(_attrv_l, _Message):
+            _compare_message(_attrv_l, _attrv_r)
+        else:
+            assert _attrv_l == _attrv_r, f"mismatch {_attrv_l=}, {_attrv_r=}"
 
 
 @pytest.mark.parametrize(
@@ -68,7 +87,7 @@ def test_default_value_behavior(
     for _field_name in input_wrapper_inst._fields:
         _value = getattr(input_wrapper_inst, _field_name)
         if isinstance(_value, proto_wrapper.MessageWrapper):
-            compare_message(_value, expected_dict[_field_name])
+            _compare_message(_value, expected_dict[_field_name])
         else:
             assert _value == expected_dict[_field_name]
 
@@ -127,4 +146,4 @@ def test_default_value_behavior(
 def test_convert_export(origin_msg, converted_msg: proto_wrapper.MessageWrapper):
     _converted = type(converted_msg).convert(origin_msg)
     assert _converted == converted_msg
-    compare_message(origin_msg, _converted.export_pb())
+    _compare_message(origin_msg, _converted.export_pb())

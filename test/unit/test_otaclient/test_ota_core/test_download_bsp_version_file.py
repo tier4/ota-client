@@ -45,7 +45,6 @@ class TestDownloadBSPVersionFile:
         """Test successful download of BSP version file."""
         pool, downloader = mock_downloader_pool
 
-        # Mock successful HTTP response with real file format
         mock_response = mocker.MagicMock()
         mock_response.status_code = HTTPStatus.OK
         mock_response.text = """# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024
@@ -58,38 +57,25 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
             "https://example.com/ota", downloader_pool=pool
         )
 
-        # The strip() is applied in the function, so verify it matches
         assert result == mock_response.text.strip()
         downloader._session.get.assert_called_once()
         pool.release_instance.assert_called_once()
 
-    def test_download_bsp_version_file_not_found(
-        self, mock_downloader_pool: tuple, mocker: MockerFixture
+    @pytest.mark.parametrize(
+        "status_code",
+        (
+            pytest.param(HTTPStatus.NOT_FOUND, id="not_found"),
+            pytest.param(HTTPStatus.UNAUTHORIZED, id="unauthorized"),
+        ),
+    )
+    def test_download_bsp_version_file_non_retryable_failure(
+        self, status_code, mock_downloader_pool: tuple, mocker: MockerFixture
     ):
-        """Test when BSP version file is not found (404)."""
+        """Test when access fails with non-retryable HTTP errors (404/401)."""
         pool, downloader = mock_downloader_pool
 
-        # Mock 404 response
         mock_response = mocker.MagicMock()
-        mock_response.status_code = HTTPStatus.NOT_FOUND
-        downloader._session.get.return_value = mock_response
-
-        result = _download_bsp_version_file.download(
-            "https://example.com/ota", downloader_pool=pool
-        )
-
-        assert result is None
-        pool.release_instance.assert_called_once()
-
-    def test_download_bsp_version_file_unauthorized(
-        self, mock_downloader_pool: tuple, mocker: MockerFixture
-    ):
-        """Test when access is unauthorized (401)."""
-        pool, downloader = mock_downloader_pool
-
-        # Mock 401 response
-        mock_response = mocker.MagicMock()
-        mock_response.status_code = HTTPStatus.UNAUTHORIZED
+        mock_response.status_code = status_code
         downloader._session.get.return_value = mock_response
 
         result = _download_bsp_version_file.download(
@@ -105,7 +91,6 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         """Test retry mechanism on transient failures."""
         pool, downloader = mock_downloader_pool
 
-        # Mock responses: first two fail, third succeeds
         mock_response_fail = mocker.MagicMock()
         mock_response_fail.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -122,7 +107,6 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
             mock_response_success,
         ]
 
-        # Mock time.sleep to avoid actual delays
         mocker.patch(f"{MODULE}.time.sleep")
 
         result = _download_bsp_version_file.download(
@@ -140,7 +124,6 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         pool, downloader = mock_downloader_pool
         downloader._force_http = True
 
-        # Mock successful HTTP response
         mock_response = mocker.MagicMock()
         mock_response.status_code = HTTPStatus.OK
         mock_response.text = """# R35 (release), REVISION: 4.1, GCID: 33958178, BOARD: t186ref, EABI: aarch64, DATE: Tue Aug  1 19:57:35 UTC 2023
@@ -154,7 +137,6 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         )
 
         assert result == mock_response.text.strip()
-        # Verify the URL was converted to http
         called_url = downloader._session.get.call_args[0][0]
         assert called_url.startswith("http://")
         pool.release_instance.assert_called_once()
@@ -165,16 +147,13 @@ TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia"""
         """Test exception handling during download."""
         pool, downloader = mock_downloader_pool
 
-        # Mock exception
         downloader._session.get.side_effect = Exception("Network error")
 
-        # Mock time.sleep
         mocker.patch(f"{MODULE}.time.sleep")
 
         result = _download_bsp_version_file.download(
             "https://example.com/ota", downloader_pool=pool
         )
 
-        # Should return None after retries exhausted
         assert result is None
         pool.release_instance.assert_called_once()

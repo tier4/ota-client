@@ -4,7 +4,7 @@ aiodns==3.2.0 ; (python_full_version < '3.9' and sys_platform == 'darwin') or (p
     # via aiohttp
 aiodns==3.6.1 ; python_full_version == '3.9.*'
     # via aiohttp
-aiodns==4.0.0 ; python_full_version >= '3.10'
+aiodns==4.0.3 ; python_full_version >= '3.10'
     # via aiohttp
 aiohappyeyeballs==2.4.4 ; python_full_version < '3.9'
     # via aiohttp
@@ -38,13 +38,15 @@ attrs==25.3.0 ; python_full_version < '3.9'
     # via aiohttp
 attrs==26.1.0 ; python_full_version >= '3.9'
     # via aiohttp
-backports-zstd==1.3.0 ; python_full_version >= '3.9' and python_full_version < '3.14' and platform_python_implementation == 'CPython'
+backports-zstd==1.3.0 ; python_full_version == '3.9.*' and platform_python_implementation == 'CPython'
+    # via aiohttp
+backports-zstd==1.5.0 ; python_full_version >= '3.10' and python_full_version < '3.14' and platform_python_implementation == 'CPython'
     # via aiohttp
 brotli==1.2.0 ; platform_python_implementation == 'CPython'
     # via aiohttp
 brotlicffi==1.2.0.1 ; platform_python_implementation != 'CPython'
     # via aiohttp
-certifi==2026.2.25
+certifi==2026.4.22
     # via requests
 cffi==1.17.1 ; python_full_version < '3.9'
     # via
@@ -61,7 +63,7 @@ charset-normalizer==3.4.7
     # via requests
 click==8.1.8 ; python_full_version < '3.10'
     # via uvicorn
-click==8.3.2 ; python_full_version >= '3.10'
+click==8.4.0 ; python_full_version >= '3.10'
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -91,7 +93,7 @@ httptools==0.6.4 ; python_full_version < '3.9'
     # via uvicorn
 httptools==0.7.1 ; python_full_version >= '3.9'
     # via uvicorn
-idna==3.11
+idna==3.15
     # via
     #   anyio
     #   requests
@@ -122,7 +124,11 @@ otaclient-pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.1.0/
     # via otaclient
 propcache==0.2.0 ; python_full_version < '3.9'
     # via yarl
-propcache==0.4.1 ; python_full_version >= '3.9'
+propcache==0.4.1 ; python_full_version == '3.9.*'
+    # via
+    #   aiohttp
+    #   yarl
+propcache==0.5.2 ; python_full_version >= '3.10'
     # via
     #   aiohttp
     #   yarl
@@ -148,7 +154,7 @@ pydantic==2.10.6 ; python_full_version < '3.9'
     #   otaclient
     #   pydantic-settings
     #   simple-sqlite3-orm
-pydantic==2.13.3 ; python_full_version >= '3.9'
+pydantic==2.13.4 ; python_full_version >= '3.9'
     # via
     #   ota-image-libs
     #   otaclient
@@ -156,13 +162,13 @@ pydantic==2.13.3 ; python_full_version >= '3.9'
     #   simple-sqlite3-orm
 pydantic-core==2.27.2 ; python_full_version < '3.9'
     # via pydantic
-pydantic-core==2.46.3 ; python_full_version >= '3.9'
+pydantic-core==2.46.4 ; python_full_version >= '3.9'
     # via pydantic
 pydantic-settings==2.8.1 ; python_full_version < '3.9'
     # via otaclient
 pydantic-settings==2.11.0 ; python_full_version == '3.9.*'
     # via otaclient
-pydantic-settings==2.14.0 ; python_full_version >= '3.10'
+pydantic-settings==2.14.1 ; python_full_version >= '3.10'
     # via otaclient
 pyjwt==2.9.0 ; python_full_version < '3.9'
     # via ota-image-libs
@@ -189,7 +195,7 @@ requests==2.32.4 ; python_full_version < '3.9'
     # via otaclient
 requests==2.32.5 ; python_full_version == '3.9.*'
     # via otaclient
-requests==2.33.1 ; python_full_version >= '3.10'
+requests==2.34.2 ; python_full_version >= '3.10'
     # via otaclient
 simple-sqlite3-orm==0.13.0
     # via
@@ -234,7 +240,11 @@ urllib3==2.2.3 ; python_full_version < '3.9'
     # via
     #   otaclient
     #   requests
-urllib3==2.6.3 ; python_full_version >= '3.9'
+urllib3==2.6.3 ; python_full_version == '3.9.*'
+    # via
+    #   otaclient
+    #   requests
+urllib3==2.7.0 ; python_full_version >= '3.10'
     # via
     #   otaclient
     #   requests
@@ -242,7 +252,7 @@ uvicorn==0.33.0 ; python_full_version < '3.9'
     # via otaclient
 uvicorn==0.39.0 ; python_full_version == '3.9.*'
     # via otaclient
-uvicorn==0.46.0 ; python_full_version >= '3.10'
+uvicorn==0.47.0 ; python_full_version >= '3.10'
     # via otaclient
 uvloop==0.21.0 ; python_full_version < '3.8.1' and platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn

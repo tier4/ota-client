@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import NoReturn
-from unittest.mock import MagicMock
 
 import pytest
+from pytest_mock import MockerFixture
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus, VersionDetail
@@ -28,60 +28,53 @@ from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 
 
-class ConcreteBootController(BootControllerBase):
-    """Concrete implementation for testing the base class."""
+def _make_concrete_boot_controller_cls(mocker: MockerFixture):
+    """Create a Concrete BootController class with platform-specific tracking."""
 
-    def __init__(self):
-        # Mock the required components
-        self._mp_control = MagicMock(spec=SlotMountHelper)
-        self._mp_control.standby_slot_dev = "/dev/mock_standby"
-        self._mp_control.standby_slot_mount_point = Path("/mnt/standby")
+    class ConcreteBootController(BootControllerBase):
+        def __init__(self):
+            self._mp_control = mocker.MagicMock(spec=SlotMountHelper)
+            self._mp_control.standby_slot_dev = "/dev/mock_standby"
+            self._mp_control.standby_slot_mount_point = Path("/mnt/standby")
 
-        self._ota_status_control = MagicMock(spec=OTAStatusFilesControl)
-        self._ota_status_control.load_active_slot_version.return_value = "1.0.0"
-        self._ota_status_control.booted_ota_status = OTAStatus.SUCCESS
+            self._ota_status_control = mocker.MagicMock(spec=OTAStatusFilesControl)
+            self._ota_status_control.load_active_slot_version.return_value = "1.0.0"
+            self._ota_status_control.booted_ota_status = OTAStatus.SUCCESS
 
-        # Track platform-specific method calls
-        self.pre_update_platform_called = False
-        self.post_update_platform_called = False
+            self.pre_update_platform_called = False
+            self.post_update_platform_called = False
 
-    @property
-    def bootloader_type(self) -> str:
-        return "mock_bootloader"
+        @property
+        def bootloader_type(self) -> str:
+            return "mock_bootloader"
 
-    def _pre_update_platform_specific(
-        self, *, standby_as_ref: bool, erase_standby: bool
-    ) -> None:
-        self.pre_update_platform_called = True
+        def _pre_update_platform_specific(
+            self, *, standby_as_ref: bool, erase_standby: bool
+        ) -> None:
+            self.pre_update_platform_called = True
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
-        self.post_update_platform_called = True
+        def _post_update_platform_specific(self, *, update_version: str) -> None:
+            self.post_update_platform_called = True
 
-    def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
-        raise SystemExit("mock reboot")
+        def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
+            raise SystemExit("mock reboot")
+
+    return ConcreteBootController
 
 
 class TestBootControllerBase:
-    """Test suite for BootControllerBase class."""
+    @pytest.fixture
+    def controller(self, mocker: MockerFixture):
+        return _make_concrete_boot_controller_cls(mocker)()
 
-    def test_common_properties(self):
-        """Test that common properties are correctly implemented."""
-        controller = ConcreteBootController()
-
-        # Test standby_slot_dev property
+    def test_common_properties(self, controller, mocker: MockerFixture):
         assert controller.standby_slot_dev == Path("/dev/mock_standby")
-
-        # Test get_standby_slot_path
         assert controller.get_standby_slot_path() == Path("/mnt/standby")
-
-        # Test get_standby_slot_dev
         assert controller.get_standby_slot_dev() == "/dev/mock_standby"
 
-        # Test load_version
         assert controller.load_version() == "1.0.0"
         controller._ota_status_control.load_active_slot_version.assert_called_once()
 
-        # Test load_version_detail
         _mock_detail = VersionDetail(
             release_name="r1", release_id="rid1", image_id="img1"
         )
@@ -91,57 +84,36 @@ class TestBootControllerBase:
         assert controller.load_version_detail() == _mock_detail
         controller._ota_status_control.load_active_slot_version_detail.assert_called_once()
 
-        # Test load_version_detail returns None
         controller._ota_status_control.load_active_slot_version_detail.return_value = (
             None
         )
         assert controller.load_version_detail() is None
 
-        # Test get_booted_ota_status
         assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
-
-        # Test bootloader_type
         assert controller.bootloader_type == "mock_bootloader"
 
-    def test_on_operation_failure(self):
-        """Test that on_operation_failure calls the expected methods."""
-        controller = ConcreteBootController()
-
+    def test_on_operation_failure(self, controller):
         controller.on_operation_failure()
 
-        # Verify that failure cleanup methods are called
         controller._ota_status_control.on_failure.assert_called_once()
         controller._mp_control.umount_all.assert_called_once()
 
-    def test_on_abort(self):
-        """Test that on_abort persists ABORTED status without unmounting."""
-        controller = ConcreteBootController()
-
+    def test_on_abort(self, controller):
         controller.on_abort()
 
         controller._ota_status_control.on_abort.assert_called_once()
         controller._mp_control.umount_all.assert_not_called()
 
-    def test_pre_update_success(self):
-        """Test pre_update template method with successful execution."""
-        controller = ConcreteBootController()
-
+    def test_pre_update_success(self, controller):
         controller.pre_update(standby_as_ref=False, erase_standby=True)
 
-        # Verify the common flow steps were executed
         controller._ota_status_control.pre_update_current.assert_called_once()
         controller._mp_control.prepare_standby_dev.assert_called_once()
         controller._mp_control.mount_standby.assert_called_once()
         controller._mp_control.mount_active.assert_called_once()
-
-        # Verify platform-specific method was called
         assert controller.pre_update_platform_called is True
 
-    def test_pre_update_failure_handling(self):
-        """Test pre_update error handling."""
-        controller = ConcreteBootController()
-
-        # Simulate failure in mount_standby
+    def test_pre_update_failure_handling(self, controller):
         controller._mp_control.mount_standby.side_effect = Exception("Mount failed")
 
         with pytest.raises(ota_errors.BootControlPreUpdateFailed) as exc_info:
@@ -149,23 +121,14 @@ class TestBootControllerBase:
 
         assert "failed on pre_update" in str(exc_info.value)
 
-    def test_post_update_success(self):
-        """Test post_update template method with successful execution."""
-        controller = ConcreteBootController()
-
+    def test_post_update_success(self, controller):
         controller.post_update(update_version="2.0.0")
 
-        # Verify the common flow steps were executed
         controller._ota_status_control.post_update_standby.assert_called_once()
         controller._mp_control.umount_all.assert_called_once()
-
-        # Verify platform-specific method was called
         assert controller.post_update_platform_called is True
 
-    def test_post_update_with_version_detail(self):
-        """Test post_update passes version_detail to ota_status_control."""
-        controller = ConcreteBootController()
-
+    def test_post_update_with_version_detail(self, controller):
         _version_detail = VersionDetail(
             release_name="r1", release_id="rid1", image_id="img1"
         )
@@ -178,11 +141,7 @@ class TestBootControllerBase:
         controller._mp_control.umount_all.assert_called_once()
         assert controller.post_update_platform_called is True
 
-    def test_post_update_failure_handling(self):
-        """Test post_update error handling."""
-        controller = ConcreteBootController()
-
-        # Simulate failure in platform-specific code
+    def test_post_update_failure_handling(self, controller):
         def raise_error(**kwargs):
             raise ValueError("Platform-specific error")
 
@@ -193,12 +152,9 @@ class TestBootControllerBase:
 
         assert "failed on post_update" in str(exc_info.value)
 
-    def test_template_method_execution_order(self):
-        """Test that template methods execute steps in correct order."""
-        controller = ConcreteBootController()
-        call_order = []
+    def test_template_method_execution_order(self, controller):
+        call_order: list[str] = []
 
-        # Track call order
         controller._ota_status_control.pre_update_current.side_effect = lambda: (
             call_order.append("pre_update_current")
         )
@@ -222,37 +178,25 @@ class TestBootControllerBase:
 
         controller.pre_update(standby_as_ref=False, erase_standby=False)
 
-        # Verify execution order
-        expected_order = [
+        assert call_order == [
             "pre_update_current",
             "prepare_standby_dev",
             "mount_standby",
             "mount_active",
             "platform_specific",
         ]
-        assert call_order == expected_order
 
-    def test_default_pre_update_prepare_standby(self):
-        """Test default implementation of _pre_update_prepare_standby."""
-        controller = ConcreteBootController()
-
-        # Call the default implementation directly
+    def test_default_pre_update_prepare_standby(self, controller):
         controller._pre_update_prepare_standby(erase_standby=True)
-
-        # Should delegate to SlotMountHelper
         controller._mp_control.prepare_standby_dev.assert_called_once()
 
-    def test_platform_specific_hooks_optional(self):
-        """Test that platform-specific hooks are optional (have default implementations)."""
-
+    def test_platform_specific_hooks_optional(self, mocker: MockerFixture):
         class MinimalBootController(BootControllerBase):
-            """Minimal implementation with only required methods."""
-
             def __init__(self):
-                self._mp_control = MagicMock(spec=SlotMountHelper)
+                self._mp_control = mocker.MagicMock(spec=SlotMountHelper)
                 self._mp_control.standby_slot_dev = "/dev/test"
                 self._mp_control.standby_slot_mount_point = Path("/mnt/test")
-                self._ota_status_control = MagicMock(spec=OTAStatusFilesControl)
+                self._ota_status_control = mocker.MagicMock(spec=OTAStatusFilesControl)
 
             @property
             def bootloader_type(self) -> str:
@@ -264,8 +208,5 @@ class TestBootControllerBase:
             def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
                 raise SystemExit("reboot")
 
-        # Should not raise any errors
-        controller = MinimalBootController()
-        controller.pre_update(standby_as_ref=False, erase_standby=False)
-        # The default implementation (_pre_update_platform_specific)
-        # should do nothing without raising errors
+        # Should not raise — default _pre_update_platform_specific is a no-op
+        MinimalBootController().pre_update(standby_as_ref=False, erase_standby=False)
