@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +33,8 @@ from otaclient.grpc.api_v2.ecu_status import ECUStatusStorage
 from otaclient.grpc.api_v2.servicer import OTAClientAPIServicer
 from otaclient_api.v2 import _types as api_types
 from otaclient_api.v2.api_caller import ECUAbortNotSupported, ECUNoResponse
-from tests.utils import compare_message
+
+from ._utils import compare_message
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +89,7 @@ class TestOTAClientAPIServicer:
         "local_response_data,expected_ecu_response",
         [
             # Case 0: Successful response
-            (
+            pytest.param(
                 {
                     "session_id": "test-session-id",
                     "res": IPCResEnum.ACCEPT,
@@ -99,9 +99,10 @@ class TestOTAClientAPIServicer:
                     ecu_id="autoware",
                     result=api_types.FailureType.NO_FAILURE,
                 ),
+                id="accept",
             ),
             # Case 1: Rejected response
-            (
+            pytest.param(
                 {
                     "session_id": "test-session-id",
                     "res": IPCResEnum.REJECT_OTHER,
@@ -111,9 +112,10 @@ class TestOTAClientAPIServicer:
                     ecu_id="autoware",
                     result=api_types.FailureType.RECOVERABLE,
                 ),
+                id="reject-other",
             ),
             # Case 2: session_id mismatch
-            (
+            pytest.param(
                 {
                     "session_id": "wrong-session-id",
                     "res": IPCResEnum.ACCEPT,
@@ -123,6 +125,7 @@ class TestOTAClientAPIServicer:
                     ecu_id="autoware",
                     result=api_types.FailureType.RECOVERABLE,
                 ),
+                id="session-id-mismatch",
             ),
         ],
     )
@@ -180,7 +183,6 @@ class TestOTAClientAPIServicer:
         self.op_queue.put_nowait.assert_called_once_with(request)
         self.resp_queue.get.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_update_ecu_info_not_loaded(self, mocker: MockerFixture):
         # Arrange
         mocker.patch(
@@ -212,7 +214,6 @@ class TestOTAClientAPIServicer:
         compare_message(result, expected_response)
         self.op_queue.put_nowait.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_update_local_ecu_success(self, mocker: MockerFixture):
         # Arrange
         update_request = api_types.UpdateRequest()
@@ -257,7 +258,6 @@ class TestOTAClientAPIServicer:
         self.op_queue.put_nowait.assert_called_once()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_update_with_sub_ecus(self, mocker: MockerFixture):
         # Create mock sub_ecus without modifying ecu_info.secondaries
         mock_sub_ecus = [
@@ -287,9 +287,6 @@ class TestOTAClientAPIServicer:
                 cookies="{}",
             )
         )
-
-        # Configure mock sub ECUs
-        mocker.patch.object(self.servicer, "sub_ecus", mock_sub_ecus)
 
         # Setup response for local update
         self.resp_queue.get.return_value = IPCResponse(
@@ -327,20 +324,6 @@ class TestOTAClientAPIServicer:
         result = await self.servicer.update(update_request)
 
         # Assert
-        expected_response = api_types.UpdateResponse()
-        expected_response.add_ecu(
-            api_types.UpdateResponseEcu(
-                ecu_id="ecu1",
-                result=api_types.FailureType.NO_FAILURE,
-            )
-        )
-        expected_response.add_ecu(
-            api_types.UpdateResponseEcu(
-                ecu_id="autoware",
-                result=api_types.FailureType.NO_FAILURE,
-            )
-        )
-
         assert len(list(result.iter_ecu())) == 2
         assert any(resp.ecu_id == "autoware" for resp in result.iter_ecu())
         assert any(resp.ecu_id == "ecu1" for resp in result.iter_ecu())
@@ -348,7 +331,6 @@ class TestOTAClientAPIServicer:
         mock_update_call.assert_called_once()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_update_subecu_no_response(self, mocker: MockerFixture):
         # Arrange
         update_request = api_types.UpdateRequest()
@@ -391,7 +373,6 @@ class TestOTAClientAPIServicer:
         mock_update_call.assert_called_once()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_rollback_local_ecu(self, mocker: MockerFixture):
         """Ensure that rollback is not triggerred."""
         # Arrange
@@ -434,7 +415,6 @@ class TestOTAClientAPIServicer:
         self.op_queue.put_nowait.assert_not_called()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_not_called()
 
-    @pytest.mark.asyncio
     async def test_client_update_local_ecu(self, mocker: MockerFixture):
         # Arrange
         client_update_request = api_types.ClientUpdateRequest()
@@ -478,7 +458,6 @@ class TestOTAClientAPIServicer:
         self.op_queue.put_nowait.assert_called_once()
         self.ecu_status_storage.on_ecus_accept_update_request.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_status(self):
         # Arrange
         expected_response = api_types.StatusResponse()
@@ -556,7 +535,6 @@ class TestOTAClientAPIServicer:
         self.op_queue.put_nowait.assert_called_once_with(request)
         self.resp_queue.get.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_abort_local_ecu_only(self, mocker: MockerFixture):
         """Test abort with local ECU only (no sub-ECUs)."""
         mocker.patch.object(self.servicer, "sub_ecus", [])
@@ -574,7 +552,6 @@ class TestOTAClientAPIServicer:
         assert ecu_responses[0].ecu_id == "autoware"
         assert ecu_responses[0].result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
-    @pytest.mark.asyncio
     async def test_abort_with_sub_ecus(self, mocker: MockerFixture):
         """Test abort with sub-ECUs."""
         mock_sub_ecus = [
@@ -610,7 +587,6 @@ class TestOTAClientAPIServicer:
         assert any(resp.ecu_id == "ecu1" for resp in ecu_responses)
         mock_abort_call.assert_called_once()
 
-    @pytest.mark.asyncio
     async def test_abort_subecu_no_response(self, mocker: MockerFixture):
         """Test abort when sub-ECU doesn't respond."""
         sub_ecu = ECUContact(
@@ -642,7 +618,6 @@ class TestOTAClientAPIServicer:
         local_resp = next(r for r in ecu_responses if r.ecu_id == "autoware")
         assert local_resp.result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
-    @pytest.mark.asyncio
     async def test_abort_subecu_not_supported(self, mocker: MockerFixture):
         """Test abort when sub-ECU doesn't support the abort endpoint."""
         sub_ecu = ECUContact(
@@ -676,7 +651,6 @@ class TestOTAClientAPIServicer:
         local_resp = next(r for r in ecu_responses if r.ecu_id == "autoware")
         assert local_resp.result == api_types.AbortFailureType.ABORT_NO_FAILURE
 
-    @pytest.mark.asyncio
     async def test_abort_rejected_by_ota_core(self, mocker: MockerFixture):
         """Test that abort is rejected when OTA Core rejects the request via IPC."""
         mocker.patch.object(self.servicer, "sub_ecus", [])

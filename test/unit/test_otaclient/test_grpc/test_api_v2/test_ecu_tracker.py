@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-from unittest.mock import AsyncMock, MagicMock
+
+from pytest_mock import MockerFixture
 
 from otaclient.configs._ecu_info import ECUContact
 from otaclient.grpc.api_v2.ecu_tracker import ECUTracker
@@ -25,7 +26,7 @@ from otaclient_api.v2 import _types as api_types
 ECU_TRACKER_MODULE = "otaclient.grpc.api_v2.ecu_tracker"
 
 
-async def test_startup_matrix_cleared_on_ecu_v2_response(mocker):
+async def test_startup_matrix_cleared_on_ecu_v2_response(mocker: MockerFixture):
     """_polling_direct_subecu_status clears startup_matrix when ECU responds with V2."""
     ecu_contact = ECUContact(
         ecu_id="p1", ip_addr=ipaddress.IPv4Address("127.0.0.1"), port=50051
@@ -43,20 +44,22 @@ async def test_startup_matrix_cleared_on_ecu_v2_response(mocker):
     # make status_call return the V2 response immediately
     mocker.patch(
         f"{ECU_TRACKER_MODULE}.OTAClientCall.status_call",
-        AsyncMock(return_value=resp),
+        mocker.AsyncMock(return_value=resp),
     )
 
-    mock_storage = MagicMock()
-    mock_storage.update_from_child_ecu = AsyncMock()
+    mock_storage = mocker.MagicMock()
+    mock_storage.update_from_child_ecu = mocker.AsyncMock()
 
     # waiter blocks so the loop pauses after the first iteration, allowing cancellation
     async def _blocking_waiter():
         await asyncio.sleep(60)
 
-    mock_storage.get_polling_waiter = MagicMock(return_value=lambda: _blocking_waiter())
+    mock_storage.get_polling_waiter = mocker.MagicMock(
+        return_value=lambda: _blocking_waiter()
+    )
 
-    mock_reader = MagicMock()
-    mock_reader.atexit = MagicMock()
+    mock_reader = mocker.MagicMock()
+    mock_reader.atexit = mocker.MagicMock()
 
     tracker = ECUTracker(mock_storage, local_ecu_status_reader=mock_reader)
     assert tracker._startup_matrix["p1"] is True
