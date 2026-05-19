@@ -27,9 +27,7 @@ import heapq
 import json
 import logging
 import random
-import signal
 import sqlite3
-import subprocess
 import sys
 import time
 from collections.abc import Coroutine
@@ -45,6 +43,7 @@ from pytest_mock import MockerFixture
 from ota_proxy import App, OTACache
 from ota_proxy import config as otaproxy_cfg
 from ota_proxy.cache_streaming import CacheWriterPool
+from test.conftest import launch_http_server_subprocess
 
 from ._download_client import DownloadResult
 
@@ -76,7 +75,6 @@ SPECIAL_FILENAMES = [
 ]
 
 DOWNLOAD_CLIENT_SCRIPT = Path(__file__).parent / "_download_client.py"
-HTTP_SERVER_SCRIPT = Path(__file__).parent / "_ota_image_server.py"
 
 # Space availability conditions for cache rotation testing.
 # Each condition simulates a different disk pressure scenario by
@@ -91,24 +89,6 @@ SPACE_CONDITION_EXCEED_HARD = "exceed_hard_limit"
 # below_soft_limit run flakes because dropped writes leave gaps that
 # the dummy-upstream warm phase then cannot fill.
 _TEST_MAX_PENDING_WRITE = 65536
-
-
-def _wait_for_ready(proc: subprocess.Popen, timeout: float = 30) -> None:
-    """Wait for the subprocess to print its READY line."""
-    assert proc.stdout is not None
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            if proc.poll() is not None:
-                raise RuntimeError(
-                    f"Process exited prematurely with code {proc.returncode}"
-                )
-            time.sleep(0.1)
-            continue
-        if line.startswith("READY:"):
-            return
-    raise TimeoutError("Timed out waiting for subprocess READY signal")
 
 
 ENSURE_LARGE_BLOB_ENTRIES = 10
@@ -189,28 +169,10 @@ def ota_image_server(ota_image_blobs) -> Generator[str]:
     Returns:
         The base URL of the server (e.g. "http://127.0.0.1:18888").
     """
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            str(HTTP_SERVER_SCRIPT),
-            "--port",
-            str(OTA_IMAGE_SERVER_PORT),
-            "--directory",
-            str(OTA_IMAGE_BLOBS_DIR),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    try:
-        _wait_for_ready(proc)
-        base_url = f"http://127.0.0.1:{OTA_IMAGE_SERVER_PORT}"
-        logger.info(f"OTA image server started at {base_url}")
+    with launch_http_server_subprocess(
+        "127.0.0.1", OTA_IMAGE_SERVER_PORT, OTA_IMAGE_BLOBS_DIR
+    ) as base_url:
         yield base_url
-    finally:
-        proc.send_signal(signal.SIGINT)
-        proc.wait(timeout=10)
-        logger.info("OTA image server stopped")
 
 
 def _resolve_space_state(condition: str, tick: int) -> tuple[bool, bool]:
