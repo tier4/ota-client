@@ -50,9 +50,9 @@ from otaclient.errors import (
     BootControlStartupFailed,
 )
 
-# ---------------------------------------------------------------------------
-# Test constants
-# ---------------------------------------------------------------------------
+#
+# ------------ Test constants ------------ #
+#
 SLOT_A = "slot_a"
 SLOT_B = "slot_b"
 
@@ -74,9 +74,9 @@ CURRENT_VERSION = "1.2.3"
 UPDATE_VERSION = "rpi_boot_test"
 
 
-# ---------------------------------------------------------------------------
-# Filesystem layout helpers
-# ---------------------------------------------------------------------------
+#
+# ------------ Filesystem layout helpers ------------ #
+#
 def _setup_system_boot_dir(system_boot_dir: Path) -> None:
     """Populate the system-boot vfat partition with per-slot boot files.
 
@@ -160,9 +160,9 @@ def _setup_slot_b_post_switch(
     return ota_status_dir
 
 
-# ---------------------------------------------------------------------------
-# Filesystem fixtures
-# ---------------------------------------------------------------------------
+#
+# ------------ Filesystem fixtures ------------ #
+#
 @pytest.fixture
 def slot_a_mp(tmp_path: Path) -> Path:
     p = tmp_path / "slot_a"
@@ -191,9 +191,10 @@ def model_file(tmp_path: Path) -> Path:
     return p
 
 
-# ---------------------------------------------------------------------------
-# Path redirection — patches all RPI boot_cfg + Consts paths to tmp_path
-# ---------------------------------------------------------------------------
+#
+# ------------ Path redirection ------------ #
+#
+# Patches all RPI boot_cfg + Consts paths to tmp_path.
 def _apply_rpi_path_redirects(
     monkeypatch,
     *,
@@ -258,9 +259,9 @@ def redirect_rpi_paths_slot_b_active(
     )
 
 
-# ---------------------------------------------------------------------------
-# Command / environment mocks
-# ---------------------------------------------------------------------------
+#
+# ------------ Command / environment mocks ------------ #
+#
 def _install_cmdhelper_mocks(
     monkeypatch,
     *,
@@ -387,9 +388,9 @@ def mock_rpi_internal(mocker: MockerFixture):
     }
 
 
-# ---------------------------------------------------------------------------
-# Helpers for building a controller that is mid-update
-# ---------------------------------------------------------------------------
+#
+# ------------ Helpers for building a controller that is mid-update ------------ #
+#
 def _build_controller_with_mocked_mounts(
     mocker: MockerFixture,
 ) -> tuple[RPIBootController, dict]:
@@ -414,9 +415,9 @@ def _build_controller_with_mocked_mounts(
     return controller, mounts
 
 
-# ---------------------------------------------------------------------------
-# Startup tests
-# ---------------------------------------------------------------------------
+#
+# ------------ Startup tests ------------ #
+#
 class TestRPIBootControllerStartup:
     """Controller startup on slot_a with various initial conditions."""
 
@@ -535,9 +536,9 @@ class TestRPIBootControllerStartup:
         assert args[0] == SYSTEM_BOOT_DEV
 
 
-# ---------------------------------------------------------------------------
-# Pre-update tests
-# ---------------------------------------------------------------------------
+#
+# ------------ Pre-update tests ------------ #
+#
 class TestRPIBootControllerPreUpdate:
     """Pre-update template method and RPI-specific prepare_standby hook."""
 
@@ -609,9 +610,9 @@ class TestRPIBootControllerPreUpdate:
             controller.pre_update(standby_as_ref=False, erase_standby=True)
 
 
-# ---------------------------------------------------------------------------
-# Post-update tests
-# ---------------------------------------------------------------------------
+#
+# ------------ Post-update tests ------------ #
+#
 class TestRPIBootControllerPostUpdate:
     """post_update template method and RPI-specific platform hooks."""
 
@@ -662,34 +663,34 @@ class TestRPIBootControllerPostUpdate:
 
         controller.post_update(update_version=UPDATE_VERSION)
 
-        # === OTA status files on standby slot ===
+        # --- OTA status files on standby slot ---
         assert (slot_b_ota_status_dir / "status").read_text() == OTAStatus.UPDATING
         assert (slot_b_ota_status_dir / "slot_in_use").read_text() == SLOT_B
         assert (slot_b_ota_status_dir / "version").read_text() == UPDATE_VERSION
 
-        # === preserve_ota_folder_to_standby copied /boot/ota across ===
+        # --- preserve_ota_folder_to_standby copied /boot/ota across ---
         assert (slot_b_mp / "boot" / "ota" / "proxy_info.yaml").read_text() == "proxy"
         assert (slot_b_mp / "boot" / "ota" / "ecu_info.yaml").read_text() == "ecu"
 
-        # === standby fstab written with the standby slot's fslabel ===
+        # --- standby fstab written with the standby slot's fslabel ---
         fstab_content = (slot_b_mp / "etc" / "fstab").read_text()
         expected_fstab = Template(_rpi_boot._FSTAB_TEMPLATE_STR).substitute(
             rootfs_fslabel=SLOT_B
         )
         assert fstab_content == expected_fstab
 
-        # === update_firmware invoked with target=standby ===
+        # --- update_firmware invoked with target=standby ---
         mock_rpi_internal["update_firmware"].assert_called_once()
         kwargs = mock_rpi_internal["update_firmware"].call_args.kwargs
         assert kwargs["target_slot"] == SLOT_B
         assert Path(kwargs["target_slot_mp"]) == slot_b_mp
 
-        # === tryboot.txt prepared from standby's config.txt ===
+        # --- tryboot.txt prepared from standby's config.txt ---
         assert (system_boot_dir / TRYBOOT_TXT).read_text() == CONFIG_TXT_SLOT_B
         # active config.txt left unchanged at this stage
         assert (system_boot_dir / CONFIG_TXT).read_text() == CONFIG_TXT_SLOT_A
 
-        # === umount_all called once for cleanup ===
+        # --- umount_all called once for cleanup ---
         mounts["umount_all"].assert_called_once_with(ignore_error=True)
 
     def test_post_update_wraps_exception(
@@ -708,9 +709,9 @@ class TestRPIBootControllerPostUpdate:
             controller.post_update(update_version=UPDATE_VERSION)
 
 
-# ---------------------------------------------------------------------------
-# finalizing_update test
-# ---------------------------------------------------------------------------
+#
+# ------------ finalizing_update test ------------ #
+#
 class TestRPIBootControllerFinalizingUpdate:
     """finalizing_update reboots into tryboot."""
 
@@ -731,9 +732,10 @@ class TestRPIBootControllerFinalizingUpdate:
         mock_rpi_internal["reboot_tryboot"].assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Finalize switch boot (first reboot after slot_a -> slot_b update)
-# ---------------------------------------------------------------------------
+#
+# ------------ Finalize switch boot ------------ #
+#
+# First reboot after a slot_a -> slot_b update.
 class TestRPIBootControllerFinalizeSwitchBoot:
     """Controller startup on slot_b with status=UPDATING triggers finalization."""
 
