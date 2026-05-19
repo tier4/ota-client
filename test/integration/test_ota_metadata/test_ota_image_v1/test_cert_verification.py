@@ -11,6 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Integration tests for v1 OTA image CA-store cert-chain verification.
+
+Generates root / intermediate / sign certs in subprocess via
+`gen_certs.sh` for each chain prefix, then asserts that
+`load_ca_store(...)` resolves the right chain map and verifies the
+matching sign cert.
+"""
 
 from __future__ import annotations
 
@@ -27,14 +34,14 @@ from ota_metadata.utils.cert_store import load_ca_store
 
 logger = logging.getLogger(__name__)
 
-CERT_GEN_SCRIPT = Path(__file__).parent.parent.parent / "keys" / "gen_certs.sh"
+CERT_GEN_SCRIPT = Path(__file__).parents[1] / "keys" / "gen_certs.sh"
 CHAINS = ["dev", "stg", "prd"]
 
 
 @pytest.fixture
 def gen_ca_chains(tmp_path: Path) -> tuple[Path, Path, Path]:
     """
-    Check tests/keys/gen_certs.sh for more details.
+    Check `keys/gen_certs.sh` for more details.
     """
     _script = tmp_path / "gen_certs.sh"
     _ca_dir = tmp_path / "root_ca"

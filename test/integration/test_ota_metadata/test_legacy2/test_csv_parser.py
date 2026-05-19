@@ -11,8 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-NOTE: the test cases are mostly re-used from the previous implementation.
+"""Integration tests for legacy v1 CSV → sqlite conversion.
+
+The CSV line parser cases are pure-input/expected-output checks, but the
+parse-and-build test consumes the real `regulars.txt` / `dirs.txt` /
+`symlinks.txt` from the container-baked `/ota-image` and writes to a real
+sqlite database under `tmp_path` — hence integration tier.
 """
 
 from __future__ import annotations
@@ -50,11 +54,10 @@ from ota_metadata.legacy2.csv_parser import (
     parse_symlinks_from_csv_file,
 )
 from ota_metadata.legacy2.rs_table import ResourceTable, ResourceTableORM
-from tests.conftest import TestConfiguration as test_cfg
+
+from .conftest import OTA_IMAGE_DIR
 
 logger = logging.getLogger(__name__)
-
-OTA_IMAGE_ROOT = Path(test_cfg.OTA_IMAGE_DIR)
 
 #
 # ------ test CSV line parser ------ #
@@ -224,9 +227,9 @@ def test_persistent_txt(_input: str, _expected: str):
 # ------ test import sqlite3 database ------ #
 #
 
-regulars_txt = OTA_IMAGE_ROOT / "regulars.txt"
-dirs_txt = OTA_IMAGE_ROOT / "dirs.txt"
-symlinks_txt = OTA_IMAGE_ROOT / "symlinks.txt"
+regulars_txt = OTA_IMAGE_DIR / "regulars.txt"
+dirs_txt = OTA_IMAGE_DIR / "dirs.txt"
+symlinks_txt = OTA_IMAGE_DIR / "symlinks.txt"
 
 
 def test_parse_and_build_file_table_db_from_csv(tmp_path: Path):

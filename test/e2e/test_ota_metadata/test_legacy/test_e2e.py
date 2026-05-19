@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test OTA metadata loading with OTA image within the test container."""
+"""End-to-end tests for legacy OTA metadata loading against `/ota-image`."""
 
 from __future__ import annotations
 
@@ -30,15 +30,13 @@ from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._updater_base import LegacyOTAImageSupportMixin
 from otaclient_common.downloader import DownloaderPool
-from tests.conftest import (
-    CERTS_DIR,
-    OTA_IMAGE_DIR,
-    OTA_IMAGE_SIGN_CERT,
-    cfg,
-)
-from tests.test_ota_metadata.conftest import iter_helper
 
-METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
+from ..conftest import iter_helper
+from .conftest import (
+    CERTS_DIR,
+    METADATA_JWT,
+    OTA_IMAGE_SIGN_CERT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +57,14 @@ def test_metadata_jwt_parser_e2e() -> None:
     parser.verify_metadata_signature(sign_cert)
 
 
-def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
+def test_download_and_parse_metadata(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    legacy_ota_image_server: str,
+) -> None:
     legacy_ota_image = LegacyOTAImageSupportMixin(
         version="dummy_version",
-        raw_url_base=cfg.OTA_IMAGE_URL,
+        raw_url_base=legacy_ota_image_server,
         session_wd=tmp_path,
         downloader_pool=DownloaderPool(instance_num=3, hash_func=sha256),
         session_id=f"session_id_{os.urandom(2).hex()}",
@@ -72,7 +74,7 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
         shm_metrics_reader=mocker.MagicMock(spec=SharedOTAClientMetricsReader),
     )  # type: ignore
 
-    ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+    ca_chains_store = load_ca_cert_chains(CERTS_DIR)
     legacy_ota_image.setup_ota_image_support(ca_chains_store=ca_chains_store)
     legacy_ota_image._process_metadata()
 
