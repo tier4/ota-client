@@ -12,13 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Standalone HTTP server that serves files from a given directory.
+"""Standalone HTTP server used by e2e tests.
 
 Usage:
-    python ota_image_server.py --port PORT --directory DIR
+    python _http_server.py --port PORT --directory DIR [--host HOST]
 
-The server maps URL paths directly to files under DIR.
-For example, GET /abc123 serves DIR/abc123.
+Serves files under DIR; the URL path maps directly to the file path
+(e.g. GET /abc123 → DIR/abc123). Prints ``READY:<port>`` on stdout once
+the listening socket is bound so the parent process can synchronize.
 """
 
 from __future__ import annotations
@@ -30,16 +31,15 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 
 
-class OTAImageRequestHandler(SimpleHTTPRequestHandler):
-    """HTTP handler that serves files from the configured directory."""
-
+class _QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         # Suppress request logging to keep test output clean.
         pass
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Simple OTA image HTTP server")
+    parser = argparse.ArgumentParser(description="Standalone e2e HTTP server")
+    parser.add_argument("--host", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--directory", type=str, required=True)
     args = parser.parse_args()
@@ -49,8 +49,8 @@ def main() -> None:
         print(f"Error: directory {serve_dir} does not exist", file=sys.stderr)
         sys.exit(1)
 
-    handler = partial(OTAImageRequestHandler, directory=str(serve_dir))
-    server = HTTPServer(("127.0.0.1", args.port), handler)
+    handler = partial(_QuietHandler, directory=str(serve_dir))
+    server = HTTPServer((args.host, args.port), handler)
 
     # Signal readiness to parent process via stdout.
     print(f"READY:{args.port}", flush=True)

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""End-to-end tests for OTA image v1 metadata loading against `/ota-image_v1`."""
 
 from __future__ import annotations
 
@@ -29,18 +30,23 @@ from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._updater_base import OTAImageV1SupportMixin
 from otaclient_common.downloader import DownloaderPool
-from tests.conftest import cfg
-from tests.test_ota_metadata.conftest import iter_helper
+
+from ..conftest import iter_helper
+from .conftest import CERTS_OTA_IMAGE_V1_DIR
 
 logger = logging.getLogger(__name__)
 
 
-def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
+def test_download_and_parse_metadata(
+    tmp_path: Path,
+    mocker: MockerFixture,
+    ota_image_v1_server: str,
+) -> None:
     # ------ execution ------ #
     # NOTE: directly bootstrap the mixin as we only check metadata downloading and parsing
     ota_image_v1 = OTAImageV1SupportMixin(
         version="dummy_version",
-        raw_url_base=cfg.OTA_IMAGE_V1_URL,
+        raw_url_base=ota_image_v1_server,
         session_wd=tmp_path,
         downloader_pool=DownloaderPool(instance_num=3, hash_func=sha256),
         session_id=f"session_id_{os.urandom(2).hex()}",
@@ -50,7 +56,7 @@ def test_download_and_parse_metadata(tmp_path: Path, mocker: MockerFixture):
         shm_metrics_reader=mocker.MagicMock(spec=SharedOTAClientMetricsReader),
     )  # type: ignore
 
-    ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+    ca_store = load_ca_store(CERTS_OTA_IMAGE_V1_DIR)
     ota_image_v1.setup_ota_image_support(
         ca_store=ca_store,
         image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
