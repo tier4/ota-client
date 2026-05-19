@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
 import pytest
-import pytest_mock
+from pytest_mock import MockerFixture
 
 import otaclient.configs._proxy_info as _proxy_info_module
 from otaclient.configs import ProxyInfo
@@ -32,17 +31,18 @@ MODULE_NAME = _proxy_info_module.__name__
 
 @pytest.mark.parametrize(
     "_input_yaml, _expected",
-    (
+    [
         # ------ case 1: proxy_info.yaml is missing ------ #
         # this case is for single ECU that doesn't have proxy_info.yaml and
         # can directly connect to the remote.
         # NOTE: this default value is for x1 backward compatibility.
-        (
+        pytest.param(
             "# this is an empty file",
             (False, DEFAULT_PROXY_INFO),
+            id="empty_yaml_falls_back_to_default",
         ),
         # ------ case 2: typical sub ECU's proxy_info.yaml ------ #
-        (
+        pytest.param(
             (
                 "enable_local_ota_proxy: true\n"
                 'upper_ota_proxy: "http://10.0.0.1:8082"\n'
@@ -65,14 +65,16 @@ MODULE_NAME = _proxy_info_module.__name__
                     }
                 ),
             ),
+            id="typical_sub_ecu_proxy_info",
         ),
         # ------ case 3: invalid/corrupted proxy_info.yaml ------ #
         # If the proxy_info.yaml is not a yaml, otaclient will also treat
         # this case the same as proxy_info.yaml missing, the pre-defined
         # proxy_info.yaml will be used.
-        (
+        pytest.param(
             "not a valid proxy_info.yaml",
             (False, DEFAULT_PROXY_INFO),
+            id="invalid_yaml_falls_back_to_default",
         ),
         # ------ case 4: proxy_info.yaml is valid yaml but contains invalid fields ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
@@ -80,9 +82,7 @@ MODULE_NAME = _proxy_info_module.__name__
         #                   and other fields will be preserved as much as possible.
         #                 This is not proper, now the behavior changes to otaclient will treat
         #                   the whole config file as invalid and load the default config.
-        (
-            # Bad configured yaml file that contains invalid value.
-            # This yaml file is valid, but all fields' values are invalid.
+        pytest.param(
             (
                 "enable_local_ota_proxy: dafef\n"
                 "upper_ota_proxy: true\n"
@@ -91,32 +91,36 @@ MODULE_NAME = _proxy_info_module.__name__
                 'local_ota_proxy_listen_port: "2808"\n'
             ),
             (False, DEFAULT_PROXY_INFO),
+            id="invalid_field_values_fall_back_to_default",
         ),
         # ------ case 5: corrupted/invalid yaml ------ #
         # in this case, default predefined default proxy_info.yaml will be loaded
-        (
+        pytest.param(
             "/t/t/t/t/t/t/t/tyaml file should not contain tabs/t/t/t/",
             (False, DEFAULT_PROXY_INFO),
+            id="yaml_with_tabs_falls_back_to_default",
         ),
         # ------ case 6: backward compatibility test ------ #
         # for superseded field, the corresponding field should be assigned.
         # for removed field, it should not impact the config file loading.
-        (
+        pytest.param(
             "enable_ota_proxy: true\ngateway: false\n",
             (True, DEFAULT_PROXY_INFO),
+            id="deprecated_field_aliases_to_new",
         ),
         # ------ case 7(20240626): NetworkPort allow str value ------ #
-        (
+        pytest.param(
             'local_ota_proxy_listen_port: "8082"',
             (True, ProxyInfo(local_ota_proxy_listen_port=8082)),
+            id="network_port_accepts_str",
         ),
-    ),
+    ],
 )
 def test_proxy_info(
     tmp_path: Path,
     _input_yaml: str,
     _expected: tuple[bool, ProxyInfo],
-    mocker: pytest_mock.MockerFixture,
+    mocker: MockerFixture,
 ) -> None:
     # disable deprecation warning on test
     mocker.patch(f"{MODULE_NAME}._deprecation_check")
