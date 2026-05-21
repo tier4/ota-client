@@ -32,6 +32,7 @@ from typing_extensions import Self
 
 from _otaclient_version import version as _running_otaclient_version
 from otaclient import errors as ota_errors
+from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
@@ -1439,6 +1440,24 @@ class GrubBootController(BootControllerBase):
         # NOTE: a dummy `grub` is required for grub-mkconfig to work properly!
         (_boot_slot_dir / "grub").mkdir(exist_ok=True, parents=True)
         remove_file(self._boot_control.get_boot_cfg_fpath(self._standby_slot))
+
+        # NOTE(20260521): backward compat fix when otaclient update to new otaclient
+        #                 from old otaclient and then OTA failed, hands over the control
+        #                 back to the old otaclient, need to also set the legacy boot
+        #                 folder's OTA status file.
+        _legacy_boot_compat_dir = self._boot_control._legacy_compat_dir_for_slot(
+            self._boot_slots.current_slot
+        )
+        try:
+            if _legacy_boot_compat_dir.is_dir():
+                write_str_to_file_atomic(
+                    _legacy_boot_compat_dir / cfg.OTA_STATUS_FNAME,
+                    OTAStatus.FAILURE,
+                )
+        except Exception as e:
+            logger.warning(
+                f"pre_update: failed to also write legacy boot slot's OTA status file: {e!r}"
+            )
 
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
