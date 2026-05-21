@@ -37,6 +37,7 @@ from otaclient.boot_control._grub_new import (
     _BootMenuEntry,
     _GrubBootControl,
     _GrubBootHelperFuncs,
+    _release_tuple,
     iter_menuentries,
 )
 from otaclient.boot_control.configs import grub_new_cfg as boot_cfg
@@ -1349,3 +1350,52 @@ class TestSetupSlotRootfsWiresUefiHookDisable:
         )
 
         disable_spy.assert_called_once_with(tmp_path)
+
+
+#
+# ------------ _release_tuple ------------ #
+#
+
+
+class TestReleaseTuple:
+    @pytest.mark.parametrize(
+        "version_str, expected",
+        [
+            pytest.param("3.14.1", (3, 14, 1), id="plain_release"),
+            pytest.param("3.14.0", (3, 14, 0), id="plain_release_lower"),
+            pytest.param("3.14.1rc1", (3, 14, 1), id="rc_suffix"),
+            pytest.param("3.14.1.dev3", (3, 14, 1), id="dev_suffix"),
+            pytest.param(
+                "3.14.1rc1.dev3+g649b8182a.d20260520",
+                (3, 14, 1),
+                id="full_pep440_with_local",
+            ),
+            pytest.param(
+                "3.14.0rc4.dev19+g649b8182a.d20260520",
+                (3, 14, 0),
+                id="full_pep440_below_min",
+            ),
+            pytest.param("3.14.1.post1", (3, 14, 1), id="post_suffix"),
+            pytest.param("3.14", (3, 14), id="two_segment_release"),
+        ],
+    )
+    def test_parses_pep440(self, version_str: str, expected: tuple[int, ...]):
+        assert _release_tuple(version_str) == expected
+
+    @pytest.mark.parametrize(
+        "version_str",
+        [
+            pytest.param("not-a-version", id="garbage_string"),
+            pytest.param("", id="empty"),
+            pytest.param("v3.14.1+", id="trailing_plus"),
+            pytest.param("3.14.x", id="non_numeric_segment"),
+        ],
+    )
+    def test_returns_none_on_invalid(self, version_str: str):
+        assert _release_tuple(version_str) is None
+
+
+# Setup-case detection (`_detect_boot_control_setup_case`) and the
+# `_GrubBootControl.__init__` dispatch contract are tested as integration
+# tests in test_grub_backward_compat.py, alongside the rest of the
+# boot-control orchestration tests.

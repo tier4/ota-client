@@ -48,6 +48,7 @@ from otaclient.boot_control._grub_common import (
 from otaclient.boot_control._grub_new import (
     INITRD_PREFIX,
     VMLINUZ_PREFIX,
+    ABPartitionDetector,
     GrubBootController,
     _detect_boot_control_setup_case,
     _GrubBootControl,
@@ -949,3 +950,201 @@ class TestDetectBootControlSetupCase:
         assert (
             _detect_boot_control_setup_case() == _GrubBootControlSetupCase.ALREADY_NEW
         )
+
+    #
+    # --- Version gating: GRUB_REGENERATE_REQUESTED ------------------- #
+    #
+    # If a managed grub.cfg's recorded otaclient_version (release tuple) is
+    # below `boot_cfg.GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION`, regenerate
+    # the cfg in place WITHOUT resetting OTA status. Comparison ignores
+    # any pre/post/dev/local suffix.
+
+    @staticmethod
+    def _write_managed_cfg(path: Path, *, otaclient_version: str) -> None:
+        """Write a valid OTA-managed grub.cfg with the given otaclient_version
+        (and a matching checksum, so validate_managed_config accepts it)."""
+        path.write_text(
+            OTAManagedCfg(
+                raw_contents=GRUB_CFG_CONTENT.strip(),
+                grub_version="2.12-test",
+                otaclient_version=otaclient_version,
+            ).export()
+        )
+
+    def test_corrupt_managed_cfg_is_fresh(self, grub_cfg_path: Path):
+        """Header is right but the body is tampered → checksum mismatch →
+        validate_managed_config returns None → FRESH (full bootstrap)."""
+        managed = OTAManagedCfg(
+            raw_contents=GRUB_CFG_CONTENT.strip(), grub_version="2.12"
+        )
+        grub_cfg_path.write_text(managed.export().replace(GRUB_CFG_CONTENT[:20], "TAMPERED"))
+        assert _detect_boot_control_setup_case() == _GrubBootControlSetupCase.FRESH
+
+    @pytest.mark.parametrize(
+        "cfg_version",
+        [
+            pytest.param("3.14.1", id="equal_to_min"),
+            pytest.param("3.14.2", id="patch_above_min"),
+            pytest.param("3.15.0", id="minor_above_min"),
+            pytest.param("4.0.0", id="major_above_min"),
+            pytest.param("3.14.1rc1.dev3+local", id="rc_dev_with_same_release"),
+            pytest.param("3.14.1.post1", id="post_with_same_release"),
+        ],
+    )
+    def test_version_meets_min_is_already_new(
+        self, grub_cfg_path: Path, cfg_version: str
+    ):
+        """Cfg whose release tuple is >= the minimum is considered up-to-date,
+        regardless of pre/post/dev/local suffix."""
+        self._write_managed_cfg(grub_cfg_path, otaclient_version=cfg_version)
+        assert (
+            _detect_boot_control_setup_case() == _GrubBootControlSetupCase.ALREADY_NEW
+        )
+
+    @pytest.mark.parametrize(
+        "cfg_version",
+        [
+            pytest.param("3.14.0", id="patch_below_min"),
+            pytest.param("3.13.5", id="minor_below_min"),
+            pytest.param("2.99.99", id="major_below_min"),
+            pytest.param("3.14.0rc4.dev19+g649b8182a", id="full_pep440_below_min"),
+            pytest.param("3.14.0.post1", id="post_below_min"),
+        ],
+    )
+    def test_version_below_min_triggers_regenerate(
+        self, grub_cfg_path: Path, mocker: MockerFixture, cfg_version: str
+    ):
+        """Cfg whose release tuple is < the minimum triggers regenerate. The
+        running otaclient is stubbed above the min so the self-gate doesn't
+        downgrade us back to ALREADY_NEW."""
+        mocker.patch(
+            "otaclient.boot_control._grub_new._running_otaclient_version", "99.0.0"
+        )
+        self._write_managed_cfg(grub_cfg_path, otaclient_version=cfg_version)
+        assert (
+            _detect_boot_control_setup_case()
+            == _GrubBootControlSetupCase.GRUB_REGENERATE_REQUESTED
+        )
+
+    def test_unparseable_version_is_fresh(self, grub_cfg_path: Path):
+        """A managed cfg with a junk otaclient_version field is treated as a
+        corrupt managed cfg → FRESH (full bootstrap + OTA status reset)."""
+        self._write_managed_cfg(grub_cfg_path, otaclient_version="not-a-version")
+        assert _detect_boot_control_setup_case() == _GrubBootControlSetupCase.FRESH
+
+    def test_self_gate_downgrades_to_already_new(
+        self, grub_cfg_path: Path, mocker: MockerFixture
+    ):
+        """If the running otaclient release is itself below the minimum,
+        regenerating would write the same stale version back and loop on
+        every boot. The self-gate downgrades to ALREADY_NEW with a warning."""
+        mocker.patch(
+            "otaclient.boot_control._grub_new._running_otaclient_version", "3.13.9"
+        )
+        # Below min, so without the self-gate this would be regenerate-requested.
+        self._write_managed_cfg(grub_cfg_path, otaclient_version="3.13.5")
+        assert (
+            _detect_boot_control_setup_case() == _GrubBootControlSetupCase.ALREADY_NEW
+        )
+
+    def test_self_gate_unparseable_running_version_still_regenerates(
+        self, grub_cfg_path: Path, mocker: MockerFixture
+    ):
+        """If the running otaclient version itself is unparseable we don't
+        know whether the loop risk applies; fall through to regenerate rather
+        than silently doing nothing."""
+        mocker.patch(
+            "otaclient.boot_control._grub_new._running_otaclient_version",
+            "not-a-version",
+        )
+        self._write_managed_cfg(grub_cfg_path, otaclient_version="3.13.0")
+        assert (
+            _detect_boot_control_setup_case()
+            == _GrubBootControlSetupCase.GRUB_REGENERATE_REQUESTED
+        )
+
+
+# ------------ _GrubBootControl.__init__ dispatch ------------ #
+
+
+@pytest.fixture
+def _stub_bootstrap_deps(mocker: MockerFixture):
+    """Stub the heavy work `_GrubBootControl.__init__` would otherwise do, so
+    only the dispatch logic remains under test.
+
+    Returns a dict of spy mocks keyed by name.
+    """
+    boot_slots = mocker.MagicMock()
+    boot_slots.is_uefi = False  # avoid mkdir(EFI_DPATH) side effect
+    boot_slots.current_slot = OTASlotBootID.slot_a
+    boot_slots.standby_slot = OTASlotBootID.slot_b
+
+    mocker.patch.object(
+        ABPartitionDetector, "detect_boot_slots", return_value=boot_slots
+    )
+    return {
+        "bootstrap": mocker.patch.object(_GrubBootControl, "_bootstrap_boot_control"),
+        "migrate": mocker.patch.object(
+            _GrubBootControl, "_migrate_from_old_grub_control"
+        ),
+        "detect": mocker.patch(
+            "otaclient.boot_control._grub_new._detect_boot_control_setup_case"
+        ),
+    }
+
+
+class TestGrubBootControlDispatch:
+    """Dispatch contract inside `_GrubBootControl.__init__`:
+
+    - FRESH                       → bootstrap, resetup_requested = True
+    - MIGRATE_FROM_OLD            → migrate + bootstrap, resetup_requested = False
+    - GRUB_REGENERATE_REQUESTED   → bootstrap ONLY (no migrate, no resetup),
+                                    resetup_requested = False
+    - ALREADY_NEW                 → no work, resetup_requested = False
+
+    `resetup_requested` flows into ``OTAStatusFilesControl(force_initialize=…)``
+    in `GrubBootController.__init__`, so it controls whether the OTA status
+    files are reinitialised. The regenerate path MUST keep it False so OTA
+    status is preserved across the in-place grub.cfg rewrite.
+    """
+
+    def test_fresh_calls_bootstrap_and_sets_resetup(self, _stub_bootstrap_deps):
+        _stub_bootstrap_deps["detect"].return_value = _GrubBootControlSetupCase.FRESH
+        ctrl = _GrubBootControl()
+        assert ctrl.resetup_requested is True
+        _stub_bootstrap_deps["migrate"].assert_not_called()
+        _stub_bootstrap_deps["bootstrap"].assert_called_once()
+
+    def test_migrate_calls_migrate_then_bootstrap_no_resetup(
+        self, _stub_bootstrap_deps
+    ):
+        _stub_bootstrap_deps["detect"].return_value = (
+            _GrubBootControlSetupCase.MIGRATE_FROM_OLD
+        )
+        ctrl = _GrubBootControl()
+        assert ctrl.resetup_requested is False
+        _stub_bootstrap_deps["migrate"].assert_called_once()
+        _stub_bootstrap_deps["bootstrap"].assert_called_once()
+
+    def test_regenerate_calls_bootstrap_only_no_resetup(self, _stub_bootstrap_deps):
+        """The new feature's key contract: the regenerate case must NOT
+        migrate (no old-grub state to carry) and MUST leave
+        `resetup_requested = False` so `OTAStatusFilesControl` is constructed
+        with `force_initialize=False` (i.e. OTA status files are preserved).
+        """
+        _stub_bootstrap_deps["detect"].return_value = (
+            _GrubBootControlSetupCase.GRUB_REGENERATE_REQUESTED
+        )
+        ctrl = _GrubBootControl()
+        assert ctrl.resetup_requested is False
+        _stub_bootstrap_deps["migrate"].assert_not_called()
+        _stub_bootstrap_deps["bootstrap"].assert_called_once()
+
+    def test_already_new_is_noop(self, _stub_bootstrap_deps):
+        _stub_bootstrap_deps["detect"].return_value = (
+            _GrubBootControlSetupCase.ALREADY_NEW
+        )
+        ctrl = _GrubBootControl()
+        assert ctrl.resetup_requested is False
+        _stub_bootstrap_deps["migrate"].assert_not_called()
+        _stub_bootstrap_deps["bootstrap"].assert_not_called()
