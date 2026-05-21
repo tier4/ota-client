@@ -4,11 +4,13 @@ aiodns==3.2.0 ; (python_full_version < '3.9' and sys_platform == 'darwin') or (p
     # via aiohttp
 aiodns==3.6.1 ; python_full_version == '3.9.*'
     # via aiohttp
-aiodns==4.0.3 ; python_full_version >= '3.10'
+aiodns==4.0.4 ; python_full_version >= '3.10'
     # via aiohttp
 aiohappyeyeballs==2.4.4 ; python_full_version < '3.9'
     # via aiohttp
-aiohappyeyeballs==2.6.1 ; python_full_version >= '3.9'
+aiohappyeyeballs==2.6.1 ; python_full_version == '3.9.*'
+    # via aiohttp
+aiohappyeyeballs==2.6.2 ; python_full_version >= '3.10'
     # via aiohttp
 aiohttp==3.10.11 ; python_full_version < '3.9'
     # via otaclient
@@ -46,7 +48,7 @@ brotli==1.2.0 ; platform_python_implementation == 'CPython'
     # via aiohttp
 brotlicffi==1.2.0.1 ; platform_python_implementation != 'CPython'
     # via aiohttp
-certifi==2026.4.22
+certifi==2026.5.20
     # via requests
 cffi==1.17.1 ; python_full_version < '3.9'
     # via
@@ -121,6 +123,8 @@ ota-image-libs @ https://github.com/tier4/ota-image-libs/releases/download/v0.3.
 otaclient-iot-logging-server-pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl
     # via otaclient
 otaclient-pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.1.0/otaclient_pb2-1.1.0-py3-none-any.whl
+    # via otaclient
+packaging==26.2
     # via otaclient
 propcache==0.2.0 ; python_full_version < '3.9'
     # via yarl
@@ -260,7 +264,9 @@ uvloop==0.22.1 ; python_full_version >= '3.8.1' and platform_python_implementati
     # via uvicorn
 watchfiles==0.24.0 ; python_full_version < '3.9'
     # via uvicorn
-watchfiles==1.1.1 ; python_full_version >= '3.9'
+watchfiles==1.1.1 ; python_full_version == '3.9.*'
+    # via uvicorn
+watchfiles==1.2.0 ; python_full_version >= '3.10'
     # via uvicorn
 websockets==13.1 ; python_full_version < '3.9'
     # via uvicorn
@@ -272,7 +278,7 @@ yarl==1.15.2 ; python_full_version < '3.9'
     # via aiohttp
 yarl==1.22.0 ; python_full_version == '3.9.*'
     # via aiohttp
-yarl==1.23.0 ; python_full_version >= '3.10'
+yarl==1.24.2 ; python_full_version >= '3.10'
     # via aiohttp
 zstandard==0.23.0 ; python_full_version < '3.9'
     # via
