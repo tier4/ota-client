@@ -53,6 +53,15 @@ EOF
 """
     LEGACY_OTA_PARTITION_FNAME = "ota-partition"
     LEGACY_SLOT_ID_PREFIX = "ota-partition.sda"
+    UEFI_FIRMWARE_GRUB_HOOK_FNAME = "30_uefi-firmware"
+    UEFI_FIRMWARE_GRUB_HOOK_DISABLED = """\
+#!/bin/sh
+# This file has been replaced by otaclient to prevent the
+# "UEFI Firmware Settings" menuentry from being added to grub.cfg.
+# The file is also non-executable; this exit 0 is a belt-and-suspenders
+# guard in case something re-marks it executable.
+exit 0
+"""
 
 
 class JetsonBootCommon:

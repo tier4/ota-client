@@ -1179,6 +1179,27 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 logger.info(f"removing old boot file: {_f}")
                 remove_file(_f)
 
+    def _disable_uefi_firmware_grub_hook(self, slot_mp: Path) -> None:
+        """Replace /etc/grub.d/30_uefi-firmware on `slot_mp` with a
+        non-executable stub.
+
+        This is for backward compatibility from ubuntu 24.04 back to ubuntu 22.04.
+        Anyway we also don't use it, so it is safe to disable it.
+        """
+        _hook_dpath = replace_root(boot_cfg.GRUB_HOOKS_DPATH, "/", slot_mp)
+        _hook_fpath = Path(_hook_dpath) / boot_cfg.UEFI_FIRMWARE_GRUB_HOOK_FNAME
+        if not _hook_fpath.is_symlink() and not _hook_fpath.exists():
+            return  # this hook doesn't exist, just skip
+
+        remove_file(_hook_fpath)  # unconditionally cleanup the file
+        write_str_to_file_atomic(
+            _hook_fpath,
+            boot_cfg.UEFI_FIRMWARE_GRUB_HOOK_DISABLED,
+            follow_symlink=False,
+        )
+        os.chmod(_hook_fpath, 0o640)  # no execute bit
+        logger.info(f"replaced UEFI firmware grub hook with stub at {_hook_fpath}")
+
     def setup_slot_rootfs_for_ota_boot(
         self, *, slot_fsuuid: str, slot_mp: Path, reference_fstab: str | None = None
     ) -> None:
@@ -1188,6 +1209,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         1. update fstab at the slot rootfs.
         2. update /etc/default/grub at the slot rootfs.
         3. inject /etc/grub.d/30_ota hook at the slot rootfs.
+        4. replace /etc/grub.d/30_uefi-firmware to a dummy stub.
         """
         # update the fstab, base_fstab will be the slot we update,
         #   reference_fstab will be from the sibling slot.
@@ -1224,6 +1246,7 @@ class _GrubBootControl(_GrubBootHelperFuncs):
             _hook_fpath, boot_cfg.OTA_GRUB_HOOK, follow_symlink=False
         )
         os.chmod(_hook_fpath, 0o750)
+        self._disable_uefi_firmware_grub_hook(slot_mp)
 
     def setup_ota_boot_cfg_for_slot(
         self, _kernel_ver: str, *, slot_id: OTASlotBootID, slot_mp: Path
