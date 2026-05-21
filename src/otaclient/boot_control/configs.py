@@ -38,6 +38,11 @@ class GrubControlNewConfig:
     OTA_BOOT_SLOT_BASE = "ota-slot"
     SLOT_A_SUFFIX = "_a"
     SLOT_B_SUFFIX = "_b"
+
+    GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION = "3.14.1"
+    """The minimum required version of otaclient that generates the grub.cfg.
+    """
+
     OTA_GRUB_HOOK_FNAME = "30_ota"
     OTA_GRUB_HOOK = r"""\
 #!/bin/sh
