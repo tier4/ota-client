@@ -977,7 +977,9 @@ class TestDetectBootControlSetupCase:
         managed = OTAManagedCfg(
             raw_contents=GRUB_CFG_CONTENT.strip(), grub_version="2.12"
         )
-        grub_cfg_path.write_text(managed.export().replace(GRUB_CFG_CONTENT[:20], "TAMPERED"))
+        grub_cfg_path.write_text(
+            managed.export().replace(GRUB_CFG_CONTENT[:20], "TAMPERED")
+        )
         assert _detect_boot_control_setup_case() == _GrubBootControlSetupCase.FRESH
 
     @pytest.mark.parametrize(
@@ -1118,9 +1120,9 @@ class TestGrubBootControlDispatch:
     def test_migrate_calls_migrate_then_bootstrap_no_resetup(
         self, _stub_bootstrap_deps
     ):
-        _stub_bootstrap_deps["detect"].return_value = (
-            _GrubBootControlSetupCase.MIGRATE_FROM_OLD
-        )
+        _stub_bootstrap_deps[
+            "detect"
+        ].return_value = _GrubBootControlSetupCase.MIGRATE_FROM_OLD
         ctrl = _GrubBootControl()
         assert ctrl.resetup_requested is False
         _stub_bootstrap_deps["migrate"].assert_called_once()
@@ -1132,18 +1134,18 @@ class TestGrubBootControlDispatch:
         `resetup_requested = False` so `OTAStatusFilesControl` is constructed
         with `force_initialize=False` (i.e. OTA status files are preserved).
         """
-        _stub_bootstrap_deps["detect"].return_value = (
-            _GrubBootControlSetupCase.GRUB_REGENERATE_REQUESTED
-        )
+        _stub_bootstrap_deps[
+            "detect"
+        ].return_value = _GrubBootControlSetupCase.GRUB_REGENERATE_REQUESTED
         ctrl = _GrubBootControl()
         assert ctrl.resetup_requested is False
         _stub_bootstrap_deps["migrate"].assert_not_called()
         _stub_bootstrap_deps["bootstrap"].assert_called_once()
 
     def test_already_new_is_noop(self, _stub_bootstrap_deps):
-        _stub_bootstrap_deps["detect"].return_value = (
-            _GrubBootControlSetupCase.ALREADY_NEW
-        )
+        _stub_bootstrap_deps[
+            "detect"
+        ].return_value = _GrubBootControlSetupCase.ALREADY_NEW
         ctrl = _GrubBootControl()
         assert ctrl.resetup_requested is False
         _stub_bootstrap_deps["migrate"].assert_not_called()

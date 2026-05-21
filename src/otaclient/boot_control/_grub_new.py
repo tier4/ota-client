@@ -27,10 +27,10 @@ from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
 from typing import Callable, Generator, Literal, NoReturn
 
+from _otaclient_version import version as _running_otaclient_version
 from packaging.version import InvalidVersion, Version
 from typing_extensions import Self
 
-from _otaclient_version import version as _running_otaclient_version
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
