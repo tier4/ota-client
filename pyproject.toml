@@ -47,6 +47,7 @@ dependencies = [
   "urllib3>=2.2.2,<2.8",
   "uvicorn[standard]>=0.30,<0.48",
   "zstandard<0.26,>=0.22",
+  "packaging>=26,<27",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
