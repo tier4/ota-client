@@ -1395,6 +1395,42 @@ class TestReleaseTuple:
         assert _release_tuple(version_str) is None
 
 
+def _guard__release_tuple(_in):
+    if _res := _release_tuple(_in):
+        return _res
+    raise ValueError("invalid version string")
+
+
+class TestReleaseTupleOrdering:
+    """Test comparing version strings."""
+
+    @pytest.mark.parametrize(
+        "lower, higher",
+        [
+            # Numeric, NOT lexicographic — string compare would invert these.
+            pytest.param("3.14.9", "3.14.10", id="patch_double_digit"),
+            pytest.param("3.9.0", "3.10.0", id="minor_double_digit"),
+            # Two-segment vs three-segment: `Version("3.14").release` is
+            # (3, 14), not (3, 14, 0), so Python tuple ordering treats it as
+            # strictly less than ANY three-segment release with the same
+            # leading components — including (3, 14, 0). Production gating
+            # uses `>= min_release`, so a recorded "3.14" cfg against a
+            # "3.14.0" (or higher) minimum triggers regeneration. Pin both
+            # forms so a future tweak to `_release_tuple` (e.g. zero-padding
+            # to a fixed length) is a deliberate spec decision, not an
+            # accident.
+            pytest.param("3.14", "3.14.0", id="two_segment_vs_three_segment_zero"),
+            pytest.param("3.14", "3.14.1", id="two_segment_vs_three_segment_nonzero"),
+        ],
+    )
+    def test_lower_compares_less_than_higher(self, lower: str, higher: str):
+        assert _guard__release_tuple(lower) < _guard__release_tuple(higher)
+
+    def test_configured_min_is_parseable(self):
+        """Canary on the live `GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION`."""
+        _guard__release_tuple(boot_cfg.GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION)
+
+
 # Setup-case detection (`_detect_boot_control_setup_case`) and the
 # `_GrubBootControl.__init__` dispatch contract are tested as integration
 # tests in test_grub_backward_compat.py, alongside the rest of the
