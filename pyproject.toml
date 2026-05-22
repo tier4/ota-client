@@ -37,16 +37,19 @@ dependencies = [
   "otaclient_iot_logging_server_pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl#sha256:e5a2e6474a8b6f5656679877a5df40891e6a65c29830a31faed3d47d9973be60",
   "otaclient_pb2 @ https://github.com/tier4/otaclient-api/releases/download/v1.1.0/otaclient_pb2-1.1.0-py3-none-any.whl#sha256:f10ffc958ff18ca16ebf62b083e0e4903fb24a26c3fec0386c6ec2a05387fdc5",
   "ota-image-libs@https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl#sha256:98a411c53a01f313ddfbfcb8c8d20dcd9ced829c7282a01763c81f25c695d79c",
-  "protobuf>=4.25.8,<7.35",
+  "protobuf>=4.25.8,<7.36",
   "pydantic<3,>=2.10",
   "pydantic-settings<3,>=2.3",
   "pyyaml<7,>=6.0.1",
   "requests~=2.32",
   "simple-sqlite3-orm~=0.12",
   "typing-extensions>=4.6.3",
-  "urllib3>=2.2.2,<2.7",
-  "uvicorn[standard]>=0.30,<0.47",
+  "urllib3>=2.2.2,<2.8",
+  "uvicorn[standard]>=0.30,<0.48",
   "zstandard<0.26,>=0.22",
+  # packaging is a very stable package from pypa official, no need to
+  # limit the version range.
+  "packaging",
 ]
 urls.Source = "https://github.com/tier4/ota-client"
 
