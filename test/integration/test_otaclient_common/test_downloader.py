@@ -50,6 +50,18 @@ from .conftest import FileInfo
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _serve_corpus(run_http_server_subprocess):
+    """Keep the corpus HTTP server up for every test in this module.
+
+    The underlying ``run_http_server_subprocess`` fixture lives in the
+    shared conftest but is not ``autouse`` there (sibling modules don't
+    need it); this module-scoped autouse wrapper opts the downloader
+    suite back in.
+    """
+    yield
+
+
 # ---------- single-instance Downloader against the live HTTP server ---------- #
 
 
