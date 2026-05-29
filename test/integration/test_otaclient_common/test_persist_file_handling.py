@@ -651,6 +651,177 @@ class TestParentPreparation:
 
 
 #
+# ------------ Selectivity: only the entry + its parent chain are copied ------------ #
+#
+class TestPreserveSelectivity:
+    """Preserving one entry must NOT pull in unrelated source siblings.
+
+    The handler only materializes the entry itself plus its parent chain
+    (parents are created as bare directories — their *other* children are not
+    copied). These guard against `_prepare_parent` / `_recursively_prepare_dir`
+    over-copying neighbouring entries, which the per-test minimal trees in the
+    other classes cannot catch on their own.
+    """
+
+    def _build_tree_with_siblings(self, roots: Roots) -> None:
+        """src/A holding the entries plus siblings that must stay out of dst.
+
+        Layout:
+          src/A/                   dir alice/agroup
+          src/A/target_file        file bob/bgroup        <- a file entry
+          src/A/target_link -> target_file  carol/cgroup  <- a symlink entry
+          src/A/sibling_file       file dave/dgroup       (same dir, excluded)
+          src/A/sibling_link -> sibling_file  eve/egroup  (same dir, excluded)
+          src/A/sibling_sub/       dir frank/fgroup       (same dir, excluded)
+          src/A/sibling_sub/deep.txt  file bob/bgroup
+          src/top_sibling.txt      file alice/agroup      (outside A, excluded)
+        """
+        a = make_owned_dir(
+            roots.src / "A", uid=src_uid("alice"), gid=src_gid("agroup"), mode=0o755
+        )
+        make_owned_file(
+            a / "target_file",
+            "keep",
+            uid=src_uid("bob"),
+            gid=src_gid("bgroup"),
+            mode=0o644,
+        )
+        make_owned_symlink(
+            a / "target_link",
+            "target_file",
+            uid=src_uid("carol"),
+            gid=src_gid("cgroup"),
+        )
+        make_owned_file(
+            a / "sibling_file",
+            "nope",
+            uid=src_uid("dave"),
+            gid=src_gid("dgroup"),
+            mode=0o644,
+        )
+        make_owned_symlink(
+            a / "sibling_link",
+            "sibling_file",
+            uid=src_uid("eve"),
+            gid=src_gid("egroup"),
+        )
+        sub = make_owned_dir(
+            a / "sibling_sub", uid=src_uid("frank"), gid=src_gid("fgroup"), mode=0o755
+        )
+        make_owned_file(
+            sub / "deep.txt",
+            "deep",
+            uid=src_uid("bob"),
+            gid=src_gid("bgroup"),
+            mode=0o600,
+        )
+        make_owned_file(
+            roots.src / "top_sibling.txt",
+            "top",
+            uid=src_uid("alice"),
+            gid=src_gid("agroup"),
+            mode=0o644,
+        )
+
+    def _assert_siblings_absent(self, roots: Roots) -> None:
+        for rel in (
+            "A/sibling_file",
+            "A/sibling_link",
+            "A/sibling_sub",
+            "top_sibling.txt",
+        ):
+            p = roots.dst / rel
+            assert not p.exists(), f"{rel} should not have been copied"
+            assert not p.is_symlink(), f"{rel} should not have been copied (symlink)"
+
+    def test_file_entry_does_not_copy_siblings(
+        self, roots: Roots, handler: PersistFilesHandler
+    ):
+        self._build_tree_with_siblings(roots)
+
+        handler.preserve_persist_entry(
+            persist_entry_for(roots.src / "A" / "target_file", roots.src)
+        )
+
+        # parent created + entry copied
+        assert (roots.dst / "A").is_dir()
+        assert (roots.dst / "A" / "target_file").read_text() == "keep"
+        # nothing else came along
+        self._assert_siblings_absent(roots)
+
+    def test_symlink_entry_copies_neither_target_nor_siblings(
+        self, roots: Roots, handler: PersistFilesHandler
+    ):
+        """Preserving a symlink copies only the link, not its referent.
+
+        `target_link` points at the sibling `target_file`; preserving the link
+        must leave `target_file` out of dst (the handler never resolves it).
+        """
+        self._build_tree_with_siblings(roots)
+
+        handler.preserve_persist_entry(
+            persist_entry_for(roots.src / "A" / "target_link", roots.src)
+        )
+
+        # parent created + the symlink itself copied
+        assert (roots.dst / "A").is_dir()
+        dst_link = roots.dst / "A" / "target_link"
+        assert dst_link.is_symlink()
+        assert os.readlink(dst_link) == "target_file"
+        # the symlink's referent (a sibling file) must NOT be materialized
+        assert not (roots.dst / "A" / "target_file").exists()
+        assert not (roots.dst / "A" / "target_file").is_symlink()
+        # nor any unrelated sibling
+        self._assert_siblings_absent(roots)
+
+    def test_directory_entry_does_not_copy_outside_siblings(
+        self, roots: Roots, handler: PersistFilesHandler
+    ):
+        """A recursively-preserved dir copies its contents but not its neighbours."""
+        a = make_owned_dir(
+            roots.src / "A", uid=src_uid("alice"), gid=src_gid("agroup"), mode=0o755
+        )
+        b = make_owned_dir(
+            a / "B", uid=src_uid("bob"), gid=src_gid("bgroup"), mode=0o755
+        )
+        make_owned_file(
+            b / "inside.txt",
+            "in",
+            uid=src_uid("carol"),
+            gid=src_gid("cgroup"),
+            mode=0o644,
+        )
+        # siblings of the entry dir B (inside A) — must stay out of dst.
+        make_owned_file(
+            a / "sibling_of_B.txt",
+            "no",
+            uid=src_uid("dave"),
+            gid=src_gid("dgroup"),
+            mode=0o644,
+        )
+        make_owned_dir(
+            a / "sibling_dir", uid=src_uid("eve"), gid=src_gid("egroup"), mode=0o755
+        )
+        # top-level sibling — must stay out of dst.
+        make_owned_file(
+            roots.src / "top.txt",
+            "top",
+            uid=src_uid("alice"),
+            gid=src_gid("agroup"),
+            mode=0o644,
+        )
+
+        handler.preserve_persist_entry(persist_entry_for(b, roots.src))
+
+        # the entry subtree is preserved
+        assert (roots.dst / "A" / "B" / "inside.txt").read_text() == "in"
+        # neighbours of the entry are not
+        assert not (roots.dst / "A" / "sibling_of_B.txt").exists()
+        assert not (roots.dst / "A" / "sibling_dir").exists()
+        assert not (roots.dst / "top.txt").exists()
+
+
+#
 # ------------ preserve_persist_entry validation against real fs state ------------ #
 #
 class TestPreserveValidationOnFs:
