@@ -32,18 +32,21 @@ import logging
 import os
 import random
 import socket
+import stat
 import time
+from dataclasses import dataclass
 from functools import partial
 from hashlib import sha256
 from multiprocessing import Process
 from pathlib import Path
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 from urllib.parse import quote
 
 import pytest
 import zstandard
 
 from otaclient_common.common import urljoin_ensure_base
+from otaclient_common.persist_file_handling import PersistFilesHandler
 
 logger = logging.getLogger(__name__)
 
@@ -182,3 +185,178 @@ def run_http_server_subprocess(
         logger.info("shutting down test HTTP server")
         server_p.kill()
         server_p.join(timeout=5)
+
+
+#
+# ------------ PersistFilesHandler integration fixtures ------------ #
+#
+# Mapping convention encoded in the passwd/group files below:
+#   dst_uid = src_uid + 100   (root: 0 -> 100, alice: 1 -> 101, ...)
+#   dst_gid = src_gid + 200   (root: 0 -> 200, agroup: 10 -> 210, ...)
+#
+# Anything outside the listed users/groups is unmappable: the handler must
+# keep the original src uid/gid in that case.
+
+_USERS = [
+    ("root", 0),
+    ("alice", 1),
+    ("bob", 2),
+    ("carol", 3),
+    ("dave", 4),
+    ("eve", 5),
+    ("frank", 6),
+]
+# group names match user names so a passwd entry's gid resolves through the
+# group file.
+_GROUPS = [
+    ("root", 0),
+    ("agroup", 10),
+    ("bgroup", 20),
+    ("cgroup", 30),
+    ("dgroup", 40),
+    ("egroup", 50),
+    ("fgroup", 60),
+]
+UID_OFFSET = 100
+GID_OFFSET = 200
+
+# Unmappable ids — not present in any passwd/group entry. Handler must keep
+# the original src uid/gid for these.
+UNMAPPABLE_UID = 99001
+UNMAPPABLE_GID = 99002
+
+
+def _passwd_line(name: str, uid: int) -> str:
+    return f"{name}:x:{uid}:{uid}::/nonexistent:/usr/sbin/nologin\n"
+
+
+def _group_line(name: str, gid: int) -> str:
+    return f"{name}:x:{gid}:\n"
+
+
+def src_uid(name: str) -> int:
+    return dict(_USERS)[name]
+
+
+def src_gid(name: str) -> int:
+    return dict(_GROUPS)[name]
+
+
+def dst_uid(name: str) -> int:
+    return src_uid(name) + UID_OFFSET
+
+
+def dst_gid(name: str) -> int:
+    return src_gid(name) + GID_OFFSET
+
+
+@dataclass(frozen=True)
+class PwGrpFiles:
+    src_passwd: Path
+    dst_passwd: Path
+    src_group: Path
+    dst_group: Path
+
+
+@pytest.fixture
+def pwgrp_files(tmp_path: Path) -> PwGrpFiles:
+    """Write minimal passwd/group files for src and dst sides.
+
+    The files live under tmp_path/etc/ and use the offsets defined above.
+    """
+    etc = tmp_path / "etc"
+    etc.mkdir()
+
+    src_passwd = etc / "src_passwd"
+    dst_passwd = etc / "dst_passwd"
+    src_group = etc / "src_group"
+    dst_group = etc / "dst_group"
+
+    src_passwd.write_text("".join(_passwd_line(n, u) for n, u in _USERS))
+    dst_passwd.write_text("".join(_passwd_line(n, u + UID_OFFSET) for n, u in _USERS))
+    src_group.write_text("".join(_group_line(n, g) for n, g in _GROUPS))
+    dst_group.write_text("".join(_group_line(n, g + GID_OFFSET) for n, g in _GROUPS))
+
+    return PwGrpFiles(src_passwd, dst_passwd, src_group, dst_group)
+
+
+@dataclass(frozen=True)
+class Roots:
+    src: Path
+    dst: Path
+
+
+@pytest.fixture
+def roots(tmp_path: Path) -> Roots:
+    """Empty src and dst rootfs directories under tmp_path."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    return Roots(src, dst)
+
+
+@pytest.fixture
+def make_handler(
+    pwgrp_files: PwGrpFiles,
+) -> Callable[[Path, Path], PersistFilesHandler]:
+    """Factory that builds a PersistFilesHandler bound to the given roots."""
+
+    def _factory(src_root: Path, dst_root: Path) -> PersistFilesHandler:
+        return PersistFilesHandler(
+            src_passwd_file=pwgrp_files.src_passwd,
+            src_group_file=pwgrp_files.src_group,
+            dst_passwd_file=pwgrp_files.dst_passwd,
+            dst_group_file=pwgrp_files.dst_group,
+            src_root=src_root,
+            dst_root=dst_root,
+        )
+
+    return _factory
+
+
+@pytest.fixture
+def handler(
+    roots: Roots,
+    make_handler: Callable[[Path, Path], PersistFilesHandler],
+) -> PersistFilesHandler:
+    return make_handler(roots.src, roots.dst)
+
+
+def stat_uid_gid_mode(path: Path) -> tuple[int, int, int]:
+    """Return (uid, gid, mode bits) for path, without following symlinks."""
+    st = os.stat(path, follow_symlinks=False)
+    return st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)
+
+
+def assert_uid_gid_mode(path: Path, *, uid: int, gid: int, mode: int) -> None:
+    actual = stat_uid_gid_mode(path)
+    assert actual == (uid, gid, mode), (
+        f"{path}: expected (uid={uid}, gid={gid}, mode={oct(mode)}), "
+        f"got (uid={actual[0]}, gid={actual[1]}, mode={oct(actual[2])})"
+    )
+
+
+def persist_entry_for(path: Path, src_root: Path) -> str:
+    """Build a canonical persist entry (rooted at /) for path under src_root."""
+    return "/" + str(path.relative_to(src_root))
+
+
+def make_owned_file(path: Path, content: str, *, uid: int, gid: int, mode: int) -> Path:
+    path.write_text(content)
+    os.chmod(path, mode)
+    os.chown(path, uid, gid, follow_symlinks=False)
+    return path
+
+
+def make_owned_dir(path: Path, *, uid: int, gid: int, mode: int) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, mode)
+    os.chown(path, uid, gid, follow_symlinks=False)
+    return path
+
+
+def make_owned_symlink(link: Path, target: str, *, uid: int, gid: int) -> Path:
+    link.symlink_to(target)
+    os.chown(link, uid, gid, follow_symlinks=False)
+    return link
