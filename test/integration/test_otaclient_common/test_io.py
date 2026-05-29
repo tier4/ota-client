@@ -107,9 +107,7 @@ class TestWriteStrToFileAtomic:
 @pytest.mark.parametrize(
     "preexisting_type, preexisting_contents, exc",
     (
-        pytest.param(
-            "symlink", "/not/our/target", None, id="replace-existing-symlink"
-        ),
+        pytest.param("symlink", "/not/our/target", None, id="replace-existing-symlink"),
         pytest.param("notexisted", "", None, id="create-new-symlink"),
         pytest.param(
             "file", "somecontentssomecontents", None, id="replace-normal-file"

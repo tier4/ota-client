@@ -62,7 +62,9 @@ def test_replace_root(path, old_root, new_root, expected):
     (
         pytest.param("/abc", "relative_root", "/new", id="old-root-not-absolute"),
         pytest.param("/abc", "/", "relative_new", id="new-root-not-absolute"),
-        pytest.param("/some/where", "/different/root", "/new", id="old-root-not-prefix"),
+        pytest.param(
+            "/some/where", "/different/root", "/new", id="old-root-not-prefix"
+        ),
     ),
 )
 def test_replace_root_invalid(path, old_root, new_root):
