@@ -37,8 +37,10 @@ from otaclient.boot_control._grub_new import (
     _BootMenuEntry,
     _GrubBootControl,
     _GrubBootHelperFuncs,
+    _release_tuple,
     iter_menuentries,
 )
+from otaclient.boot_control.configs import grub_new_cfg as boot_cfg
 
 from .conftest import (
     EXPECTED_OTA_MANAGED_DEFAULT,
@@ -1189,3 +1191,247 @@ class TestEnsureLegacyCompatForCurrentSlot:
         assert os.readlink(dst_link) == _ENSURE_KERNEL_FNAME, (
             "symlink target string must match the source's"
         )
+
+
+#
+# ------------ _GrubBootControl._disable_uefi_firmware_grub_hook ------------ #
+#
+
+# Stock-ish body for the regression baseline; not the real grub-uefi content,
+# just plausibly executable shell.
+_STOCK_UEFI_HOOK_BODY = "#!/bin/sh\necho 'UEFI Firmware Settings menuentry'\n"
+_EXPECTED_UEFI_STUB = boot_cfg.UEFI_FIRMWARE_GRUB_HOOK_DISABLED
+
+
+def _stage_uefi_hook_dir(slot_mp):
+    """Create `<slot_mp>/etc/grub.d` and return the path where the
+    `30_uefi-firmware` hook should live."""
+    hook_dir = slot_mp / "etc" / "grub.d"
+    hook_dir.mkdir(parents=True, exist_ok=True)
+    return hook_dir / boot_cfg.UEFI_FIRMWARE_GRUB_HOOK_FNAME
+
+
+class TestDisableUefiFirmwareGrubHook:
+    """Tests for _GrubBootControl._disable_uefi_firmware_grub_hook.
+
+    The helper neutralizes /etc/grub.d/30_uefi-firmware on the standby
+    slot so grub-mkconfig does not inject the "UEFI Firmware Settings"
+    menuentry into the OTA-managed grub.cfg. It removes whatever lives
+    at the path (regular file or symlink) and writes a fresh
+    non-executable stub. If the path is genuinely absent (not even a
+    symlink), the helper short-circuits and does nothing.
+    """
+
+    def test_replaces_regular_file_with_stub(self, tmp_path):
+        ctrl = object.__new__(_GrubBootControl)
+        hook_fpath = _stage_uefi_hook_dir(tmp_path)
+        hook_fpath.write_text(_STOCK_UEFI_HOOK_BODY)
+        hook_fpath.chmod(0o755)
+
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+
+        assert hook_fpath.is_file() and not hook_fpath.is_symlink()
+        assert hook_fpath.read_text() == _EXPECTED_UEFI_STUB
+        mode = hook_fpath.stat().st_mode
+        assert mode & 0o111 == 0, (
+            f"execute bit must be cleared on the stub, got {oct(mode)}"
+        )
+        assert mode & 0o777 == 0o640, (
+            f"expected exact mode 0o640 on the stub, got {oct(mode)}"
+        )
+
+    def test_replaces_symlink_with_real_file(self, tmp_path):
+        """A symlink at the hook path is replaced by a regular stub.
+        The original symlink target file is left untouched — the helper
+        unlinks the link, never follows it."""
+        ctrl = object.__new__(_GrubBootControl)
+        hook_fpath = _stage_uefi_hook_dir(tmp_path)
+        # Symlink target lives elsewhere inside slot_mp with a sentinel.
+        target = tmp_path / "usr" / "lib" / "grub" / "30_uefi-firmware"
+        target.parent.mkdir(parents=True)
+        target.write_text("SENTINEL_TARGET_BODY")
+        target.chmod(0o755)
+        hook_fpath.symlink_to(target)
+
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+
+        # Hook path is now a regular file, not a symlink, and holds the stub.
+        assert hook_fpath.is_file()
+        assert not hook_fpath.is_symlink()
+        assert hook_fpath.read_text() == _EXPECTED_UEFI_STUB
+        assert hook_fpath.stat().st_mode & 0o777 == 0o640
+        # The original symlink target file must be untouched.
+        assert target.read_text() == "SENTINEL_TARGET_BODY", (
+            "the symlink target file must NOT be modified — the helper "
+            "must unlink the symlink, not follow it"
+        )
+        assert target.stat().st_mode & 0o111 != 0, (
+            "the symlink target file's execute bit must NOT be cleared "
+            "— only the hook path itself is modified"
+        )
+
+    def test_skipped_when_hook_absent(self, tmp_path):
+        """If neither the file nor a symlink exists at the hook path,
+        the helper short-circuits and does NOT create a stub."""
+        ctrl = object.__new__(_GrubBootControl)
+        hook_fpath = _stage_uefi_hook_dir(tmp_path)
+        assert not hook_fpath.exists() and not hook_fpath.is_symlink()
+
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+
+        # Still absent — must not be created from thin air.
+        assert not hook_fpath.exists()
+
+    def test_replaces_broken_symlink_with_real_file(self, tmp_path):
+        """A broken symlink (target does not exist) at the hook path
+        still triggers the replace path — `is_symlink()` returns True
+        even when `exists()` returns False.
+
+        Pinned as its own test because a future refactor to a bare
+        `exists()` predicate would silently change behaviour, and the
+        previous regular-file/valid-symlink tests would still pass.
+        """
+        ctrl = object.__new__(_GrubBootControl)
+        hook_fpath = _stage_uefi_hook_dir(tmp_path)
+        hook_fpath.symlink_to(tmp_path / "does-not-exist")
+        assert hook_fpath.is_symlink() and not hook_fpath.exists()
+
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+
+        assert hook_fpath.is_file() and not hook_fpath.is_symlink()
+        assert hook_fpath.read_text() == _EXPECTED_UEFI_STUB
+        assert hook_fpath.stat().st_mode & 0o777 == 0o640
+
+    def test_idempotent_on_regular_file(self, tmp_path):
+        """Subsequent OTAs must not corrupt the stub — calling the
+        helper twice yields the same final body and mode."""
+        ctrl = object.__new__(_GrubBootControl)
+        hook_fpath = _stage_uefi_hook_dir(tmp_path)
+        hook_fpath.write_text(_STOCK_UEFI_HOOK_BODY)
+        hook_fpath.chmod(0o755)
+
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+        ctrl._disable_uefi_firmware_grub_hook(tmp_path)
+
+        assert hook_fpath.read_text() == _EXPECTED_UEFI_STUB
+        assert hook_fpath.stat().st_mode & 0o777 == 0o640
+
+
+class TestSetupSlotRootfsWiresUefiHookDisable:
+    """Wiring test: setup_slot_rootfs_for_ota_boot must invoke
+    _disable_uefi_firmware_grub_hook against the same slot_mp. Without
+    this, the helper could be perfectly correct yet never run in
+    production.
+    """
+
+    def test_called_from_setup_slot_rootfs_for_ota_boot(self, mocker, tmp_path):
+        ctrl = object.__new__(_GrubBootControl)
+
+        # Stage the on-disk paths that the other steps in
+        # setup_slot_rootfs_for_ota_boot need to read/write.
+        (tmp_path / "etc").mkdir()
+        (tmp_path / "etc" / "fstab").write_text("")
+        (tmp_path / "etc" / "default").mkdir()
+        (tmp_path / "etc" / "default" / "grub").write_text("")
+        (tmp_path / "etc" / "grub.d").mkdir()
+
+        # Stub out the fstab generator and the grub-default updater —
+        # we only care that the UEFI hook disable helper is invoked.
+        mocker.patch.object(_GrubBootControl, "_generate_fstab", return_value="")
+        mocker.patch.object(_GrubBootControl, "_update_grub_default", return_value="")
+        disable_spy = mocker.patch.object(
+            _GrubBootControl, "_disable_uefi_firmware_grub_hook"
+        )
+
+        ctrl.setup_slot_rootfs_for_ota_boot(
+            slot_fsuuid="fake-uuid",
+            slot_mp=tmp_path,
+            reference_fstab=None,
+        )
+
+        disable_spy.assert_called_once_with(tmp_path)
+
+
+#
+# ------------ _release_tuple ------------ #
+#
+
+
+class TestReleaseTuple:
+    @pytest.mark.parametrize(
+        "version_str, expected",
+        [
+            pytest.param("3.14.1", (3, 14, 1), id="plain_release"),
+            pytest.param("3.14.0", (3, 14, 0), id="plain_release_lower"),
+            pytest.param("3.14.1rc1", (3, 14, 1), id="rc_suffix"),
+            pytest.param("3.14.1.dev3", (3, 14, 1), id="dev_suffix"),
+            pytest.param(
+                "3.14.1rc1.dev3+g649b8182a.d20260520",
+                (3, 14, 1),
+                id="full_pep440_with_local",
+            ),
+            pytest.param(
+                "3.14.0rc4.dev19+g649b8182a.d20260520",
+                (3, 14, 0),
+                id="full_pep440_below_min",
+            ),
+            pytest.param("3.14.1.post1", (3, 14, 1), id="post_suffix"),
+            pytest.param("3.14", (3, 14), id="two_segment_release"),
+        ],
+    )
+    def test_parses_pep440(self, version_str: str, expected: tuple[int, ...]):
+        assert _release_tuple(version_str) == expected
+
+    @pytest.mark.parametrize(
+        "version_str",
+        [
+            pytest.param("not-a-version", id="garbage_string"),
+            pytest.param("", id="empty"),
+            pytest.param("v3.14.1+", id="trailing_plus"),
+            pytest.param("3.14.x", id="non_numeric_segment"),
+        ],
+    )
+    def test_returns_none_on_invalid(self, version_str: str):
+        assert _release_tuple(version_str) is None
+
+
+def _guard__release_tuple(_in):
+    if _res := _release_tuple(_in):
+        return _res
+    raise ValueError("invalid version string")
+
+
+class TestReleaseTupleOrdering:
+    """Test comparing version strings."""
+
+    @pytest.mark.parametrize(
+        "lower, higher",
+        [
+            # Numeric, NOT lexicographic — string compare would invert these.
+            pytest.param("3.14.9", "3.14.10", id="patch_double_digit"),
+            pytest.param("3.9.0", "3.10.0", id="minor_double_digit"),
+            # Two-segment vs three-segment: `Version("3.14").release` is
+            # (3, 14), not (3, 14, 0), so Python tuple ordering treats it as
+            # strictly less than ANY three-segment release with the same
+            # leading components — including (3, 14, 0). Production gating
+            # uses `>= min_release`, so a recorded "3.14" cfg against a
+            # "3.14.0" (or higher) minimum triggers regeneration. Pin both
+            # forms so a future tweak to `_release_tuple` (e.g. zero-padding
+            # to a fixed length) is a deliberate spec decision, not an
+            # accident.
+            pytest.param("3.14", "3.14.0", id="two_segment_vs_three_segment_zero"),
+            pytest.param("3.14", "3.14.1", id="two_segment_vs_three_segment_nonzero"),
+        ],
+    )
+    def test_lower_compares_less_than_higher(self, lower: str, higher: str):
+        assert _guard__release_tuple(lower) < _guard__release_tuple(higher)
+
+    def test_configured_min_is_parseable(self):
+        """Canary on the live `GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION`."""
+        _guard__release_tuple(boot_cfg.GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION)
+
+
+# Setup-case detection (`_detect_boot_control_setup_case`) and the
+# `_GrubBootControl.__init__` dispatch contract are tested as integration
+# tests in test_grub_backward_compat.py, alongside the rest of the
+# boot-control orchestration tests.

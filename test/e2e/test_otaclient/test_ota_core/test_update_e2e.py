@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from __future__ import annotations
 
 import shutil
@@ -24,7 +23,6 @@ import pytest_mock
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 
 from ota_metadata.utils.cert_store import load_ca_cert_chains, load_ca_store
-from otaclient import ota_core
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
     OTAStatusChangeReport,
@@ -36,34 +34,35 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
-from tests.conftest import TestConfiguration as cfg
-from tests.utils import SlotMeta
 
-OTA_UPDATER_MODULE = ota_core._updater.__name__
+from .conftest import (
+    CERTS_DIR,
+    CERTS_OTA_IMAGE_V1_DIR,
+    COOKIES_JSON,
+    OTA_UPDATER_MODULE,
+    UPDATE_VERSION,
+    SlotMeta,
+)
 
 
 class TestOTAUpdater:
-    """
-    NOTE: the boot_control is mocked.
-    """
+    """Boot controller is mocked; manifest fetch + slot apply run for real."""
 
     SESSION_ID = "session_id_for_test"
 
     @pytest.fixture
-    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta):
-        self.slot_a = Path(ab_slots.slot_a)
-        self.slot_b = Path(ab_slots.slot_b)
-        self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
-        self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
-        self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
+    def prepare_ab_slots(self, tmp_path: Path, ab_slots: SlotMeta) -> None:
+        self.slot_a = ab_slots.slot_a
+        self.slot_b = ab_slots.slot_b
+        self.slot_a_boot_dir = ab_slots.slot_a_boot_dev / "boot"
+        self.slot_b_boot_dir = ab_slots.slot_b_boot_dev / "boot"
 
         self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
         self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
-        # ------ cleanup and prepare slot_b ------ #
+        # Reset slot_b so each test starts from an empty standby slot.
         shutil.rmtree(self.slot_b, ignore_errors=True)
         self.slot_b.mkdir(exist_ok=True)
-        # some important paths
         self.ota_metafiles_tmp_dir = self.slot_b / Path(
             otaclient_cfg.OTA_META_STORE
         ).relative_to("/")
@@ -72,25 +71,34 @@ class TestOTAUpdater:
         ).relative_to("/")
 
     @pytest.fixture(autouse=True)
-    def mock_setup(self, mocker: pytest_mock.MockerFixture, prepare_ab_slots):
-        # ------ mock boot_controller ------ #
-        self._boot_control = _boot_control_mock = mocker.MagicMock(
-            spec=BootControllerProtocol
-        )
-        _boot_control_mock.get_standby_slot_path.return_value = self.slot_b
+    def mock_setup(
+        self, mocker: pytest_mock.MockerFixture, prepare_ab_slots: None
+    ) -> None:
+        self._boot_control = mocker.MagicMock(spec=BootControllerProtocol)
+        self._boot_control.get_standby_slot_path.return_value = self.slot_b
 
-        # ------ mock otaclient cfg ------ #
         mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.ACTIVE_SLOT_MNT", str(self.slot_a))
         mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.STANDBY_SLOT_MNT", str(self.slot_b))
         mocker.patch(f"{OTA_UPDATER_MODULE}.cfg.RUN_DIR", str(self.otaclient_run_dir))
         mocker.patch(f"{OTA_UPDATER_MODULE}.can_use_in_place_mode", return_value=False)
 
-        self._process_persists_mock = process_persists_mock = mocker.MagicMock()
-        mocker.patch(f"{OTA_UPDATER_MODULE}.process_persistents", process_persists_mock)
+        self._process_persists_mock = mocker.MagicMock()
+        mocker.patch(
+            f"{OTA_UPDATER_MODULE}.process_persistents", self._process_persists_mock
+        )
+
+    def _seed_updating_status(self, report_queue: Queue[StatusReport]) -> None:
+        report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(new_ota_status=OTAStatus.UPDATING),
+                session_id=self.SESSION_ID,
+            )
+        )
 
     def test_ota_updater_legacy(
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        legacy_ota_image_server: str,
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
     ) -> None:
@@ -101,29 +109,19 @@ class TestOTAUpdater:
         )
         abort_handler = mocker.MagicMock()
 
-        # ------ execution ------ #
-        ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+        ca_chains_store = load_ca_cert_chains(CERTS_DIR)
         downloader_pool = create_downloader_pool(
-            raw_cookies_json=cfg.COOKIES_JSON,
+            raw_cookies_json=COOKIES_JSON,
             download_threads=3,
             chunk_size=1024**2,
         )
 
-        # update OTA status to update and assign session_id before execution
-        report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                ),
-                session_id=self.SESSION_ID,
-            )
-        )
+        self._seed_updating_status(report_queue)
 
-        session_workdir = tmp_path / "session_workdir"
         _updater = OTAUpdaterForLegacyOTAImage(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
-            session_wd=session_workdir,
+            version=UPDATE_VERSION,
+            raw_url_base=legacy_ota_image_server,
+            session_wd=tmp_path / "session_workdir",
             ca_chains_store=ca_chains_store,
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
@@ -132,16 +130,12 @@ class TestOTAUpdater:
             session_id=self.SESSION_ID,
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
-            shm_metrics_reader=None,  # type: ignore
+            shm_metrics_reader=None,  # type: ignore[arg-type]
         )
         _updater.execute()
 
-        # ------ assertions ------ #
-        # assert the control_flags has been waited
         ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
-
-        assert _updater.update_version == str(cfg.UPDATE_VERSION)
-
+        assert _updater.update_version == UPDATE_VERSION
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
         self._process_persists_mock.assert_called_once()
@@ -149,6 +143,7 @@ class TestOTAUpdater:
     def test_ota_updater_ota_image_v1(
         self,
         ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        ota_image_v1_server: str,
         mocker: pytest_mock.MockerFixture,
         tmp_path: Path,
     ) -> None:
@@ -159,29 +154,19 @@ class TestOTAUpdater:
         )
         abort_handler = mocker.MagicMock()
 
-        # ------ execution ------ #
-        ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+        ca_store = load_ca_store(CERTS_OTA_IMAGE_V1_DIR)
         downloader_pool = create_downloader_pool(
-            raw_cookies_json=cfg.COOKIES_JSON,
+            raw_cookies_json=COOKIES_JSON,
             download_threads=3,
             chunk_size=1024**2,
         )
 
-        # update OTA status to update and assign session_id before execution
-        report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=OTAStatus.UPDATING,
-                ),
-                session_id=self.SESSION_ID,
-            )
-        )
+        self._seed_updating_status(report_queue)
 
-        session_workdir = tmp_path / "session_workdir"
         _updater = OTAUpdaterForOTAImageV1(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_V1_URL,
-            session_wd=session_workdir,
+            version=UPDATE_VERSION,
+            raw_url_base=ota_image_v1_server,
+            session_wd=tmp_path / "session_workdir",
             ca_store=ca_store,
             downloader_pool=downloader_pool,
             boot_controller=self._boot_control,
@@ -191,16 +176,12 @@ class TestOTAUpdater:
             status_report_queue=report_queue,
             metrics=OTAMetricsData(),
             image_identifier=ImageIdentifier("autoware", OTAReleaseKey.dev),
-            shm_metrics_reader=None,  # type: ignore
+            shm_metrics_reader=None,  # type: ignore[arg-type]
         )
         _updater.execute()
 
-        # ------ assertions ------ #
-        # assert the control_flags has been waited
         ecu_status_flags.any_child_ecu_in_update.is_set.assert_called_once()
-
-        assert _updater.update_version == str(cfg.UPDATE_VERSION)
-
+        assert _updater.update_version == UPDATE_VERSION
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
         self._process_persists_mock.assert_called_once()

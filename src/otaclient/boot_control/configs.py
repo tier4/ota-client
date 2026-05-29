@@ -38,6 +38,11 @@ class GrubControlNewConfig:
     OTA_BOOT_SLOT_BASE = "ota-slot"
     SLOT_A_SUFFIX = "_a"
     SLOT_B_SUFFIX = "_b"
+
+    GRUB_CFG_MIN_REQUIRED_OTACLIENT_VERSION = "3.14.1"
+    """The minimum required version of otaclient that generates the grub.cfg.
+    """
+
     OTA_GRUB_HOOK_FNAME = "30_ota"
     OTA_GRUB_HOOK = r"""\
 #!/bin/sh
@@ -53,6 +58,15 @@ EOF
 """
     LEGACY_OTA_PARTITION_FNAME = "ota-partition"
     LEGACY_SLOT_ID_PREFIX = "ota-partition.sda"
+    UEFI_FIRMWARE_GRUB_HOOK_FNAME = "30_uefi-firmware"
+    UEFI_FIRMWARE_GRUB_HOOK_DISABLED = """\
+#!/bin/sh
+# This file has been replaced by otaclient to prevent the
+# "UEFI Firmware Settings" menuentry from being added to grub.cfg.
+# The file is also non-executable; this exit 0 is a belt-and-suspenders
+# guard in case something re-marks it executable.
+exit 0
+"""
 
 
 class JetsonBootCommon:
