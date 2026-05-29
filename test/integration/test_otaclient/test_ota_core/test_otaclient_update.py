@@ -32,7 +32,11 @@ from otaclient.errors import ClientUpdateSameVersions
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAClientUpdater
 from otaclient.ota_core._common import create_downloader_pool
-from tests.conftest import TestConfiguration as cfg
+
+# Path to certs baked into the test docker image (see docker/test_base/Dockerfile).
+CERTS_DIR = Path("/certs")
+# Cookies are not exercised by these tests (downloader is mocked); any valid JSON works.
+COOKIES_JSON = "{}"
 
 OTA_UPDATER_BASE_MODULE = ota_core._updater_base.__name__
 OTACLIENT_UPDATER_MODULE = ota_core._client_updater.__name__
@@ -69,9 +73,9 @@ class TestOTAClientUpdater:
         )
 
         # Set up CA chains store
-        self.ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+        self.ca_chains_store = load_ca_cert_chains(CERTS_DIR)
         self.downloader_pool = create_downloader_pool(
-            raw_cookies_json=cfg.COOKIES_JSON,
+            raw_cookies_json=COOKIES_JSON,
             download_threads=3,
             chunk_size=1024**2,
         )
