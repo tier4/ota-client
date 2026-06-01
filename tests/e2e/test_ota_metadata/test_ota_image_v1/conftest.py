@@ -11,37 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Local fixtures and constants for OTA image v1 metadata e2e tests.
+"""Local re-export for OTA image v1 metadata e2e tests.
 
 Container dependency:
     The v1 OTA image fixture (`/ota-image_v1`) and its CA chain
     (`/certs_ota-image_v1`) are baked into the test container image by
     `docker/test_base/Dockerfile` (copied from the upstream
-    `ota_img_for_test` image). Tests in this subtree consume them via
-    those absolute container paths.
+    `ota_img_for_test` image). The shared `ota_image_v1_server` fixture and the
+    v1 container path constants live in the top-level `tests/conftest.py`.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Generator
-
-import pytest
-
-from tests.conftest import launch_http_server_subprocess
-
-# Baked into the test container image; see docker/test_base/Dockerfile.
-OTA_IMAGE_V1_DIR = Path("/ota-image_v1")
-CERTS_OTA_IMAGE_V1_DIR = Path("/certs_ota-image_v1")
-
-OTA_IMAGE_V1_SERVER_ADDR = "127.0.0.1"
-OTA_IMAGE_V1_SERVER_PORT = 8081
-
-
-@pytest.fixture(scope="session")
-def ota_image_v1_server() -> Generator[str]:
-    """Serve `/ota-image_v1` over HTTP on the v1 port and yield the base URL."""
-    with launch_http_server_subprocess(
-        OTA_IMAGE_V1_SERVER_ADDR, OTA_IMAGE_V1_SERVER_PORT, OTA_IMAGE_V1_DIR
-    ) as base_url:
-        yield base_url
+from tests.conftest import CERTS_OTA_IMAGE_V1_DIR  # noqa: F401

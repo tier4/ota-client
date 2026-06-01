@@ -11,134 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared fixtures for create_standby integration tests.
+"""Local re-exports for create_standby integration tests.
 
-The /ota-image fixture tree is baked into the test container by
-docker/test_base/Dockerfile (copied from the upstream ota_img_for_test
-image). These tests run only inside that container.
+The shared file_table fixtures (`fst_db_helper`, `ab_slots_for_inplace`,
+`resource_dir`) and the `SlotAB` type live in the top-level
+`tests/conftest.py` (the /ota-image fixture tree they build from is baked into
+the test container by docker/test_base/Dockerfile). `SlotAB` is re-exported
+here so test modules import it via `from .conftest`.
 """
 
 from __future__ import annotations
 
-import logging
-import shutil
-import sqlite3
-from contextlib import closing
-from pathlib import Path
-from typing import NamedTuple
-
-import pytest
-from ota_image_libs.v1.file_table.db import (
-    FileTableDBHelper,
-    FileTableDirORM,
-    FileTableInodeORM,
-    FileTableNonRegularORM,
-    FileTableRegularORM,
-    FileTableResourceORM,
-)
-
-from ota_metadata.legacy2.csv_parser import (
-    parse_dirs_from_csv_file,
-    parse_regulars_from_csv_file,
-    parse_symlinks_from_csv_file,
-)
-from ota_metadata.legacy2.rs_table import ResourceTableORM
-
-logger = logging.getLogger(__name__)
-
-# Baked into the test container image; see docker/test_base/Dockerfile.
-OTA_IMAGE_DIR = Path("/ota-image")
-OTA_IMAGE_DATA_DIR = OTA_IMAGE_DIR / "data"
-REGULARS_TXT = OTA_IMAGE_DIR / "regulars.txt"
-DIRS_TXT = OTA_IMAGE_DIR / "dirs.txt"
-SYMLINKS_TXT = OTA_IMAGE_DIR / "symlinks.txt"
-
-
-# NOTE: during delta calculation, the ft_resource table will be altered, so
-#       this fixture needs to be function scope fixture.
-@pytest.fixture
-def fst_db_helper(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> FileTableDBHelper:
-    """Build the file_table database from the legacy /ota-image CSV fixtures."""
-    image_meta_d = tmp_path_factory.mktemp(basename="image-meta")
-    ft_dbf = image_meta_d / "file_table.sqlite3"
-    rst_dbf = image_meta_d / "resource_table.sqlite3"
-
-    with closing(sqlite3.connect(ft_dbf)) as fst_conn, closing(
-        sqlite3.connect(rst_dbf)
-    ) as rst_conn:
-        ft_regular_orm = FileTableRegularORM(fst_conn)
-        ft_regular_orm.orm_bootstrap_db()
-        ft_dir_orm = FileTableDirORM(fst_conn)
-        ft_dir_orm.orm_bootstrap_db()
-        ft_non_regular_orm = FileTableNonRegularORM(fst_conn)
-        ft_non_regular_orm.orm_bootstrap_db()
-        ft_resource_orm = FileTableResourceORM(fst_conn)
-        ft_resource_orm.orm_bootstrap_db()
-        ft_inode_orm = FileTableInodeORM(fst_conn)
-        ft_inode_orm.orm_bootstrap_db()
-        rs_orm = ResourceTableORM(rst_conn)
-        rs_orm.orm_bootstrap_db()
-
-        inode_start = 1
-        regulars_num, inode_start = parse_regulars_from_csv_file(
-            _fpath=REGULARS_TXT,
-            _orm=ft_regular_orm,
-            _orm_ft_resource=ft_resource_orm,
-            _orm_rs=rs_orm,
-            _orm_inode=ft_inode_orm,
-            inode_start=inode_start,
-        )
-        dirs_num, inode_start = parse_dirs_from_csv_file(
-            DIRS_TXT,
-            ft_dir_orm,
-            _inode_orm=ft_inode_orm,
-            inode_start=inode_start,
-        )
-        symlinks_num, _ = parse_symlinks_from_csv_file(
-            SYMLINKS_TXT,
-            ft_non_regular_orm,
-            _inode_orm=ft_inode_orm,
-            inode_start=inode_start,
-        )
-        logger.info(
-            f"csv parse finished: {dirs_num=}, {symlinks_num=}, {regulars_num=}"
-        )
-    return FileTableDBHelper(ft_dbf)
-
-
-class SlotAB(NamedTuple):
-    slot_a: Path
-    slot_b: Path
-
-
-@pytest.fixture
-def ab_slots_for_inplace(tmp_path: Path) -> SlotAB:
-    logger.info("prepare simple a/b slots for inplace update mode ...")
-    slot_a = tmp_path / "slot_a"
-    slot_b = tmp_path / "slot_b"
-    logger.info(f"prepare simple a/b slots for inplace mode: {slot_a=}, {slot_b=}")
-
-    slot_a.mkdir(exist_ok=True, parents=True)
-    shutil.copytree(OTA_IMAGE_DATA_DIR, slot_b, symlinks=True)
-
-    # NOTE(20250702): edge condition found on bench test:
-    #   fpath of a folder in standby slot becomes symlink in the new image.
-    # in newer ubuntu, /sbin becomes a symlink points to /usr/sbin
-    sbin = slot_b / "sbin"
-    sbin.unlink(missing_ok=True)
-    sbin.mkdir(exist_ok=True, parents=True)
-    return SlotAB(slot_a, slot_b)
-
-
-@pytest.fixture
-def resource_dir(tmp_path: Path):
-    _rd = tmp_path / ".ota-resources"
-    logger.info(f"prepare function scrope resource dir: {_rd} ...")
-    try:
-        _rd.mkdir()
-        yield _rd
-    finally:
-        logger.info(f"cleanup function scrope resource dir: {_rd} ...")
-        shutil.rmtree(_rd, ignore_errors=True)
+from tests.conftest import SlotAB  # noqa: F401

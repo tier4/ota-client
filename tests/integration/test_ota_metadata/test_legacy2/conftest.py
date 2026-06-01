@@ -11,19 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Local fixtures and constants for legacy2 metadata integration tests.
+"""Local re-export for legacy2 metadata integration tests.
 
-Container dependency:
-    The legacy v1 OTA image fixture is baked into the test container image
-    by `docker/test_base/Dockerfile` (copied from the upstream
-    `ota_img_for_test` image). Tests in this subtree consume it via the
-    absolute container path `/ota-image`.
+The `/ota-image` container path (baked in by `docker/test_base/Dockerfile`,
+do not relocate to tests/data/) lives in the top-level `tests/conftest.py`.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-# Absolute container path for the legacy v1 OTA image fixture; baked in by
-# `docker/test_base/Dockerfile`. Do not relocate to `tests/data/`.
-OTA_IMAGE_DIR = Path("/ota-image")
+from tests.conftest import OTA_IMAGE_DIR  # noqa: F401
