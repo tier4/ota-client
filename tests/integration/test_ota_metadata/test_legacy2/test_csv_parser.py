@@ -54,8 +54,7 @@ from ota_metadata.legacy2.csv_parser import (
     parse_symlinks_from_csv_file,
 )
 from ota_metadata.legacy2.rs_table import ResourceTable, ResourceTableORM
-
-from .conftest import OTA_IMAGE_DIR
+from tests.conftest import OTA_IMAGE_DIR
 
 logger = logging.getLogger(__name__)
 

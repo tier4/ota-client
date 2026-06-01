@@ -11,23 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared mocks for ota_core unit tests.
-
-`_main.ensure_mount` and `_updater.ensure_umount` shell out to real OS mount
-syscalls, so unit tests must never let them through. The CA cert dir is
-repointed at `/certs` (baked into the test container image) so
-`OTAClient.__init__` can load a real CA chain without depending on the
-production install path; without this, `client_update`/`update` short-circuit
-through the no-CA error path and never reach the mocked updater.
-`fstrim_at_subprocess` is silenced so nothing tries to fstrim during tests.
-
-The fixture bodies are shared with the integration/e2e ota_core subtrees via
-`tests._fixtures_ota_core`; they are imported (not redefined) here so the
-autouse scope stays confined to this subtree.
-"""
+"""Shared mocks for ota_core unit tests."""
 
 from __future__ import annotations
 
+# NOTE: for loading autouse fixtures
 from tests._fixtures_ota_core import (  # noqa: F401
     mock_certs_dir,
     mock_ensure_mount,

@@ -32,22 +32,13 @@ from typing import Any, Generator
 import pytest
 
 from otaclient._types import OTAStatus, VersionDetail
+
+# NOTE: for loading autouse fixture
 from tests._fixtures_ota_core import mock_ensure_umount  # noqa: F401
-from tests.conftest import (  # noqa: F401
-    CERTS_DIR,
-    CERTS_OTA_IMAGE_V1_DIR,
-    CURRENT_VERSION,
-    OTA_IMAGE_DIR,
-    OTA_IMAGE_URL,
-    OTA_IMAGE_V1_URL,
-    UPDATE_VERSION,
-    SlotMeta,
-)
 
 logger = logging.getLogger(__name__)
 
-# Dummy CloudFront cookies; the value only needs to round-trip through the
-# downloader JSON parser unchanged (local HTTP serving ignores the signature).
+# Dummy CloudFront cookies
 COOKIES_JSON = (
     '{"CloudFront-Policy": "dummy_policy", "CloudFront-Signature": "dummy_signature",'
     '"CloudFront-Key-Pair-Id": "dummy_key_pair_id"}'

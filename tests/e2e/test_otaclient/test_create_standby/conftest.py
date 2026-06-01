@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.conftest import OTA_IMAGE_DATA_DIR, SlotAB  # noqa: F401
+from tests.conftest import OTA_IMAGE_DATA_DIR, SlotAB
 
 if TYPE_CHECKING:
     from ota_image_libs.v1.file_table.db import FileTableDBHelper

@@ -30,13 +30,12 @@ from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._updater_base import LegacyOTAImageSupportMixin
 from otaclient_common.downloader import DownloaderPool
+from tests.conftest import CERTS_DIR, OTA_IMAGE_DIR
+from tests.e2e.test_ota_metadata.conftest import iter_helper
 
-from ..conftest import iter_helper
-from .conftest import (
-    CERTS_DIR,
-    METADATA_JWT,
-    OTA_IMAGE_SIGN_CERT,
-)
+OTA_IMAGE_SIGN_CERT = OTA_IMAGE_DIR / "sign.pem"
+METADATA_JWT = OTA_IMAGE_DIR / "metadata.jwt"
+
 
 logger = logging.getLogger(__name__)
 

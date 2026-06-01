@@ -11,22 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Downloader fixtures for the otaclient_common integration suite.
-
-The downloader integration tests need a real HTTP server to talk to.
-This conftest bundles:
-  * ``setup_test_data`` — generate a directory of urandom blobs (some
-    zstd-compressed) and surface their canonical metadata
-  * ``run_http_server_subprocess`` — host that directory via a daemon
-    HTTP subprocess on an ephemeral port
-
-Both fixtures are module-scoped: the cost of generating thousands of
-random blobs and starting a process is amortised across every test in
-the module. They are downloader-specific and deliberately *not*
-``autouse`` so the sibling ``test_common`` / ``test_io`` modules don't
-pay for them; ``test_downloader`` opts in via its own module-scoped
-autouse fixture.
-"""
+"""Downloader fixtures for the otaclient_common integration suite."""
 
 from __future__ import annotations
 

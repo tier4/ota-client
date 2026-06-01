@@ -30,9 +30,8 @@ from otaclient._utils import SharedOTAClientMetricsReader
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._updater_base import OTAImageV1SupportMixin
 from otaclient_common.downloader import DownloaderPool
-
-from ..conftest import iter_helper
-from .conftest import CERTS_OTA_IMAGE_V1_DIR
+from tests.conftest import CERTS_OTA_IMAGE_V1_DIR
+from tests.e2e.test_ota_metadata.conftest import iter_helper
 
 logger = logging.getLogger(__name__)
 

@@ -11,13 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for v1 OTA image CA-store cert-chain verification.
-
-Generates root / intermediate / sign certs in subprocess via
-`gen_certs.sh` for each chain prefix, then asserts that
-`load_ca_store(...)` resolves the right chain map and verifies the
-matching sign cert.
-"""
+"""Integration tests for v1 OTA image CA-store cert-chain verification."""
 
 from __future__ import annotations
 

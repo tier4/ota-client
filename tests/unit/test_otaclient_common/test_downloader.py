@@ -25,6 +25,7 @@ from __future__ import annotations
 import io
 import threading
 from hashlib import sha256
+from typing import Any
 
 import pytest
 import pytest_mock
@@ -362,7 +363,7 @@ class TestUrllib3Compatibility:
         d = Downloader(hash_func=sha256, chunk_size=4096)
         try:
             for scheme in ("http://", "https://"):
-                adapter = d._session.get_adapter(scheme)
+                adapter: Any = d._session.get_adapter(scheme)
                 assert isinstance(adapter.max_retries, Retry)
                 assert adapter.max_retries.total == DEFAULT_RETRY_COUNT
                 assert set(adapter.max_retries.status_forcelist) == set(

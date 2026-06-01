@@ -310,7 +310,7 @@ async def launch_otaproxy_with_cache(
         OTACache, "_background_check_free_space", _make_mocked_space_checker(condition)
     )
     mocker.patch.dict(
-        CacheWriterPool.__init__.__kwdefaults__,
+        CacheWriterPool.__init__.__kwdefaults__,  # type: ignore
         {"max_pending": _TEST_MAX_PENDING_WRITE},
     )
     ota_cache = OTACache(

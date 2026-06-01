@@ -26,8 +26,7 @@ from ota_image_libs.v1.file_table.db import FileTableDBHelper
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import InPlaceDeltaWithBaseFileTable
 from otaclient.create_standby.resume_ota import ResourceScanner
-
-from .conftest import SlotAB
+from tests.conftest import SlotAB
 
 logger = logging.getLogger(__name__)
 

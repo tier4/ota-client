@@ -36,20 +36,22 @@ from otaclient._types import OTAStatus
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
-
-from .conftest import (
+from tests.conftest import (
     CERTS_DIR,
     CERTS_OTA_IMAGE_V1_DIR,
-    COOKIES_JSON,
     CURRENT_VERSION,
     OTA_IMAGE_DIR,
     OTA_IMAGE_URL,
     OTA_IMAGE_V1_URL,
     UPDATE_VERSION,
+    SlotMeta,
+)
+
+from .conftest import (
+    COOKIES_JSON,
     MockBootController,
     MockRebootTriggered,
     PerformanceReport,
-    SlotMeta,
     store_report_for_comparison,
 )
 

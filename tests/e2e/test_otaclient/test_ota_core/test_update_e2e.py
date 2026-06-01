@@ -34,15 +34,15 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
-
-from .conftest import (
+from tests.conftest import (
     CERTS_DIR,
     CERTS_OTA_IMAGE_V1_DIR,
-    COOKIES_JSON,
     OTA_UPDATER_MODULE,
     UPDATE_VERSION,
     SlotMeta,
 )
+
+from .conftest import COOKIES_JSON
 
 
 class TestOTAUpdater:
