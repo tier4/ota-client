@@ -23,7 +23,7 @@ ENV CERTS_DIR="/certs"
 ENV SPECIAL_FILE="path;adf.ae?qu.er\y=str#fragファイルement"
 
 COPY --from=sys_img / /${OTA_IMAGE_DIR}
-COPY --chmod=755 ./tests/keys/gen_certs.sh /tmp/certs/
+COPY --chmod=755 ./docker/mini_ota_img/keys/gen_certs.sh /tmp/certs/
 
 WORKDIR ${OTA_IMAGE_SERVER_ROOT}
 

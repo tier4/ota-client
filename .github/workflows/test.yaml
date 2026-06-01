@@ -24,7 +24,7 @@ on:
       - v*
     paths:
       - "src/**"
-      - "tests/**"
+      - "test/**"
       - ".github/workflows/test.yaml"
   # allow the test CI to be manually triggerred
   workflow_dispatch:

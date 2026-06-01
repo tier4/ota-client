@@ -106,7 +106,6 @@ log_cli = true
 log_cli_level = "INFO"
 testpaths = [
   "./test",
-  "./tests",
 ]
 markers = [
   "performance: marks tests as performance E2E tests",
@@ -171,7 +170,6 @@ pythonVersion = "3.8"
 line-length = 88
 target-version = "py38"
 include = [
-  "tests/**/*.py",
   "test/**/*.py",
   "src/**/*.py",
   "pyproject.toml",

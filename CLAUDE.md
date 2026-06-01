@@ -24,7 +24,7 @@ docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm teste
 
 # Run specific tests
 docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04 \
-    tests/<specific_test_file>
+    test/<specific_test_file>
 
 # Interactive shell
 docker compose -f docker/test_base/docker-compose_tests_py313.yml run --entrypoint=/bin/bash -it --rm tester-ubuntu-22.04

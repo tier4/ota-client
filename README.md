@@ -65,7 +65,7 @@ from otaclient_pb2.v2 import otaclient_pb2_grpc
 
 ## Testing
 
-> **Note:** The test structure is being reorganized. The old `tests/` folder is frozen and no new tests should be added there. All new tests must be placed under the `test/` folder, organized by category:
+> **Note:** Tests live under the `test/` folder, organized by category:
 >
 > - `test/unit/` - Unit tests
 > - `test/integration/` - Integration tests
