@@ -11,46 +11,75 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+"""Integration tests for otaclient_common.common utilities."""
 
 from __future__ import annotations
 
 import logging
+import os
+import socket
 import subprocess
+import threading
 import time
-from hashlib import sha256
-from multiprocessing import Process
 from pathlib import Path
-from typing import Tuple
+from typing import Generator
 
 import pytest
 
-from otaclient_common import replace_root
+from otaclient_common._io import file_sha256
 from otaclient_common.common import (
     copytree_identical,
     ensure_otaproxy_start,
     subprocess_call,
     subprocess_check_output,
 )
-from tests.conftest import run_http_server
-from tests.utils import compare_dir
+from test.conftest import launch_http_server_subprocess
 
 logger = logging.getLogger(__name__)
 
-_TEST_FILE_CONTENT = "123456789abcdefgh" * 3000
-_TEST_FILE_SHA256 = sha256(_TEST_FILE_CONTENT.encode()).hexdigest()
-_TEST_FILE_LENGTH = len(_TEST_FILE_CONTENT.encode())
+
+def _find_free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
-@pytest.fixture
-def file_t(tmp_path: Path) -> Tuple[str, str, int]:
-    """A fixture that returns a path to a test file and its sha256."""
-    test_f = tmp_path / "test_file"
-    test_f.write_text(_TEST_FILE_CONTENT)
-    return str(test_f), _TEST_FILE_SHA256, _TEST_FILE_LENGTH
+def compare_dir(left: Path, right: Path) -> None:
+    """Assert two directory trees are structurally and byte-for-byte identical.
+
+    Paths, symlink targets and file digests are compared; file stats are
+    intentionally not checked.
+    """
+    _a_glob = set(map(lambda x: x.relative_to(left), left.glob("**/*")))
+    _b_glob = set(map(lambda x: x.relative_to(right), right.glob("**/*")))
+    if _a_glob != _b_glob:  # first check paths are identical
+        raise ValueError(
+            f"left and right mismatch, diff: {_a_glob.symmetric_difference(_b_glob)}\n"
+            f"{_a_glob=}\n"
+            f"{_b_glob=}"
+        )
+
+    # then check each file/folder of the path
+    for _path in _a_glob:
+        _a_path = left / _path
+        _b_path = right / _path
+        if _a_path.is_symlink():
+            if not (
+                _b_path.is_symlink() and os.readlink(_a_path) == os.readlink(_b_path)
+            ):
+                raise ValueError(f"symlink mismatched: {_path}")
+        elif _a_path.is_dir():
+            if not _b_path.is_dir():
+                raise ValueError(f"dir mismatched: {_path}")
+        elif _a_path.is_file():
+            if not (_b_path.is_file() and file_sha256(_a_path) == file_sha256(_b_path)):
+                logger.error(f"{_a_path.read_text()=}, {_b_path.read_text()=}")
+                raise ValueError(f"file check failed: {_path}")
+        else:
+            raise ValueError(f"unspecific file type: {_path}")
 
 
-class Test_copytree_identical:
+class TestCopytreeIdentical:
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path: Path):
         """
@@ -135,73 +164,78 @@ class Test_copytree_identical:
 
     def test_copytree_identical(self):
         copytree_identical(self.a_dir, self.b_dir)
-        # check result
+        # b_dir should now be an identical copy of a_dir
         compare_dir(self.a_dir, self.b_dir)
 
 
-class Test_ensure_otaproxy_start:
-    DUMMY_SERVER_ADDR, DUMMY_SERVER_PORT = "127.0.0.1", 18889
-    DUMMY_SERVER_URL = f"http://{DUMMY_SERVER_ADDR}:{DUMMY_SERVER_PORT}"
+class TestEnsureOtaproxyStart:
+    SERVER_ADDR = "127.0.0.1"
     LAUNCH_DELAY = 6
 
     # for faster testing
     PROBING_INTERVAL = 0.1
     PROBING_CONNECTION_TIMEOUT = 0.1
 
-    @staticmethod
-    def _launch_server_helper(addr: str, port: int, launch_delay: int, directory: str):
-        time.sleep(launch_delay)
-        run_http_server(addr, port, directory=directory)
-
-    @pytest.fixture
-    def subprocess_launch_server(self, tmp_path: Path):
-        (dummy_webroot := tmp_path / "webroot").mkdir(exist_ok=True)
-        _server_p = Process(
-            target=self._launch_server_helper,
-            args=[
-                self.DUMMY_SERVER_ADDR,
-                self.DUMMY_SERVER_PORT,
-                self.LAUNCH_DELAY,
-                str(dummy_webroot),
-            ],
-        )
-        try:
-            logger.info(f"wait for {self.LAUNCH_DELAY}s before launching the server")
-            _server_p.start()
-            yield
-        finally:
-            _server_p.kill()
-
     def test_timeout_waiting(self):
+        """No server is ever launched, so probing must time out.
+
+        NOTE: we intentionally do not bring any server up here to let the
+              probing loop exhaust its <probing_timeout>.
         """
-        NOTE: we intentionally not use the subprocess_launch_server fixture here
-              to let the probing timeout.
-        """
+        otaproxy_url = f"http://{self.SERVER_ADDR}:{_find_free_port()}"
         # make testing faster
         probing_timeout = self.LAUNCH_DELAY // 2
 
         start_time = int(time.time())
         with pytest.raises(ConnectionError):
             ensure_otaproxy_start(
-                self.DUMMY_SERVER_URL,
+                otaproxy_url,
                 interval=self.PROBING_INTERVAL,
                 connection_timeout=self.PROBING_CONNECTION_TIMEOUT,
                 probing_timeout=probing_timeout,
             )
-        # probing should cost at least <LAUNCH_DELAY> seconds
+        # probing should cost at least <probing_timeout> seconds
         assert int(time.time()) >= start_time + probing_timeout
 
-    def test_probing_delayed_online_server(self, subprocess_launch_server):
+    @pytest.fixture
+    def delayed_otaproxy_server(self, tmp_path: Path) -> Generator[str]:
+        """Bring an HTTP server online only after <LAUNCH_DELAY> seconds.
+
+        The port/URL is allocated up front so the test can begin probing
+        before the server binds, exercising ensure_otaproxy_start's retry
+        loop against a server that comes online late.
+        """
+        (webroot := tmp_path / "webroot").mkdir(exist_ok=True)
+        otaproxy_url = f"http://{self.SERVER_ADDR}:{(port := _find_free_port())}"
+
+        stop = threading.Event()
+
+        def _serve_after_delay() -> None:
+            logger.info(f"wait for {self.LAUNCH_DELAY}s before launching the server")
+            time.sleep(self.LAUNCH_DELAY)
+            with launch_http_server_subprocess(self.SERVER_ADDR, port, webroot):
+                stop.wait()
+
+        server_thread = threading.Thread(target=_serve_after_delay, daemon=True)
+        server_thread.start()
+        try:
+            yield otaproxy_url
+        finally:
+            stop.set()
+            server_thread.join(timeout=self.LAUNCH_DELAY + 15)
+
+    def test_probing_delayed_online_server(self, delayed_otaproxy_server: str):
         start_time = int(time.time())
         probing_timeout = self.LAUNCH_DELAY * 2
 
         ensure_otaproxy_start(
-            self.DUMMY_SERVER_URL,
+            delayed_otaproxy_server,
             interval=self.PROBING_INTERVAL,
             connection_timeout=self.PROBING_CONNECTION_TIMEOUT,
             probing_timeout=probing_timeout,
         )
-        # probing should cost at least <LAUNCH_DELAY> seconds
+        # the server only comes online after <LAUNCH_DELAY> seconds, so
+        #   probing must have waited at least that long
         assert int(time.time()) >= start_time + self.LAUNCH_DELAY
 
 
@@ -227,7 +261,7 @@ class TestSubprocessCall:
             == f"ls: cannot access '{self.non_existed_file}': No such file or directory"
         )
 
-        # test exception supressed
+        # test exception suppressed
         subprocess_call(cmd, raise_exception=False)
 
     def test_subprocess_call_succeeded(self):
@@ -246,7 +280,7 @@ class TestSubprocessCall:
             == f"cat: {self.non_existed_file}: No such file or directory"
         )
 
-        # test exception supressed
+        # test exception suppressed
         default_value = "test default_value"
         output = subprocess_check_output(
             cmd, default=default_value, raise_exception=False
@@ -258,24 +292,3 @@ class TestSubprocessCall:
 
         output = subprocess_check_output(cmd, raise_exception=True)
         assert output == self.TEST_FILE_CONTENTS
-
-
-@pytest.mark.parametrize(
-    "path, old_root, new_root, expected",
-    (
-        (
-            "/a/canonical/fpath",
-            "/",
-            "/mnt/standby_mp",
-            "/mnt/standby_mp/a/canonical/fpath",
-        ),
-        (
-            "/a/canonical/dpath/",
-            "/",
-            "/mnt/standby_mp/",
-            "/mnt/standby_mp/a/canonical/dpath/",
-        ),
-    ),
-)
-def get_replace_root(path, old_root, new_root, expected):
-    assert replace_root(path, old_root, new_root) == expected

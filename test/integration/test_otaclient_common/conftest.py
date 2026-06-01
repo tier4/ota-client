@@ -11,18 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Shared fixtures for the otaclient_common integration suite.
+"""Downloader fixtures for the otaclient_common integration suite.
 
 The downloader integration tests need a real HTTP server to talk to.
 This conftest bundles:
   * ``setup_test_data`` — generate a directory of urandom blobs (some
     zstd-compressed) and surface their canonical metadata
   * ``run_http_server_subprocess`` — host that directory via a daemon
-    HTTP subprocess on an ephemeral port (autouse)
+    HTTP subprocess on an ephemeral port
 
 Both fixtures are module-scoped: the cost of generating thousands of
 random blobs and starting a process is amortised across every test in
-the module.
+the module. They are downloader-specific and deliberately *not*
+``autouse`` so the sibling ``test_common`` / ``test_io`` modules don't
+pay for them; ``test_downloader`` opts in via its own module-scoped
+autouse fixture.
 """
 
 from __future__ import annotations
@@ -142,12 +145,19 @@ def setup_test_data(
     return test_data_dir, file_info_list
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(scope="module")
 def run_http_server_subprocess(
     setup_test_data: tuple[Path, list[FileInfo]],
     http_server_endpoint: tuple[str, int],
 ):
-    """Serve the generated corpus over HTTP for the lifetime of the module."""
+    """Serve the generated corpus over HTTP for the lifetime of the module.
+
+    NOTE: not ``autouse`` — this conftest is shared with sibling modules
+    (``test_common``, ``test_io``) that have nothing to do with the
+    downloader corpus, so they must not pay for spinning it up. The
+    downloader suite opts in via a module-scoped autouse fixture in
+    ``test_downloader.py``.
+    """
     test_data_dir, _ = setup_test_data
     host, port = http_server_endpoint
 
