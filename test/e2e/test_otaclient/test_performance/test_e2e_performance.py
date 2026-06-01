@@ -11,14 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Performance E2E tests for OTA Client update flow.
-
-This module provides detailed performance measurement for the OTA update flow
-from API call to reboot, with bootloader dependencies mocked.
-
-Reports include:
-- High precision timing (nanoseconds) for each phase
-"""
+"""Performance E2E tests for OTA Client update flow."""
 
 from __future__ import annotations
 
@@ -43,13 +36,20 @@ from otaclient._types import OTAStatus
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
-from tests.conftest import TestConfiguration as cfg
-from tests.utils import SlotMeta
 
 from .conftest import (
+    CERTS_DIR,
+    CERTS_OTA_IMAGE_V1_DIR,
+    COOKIES_JSON,
+    CURRENT_VERSION,
+    OTA_IMAGE_DIR,
+    OTA_IMAGE_URL,
+    OTA_IMAGE_V1_URL,
+    UPDATE_VERSION,
     MockBootController,
     MockRebootTriggered,
     PerformanceReport,
+    SlotMeta,
     store_report_for_comparison,
 )
 
@@ -71,7 +71,7 @@ class TestOTAUpdatePerformanceE2E:
         self.slot_b = Path(ab_slots.slot_b)
         self.slot_a_boot_dir = Path(ab_slots.slot_a_boot_dev) / "boot"
         self.slot_b_boot_dir = Path(ab_slots.slot_b_boot_dev) / "boot"
-        self.ota_image_dir = Path(cfg.OTA_IMAGE_DIR)
+        self.ota_image_dir = Path(OTA_IMAGE_DIR)
         self.otaclient_run_dir = tmp_path / "otaclient_run_dir"
         self.otaclient_run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -86,7 +86,7 @@ class TestOTAUpdatePerformanceE2E:
         return MockBootController(
             standby_slot_path=self.slot_b,
             standby_slot_dev=Path("/dev/mock_slot_b"),
-            current_version=cfg.CURRENT_VERSION,
+            current_version=CURRENT_VERSION,
             initial_ota_status=OTAStatus.SUCCESS,
         )
 
@@ -195,9 +195,9 @@ class TestOTAUpdatePerformanceE2E:
         report.start_test()
         report.record_status(OTAStatus.UPDATING)
 
-        ca_chains_store = load_ca_cert_chains(cfg.CERTS_DIR)
+        ca_chains_store = load_ca_cert_chains(CERTS_DIR)
         downloader_pool = create_downloader_pool(
-            raw_cookies_json=cfg.COOKIES_JSON,
+            raw_cookies_json=COOKIES_JSON,
             download_threads=3,
             chunk_size=1024**2,
         )
@@ -210,8 +210,8 @@ class TestOTAUpdatePerformanceE2E:
         session_workdir = tmp_path / "session_workdir"
 
         _updater = OTAUpdaterForLegacyOTAImage(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_URL,
+            version=UPDATE_VERSION,
+            raw_url_base=OTA_IMAGE_URL,
             session_wd=session_workdir,
             ca_chains_store=ca_chains_store,
             downloader_pool=downloader_pool,
@@ -244,7 +244,7 @@ class TestOTAUpdatePerformanceE2E:
         store_report_for_comparison(report)
 
         # Assertions
-        assert _updater.update_version == str(cfg.UPDATE_VERSION)
+        assert _updater.update_version == str(UPDATE_VERSION)
         self._process_persists_mock.assert_called_once()
 
     def test_ota_image_v1_performance(
@@ -271,9 +271,9 @@ class TestOTAUpdatePerformanceE2E:
         report.start_test()
         report.record_status(OTAStatus.UPDATING)
 
-        ca_store = load_ca_store(cfg.CERTS_OTA_IMAGE_V1_DIR)
+        ca_store = load_ca_store(CERTS_OTA_IMAGE_V1_DIR)
         downloader_pool = create_downloader_pool(
-            raw_cookies_json=cfg.COOKIES_JSON,
+            raw_cookies_json=COOKIES_JSON,
             download_threads=3,
             chunk_size=1024**2,
         )
@@ -286,8 +286,8 @@ class TestOTAUpdatePerformanceE2E:
         session_workdir = tmp_path / "session_workdir"
 
         _updater = OTAUpdaterForOTAImageV1(
-            version=cfg.UPDATE_VERSION,
-            raw_url_base=cfg.OTA_IMAGE_V1_URL,
+            version=UPDATE_VERSION,
+            raw_url_base=OTA_IMAGE_V1_URL,
             session_wd=session_workdir,
             ca_store=ca_store,
             downloader_pool=downloader_pool,
@@ -320,5 +320,5 @@ class TestOTAUpdatePerformanceE2E:
         store_report_for_comparison(report)
 
         # Assertions
-        assert _updater.update_version == str(cfg.UPDATE_VERSION)
+        assert _updater.update_version == str(UPDATE_VERSION)
         self._process_persists_mock.assert_called_once()
