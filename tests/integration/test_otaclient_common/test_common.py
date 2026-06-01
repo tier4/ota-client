@@ -33,7 +33,7 @@ from otaclient_common.common import (
     subprocess_call,
     subprocess_check_output,
 )
-from test.conftest import launch_http_server_subprocess
+from tests.conftest import launch_http_server_subprocess
 
 logger = logging.getLogger(__name__)
 

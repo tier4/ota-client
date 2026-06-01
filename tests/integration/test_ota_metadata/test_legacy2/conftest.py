@@ -25,5 +25,5 @@ from __future__ import annotations
 from pathlib import Path
 
 # Absolute container path for the legacy v1 OTA image fixture; baked in by
-# `docker/test_base/Dockerfile`. Do not relocate to `test/data/`.
+# `docker/test_base/Dockerfile`. Do not relocate to `tests/data/`.
 OTA_IMAGE_DIR = Path("/ota-image")

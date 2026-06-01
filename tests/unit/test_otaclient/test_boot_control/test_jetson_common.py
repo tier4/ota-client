@@ -33,8 +33,8 @@ from otaclient.boot_control._jetson_common import (
     update_extlinux_cfg,
 )
 
-# test/unit/test_otaclient/test_boot_control/test_jetson_common.py
-#  parents[3] == test/, where shared text fixtures live under data/
+# tests/unit/test_otaclient/test_boot_control/test_jetson_common.py
+#  parents[3] == tests/, where shared text fixtures live under data/
 TEST_DATA_DIR = Path(__file__).parents[3] / "data"
 
 

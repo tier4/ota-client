@@ -28,7 +28,7 @@ from typing import Generator
 
 import pytest
 
-from test.conftest import launch_http_server_subprocess
+from tests.conftest import launch_http_server_subprocess
 
 # Baked into the test container image; see docker/test_base/Dockerfile.
 OTA_IMAGE_V1_DIR = Path("/ota-image_v1")

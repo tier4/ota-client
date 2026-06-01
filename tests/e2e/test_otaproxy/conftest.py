@@ -43,7 +43,7 @@ from pytest_mock import MockerFixture
 from ota_proxy import App, OTACache
 from ota_proxy import config as otaproxy_cfg
 from ota_proxy.cache_streaming import CacheWriterPool
-from test.conftest import launch_http_server_subprocess
+from tests.conftest import launch_http_server_subprocess
 
 from ._download_client import DownloadResult
 
