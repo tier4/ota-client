@@ -11,12 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for otaclient_common pure path helpers.
-
-Scope is ``replace_root`` alone: pure string/path computation with no
-filesystem access. The filesystem- and subprocess-backed utilities from
-``otaclient_common.common`` are covered in the integration tier.
-"""
+"""Unit tests for otaclient_common pure path helpers."""
 
 from __future__ import annotations
 

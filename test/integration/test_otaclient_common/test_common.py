@@ -11,19 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for otaclient_common.common utilities.
-
-These cover three subsystems that each cross an OS boundary:
-  * ``copytree_identical`` reconciling two real directory trees (files,
-    dirs, symlinks, dangling/circular links) under ``tmp_path``;
-  * ``ensure_otaproxy_start`` probing a real HTTP server subprocess that
-    only comes online after a delay;
-  * ``subprocess_call`` / ``subprocess_check_output`` driving real
-    external commands.
-
-The pure-logic ``replace_root`` cases live in the unit tier
-(``test/unit/test_otaclient_common/test_common.py``).
-"""
+"""Integration tests for otaclient_common.common utilities."""
 
 from __future__ import annotations
 

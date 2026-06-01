@@ -11,15 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for the otaclient_common._io atomic file primitives.
-
-The scope of these tests is the ``_io`` module's interaction with a real
-filesystem: atomic writes/replaces, symlink handling, fsync-backed copies
-and digest calculation are all exercised against a ``tmp_path`` backing
-store.  Writes are verified by reading the bytes back through an external
-``cat`` subprocess so we assert the data actually reached disk rather than
-trusting an in-process buffer.
-"""
+"""Integration tests for the otaclient_common._io atomic file primitives."""
 
 from __future__ import annotations
 
