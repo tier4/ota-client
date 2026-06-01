@@ -25,8 +25,8 @@ ENV ROOTFS="/rootfs"
 ENV CERTS_DIR="/certs"
 ENV BUILD_ROOT="/tmp/build_root"
 
-COPY --chmod=755 ./tests/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
-COPY ./tests/data/ota_image_builder ${BUILD_ROOT}
+COPY --chmod=755 ./docker/mini_ota_img/keys/gen_certs.sh ${CERTS_DIR}/gen_certs.sh
+COPY ./docker/mini_ota_img/ota_image_builder ${BUILD_ROOT}
 
 WORKDIR ${BUILD_ROOT}
 
