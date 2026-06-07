@@ -104,7 +104,7 @@ idna==3.15 ; python_full_version < '3.9'
     #   anyio
     #   requests
     #   yarl
-idna==3.17 ; python_full_version >= '3.9'
+idna==3.18 ; python_full_version >= '3.9'
     # via
     #   anyio
     #   requests
