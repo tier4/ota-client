@@ -113,7 +113,11 @@ msgpack==1.1.1 ; python_full_version < '3.9'
     # via
     #   ota-image-libs
     #   otaclient
-msgpack==1.1.2 ; python_full_version >= '3.9'
+msgpack==1.1.2 ; python_full_version == '3.9.*'
+    # via
+    #   ota-image-libs
+    #   otaclient
+msgpack==1.2.0 ; python_full_version >= '3.10'
     # via
     #   ota-image-libs
     #   otaclient
