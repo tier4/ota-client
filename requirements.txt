@@ -32,7 +32,7 @@ anyio==4.12.1 ; python_full_version == '3.9.*'
     # via
     #   otaclient
     #   watchfiles
-anyio==4.13.0 ; python_full_version >= '3.10'
+anyio==4.14.0 ; python_full_version >= '3.10'
     # via
     #   otaclient
     #   watchfiles
@@ -50,7 +50,7 @@ brotli==1.2.0 ; (python_full_version < '3.10' and platform_python_implementation
     # via aiohttp
 brotlicffi==1.2.0.1 ; platform_python_implementation != 'CPython'
     # via aiohttp
-certifi==2026.5.20
+certifi==2026.6.17
     # via requests
 cffi==1.17.1 ; python_full_version < '3.9'
     # via
@@ -73,7 +73,11 @@ colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   click
     #   uvicorn
-cryptography==46.0.7
+cryptography==47.0.0 ; python_full_version <= '3.9'
+    # via
+    #   ota-image-libs
+    #   otaclient
+cryptography==48.0.1 ; python_full_version > '3.9'
     # via
     #   ota-image-libs
     #   otaclient
@@ -117,7 +121,7 @@ msgpack==1.1.2 ; python_full_version == '3.9.*'
     # via
     #   ota-image-libs
     #   otaclient
-msgpack==1.2.0 ; python_full_version >= '3.10'
+msgpack==1.2.1 ; python_full_version >= '3.10'
     # via
     #   ota-image-libs
     #   otaclient
@@ -131,7 +135,7 @@ multidict==6.7.1 ; python_full_version >= '3.9'
     #   aiohttp
     #   otaclient
     #   yarl
-ota-image-libs @ https://github.com/tier4/ota-image-libs/releases/download/v0.3.0/ota_image_libs-0.3.0-py3-none-any.whl
+ota-image-libs @ https://github.com/tier4/ota-image-libs/releases/download/v0.5.1/ota_image_libs-0.5.1-py3-none-any.whl
     # via otaclient
 otaclient-iot-logging-server-pb2 @ https://github.com/tier4/otaclient-iot-logging-server/releases/download/v1.3.0/otaclient_iot_logging_server_pb2-1.0.0-py3-none-any.whl
     # via otaclient
