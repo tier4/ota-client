@@ -42,7 +42,7 @@ jobs:
       - name: install uv
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
-          version: "0.11.22"
+          version: "0.11.23"
 
       - name: build otaclient package
         env:
@@ -168,7 +168,7 @@ jobs:
 
       - name: publish release artifacts
         if: ${{ github.event_name == 'release' }}
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3
         with:
           files: |
             dist/*.whl
