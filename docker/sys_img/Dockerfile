@@ -7,8 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,id=apt-cache$TARGETARCH,sharing=locked,target=/var/cache/apt --mount=type=cache,id=apt-lib-$TARGETARCH,sharing=locked,target=/var/lib/apt \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         initramfs-tools \
         ubuntu-minimal \
         grub-efi-$TARGETARCH \
@@ -25,7 +26,7 @@ RUN apt-get update \
         locales \
         sudo \
         udev \
-    && \
+    ;\
     # Prevents journald from reading kernel messages from /dev/kmsg
     echo "ReadKMsg=no" >> /etc/systemd/journald.conf
 
@@ -33,7 +34,7 @@ RUN apt-get update \
 RUN --mount=type=cache,id=apt-cache$TARGETARCH,sharing=locked,target=/var/cache/apt --mount=type=cache,id=apt-lib-$TARGETARCH,sharing=locked,target=/var/lib/apt \
     set -eux; \    
     apt-get update; \
-    apt-get install -y curl \
+    apt-get install -y curl; \
     curl -fsSL https://get.docker.com -o get-docker.sh; \
     sh get-docker.sh --version 28.5.1; \
     . /etc/os-release; \ 
@@ -41,9 +42,8 @@ RUN --mount=type=cache,id=apt-cache$TARGETARCH,sharing=locked,target=/var/cache/
         echo "Unable to detect Ubuntu version metadata"; exit 1; \ 
     fi; \ 
     apt-get update; \ 
-    apt-get install -y --allow-downgrades "containerd.io=1.7.28-1~ubuntu.${VERSION_ID}~${VERSION_CODENAME}" && \ 
-    apt-mark hold containerd.io; \
-    apt-get clean;
+    apt-get install -y --allow-downgrades "containerd.io=1.7.28-1~ubuntu.${VERSION_ID}~${VERSION_CODENAME}"; \ 
+    apt-mark hold containerd.io
 
 # Disable systemd services/units that are unnecessary within a container.
 RUN systemctl mask systemd-udevd.service \
