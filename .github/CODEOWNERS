@@ -4,3 +4,4 @@
 # require code owner review here. Apps (e.g. renovate[bot]) cannot be listed
 # as code owners, so the path is left without an owner to bypass the rule.
 .github/workflows/
+.github/actions/generate_manifest/
