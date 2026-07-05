@@ -10,7 +10,7 @@ aiohappyeyeballs==2.4.4 ; python_full_version < '3.9'
     # via aiohttp
 aiohappyeyeballs==2.6.1 ; python_full_version == '3.9.*'
     # via aiohttp
-aiohappyeyeballs==2.6.2 ; python_full_version >= '3.10'
+aiohappyeyeballs==2.7.1 ; python_full_version >= '3.10'
     # via aiohttp
 aiohttp==3.10.11 ; python_full_version < '3.9'
     # via otaclient
@@ -32,7 +32,7 @@ anyio==4.12.1 ; python_full_version == '3.9.*'
     # via
     #   otaclient
     #   watchfiles
-anyio==4.14.0 ; python_full_version >= '3.10'
+anyio==4.14.1 ; python_full_version >= '3.10'
     # via
     #   otaclient
     #   watchfiles
@@ -67,7 +67,7 @@ charset-normalizer==3.4.7
     # via requests
 click==8.1.8 ; python_full_version < '3.10'
     # via uvicorn
-click==8.4.1 ; python_full_version >= '3.10'
+click==8.4.2 ; python_full_version >= '3.10'
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -237,7 +237,7 @@ typing-extensions==4.13.2 ; python_full_version < '3.9'
     #   pydantic-core
     #   simple-sqlite3-orm
     #   uvicorn
-typing-extensions==4.15.0 ; python_full_version >= '3.9'
+typing-extensions==4.16.0 ; python_full_version >= '3.9'
     # via
     #   aiohttp
     #   aiosignal
