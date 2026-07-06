@@ -400,17 +400,30 @@ def metadata_download_err_handler():
 
 
 def process_persistents(
-    _entries: Iterable[str], *, active_slot_mp: Path, standby_slot_mp: Path
+    _entries: Iterable[str],
+    *,
+    active_slot_mp: Path,
+    standby_slot_mp: Path,
+    standby_persist_root: Path | None = None,
 ) -> None:
-    """Implementation of preserving files accross slots at OTA post update."""
+    """Implementation of preserving files accross slots at OTA post update.
+
+    In the OTA overlay layout the standby rootfs is a read-only image, so
+    per-device paths must be seeded into the standby rw_overlay upper instead of
+    the standby rootfs. Pass that upper as ``standby_persist_root`` to route the
+    copied files there; uid/gid mapping still uses the standby rootfs
+    passwd/group (the new image). When omitted, files land on the standby rootfs
+    as before (legacy all-RW-root A/B).
+    """
     logger.info("start persist files handling...")
+    _dst_root = standby_persist_root or standby_slot_mp
     _handler = PersistFilesHandler(
         src_passwd_file=active_slot_mp / "etc/passwd",
         src_group_file=active_slot_mp / "etc/group",
         dst_passwd_file=standby_slot_mp / "etc/passwd",
         dst_group_file=standby_slot_mp / "etc/group",
         src_root=active_slot_mp,
-        dst_root=standby_slot_mp,
+        dst_root=_dst_root,
     )
 
     for persiste_entry in _entries:
