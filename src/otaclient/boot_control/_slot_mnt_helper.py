@@ -38,12 +38,26 @@ class SlotMountHelper:  # pragma: no cover
         standby_slot_mount_point: StrOrPath,
         active_rootfs: StrOrPath,
         active_slot_mount_point: StrOrPath,
+        standby_rwoverlay_dev: StrOrPath | None = None,
+        standby_rwoverlay_mount_point: StrOrPath | None = None,
     ) -> None:
         self.standby_slot_dev = str(standby_slot_dev)
         self.active_rootfs = str(active_rootfs)
 
         self.standby_slot_mount_point = Path(standby_slot_mount_point)
         self.active_slot_mount_point = Path(active_slot_mount_point)
+
+        # OTA overlay layout: the standby rw_overlay partition, into whose upper
+        # dir per-device (persistent) paths are seeded. None for the legacy
+        # all-RW-root A/B layout (no rw_overlay partition).
+        self.standby_rwoverlay_dev = (
+            str(standby_rwoverlay_dev) if standby_rwoverlay_dev else None
+        )
+        self.standby_rwoverlay_mount_point = (
+            Path(standby_rwoverlay_mount_point)
+            if standby_rwoverlay_mount_point
+            else None
+        )
 
         # ensure the each mount points being umounted at termination
         # if the dynamic client is running, active slot should be mounted before chroot
@@ -63,6 +77,28 @@ class SlotMountHelper:  # pragma: no cover
                 max_retry=3,
             )
         )
+        if self.standby_rwoverlay_mount_point is not None:
+            atexit.register(
+                partial(
+                    cmdhelper.ensure_umount,
+                    self.standby_rwoverlay_mount_point,
+                    ignore_error=True,
+                    max_retry=3,
+                )
+            )
+
+    @property
+    def standby_persist_root(self) -> Path | None:
+        """The dir under which persistent files are seeded on the standby side.
+
+        In the OTA overlay layout this is the ``upper`` dir of the standby
+        rw_overlay (so seeded files become the standby overlay's writable upper).
+        None when there is no rw_overlay partition (legacy A/B), which makes the
+        updater fall back to seeding the standby rootfs directly.
+        """
+        if self.standby_rwoverlay_mount_point is None:
+            return None
+        return self.standby_rwoverlay_mount_point / "upper"
 
     def mount_standby(self) -> None:
         """Mount standby slot dev rw to <standby_slot_mount_point>.
@@ -80,6 +116,39 @@ class SlotMountHelper:  # pragma: no cover
             mount_func=cmdhelper.mount_rw,
             raise_exception=True,
         )
+
+    def mount_standby_rwoverlay(self) -> None:
+        """Mount the standby rw_overlay dev rw and prepare its upper/work dirs.
+
+        No-op when there is no rw_overlay partition (legacy A/B). After this the
+        standby overlay's per-device data can be seeded into
+        ``standby_persist_root`` (the upper dir).
+
+        Raises:
+            CalledProcessedError on the last failed attempt.
+        """
+        if (
+            self.standby_rwoverlay_dev is None
+            or self.standby_rwoverlay_mount_point is None
+        ):
+            return
+
+        logger.debug("mount standby rw_overlay dev...")
+        cmdhelper.ensure_mount_point(
+            self.standby_rwoverlay_mount_point, ignore_error=True
+        )
+        cmdhelper.ensure_umount(self.standby_rwoverlay_dev, ignore_error=False)
+        cmdhelper.ensure_mount(
+            target=self.standby_rwoverlay_dev,
+            mnt_point=self.standby_rwoverlay_mount_point,
+            mount_func=cmdhelper.mount_rw,
+            raise_exception=True,
+        )
+        # overlayfs upper + work dirs (upper is standby_persist_root)
+        (self.standby_rwoverlay_mount_point / "upper").mkdir(
+            parents=True, exist_ok=True
+        )
+        (self.standby_rwoverlay_mount_point / "work").mkdir(parents=True, exist_ok=True)
 
     def mount_active(self) -> None:
         """Mount current active rootfs ready-only.
@@ -148,3 +217,7 @@ class SlotMountHelper:  # pragma: no cover
         cmdhelper.ensure_umount(
             self.standby_slot_mount_point, ignore_error=ignore_error
         )
+        if self.standby_rwoverlay_mount_point is not None:
+            cmdhelper.ensure_umount(
+                self.standby_rwoverlay_mount_point, ignore_error=ignore_error
+            )
