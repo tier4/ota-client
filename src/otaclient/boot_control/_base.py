@@ -56,6 +56,15 @@ class BootControllerBase(ABC):
         """Return the standby slot device path."""
         return Path(self._mp_control.standby_slot_dev)
 
+    @property
+    def standby_persist_root(self) -> Path | None:
+        """Where per-device (persistent) paths are seeded on the standby side.
+
+        The standby rw_overlay upper in the OTA overlay layout, or None for the
+        legacy all-RW-root A/B layout. The updater forwards this to
+        process_persistents. See OTA_PARTITION_DESIGN_EN.md §5."""
+        return self._mp_control.standby_persist_root
+
     def get_standby_slot_path(self) -> Path:
         """Get the Path points to the standby slot mount point."""
         return self._mp_control.standby_slot_mount_point
@@ -124,6 +133,10 @@ class BootControllerBase(ABC):
             # Step 3: Mount slots
             self._mp_control.mount_standby()
             self._mp_control.mount_active()
+            # OTA overlay layout: also mount the standby rw_overlay (no-op when
+            # there is no rw_overlay partition) so per-device paths can be seeded
+            # into its upper at post-update.
+            self._mp_control.mount_standby_rwoverlay()
 
             # Step 4: Platform-specific operations
             self._pre_update_platform_specific(

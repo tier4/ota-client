@@ -1351,11 +1351,26 @@ class GrubBootController(BootControllerBase):
             self._current_slot = current_slot = boot_slots.current_slot
             self._standby_slot = standby_slot = boot_slots.standby_slot
 
+            # OTA overlay layout: resolve the standby rw_overlay by PARTLABEL
+            # (rw_overlay_<a|b>, created by the schema-v2 installer). Absent on
+            # legacy all-RW-root systems -> None -> persist targets the rootfs.
+            _standby_letter = "a" if standby_slot == OTASlotBootID.slot_a else "b"
+            _rwoverlay_dev = Path(
+                f"/dev/disk/by-partlabel/rw_overlay_{_standby_letter}"
+            )
+            _standby_rwoverlay_dev = _rwoverlay_dev if _rwoverlay_dev.exists() else None
+
             self._mp_control = SlotMountHelper(
                 standby_slot_dev=boot_control.get_slot_info(standby_slot).dev,
                 standby_slot_mount_point=cfg.STANDBY_SLOT_MNT,
                 active_rootfs=cfg.ACTIVE_ROOT,
                 active_slot_mount_point=cfg.ACTIVE_SLOT_MNT,
+                standby_rwoverlay_dev=_standby_rwoverlay_dev,
+                standby_rwoverlay_mount_point=(
+                    Path(cfg.STANDBY_SLOT_MNT).parent / "standby_rwoverlay"
+                    if _standby_rwoverlay_dev
+                    else None
+                ),
             )
             # NOTE: boot slot dir stores both boot files and OTA status files.
             self._ota_status_control = OTAStatusFilesControl(
