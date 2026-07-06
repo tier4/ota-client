@@ -299,10 +299,18 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         # NOTE(20240219): move persist file handling at post_update hook
         assert self._iter_persists_func
         if _gen := self._iter_persists_func():
+            # OTA overlay layout: if the boot controller mounts the standby
+            # rw_overlay and exposes its upper as `standby_persist_root`, seed
+            # per-device paths there instead of on the (read-only) standby
+            # rootfs. Controllers without overlay support return None, keeping
+            # the legacy all-RW-root A/B behavior. See OTA_PARTITION_DESIGN_EN.md §5.
             process_persistents(
                 _gen,
                 active_slot_mp=self._active_slot_mp,
                 standby_slot_mp=self._standby_slot_mp,
+                standby_persist_root=getattr(
+                    self._boot_controller, "standby_persist_root", None
+                ),
             )
 
         self._preserve_ota_image_meta_at_post_update()
