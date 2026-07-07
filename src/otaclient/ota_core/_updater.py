@@ -354,7 +354,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 _shm_metrics = self._shm_metrics_reader.sync_msg()
                 self._metrics.shm_merge(_shm_metrics)
         except Exception as e:
-            logger.error(f"failed to merge metrics: {e!r}")
+            logger.warning(f"failed to merge metrics: {e!r}")
         self._metrics.publish()
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")

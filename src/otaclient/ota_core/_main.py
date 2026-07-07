@@ -442,7 +442,7 @@ class OTAClient:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()
                     self._metrics.shm_merge(_shm_metrics)
             except Exception as e:
-                logger.error(f"failed to merge metrics: {e!r}")
+                logger.warning(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
 
             self._exit_from_dynamic_client()
