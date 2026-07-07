@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -31,10 +32,12 @@ from otaclient.boot_control._jetson_uefi import (
     JetsonUEFIBootControlError,
     L4TLauncherBSPVersionControl,
     NVBootctrlJetsonUEFI,
+    RootfsBootStatusControl,
     _detect_esp_dev,
     _detect_ota_bootdev_is_qspi,
     _l4tlauncher_version_control,
 )
+from otaclient.boot_control.configs import jetson_uefi_cfg as boot_cfg
 
 MODULE = _jetson_uefi.__name__
 
@@ -391,3 +394,122 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         )
 
         assert result is True
+
+
+class TestRootfsBootStatusControl:
+    """Test the force-reset rootfs unbootable flag mechanism (QSPI only)."""
+
+    def test__reset_slot_boot_flag_writes_payload(
+        self, tmp_path: Path, mocker: MockerFixture
+    ):
+        """The efivar payload is rewritten to the bootable value in-place."""
+        var_f = tmp_path / boot_cfg.ROOTFS_STATUS_SLOT_A_EFIVAR
+        # pre-populate with a different value of the same length
+        var_f.write_bytes(b"\x07\x00\x00\x00\x01\x00\x00\x00")
+
+        # the immutable-flag ioctl only works on real efivarfs, bypass it here
+        mocker.patch.object(
+            RootfsBootStatusControl,
+            "_immutable_flag_cleared",
+            return_value=contextlib.nullcontext(),
+        )
+        mock_sync = mocker.patch(f"{MODULE}.os.sync")
+
+        RootfsBootStatusControl._reset_slot_boot_flag("RootfsStatusSlotA", var_f)
+
+        assert var_f.read_bytes() == boot_cfg.RESET_ROOTFS_STATUS_PAYLOAD
+        assert var_f.read_bytes() == b"\x07\x00\x00\x00\x00\x00\x00\x00"
+        mock_sync.assert_called_once()
+
+    def test__reset_slot_boot_flag_missing_efivar(
+        self, tmp_path: Path, mocker: MockerFixture
+    ):
+        """Missing efivar is skipped without touching the immutable flag."""
+        var_f = tmp_path / "does_not_exist"
+        mock_immutable = mocker.patch.object(
+            RootfsBootStatusControl, "_immutable_flag_cleared"
+        )
+
+        # should not raise
+        RootfsBootStatusControl._reset_slot_boot_flag("RootfsStatusSlotA", var_f)
+        mock_immutable.assert_not_called()
+
+    def test__reset_slot_boot_flag_swallow_error(
+        self, tmp_path: Path, mocker: MockerFixture
+    ):
+        """Any failure is best-effort: logged and swallowed, never raised."""
+        var_f = tmp_path / boot_cfg.ROOTFS_STATUS_SLOT_A_EFIVAR
+        var_f.write_bytes(b"\x00" * 8)
+        mocker.patch.object(
+            RootfsBootStatusControl,
+            "_immutable_flag_cleared",
+            side_effect=PermissionError("no permission"),
+        )
+
+        # should not propagate the exception
+        RootfsBootStatusControl._reset_slot_boot_flag("RootfsStatusSlotA", var_f)
+
+    def test_reset_unbootable_flag_resets_both_slots(self, mocker: MockerFixture):
+        """Both slot A and slot B are reset, within the efivarfs mount."""
+        mocker.patch(
+            f"{MODULE}._ensure_efivarfs_mounted",
+            return_value=contextlib.nullcontext(),
+        )
+        mock_reset_slot = mocker.patch.object(
+            RootfsBootStatusControl, "_reset_slot_boot_flag"
+        )
+
+        RootfsBootStatusControl.reset_unbootable_flag()
+
+        assert mock_reset_slot.call_count == 2
+        reset_slot_names = [c.args[0] for c in mock_reset_slot.call_args_list]
+        assert reset_slot_names == ["RootfsStatusSlotA", "RootfsStatusSlotB"]
+
+    @pytest.mark.parametrize(
+        "device_uses_qspi, expect_reset",
+        (
+            # QSPI device: reset unbootable flag
+            (True, True),
+            # internal emmc device: DO NOT reset
+            (False, False),
+            # unknown/undetectable OTA_BOOTDEV: DO NOT reset
+            (None, False),
+        ),
+    )
+    def test__post_update_reset_flag_gating(
+        self,
+        device_uses_qspi: bool | None,
+        expect_reset: bool,
+        mocker: MockerFixture,
+    ):
+        """Only QSPI-equipped devices force-reset the unbootable flag."""
+        boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
+        boot_control._uefi_control = mocker.MagicMock()
+        boot_control._uefi_control.nvbootctrl_conf = "dummy nvbootctrl conf"
+        # avoid the active-vs-current bootloader slot mismatch branch
+        boot_control._uefi_control.active_bootloader_slot = None
+        boot_control._uefi_control.external_rootfs = False
+        boot_control._mp_control = mocker.MagicMock()
+        boot_control._firmware_update.return_value = False
+
+        # patch collaborators unrelated to the gating under test
+        mocker.patch(f"{MODULE}.update_standby_slot_extlinux_cfg")
+        mocker.patch(f"{MODULE}.preserve_ota_config_files_to_standby")
+        mocker.patch(f"{MODULE}.replace_root", return_value="/dummy")
+        mocker.patch(f"{MODULE}.NVBootctrlJetsonUEFI")
+        mocker.patch(f"{MODULE}._env.get_dynamic_client_chroot_path", return_value=None)
+        mocker.patch(
+            f"{MODULE}._detect_ota_bootdev_is_qspi", return_value=device_uses_qspi
+        )
+        mock_reset = mocker.patch.object(
+            RootfsBootStatusControl, "reset_unbootable_flag"
+        )
+
+        JetsonUEFIBootControl._post_update_platform_specific(
+            boot_control, update_version="v1"
+        )
+
+        if expect_reset:
+            mock_reset.assert_called_once()
+        else:
+            mock_reset.assert_not_called()

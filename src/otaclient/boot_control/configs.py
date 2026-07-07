@@ -115,6 +115,22 @@ class JetsonUEFIBootControlConfig(JetsonBootCommon):
     CAPSULE_PAYLOAD_AT_ESP = "EFI/UpdateCapsule"
     L4TLAUNCHER_VER_FNAME = "l4tlauncher_version"
 
+    # --- reset rootfs unbootable flag (QSPI OTA_BOOTDEV only) --- #
+    # UEFI variables tracking each rootfs slot's boot status. Resetting these
+    #   clears any "unbootable" state UEFI may have set on a slot after previous
+    #   failed boots, giving the freshly updated standby slot a clean boot-retry
+    #   state on next reboot.
+    # reference: https://docs.nvidia.com/jetson/archives/r38.2.1/DeveloperGuide/SD/Bootloader/UEFI.html#set-the-uefi-variable-in-the-recovery-kernel-shell
+    ROOTFS_STATUS_SLOT_A_EFIVAR = (
+        "RootfsStatusSlotA-781e084c-a330-417c-b678-38e696380cb9"
+    )
+    ROOTFS_STATUS_SLOT_B_EFIVAR = (
+        "RootfsStatusSlotB-781e084c-a330-417c-b678-38e696380cb9"
+    )
+    # efivars payload to reset a rootfs slot's boot flag to "normal/bootable":
+    #   4-byte attribute header(0x00000007) + 4-byte data(0x00000000).
+    RESET_ROOTFS_STATUS_PAYLOAD = b"\x07\x00\x00\x00\x00\x00\x00\x00"
+
 
 class RPIBootControlConfig:
     BOOTLOADER = BootloaderType.RPI_BOOT

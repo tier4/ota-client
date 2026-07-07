@@ -20,10 +20,12 @@ But firmware update is only supported after BSP R35.2.
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import logging
 import os
 import re
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 from typing import Any, ClassVar, Generator, Literal, NoReturn
@@ -328,6 +330,118 @@ def _detect_ota_bootdev_is_qspi(nvboot_ctrl_conf: str) -> bool | None:
         return True
 
     logger.warning(f"device uses unknown TEGRA_OTA_BOOT_DEVICE: {ota_bootdev}")
+
+
+class RootfsBootStatusControl:
+    """Helper for force-resetting rootfs slots' boot status UEFI variables.
+
+    On Jetson UEFI, the RootfsStatusSlot{A,B} efivars track each rootfs slot's
+    boot status. UEFI marks a slot "unbootable" after repeated failed boots and
+    stops booting into it. Before an OTA reboot we force-reset these flags so the
+    freshly updated standby slot gets a clean boot-retry state on next reboot.
+
+    IMPORTANT: this mechanism is ONLY valid/safe for devices using QSPI flash as
+        TEGRA_OTA_BOOT_DEVICE. The caller MUST ensure the device uses QSPI before
+        calling reset_unbootable_flag(). For device using internal emmc or an
+        unknown/undetectable OTA_BOOTDEV, the RootfsStatus efivars MUST NOT be
+        touched, otherwise undefined behaviors will occur.
+
+    reference: https://docs.nvidia.com/jetson/archives/r38.2.1/DeveloperGuide/SD/Bootloader/UEFI.html#set-the-uefi-variable-in-the-recovery-kernel-shell
+    """
+
+    # Linux inode attribute ioctls, see
+    #   https://github.com/torvalds/linux/blob/master/include/uapi/linux/fs.h.
+    FS_IOC_GETFLAGS: ClassVar[int] = 0x80086601
+    """_IOR('f', 1, long): read inode attribute flags."""
+    FS_IOC_SETFLAGS: ClassVar[int] = 0x40086602
+    """_IOW('f', 2, long): write inode attribute flags."""
+    FS_IMMUTABLE_FL: ClassVar[int] = 0x00000010
+    """The immutable(chattr +i) attribute bit."""
+
+    @classmethod
+    @contextlib.contextmanager
+    def _immutable_flag_cleared(
+        cls, var_fpath: StrOrPath
+    ) -> Generator[None, Any, None]:  # pragma: no cover
+        """Temporarily clear the immutable attribute on <var_fpath>.
+
+        efivarfs marks existing UEFI variables immutable; the attribute must be
+        cleared before the variable can be rewritten, and restored afterwards.
+        This is the Python equivalent of `chattr -i` / `chattr +i`.
+        """
+        # NOTE: an immutable file cannot be opened for writing, but O_RDONLY is
+        #   enough to issue the GETFLAGS/SETFLAGS ioctls.
+        fd = os.open(var_fpath, os.O_RDONLY)
+        try:
+            (_orig_flags,) = struct.unpack(
+                "i", fcntl.ioctl(fd, cls.FS_IOC_GETFLAGS, struct.pack("i", 0))
+            )
+            fcntl.ioctl(
+                fd,
+                cls.FS_IOC_SETFLAGS,
+                struct.pack("i", _orig_flags & ~cls.FS_IMMUTABLE_FL),
+            )
+            try:
+                yield
+            finally:
+                # restore the original attribute flags(re-add immutable)
+                fcntl.ioctl(
+                    fd,
+                    cls.FS_IOC_SETFLAGS,
+                    struct.pack("i", _orig_flags | cls.FS_IMMUTABLE_FL),
+                )
+        finally:
+            os.close(fd)
+
+    @classmethod
+    def _reset_slot_boot_flag(cls, slot_name: str, var_fpath: Path) -> None:
+        """Reset a single rootfs slot's boot status efivar to "normal/bootable".
+
+        efivars payload = 4-byte attribute header(0x07) + 4-byte data(0x00000000).
+        The efivar is immutable by default; clear the immutable attribute, rewrite
+        the payload, sync, then restore the immutable attribute.
+
+        This is best-effort: any failure is logged and swallowed so it never blocks
+        the OTA reboot.
+        """
+        if not var_fpath.is_file():
+            logger.warning(
+                f"{slot_name} efivar not found at {var_fpath}, skip resetting"
+            )
+            return
+
+        try:
+            with cls._immutable_flag_cleared(var_fpath):
+                # NOTE: open WITHOUT O_TRUNC(matching `dd conv=notrunc`); efivarfs
+                #   requires the whole payload to be written in a single write().
+                fd = os.open(var_fpath, os.O_WRONLY)
+                try:
+                    os.write(fd, boot_cfg.RESET_ROOTFS_STATUS_PAYLOAD)
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+            logger.info(f"reset {slot_name} boot flag to bootable at {var_fpath}")
+        except Exception as e:
+            logger.warning(
+                f"failed to reset {slot_name} boot flag at {var_fpath}: {e!r}"
+            )
+
+    @classmethod
+    def reset_unbootable_flag(cls) -> None:  # pragma: no cover
+        """Force reset both rootfs slots' boot status flag to "normal/bootable".
+
+        IMPORTANT: only call this for devices using QSPI flash as OTA_BOOTDEV.
+            See the class docstring for details.
+        """
+        with _ensure_efivarfs_mounted():
+            cls._reset_slot_boot_flag(
+                "RootfsStatusSlotA",
+                Path(EFIVARS_SYS_MOUNT_POINT) / boot_cfg.ROOTFS_STATUS_SLOT_A_EFIVAR,
+            )
+            cls._reset_slot_boot_flag(
+                "RootfsStatusSlotB",
+                Path(EFIVARS_SYS_MOUNT_POINT) / boot_cfg.ROOTFS_STATUS_SLOT_B_EFIVAR,
+            )
 
 
 class L4TLauncherBSPVersionControl(BaseModel):
@@ -1066,6 +1180,26 @@ class JetsonUEFIBootControl(BootControllerBase):
                 internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
                 standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
                 / "boot",
+            )
+
+        # ------ force reset rootfs unbootable flag before reboot ------ #
+        # NOTE: ONLY devices using QSPI flash as TEGRA_OTA_BOOT_DEVICE support the
+        #   reset unbootable flag mechanism. For device using internal emmc or an
+        #   unknown/undetectable OTA_BOOTDEV, we MUST NOT touch the RootfsStatus
+        #   efivars.
+        device_uses_qspi = _detect_ota_bootdev_is_qspi(
+            self._uefi_control.nvbootctrl_conf
+        )
+        if device_uses_qspi:
+            logger.info(
+                "device uses QSPI as OTA_BOOTDEV, "
+                "force reset rootfs unbootable flag before reboot ..."
+            )
+            RootfsBootStatusControl.reset_unbootable_flag()
+        else:
+            logger.info(
+                "device does not use QSPI as OTA_BOOTDEV (emmc or unknown), "
+                "skip resetting rootfs unbootable flag (OTA continuing ...)"
             )
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
