@@ -699,7 +699,7 @@ class UEFIFirmwareUpdater:
 
     # APIs
 
-    def firmware_update(self) -> bool:
+    def firmware_update(self, use_qspi: bool | None) -> bool:
         """Trigger firmware update in next boot if configured.
 
         Only when the following conditions met the firmware update will be configured:
@@ -790,12 +790,11 @@ class UEFIFirmwareUpdater:
                 self._update_l4tlauncher()
 
         # write special UEFI variable to trigger firmware update on next reboot
-        device_uses_qspi = _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf)
-        if device_uses_qspi is None:
+        if use_qspi is None:
             logger.warning("failed to detect OTA_BOOTDEV, skip firmware update")
             return False
 
-        if device_uses_qspi:
+        if use_qspi:
             firmware_update_triggerred = _trigger_capsule_update_qspi_ota_bootdev()
         else:
             firmware_update_triggerred = _trigger_capsule_update_non_qspi_ota_bootdev(
@@ -843,6 +842,9 @@ class _UEFIBootControl:
             raise JetsonUEFIBootControlError(_err_msg)
         self.nvbootctrl_conf = nvbootctrl_conf_fpath.read_text()
         logger.info(f"nvboot_ctrl_conf: \n{self.nvbootctrl_conf}")
+
+        self.use_qspi = _detect_ota_bootdev_is_qspi(self.nvbootctrl_conf)
+        logger.info("device uses QSPI for OTA BOOTDEV")
 
         # ------ check current slot BSP version ------ #
         # check current slot firmware BSP version
@@ -1073,7 +1075,7 @@ class JetsonUEFIBootControl(BootControllerBase):
             firmware_manifest=firmware_manifest,
             nvbootctrl_conf=self._uefi_control.nvbootctrl_conf,
         )
-        return firmware_updater.firmware_update()
+        return firmware_updater.firmware_update(use_qspi=self._uefi_control.use_qspi)
 
     # APIs
 
@@ -1187,10 +1189,7 @@ class JetsonUEFIBootControl(BootControllerBase):
         #   reset unbootable flag mechanism. For device using internal emmc or an
         #   unknown/undetectable OTA_BOOTDEV, we MUST NOT touch the RootfsStatus
         #   efivars.
-        device_uses_qspi = _detect_ota_bootdev_is_qspi(
-            self._uefi_control.nvbootctrl_conf
-        )
-        if device_uses_qspi:
+        if self._uefi_control.use_qspi:
             logger.info(
                 "device uses QSPI as OTA_BOOTDEV, "
                 "force reset rootfs unbootable flag before reboot ..."
