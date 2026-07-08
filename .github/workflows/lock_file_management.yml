@@ -28,13 +28,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          # use repo scope deploy key for the later git operations, so that the pushed commit can trigger the
-          #   workflow as expected. The default action token GITHUB_TOKEN cannot trigger new workflows.
-          # For more details about this restriction, please refer to:
-          #   https://github.com/peter-evans/create-pull-request/issues/48 and
-          #   https://github.com/peter-evans/create-pull-request/blob/main/docs/concepts-guidelines.md#triggering-further-workflow-runs
-          ssh-key: ${{ secrets.DEPLOY_KEY }}
-          persist-credentials: true
+
       - name: Install uv
         uses: astral-sh/setup-uv@f98e06938123ccabd21905ea5d0069192241f9f1 # v8.3.1
         with:
