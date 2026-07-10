@@ -1114,6 +1114,32 @@ class _GrubBootControl(_GrubBootHelperFuncs):
 
     # ------------ end of backward compat helpers ------------ #
 
+    # Slot-aware partitions in the OTA overlay layout. Their fstab entries are
+    # baked at image build time pointing to one slot suffix (typically `_a`),
+    # and _generate_fstab retargets them to the standby side at cutover so
+    # writes go to this slot's own copy. Rootfs/rw_overlay are handled by the
+    # initramfs (not fstab) and are intentionally not in this list.
+    # See OTA_PARTITION_DESIGN_EN.md §8.
+    SLOT_AWARE_PARTLABEL_PREFIXES = ("bulk", "greengrass")
+
+    _SLOT_AWARE_PARTLABEL_PAT = re.compile(
+        r"^(/dev/disk/by-partlabel/(?P<prefix>[A-Za-z0-9_-]+?))_(?P<suffix>[ab])$"
+    )
+
+    @classmethod
+    def _rewrite_slot_aware_partlabel(cls, dev: str, target_suffix: str) -> str:
+        """Retarget a slot-aware by-partlabel device to `target_suffix` (`a`/`b`).
+
+        Only devices whose PARTLABEL matches one of SLOT_AWARE_PARTLABEL_PREFIXES
+        with an `_a` or `_b` suffix are rewritten; everything else passes
+        through unchanged (tmpfs, UUID=..., bind sources, etc.).
+        """
+        if not (m := cls._SLOT_AWARE_PARTLABEL_PAT.match(dev)):
+            return dev
+        if m.group("prefix") not in cls.SLOT_AWARE_PARTLABEL_PREFIXES:
+            return dev
+        return f"/dev/disk/by-partlabel/{m.group('prefix')}_{target_suffix}"
+
     def _generate_fstab(
         self, *, base_fstab: str, reference_fstab: str | None = None, slot_fsuuid: str
     ) -> str:
@@ -1122,6 +1148,10 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         - Keep only valid mount entries (skip comments, invalid or broken lines)
         - Always include '/', '/boot', and '/boot/efi' from active slot
         - Replace root ('/') UUID with standby slot UUID
+        - Retarget slot-aware by-partlabel entries (bulk / greengrass in the OTA
+          overlay layout) to the standby suffix so writes go to this slot's
+          own copy at cutover; §8. Passes through unchanged when the image
+          isn't using slot-aware PARTLABELs.
         - Drop all other comments or extra metadata lines
         """
         slot_uuid_str = f"UUID={slot_fsuuid}"
@@ -1130,6 +1160,12 @@ class _GrubBootControl(_GrubBootHelperFuncs):
         reference_dict = read_fstab_dict(reference_fstab) if reference_fstab else None
         # standby_dict
         base_dict = read_fstab_dict(base_fstab)
+
+        # The base_fstab is written for the slot this fstab will boot, i.e.
+        # the standby side. Slot-aware PARTLABELs must resolve to that suffix.
+        _target_suffix = (
+            "a" if self.boot_slots.standby_slot == OTASlotBootID.slot_a else "b"
+        )
 
         merged: list[str] = []
 
@@ -1161,10 +1197,14 @@ class _GrubBootControl(_GrubBootHelperFuncs):
                 efi_part_uuid_str = f"UUID={self.boot_slots.efi_partition.uuid}"
                 merged.append(f"{efi_part_uuid_str}\t/boot/efi\tvfat\tdefaults\t0\t1")
 
-        # Append all remaining valid entries from standby (except /, /boot, /boot/efi)
+        # Append all remaining valid entries from standby (except /, /boot, /boot/efi).
+        # Slot-aware PARTLABELs are retargeted here; other devices pass through.
         for mp, ma in base_dict.items():
-            if mp not in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
-                merged.append("\t".join(ma.groups()))
+            if mp in (cfg.CANONICAL_ROOT, cfg.BOOT_DPATH, cfg.EFI_DPATH):
+                continue
+            fields = list(ma.groups())
+            fields[0] = self._rewrite_slot_aware_partlabel(fields[0], _target_suffix)
+            merged.append("\t".join(fields))
 
         merged.append("")  # add a new line at the end of file
         return "\n".join(merged)

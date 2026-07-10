@@ -980,6 +980,171 @@ class TestGenerateFstabFallback:
 
 
 #
+# ------------ _GrubBootControl._rewrite_slot_aware_partlabel ------------ #
+#
+
+
+class TestRewriteSlotAwarePartlabel:
+    @pytest.mark.parametrize(
+        "dev, target_suffix, expected",
+        [
+            # bulk / greengrass are slot-aware — rewrite regardless of direction.
+            ("/dev/disk/by-partlabel/bulk_a", "b", "/dev/disk/by-partlabel/bulk_b"),
+            ("/dev/disk/by-partlabel/bulk_b", "a", "/dev/disk/by-partlabel/bulk_a"),
+            (
+                "/dev/disk/by-partlabel/greengrass_a",
+                "b",
+                "/dev/disk/by-partlabel/greengrass_b",
+            ),
+            (
+                "/dev/disk/by-partlabel/greengrass_b",
+                "a",
+                "/dev/disk/by-partlabel/greengrass_a",
+            ),
+            # Same-suffix retarget is idempotent (rollback re-runs).
+            ("/dev/disk/by-partlabel/bulk_a", "a", "/dev/disk/by-partlabel/bulk_a"),
+        ],
+    )
+    def test_rewrites_slot_aware(self, dev: str, target_suffix: str, expected: str):
+        assert (
+            _GrubBootControl._rewrite_slot_aware_partlabel(dev, target_suffix)
+            == expected
+        )
+
+    @pytest.mark.parametrize(
+        "dev",
+        [
+            # rootfs / rw_overlay are NOT in this design's fstab and are not
+            # in SLOT_AWARE_PARTLABEL_PREFIXES — pass through even with _a/_b.
+            "/dev/disk/by-partlabel/rootfs_a",
+            "/dev/disk/by-partlabel/rw_overlay_b",
+            # Non-slot-aware PARTLABELs pass through.
+            "/dev/disk/by-partlabel/EFI",
+            "/dev/disk/by-partlabel/boot",
+            # UUID / raw dev / tmpfs / bind sources — pass through untouched.
+            "UUID=cb7519f4-924b-4f2c-ac30-9318e31cf64e",
+            "/dev/nvme0n1p3",
+            "tmpfs",
+            "/data/bulk/var-log",
+            # Prefix matches "bulk" but suffix isn't _a/_b — pass through.
+            "/dev/disk/by-partlabel/bulk_data",
+        ],
+    )
+    def test_passes_through_non_slot_aware(self, dev: str):
+        assert _GrubBootControl._rewrite_slot_aware_partlabel(dev, "b") == dev
+        assert _GrubBootControl._rewrite_slot_aware_partlabel(dev, "a") == dev
+
+
+#
+# ------------ _GrubBootControl._generate_fstab: slot-aware rewrite ------------ #
+#
+
+
+def _make_grub_ctrl_with_standby(mocker, *, standby_slot: OTASlotBootID):
+    """_make_grub_ctrl variant that also sets boot_slots.standby_slot."""
+    ctrl = _make_grub_ctrl(mocker, boot_uuid="bbbb-2222", efi_uuid="cccc-3333")
+    ctrl.boot_slots.standby_slot = standby_slot
+    return ctrl
+
+
+def _partlabel_entry(label: str, mp: str, fstype: str = "ext4") -> str:
+    return f"/dev/disk/by-partlabel/{label}\t{mp}\t{fstype}\trw,noatime,nosuid,nodev\t0\t2"
+
+
+class TestGenerateFstabSlotAwareRewrite:
+    """Standby fstab is baked at image build with one slot suffix (typically _a).
+    _generate_fstab retargets bulk / greengrass to the standby slot at cutover
+    so writes go to this slot's own copy (OTA_PARTITION_DESIGN_EN.md §8)."""
+
+    def test_a_to_b_rewrites_bulk_and_greengrass(self, mocker):
+        """OTA A→B: standby=B. Image-baked _a entries → _b."""
+        ctrl = _make_grub_ctrl_with_standby(mocker, standby_slot=OTASlotBootID.slot_b)
+        base = _build_fstab(
+            _ROOT_SYNTH_STANDBY,
+            _BOOT_SYNTH,
+            _EFI_SYNTH,
+            _partlabel_entry("bulk_a", "/data/bulk"),
+            _partlabel_entry("greengrass_a", "/greengrass"),
+        )
+        ref = _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH)
+
+        result = ctrl._generate_fstab(
+            base_fstab=base, reference_fstab=ref, slot_fsuuid=_SYNTH_STANDBY_FSUUID
+        )
+        lines = result.strip().splitlines()
+        assert _partlabel_entry("bulk_b", "/data/bulk") in lines
+        assert _partlabel_entry("greengrass_b", "/greengrass") in lines
+        # No _a entries should survive.
+        assert not any("bulk_a" in line or "greengrass_a" in line for line in lines)
+
+    def test_b_to_a_rewrites_bulk_and_greengrass(self, mocker):
+        """OTA B→A (or rollback+cycle): standby=A. _b entries → _a."""
+        ctrl = _make_grub_ctrl_with_standby(mocker, standby_slot=OTASlotBootID.slot_a)
+        base = _build_fstab(
+            _ROOT_SYNTH_STANDBY,
+            _BOOT_SYNTH,
+            _EFI_SYNTH,
+            _partlabel_entry("bulk_b", "/data/bulk"),
+            _partlabel_entry("greengrass_b", "/greengrass"),
+        )
+        ref = _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH)
+
+        result = ctrl._generate_fstab(
+            base_fstab=base, reference_fstab=ref, slot_fsuuid=_SYNTH_STANDBY_FSUUID
+        )
+        lines = result.strip().splitlines()
+        assert _partlabel_entry("bulk_a", "/data/bulk") in lines
+        assert _partlabel_entry("greengrass_a", "/greengrass") in lines
+        assert not any("bulk_b" in line or "greengrass_b" in line for line in lines)
+
+    def test_bind_source_paths_are_not_rewritten(self, mocker):
+        """Bind sources (`/data/bulk/var-log` etc.) live in the file_system
+        column too, but they aren't by-partlabel devices — pass through."""
+        ctrl = _make_grub_ctrl_with_standby(mocker, standby_slot=OTASlotBootID.slot_b)
+        base = _build_fstab(
+            _ROOT_SYNTH_STANDBY,
+            _BOOT_SYNTH,
+            _EFI_SYNTH,
+            _partlabel_entry("bulk_a", "/data/bulk"),
+            "/data/bulk/var-log\t/var/log\tnone\tbind,nofail\t0\t0",
+            "/data/bulk/rosbag\t/mnt/ROSBAG\tnone\tbind,nofail\t0\t0",
+        )
+        ref = _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH)
+
+        result = ctrl._generate_fstab(
+            base_fstab=base, reference_fstab=ref, slot_fsuuid=_SYNTH_STANDBY_FSUUID
+        )
+        lines = result.strip().splitlines()
+        # bulk was retargeted; binds are untouched.
+        assert _partlabel_entry("bulk_b", "/data/bulk") in lines
+        assert (
+            "/data/bulk/var-log\t/var/log\tnone\tbind,nofail\t0\t0" in lines
+        )
+        assert (
+            "/data/bulk/rosbag\t/mnt/ROSBAG\tnone\tbind,nofail\t0\t0" in lines
+        )
+
+    def test_non_slot_aware_partlabels_pass_through(self, mocker):
+        """PARTLABELs outside SLOT_AWARE_PARTLABEL_PREFIXES aren't touched."""
+        ctrl = _make_grub_ctrl_with_standby(mocker, standby_slot=OTASlotBootID.slot_b)
+        # `custom_a` uses the _a/_b pattern but isn't a known slot-aware prefix
+        # (only bulk/greengrass are).
+        custom_entry = _partlabel_entry("custom_a", "/mnt/custom")
+        base = _build_fstab(
+            _ROOT_SYNTH_STANDBY,
+            _BOOT_SYNTH,
+            _EFI_SYNTH,
+            custom_entry,
+        )
+        ref = _build_fstab(_ROOT_SYNTH, _BOOT_SYNTH, _EFI_SYNTH)
+
+        result = ctrl._generate_fstab(
+            base_fstab=base, reference_fstab=ref, slot_fsuuid=_SYNTH_STANDBY_FSUUID
+        )
+        assert custom_entry in result.strip().splitlines()
+
+
+#
 # ------------ _GrubBootControl._ensure_legacy_compat_for_current_slot ------------ #
 #
 
