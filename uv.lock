@@ -5628,7 +5628,7 @@ dependencies = [
     { name = "typing-extensions", version = "4.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 wheels = [
-    { url = "https://github.com/tier4/simple-sqlite3-orm/releases/download/v0.13.2/simple_sqlite3_orm-0.13.2-py3-none-any.whl", hash = "sha256:78a53603edccbb19dcf7567e3cab2b10e1b2edf4c6d1f583c0903fad10888b45" },
+    { url = "https://github.com/tier4/simple-sqlite3-orm/releases/download/v0.13.2/simple_sqlite3_orm-0.13.2-py3-none-any.whl", hash = "sha256:fce73a2ba338a76388a12508c4682c4f8ecc9376ebcbc880e05e63edfa83d226" },
 ]
 
 [package.metadata]

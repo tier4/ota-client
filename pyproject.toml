@@ -42,7 +42,7 @@ dependencies = [
   "pydantic-settings<3,>=2.3",
   "pyyaml<7,>=6.0.1",
   "requests~=2.32",
-  "simple-sqlite3-orm@https://github.com/tier4/simple-sqlite3-orm/releases/download/v0.13.2/simple_sqlite3_orm-0.13.2-py3-none-any.whl#sha256:78a53603edccbb19dcf7567e3cab2b10e1b2edf4c6d1f583c0903fad10888b45",
+  "simple-sqlite3-orm@https://github.com/tier4/simple-sqlite3-orm/releases/download/v0.13.2/simple_sqlite3_orm-0.13.2-py3-none-any.whl#sha256:fce73a2ba338a76388a12508c4682c4f8ecc9376ebcbc880e05e63edfa83d226",
   "typing-extensions>=4.6.3",
   "urllib3>=2.2.2,<2.8",
   "uvicorn[standard]>=0.30,<0.52",
