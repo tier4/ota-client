@@ -169,12 +169,10 @@ class TestOTAClientCall:
     async def dummy_ota_client_service(self):
         server = grpc.aio.server()
         v2_grpc.add_OtaClientServiceServicer_to_server(_DummyOTAClientService(), server)
-        server.add_insecure_port(
-            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
-        )
+        port = server.add_insecure_port(f"{self.OTA_CLIENT_SERVICE_IP}:0")
         try:
             await server.start()
-            yield
+            yield port
         finally:
             await server.stop(None)
 
@@ -185,7 +183,7 @@ class TestOTAClientCall:
         _response = await OTAClientCall.update_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            ecu_port=dummy_ota_client_service,
             request=_req,
         )
         compare_message(
@@ -199,7 +197,7 @@ class TestOTAClientCall:
         _response = await OTAClientCall.rollback_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            ecu_port=dummy_ota_client_service,
             request=_req,
         )
         compare_message(
@@ -213,7 +211,7 @@ class TestOTAClientCall:
         _response = await OTAClientCall.client_update_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            ecu_port=dummy_ota_client_service,
             request=_req,
         )
         compare_message(
@@ -224,7 +222,7 @@ class TestOTAClientCall:
         _response = await OTAClientCall.status_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            ecu_port=dummy_ota_client_service,
             request=api_types.StatusRequest(),
         )
 
@@ -263,12 +261,10 @@ class TestOTAClientCall:
     async def abort_service(self):
         server = grpc.aio.server()
         v2_grpc.add_OtaClientServiceServicer_to_server(_SuccessAbortService(), server)
-        server.add_insecure_port(
-            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
-        )
+        port = server.add_insecure_port(f"{self.OTA_CLIENT_SERVICE_IP}:0")
         try:
             await server.start()
-            yield
+            yield port
         finally:
             await server.stop(None)
 
@@ -278,12 +274,10 @@ class TestOTAClientCall:
         v2_grpc.add_OtaClientServiceServicer_to_server(
             _DeadlineExceededAbortService(), server
         )
-        server.add_insecure_port(
-            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
-        )
+        port = server.add_insecure_port(f"{self.OTA_CLIENT_SERVICE_IP}:0")
         try:
             await server.start()
-            yield
+            yield port
         finally:
             await server.stop(None)
 
@@ -293,12 +287,10 @@ class TestOTAClientCall:
         v2_grpc.add_OtaClientServiceServicer_to_server(
             _InternalErrorAbortService(), server
         )
-        server.add_insecure_port(
-            f"{self.OTA_CLIENT_SERVICE_IP}:{self.OTA_CLIENT_SERVICE_PORT}"
-        )
+        port = server.add_insecure_port(f"{self.OTA_CLIENT_SERVICE_IP}:0")
         try:
             await server.start()
-            yield
+            yield port
         finally:
             await server.stop(None)
 
@@ -307,7 +299,7 @@ class TestOTAClientCall:
         _response = await OTAClientCall.abort_call(
             ecu_id=self.DUMMY_ECU_ID,
             ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-            ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+            ecu_port=abort_service,
             request=_req,
         )
         compare_message(_response.export_pb(), DUMMY_ABORT_RESPONSE)
@@ -319,7 +311,7 @@ class TestOTAClientCall:
             await OTAClientCall.abort_call(
                 ecu_id=self.DUMMY_ECU_ID,
                 ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                ecu_port=dummy_ota_client_service,
                 request=_req,
             )
 
@@ -331,7 +323,7 @@ class TestOTAClientCall:
             await OTAClientCall.abort_call(
                 ecu_id=self.DUMMY_ECU_ID,
                 ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                ecu_port=deadline_exceeded_abort_service,
                 request=_req,
             )
 
@@ -343,7 +335,7 @@ class TestOTAClientCall:
             await OTAClientCall.abort_call(
                 ecu_id=self.DUMMY_ECU_ID,
                 ecu_ipaddr=self.OTA_CLIENT_SERVICE_IP,
-                ecu_port=self.OTA_CLIENT_SERVICE_PORT,
+                ecu_port=internal_error_abort_service,
                 request=_req,
             )
 
