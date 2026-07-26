@@ -22,7 +22,9 @@ aiosignal==1.3.1 ; python_full_version < '3.9'
     # via aiohttp
 aiosignal==1.4.0 ; python_full_version >= '3.9'
     # via aiohttp
-annotated-types==0.7.0
+annotated-types==0.7.0 ; python_full_version < '3.10'
+    # via pydantic
+annotated-types==0.8.0 ; python_full_version >= '3.10'
     # via pydantic
 anyio==4.5.2 ; python_full_version < '3.9'
     # via
