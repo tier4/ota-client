@@ -132,3 +132,54 @@ class TestEnsureMountpoint:
 
         mock_unlink.assert_called_once_with(missing_ok=True)
         mock_mkdir.assert_called_once_with(exist_ok=True, parents=True)
+
+
+class TestReboot:
+    def test_reboot_waits_for_being_terminated(self, mocker: MockerFixture):
+        """otaclient should not exit by itself right after the reboot is requested.
+
+        Exiting immediately tears down the status API while the system is still
+        running, which lets the upper layer see the OTA as no longer in progress
+        before the reboot actually happens.
+        """
+        mock_subprocess = mocker.patch(f"{MODULE}.subprocess_call")
+        # NOTE: patch the <time> name in the module's namespace, not the attributes of
+        #       the shared time module, to not interfere with other time users.
+        mock_time = mocker.patch(f"{MODULE}.time")
+        # 1st call: calculating the deadline, the rest: the loop condition checks
+        mock_time.time.side_effect = [0, 0, 1, cmdhelper.WAIT_FOR_REBOOT_TIMEOUT + 1]
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmdhelper.reboot()
+
+        mock_subprocess.assert_called_once_with(
+            ["reboot"], raise_exception=False, chroot=None
+        )
+        # waited until the deadline is reached, then exits with non-zero as the
+        # requested reboot doesn't happen
+        assert mock_time.sleep.call_count == 2
+        assert exc_info.value.code == 1
+
+    def test_reboot_with_args_and_chroot(self, mocker: MockerFixture):
+        mock_subprocess = mocker.patch(f"{MODULE}.subprocess_call")
+        mock_time = mocker.patch(f"{MODULE}.time")
+        mock_time.time.side_effect = [0, cmdhelper.WAIT_FOR_REBOOT_TIMEOUT + 1]
+
+        with pytest.raises(SystemExit):
+            cmdhelper.reboot(args=["0 tryboot"], chroot="/mnt/standby")
+
+        mock_subprocess.assert_called_once_with(
+            ["reboot", "0 tryboot"], raise_exception=False, chroot="/mnt/standby"
+        )
+
+    def test_reboot_exits_when_request_failed(self, mocker: MockerFixture):
+        """If the reboot cannot even be requested, exit to let the init system
+        restart otaclient, which then detects the unfinished switching boot."""
+        mocker.patch(f"{MODULE}.subprocess_call", side_effect=FileNotFoundError)
+        mock_time = mocker.patch(f"{MODULE}.time")
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmdhelper.reboot()
+
+        mock_time.sleep.assert_not_called()
+        assert exc_info.value.code == 1
