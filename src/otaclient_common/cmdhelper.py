@@ -412,7 +412,7 @@ def reboot(args: list[str] | None = None, *, chroot: str | None = None) -> NoRet
     try:
         subprocess_call(cmd, raise_exception=False, chroot=chroot)
     except Exception as e:
-        logger.error(f"failed to request reboot: {e!r}, exit now")
+        logger.exception(f"failed to request reboot: {e!r}, exit now")
         sys.exit(1)
 
     logger.info(
