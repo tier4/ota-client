@@ -371,16 +371,28 @@ def mkfs_ext4(
     subprocess_call(cmd, raise_exception=raise_exception)
 
 
-def reboot(
-    args: list[str] | None = None, *, chroot: str | None = None
-) -> NoReturn:  # pragma: no cover
+# The reboot command only requests the shutdown to the init system, the actual shutdown
+# is done asynchronously by the init system and can take a while(tens of seconds).
+# After the request is issued, otaclient waits for being terminated by the init system
+# instead of exiting by itself.
+WAIT_FOR_REBOOT_TIMEOUT = 60  # seconds
+WAIT_FOR_REBOOT_CHECK_INTERVAL = 1  # seconds
+
+
+def reboot(args: list[str] | None = None, *, chroot: str | None = None) -> NoReturn:
     """Reboot the system, with optional args passed to reboot command.
 
     This is implemented by calling:
         reboot [args[0], args[1], ...]
 
-    NOTE(20230614): this command makes otaclient exit immediately.
     NOTE(20240421): rpi_boot's reboot takes args.
+    NOTE(20260728): previously otaclient exited immediately after the reboot request.
+        As the reboot command only requests the shutdown, otaclient(including its status
+        API) disappeared while the system was still running, and the status API served
+        during that window no longer reported the ongoing OTA. This let the upper layer
+        treat the OTA as finished before the reboot actually happened.
+        Now we keep this process(and the status API) alive until the init system
+        terminates us during the shutdown.
 
     Args:
         args (Optional[list[str]], optional): args passed to reboot command.
@@ -388,7 +400,8 @@ def reboot(
         chroot (str | None, optional): the chroot path to use. Defaults to None.
 
     Raises:
-        SystemExit by sys.exit(0).
+        SystemExit(1) if the reboot request fails, or if the system doesn't reboot
+            within <WAIT_FOR_REBOOT_TIMEOUT> seconds after the request is issued.
     """
     cmd = ["reboot"]
     if args:
@@ -398,8 +411,23 @@ def reboot(
     logger.warning("system will reboot now!")
     try:
         subprocess_call(cmd, raise_exception=False, chroot=chroot)
-    finally:
-        sys.exit(0)
+    except Exception as e:
+        logger.exception(f"failed to request reboot: {e!r}, exit now")
+        sys.exit(1)
+
+    logger.info(
+        f"reboot is requested, wait up to {WAIT_FOR_REBOOT_TIMEOUT}s for being terminated ..."
+    )
+    _deadline = time.time() + WAIT_FOR_REBOOT_TIMEOUT
+    while time.time() < _deadline:
+        time.sleep(WAIT_FOR_REBOOT_CHECK_INTERVAL)
+
+    # NOTE: exit with non-zero as the requested reboot doesn't happen, this should not
+    #       be treated as a normal finish of OTA.
+    logger.error(
+        f"system doesn't reboot within {WAIT_FOR_REBOOT_TIMEOUT}s after the reboot is requested, exit now"
+    )
+    sys.exit(1)
 
 
 #
