@@ -1,0 +1,141 @@
+name: Create Release
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 3.11.1)"
+        required: true
+        type: string
+      rc_number:
+        description: "RC number (e.g. 1 for rc1). Leave empty for stable release."
+        required: false
+        type: string
+        default: "1"
+      create_release_branch:
+        description: "Create a release branch (e.g. v3.11.x) from main if it doesn't exist"
+        required: false
+        type: boolean
+        default: false
+      target_branch:
+        description: "Target branch for the release (e.g. v3.11.x). Defaults to main."
+        required: false
+        type: string
+        default: "main"
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must be in format MAJOR.MINOR.PATCH (e.g. 3.11.1)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Determine release branch
+        id: branch
+        run: |
+          VERSION="${{ inputs.version }}"
+          MAJOR_MINOR="${VERSION%.*}"
+          RELEASE_BRANCH="v${MAJOR_MINOR}.x"
+          echo "release_branch=${RELEASE_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release branch if requested
+        if: ${{ inputs.create_release_branch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.release_branch }}"
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "Branch $BRANCH already exists, skipping creation."
+          else
+            echo "Creating branch $BRANCH from main..."
+            git checkout main
+            git checkout -b "$BRANCH"
+            git push origin "$BRANCH"
+            echo "Branch $BRANCH created."
+          fi
+
+      - name: Set branch protection rules
+        if: ${{ inputs.create_release_branch }}
+        env:
+          # TODO: Add a PAT with admin scope to repo secrets as RELEASE_ADMIN_TOKEN
+          GH_TOKEN: ${{ secrets.RELEASE_ADMIN_TOKEN }}
+        run: |
+          BRANCH="${{ steps.branch.outputs.release_branch }}"
+          REPO="${{ github.repository }}"
+
+          echo "Setting branch protection rules for $BRANCH..."
+          gh api --method PUT "repos/${REPO}/branches/${BRANCH}/protection" \
+            --input - <<'EOF'
+          {
+            "required_status_checks": {
+              "strict": true,
+              "contexts": []
+            },
+            "enforce_admins": false,
+            "required_pull_request_reviews": {
+              "required_approving_review_count": 1
+            },
+            "restrictions": null
+          }
+          EOF
+          echo "Branch protection rules set for $BRANCH."
+
+      - name: Determine tag and pre-release flag
+        id: release_info
+        run: |
+          VERSION="${{ inputs.version }}"
+          RC="${{ inputs.rc_number }}"
+          if [[ -n "$RC" ]]; then
+            TAG="v${VERSION}-rc${RC}"
+            PRERELEASE="true"
+          else
+            TAG="v${VERSION}"
+            PRERELEASE="false"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine target branch
+        id: target
+        run: |
+          TARGET="${{ inputs.target_branch }}"
+          if [[ "$TARGET" == "main" && "${{ inputs.create_release_branch }}" == "true" ]]; then
+            # If we just created a release branch, target it instead of main
+            TARGET="${{ steps.branch.outputs.release_branch }}"
+          fi
+          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release_info.outputs.tag }}"
+          TARGET="${{ steps.target.outputs.target }}"
+          PRERELEASE="${{ steps.release_info.outputs.prerelease }}"
+
+          ARGS=(
+            "$TAG"
+            --target "$TARGET"
+            --generate-notes
+            --title "$TAG"
+          )
+
+          if [[ "$PRERELEASE" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+
+          echo "Creating release: $TAG targeting $TARGET (prerelease=$PRERELEASE)"
+          gh release create "${ARGS[@]}"
