@@ -100,4 +100,11 @@ def get_boot_controller(
 
         return RPIBootController
 
+    if bootloader_type in (BootloaderType.GRUB_VERITY, BootloaderType.JETSON_DPI):
+        # One controller for both: everything that differs between the device sides
+        # is the DPI's, and it reports which one it is on.
+        from ._partition_image import PartitionImageBootController
+
+        return PartitionImageBootController
+
     raise NotImplementedError(f"unsupported: {bootloader_type=}")

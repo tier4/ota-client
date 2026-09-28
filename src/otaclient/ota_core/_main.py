@@ -62,7 +62,7 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
     get_traceback,
 )
-from otaclient.boot_control import get_boot_controller
+from otaclient.boot_control import BootloaderType, get_boot_controller
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
@@ -85,7 +85,7 @@ from ._abort_handler import (
     AbortHandler,
     _abort_signal_handler,
 )
-from ._client_updater import OTAClientUpdater
+from ._client_updater import OTAClientUpdater, OTAClientUpdaterForOTAImageV1
 from ._common import handle_upper_proxy
 
 logger = logging.getLogger(__name__)
@@ -211,13 +211,37 @@ class OTAClient:
                 ),
             )
         )
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAStatusChangeReport(
-                    new_ota_status=_boot_ctrl_loaded_ota_status,
-                ),
-            )
+        # A failure the machine rebooted out of has no live session to report it: the
+        # status file says FAILURE and the reason was in the memory of a process that
+        # is gone. What was recorded beside the status file is reported instead, so a
+        # trial boot that did not come up healthy reaches the fleet as more than
+        # "failed".
+        _recorded_failure = (
+            self.boot_controller._ota_status_control.load_failure()
+            if _boot_ctrl_loaded_ota_status
+            in (OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE)
+            else None
         )
+        if _recorded_failure:
+            _failure_type, _failure_reason = _recorded_failure
+            logger.warning(f"the last OTA failed: {_failure_type.name}: {_failure_reason}")
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=_boot_ctrl_loaded_ota_status,
+                        failure_type=_failure_type,
+                        failure_reason=_failure_reason,
+                    ),
+                )
+            )
+        else:
+            status_report_queue.put_nowait(
+                StatusReport(
+                    payload=OTAStatusChangeReport(
+                        new_ota_status=_boot_ctrl_loaded_ota_status,
+                    ),
+                )
+            )
         self._metrics.current_firmware_version = self.current_version
 
         self.ca_chains_store = None
@@ -270,6 +294,15 @@ class OTAClient:
             self._metrics.failure_type = failure_type
             self._metrics.failure_reason = failure_reason
             self._metrics.failed_status = ota_status
+
+            # Beside the status file, so that it survives what the status file
+            # survives: a reboot the failure itself may have caused.
+            try:
+                self.boot_controller._ota_status_control.store_failure(
+                    failure_type, failure_reason
+                )
+            except Exception as e:  # never let bookkeeping mask the failure
+                logger.warning(f"failed to record why the OTA failed: {e!r}")
         finally:
             del exc  # prevent ref cycle
 
@@ -381,13 +414,36 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                OTAUpdaterForOTAImageV1(
-                    ca_store=self.ca_store,
-                    abort_handler=self._abort_handler,
-                    boot_controller=self.boot_controller,
-                    image_identifier=image_id,
-                    **_common_args,
-                ).execute()
+                if self.boot_controller.bootloader_type in (
+                    BootloaderType.GRUB_VERITY,
+                    BootloaderType.JETSON_DPI,
+                ):
+                    # Imported here, not at module scope: reading a partition-based
+                    # payload needs ota-image-libs' partition_image support, and
+                    # otaclient must keep starting on a device that has no use for it.
+                    from otaclient.ota_core._partition_image import (
+                        OTAUpdaterForPartitionImage,
+                    )
+
+                    # The slots of this layout are read-only dm-verity images: they
+                    # are written as bytes, never rebuilt from files, so the payload
+                    # this device can apply is the partition-based one. An image
+                    # without such a payload for this ECU is refused while reading
+                    # the metadata, which is the honest place to find out.
+                    OTAUpdaterForPartitionImage(
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        **_common_args,
+                    ).execute()
+                else:
+                    OTAUpdaterForOTAImageV1(
+                        ca_store=self.ca_store,
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        **_common_args,
+                    ).execute()
             else:
                 logger.info(f"{url_base} hosts legacy OTA image")
                 self._metrics.ota_image_format = OTAImageFormat.LEGACY
@@ -489,31 +545,55 @@ class OTAClient:
             chunk_size=cfg.CHUNK_SIZE,
         )
         session_wd = self._update_session_dir / new_session_id
+        _common_args = OTAUpdateInterfaceArgs(
+            version=request.version,
+            raw_url_base=request.url_base,
+            session_wd=session_wd,
+            ecu_status_flags=self.ecu_status_flags,
+            status_report_queue=self._status_report_queue,
+            downloader_pool=download_pool,
+            session_id=new_session_id,
+            metrics=self._metrics,
+            shm_metrics_reader=self._shm_metrics_reader,
+            release_name=request.release_name,
+            release_id=request.release_id,
+            image_id=request.image_id,
+        )
         try:
             logger.info("[client update] entering local update...")
-            if not self.ca_chains_store:
-                raise ota_errors.MetadataJWTVerficationFailed(
-                    "no CA chains are installed, reject any OTA update",
-                    module=__name__,
-                )
+            if check_if_ota_image_v1(request.url_base, downloader_pool=download_pool):
+                # The client's own package is an artifact of the image, found through
+                # the signed index; the legacy layout has it somewhere else entirely.
+                if not self.ca_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        "no CA chains are installed, reject any OTA update",
+                        module=__name__,
+                    )
+                # NOTE(20251009): as for a rootfs update, the API does not carry the
+                #                 image variant yet; the default is this ECU's dev one.
+                OTAClientUpdaterForOTAImageV1(
+                    standby_slot_dev=self.boot_controller.standby_slot_dev,
+                    ca_store=self.ca_store,
+                    image_identifier=ImageIdentifier(
+                        ecu_id=ecu_info.ecu_id,
+                        release_key=OTAReleaseKey.dev,
+                    ),
+                    client_update_control_flags=self._client_update_control_flags,
+                    **_common_args,
+                ).execute()
+            else:
+                if not self.ca_chains_store:
+                    raise ota_errors.MetadataJWTVerficationFailed(
+                        "no CA chains are installed, reject any OTA update",
+                        module=__name__,
+                    )
 
-            OTAClientUpdater(
-                version=request.version,
-                raw_url_base=request.url_base,
-                session_wd=session_wd,
-                standby_slot_dev=self.boot_controller.standby_slot_dev,
-                ca_chains_store=self.ca_chains_store,
-                ecu_status_flags=self.ecu_status_flags,
-                status_report_queue=self._status_report_queue,
-                downloader_pool=download_pool,
-                session_id=new_session_id,
-                client_update_control_flags=self._client_update_control_flags,
-                metrics=self._metrics,
-                shm_metrics_reader=self._shm_metrics_reader,
-                release_name=request.release_name,
-                release_id=request.release_id,
-                image_id=request.image_id,
-            ).execute()
+                OTAClientUpdater(
+                    standby_slot_dev=self.boot_controller.standby_slot_dev,
+                    ca_chains_store=self.ca_chains_store,
+                    client_update_control_flags=self._client_update_control_flags,
+                    **_common_args,
+                ).execute()
         except ota_errors.OTAError:
             logger.warning("client update failed")
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"

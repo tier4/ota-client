@@ -40,9 +40,10 @@ from ota_image_libs.v1.index_jwt.utils import (
     decode_index_jwt_with_verification,
     get_index_jwt_sign_cert_chain,
 )
-from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
+from ota_image_libs.v1.media_types import UPDATE_AGENT_TYPE_OTACLIENT
 from ota_image_libs.v1.resource_table import RESOURCE_TABLE_FNAME
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
+from ota_image_libs.v1.update_agent_package.schema import UpdateAgentPackageManifest
 
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient_common.common import urljoin_ensure_base
@@ -179,6 +180,9 @@ class OTAImageHelper:
     ) -> Generator[list[DownloadInfo]]:
         """Select one OTA image payload and download all the meta files required."""
         assert (_image_index := self.image_index)
+        # find_image is the file-based one: an image may carry a payload of either kind
+        # for the same ECU, so that one build serves a fleet of mixed devices, and this
+        # path rebuilds a slot file by file.
         _manifest_descriptor = _image_index.find_image(_image_identifier)
         if not _manifest_descriptor:
             raise ImageMetadataInvalid(
@@ -281,31 +285,37 @@ class OTAImageHelper:
             logger.warning("this machine is not either x86_64 or arm64 machine, abort")
             return
 
-        _otaclient_package_manifests = self.image_index.find_otaclient_package()
-        if not _otaclient_package_manifests:
-            logger.info("not otaclient release package manifest found in the OTA image")
+        _update_agent_package_descriptor = self.image_index.find_update_agent_package()
+        if not _update_agent_package_descriptor:
+            logger.info("no update agent release package found in the OTA image")
             return
 
-        # NOTE: normally we will only put one otaclient release into the OTA image
-        if len(_otaclient_package_manifests) != 1:
-            logger.warning(
-                "multiple otaclient package manifest found in the OTA image. Will pick the first one"
-            )
-        _otaclient_package_manifest_descriptor = _otaclient_package_manifests[0]
-
         _otaclient_manifest_fpath = (
-            self._session_dir / "otaclient_release_manifest.json"
+            self._session_dir / "update_agent_release_manifest.json"
         )
         with condition:
-            yield self.download_from_descriptor(
-                _otaclient_manifest_fpath,
-                _otaclient_package_manifest_descriptor,
-            )
+            # A list, as every other generator here yields: the download helper takes
+            # a batch per step. Yielding the descriptor alone dispatches nothing, and
+            # the wait below then never returns — which is what a client update did
+            # before anything called this.
+            yield [
+                self.download_from_descriptor(
+                    _otaclient_manifest_fpath,
+                    _update_agent_package_descriptor,
+                )
+            ]
             condition.wait()
 
-        _artifact = OTAClientPackageManifest.parse_metafile(
+        # One entry carries a bundle per agent the image serves; take the one that is
+        # otaclient's, for this machine, at the version the campaign says. Another
+        # consumer's bundle sits beside it and is not ours to install.
+        _artifact = UpdateAgentPackageManifest.parse_metafile(
             _otaclient_manifest_fpath.read_text()
-        ).find_package(version=version, architecture=_arch)
+        ).find_bundle(
+            agent_type=UPDATE_AGENT_TYPE_OTACLIENT,
+            architecture=_arch,
+            version=version,
+        )
         if not _artifact:
             logger.warning(
                 f"failed to find otaclient({version=}) app image for {_arch=}"
@@ -313,10 +323,12 @@ class OTAImageHelper:
             return
 
         with condition:
-            yield self.download_from_descriptor(
-                save_dst,
-                _artifact,
-            )
+            yield [
+                self.download_from_descriptor(
+                    save_dst,
+                    _artifact,
+                )
+            ]
             condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:

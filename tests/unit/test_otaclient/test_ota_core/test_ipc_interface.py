@@ -79,6 +79,12 @@ class TestOTAClient:
             f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
             return_value=self.boot_controller,
         )
+        # These drive the legacy image path, for both update and client update: the
+        # format decides which updater is used, and the two are mocked separately.
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1",
+            return_value=False,
+        )
 
         self.ota_client = OTAClient(
             ecu_status_flags=ecu_status_flags,

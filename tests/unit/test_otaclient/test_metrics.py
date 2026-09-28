@@ -24,9 +24,9 @@ import json
 from dataclasses import fields
 
 import pytest
-from _otaclient_version import __version__
 from pytest_mock import MockerFixture
 
+from _otaclient_version import __version__
 from otaclient import metrics
 from otaclient._logging import LogType
 from otaclient.configs.cfg import ecu_info

@@ -21,7 +21,7 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional, Union
 
-from otaclient._types import OTAStatus, VersionDetail
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -134,22 +134,29 @@ class OTAStatusFilesControl:
                     else OTAStatus.FAILURE
                 )
                 self._store_current_status(self._ota_status)
-                logger.error(
-                    "finalization failed on first reboot during switching boot"
-                )
+                _err_msg = "finalization failed on first reboot during switching boot"
+                logger.error(_err_msg)
+                # Recoverable: the slot this is running on is the one that was
+                # already there, untouched, and the campaign can be sent again.
+                self.store_failure(FailureType.RECOVERABLE, _err_msg)
 
         else:
-            logger.error(
+            _err_msg = (
                 f"we are in {_loaded_ota_status.name} ota_status, "
                 "but ota_status files indicate that we are not in switching boot mode, "
                 "this indicates a failed first reboot"
             )
+            logger.error(_err_msg)
             self._ota_status = (
                 OTAStatus.ROLLBACK_FAILURE
                 if _loaded_ota_status == OTAStatus.ROLLBACKING
                 else OTAStatus.FAILURE
             )
             self._store_current_status(self._ota_status)
+            # The update was staged and the machine came back on the slot it started
+            # from: the trial boot did not come up healthy, or never got that far.
+            # Recorded here because the process that staged it is gone with the reboot.
+            self.store_failure(FailureType.RECOVERABLE, _err_msg)
 
     def _load_slot_in_use_file(self):
         _loaded_slot_in_use = self._load_current_slot_in_use()
@@ -196,6 +203,10 @@ class OTAStatusFilesControl:
         write_str_to_file_atomic(
             self.current_ota_status_dir / cfg.OTA_STATUS_FNAME, _status.name
         )
+        if _status not in (OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE):
+            # Whatever went wrong last time did not go wrong this time; a reason left
+            # behind would be reported against an OTA that succeeded.
+            self._clear_failure()
 
     def _store_standby_status(self, _status: OTAStatus):
         write_str_to_file_atomic(
@@ -209,6 +220,43 @@ class OTAStatusFilesControl:
             with contextlib.suppress(KeyError):
                 # invalid status string
                 return OTAStatus[_status_str]
+
+    # why the last one failed
+
+    def store_failure(self, failure_type: FailureType, failure_reason: str) -> None:
+        """Keep why this slot's OTA failed, for the report after the reboot.
+
+        A failure that happens before the reboot is reported from memory, and the
+        reboot is exactly what takes that memory away: the status file that survives
+        says FAILURE and nothing else, so the fleet learns that an update failed and
+        never why. A trial boot that does not come up is the case that matters most,
+        because there the reboot is not incidental — it is the mechanism.
+        """
+        write_str_to_file_atomic(
+            self.current_ota_status_dir / cfg.OTA_FAILURE_FNAME,
+            json.dumps({"failure_type": failure_type.name, "reason": failure_reason}),
+        )
+
+    def load_failure(self) -> Optional[tuple[FailureType, str]]:
+        """What was recorded for the failure this slot booted into, if anything."""
+        _raw = read_str_from_file(
+            self.current_ota_status_dir / cfg.OTA_FAILURE_FNAME, _default=""
+        )
+        if not _raw:
+            return None
+        try:
+            _parsed = json.loads(_raw)
+            return FailureType[_parsed["failure_type"]], str(_parsed["reason"])
+        except Exception as e:
+            # A record we cannot read is no worse than the absence of one.
+            logger.warning(f"cannot read the recorded failure: {e!r}")
+            return None
+
+    def _clear_failure(self) -> None:
+        with contextlib.suppress(OSError):
+            (self.current_ota_status_dir / cfg.OTA_FAILURE_FNAME).unlink(
+                missing_ok=True
+            )
 
     # version control
 
