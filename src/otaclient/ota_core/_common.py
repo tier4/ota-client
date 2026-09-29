@@ -107,15 +107,22 @@ def handle_upper_proxy(_upper_proxy: str) -> None:
 
 
 def prepare_cookies(cookies_json: str) -> dict[str, str]:
+    # NOTE: cookies carry the credentials for accessing the OTA image,
+    #       never include the cookies_json in the logs or error messages.
     try:
         cookies = json.loads(cookies_json)
-        if not isinstance(cookies, dict):
-            raise ValueError(f"invalid cookies, expecting json object: {cookies_json}")
-        return cookies
     except ValueError as e:
-        _err_msg = f"cookie is invalid: {cookies_json=}"
+        _err_msg = "cookie is invalid: not a valid json"
         logger.error(_err_msg)
         raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
+
+    if not isinstance(cookies, dict):
+        _err_msg = (
+            f"cookie is invalid: expecting json object, got {type(cookies).__name__}"
+        )
+        logger.error(_err_msg)
+        raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__)
+    return cookies
 
 
 def create_downloader_pool(
