@@ -62,7 +62,8 @@ from otaclient._utils import (
     SharedOTAClientStatusWriter,
     get_traceback,
 )
-from otaclient.boot_control import BootloaderType, get_boot_controller
+from otaclient.boot_control import get_boot_controller
+from otaclient.boot_control._partition_image import PartitionImageBootController
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
@@ -211,37 +212,26 @@ class OTAClient:
                 ),
             )
         )
-        # A failure the machine rebooted out of has no live session to report it: the
-        # status file says FAILURE and the reason was in the memory of a process that
-        # is gone. What was recorded beside the status file is reported instead, so a
-        # trial boot that did not come up healthy reaches the fleet as more than
-        # "failed".
-        _recorded_failure = (
-            self.boot_controller._ota_status_control.load_failure()
-            if _boot_ctrl_loaded_ota_status
-            in (OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE)
-            else None
+        # NOTE: a failure the machine rebooted out of has no live session to report
+        #       it; the reason recorded beside the status file is reported instead.
+        _failure_type, _failure_reason = FailureType.NO_FAILURE, ""
+        if _boot_ctrl_loaded_ota_status in (
+            OTAStatus.FAILURE,
+            OTAStatus.ROLLBACK_FAILURE,
+        ) and (_recorded := self.boot_controller._ota_status_control.load_failure()):
+            _failure_type, _failure_reason = _recorded
+            logger.warning(
+                f"the last OTA failed: {_failure_type.name}: {_failure_reason}"
+            )
+        status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=_boot_ctrl_loaded_ota_status,
+                    failure_type=_failure_type,
+                    failure_reason=_failure_reason,
+                ),
+            )
         )
-        if _recorded_failure:
-            _failure_type, _failure_reason = _recorded_failure
-            logger.warning(f"the last OTA failed: {_failure_type.name}: {_failure_reason}")
-            status_report_queue.put_nowait(
-                StatusReport(
-                    payload=OTAStatusChangeReport(
-                        new_ota_status=_boot_ctrl_loaded_ota_status,
-                        failure_type=_failure_type,
-                        failure_reason=_failure_reason,
-                    ),
-                )
-            )
-        else:
-            status_report_queue.put_nowait(
-                StatusReport(
-                    payload=OTAStatusChangeReport(
-                        new_ota_status=_boot_ctrl_loaded_ota_status,
-                    ),
-                )
-            )
         self._metrics.current_firmware_version = self.current_version
 
         self.ca_chains_store = None
@@ -414,10 +404,7 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                if self.boot_controller.bootloader_type in (
-                    BootloaderType.GRUB_VERITY,
-                    BootloaderType.JETSON_DPI,
-                ):
+                if isinstance(self.boot_controller, PartitionImageBootController):
                     # Imported here, not at module scope: reading a partition-based
                     # payload needs ota-image-libs' partition_image support, and
                     # otaclient must keep starting on a device that has no use for it.

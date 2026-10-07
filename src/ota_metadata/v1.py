@@ -41,6 +41,7 @@ from ota_image_libs.v1.index_jwt.utils import (
     get_index_jwt_sign_cert_chain,
 )
 from ota_image_libs.v1.media_types import UPDATE_AGENT_TYPE_OTACLIENT
+from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
 from ota_image_libs.v1.resource_table import RESOURCE_TABLE_FNAME
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
 from ota_image_libs.v1.update_agent_package.schema import UpdateAgentPackageManifest
@@ -285,37 +286,45 @@ class OTAImageHelper:
             logger.warning("this machine is not either x86_64 or arm64 machine, abort")
             return
 
-        _update_agent_package_descriptor = self.image_index.find_update_agent_package()
-        if not _update_agent_package_descriptor:
-            logger.info("no update agent release package found in the OTA image")
-            return
+        # An image lists its agents in the update agent release package; one built
+        # before that entry existed carries the OTAClient release package instead.
+        _legacy_package = False
+        _package_descriptor = self.image_index.find_update_agent_package()
+        if _package_descriptor is None:
+            _legacy_descriptors = self.image_index.find_otaclient_package()
+            if not _legacy_descriptors:
+                logger.info("no otaclient release package found in the OTA image")
+                return
+            _package_descriptor, _legacy_package = _legacy_descriptors[0], True
 
         _otaclient_manifest_fpath = (
-            self._session_dir / "update_agent_release_manifest.json"
+            self._session_dir / "otaclient_release_manifest.json"
         )
         with condition:
-            # A list, as every other generator here yields: the download helper takes
-            # a batch per step. Yielding the descriptor alone dispatches nothing, and
-            # the wait below then never returns — which is what a client update did
-            # before anything called this.
+            # NOTE: a list, as every other generator here yields. The download helper
+            #       takes a batch per step; a bare descriptor dispatches nothing.
             yield [
                 self.download_from_descriptor(
-                    _otaclient_manifest_fpath,
-                    _update_agent_package_descriptor,
+                    _otaclient_manifest_fpath, _package_descriptor
                 )
             ]
             condition.wait()
 
-        # One entry carries a bundle per agent the image serves; take the one that is
-        # otaclient's, for this machine, at the version the campaign says. Another
-        # consumer's bundle sits beside it and is not ours to install.
-        _artifact = UpdateAgentPackageManifest.parse_metafile(
-            _otaclient_manifest_fpath.read_text()
-        ).find_bundle(
-            agent_type=UPDATE_AGENT_TYPE_OTACLIENT,
-            architecture=_arch,
-            version=version,
-        )
+        _raw_manifest = _otaclient_manifest_fpath.read_text()
+        if _legacy_package:
+            _artifact = OTAClientPackageManifest.parse_metafile(
+                _raw_manifest
+            ).find_package(version=version, architecture=_arch)
+        else:
+            # One entry carries a bundle per agent the image serves: take otaclient's,
+            # for this machine, at the version the campaign says.
+            _artifact = UpdateAgentPackageManifest.parse_metafile(
+                _raw_manifest
+            ).find_bundle(
+                agent_type=UPDATE_AGENT_TYPE_OTACLIENT,
+                architecture=_arch,
+                version=version,
+            )
         if not _artifact:
             logger.warning(
                 f"failed to find otaclient({version=}) app image for {_arch=}"
@@ -323,12 +332,7 @@ class OTAImageHelper:
             return
 
         with condition:
-            yield [
-                self.download_from_descriptor(
-                    save_dst,
-                    _artifact,
-                )
-            ]
+            yield [self.download_from_descriptor(save_dst, _artifact)]
             condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:

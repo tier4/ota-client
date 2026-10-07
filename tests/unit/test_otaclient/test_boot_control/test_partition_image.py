@@ -180,6 +180,79 @@ class TestSwitchingBoot:
         assert _ctrl.get_booted_ota_status() == OTAStatus.SUCCESS
 
 
+class TestSameSlotTrial:
+    """A payload of data images alone writes no slot: the DPI stages the images and
+    the trial boot is of the running slot. The status files have to expect that
+    boot here — a slot switch they expected and that never came is a failed update
+    to them, and the version they report must not move until the trial passes."""
+
+    @staticmethod
+    def stage(boot_dir: Path, *, running: str = "2.9.0") -> Path:
+        _ctrl = make_controller(boot_dir)
+        _dir = status_dir(boot_dir, "rootfs_a")
+        (_dir / "version").write_text(running)
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True, writes_slot=False)
+        _ctrl.post_update("2026.13.0")
+        return _dir
+
+    def test_this_slot_stays_in_use_and_the_standby_is_untouched(self, tmp_path: Path):
+        _dir = self.stage(tmp_path)
+
+        assert (_dir / "status").read_text() == OTAStatus.UPDATING.name
+        assert (_dir / "slot_in_use").read_text() == "rootfs_a"
+        assert (_dir / "version").read_text() == "2.9.0", "not until the trial passes"
+        assert (_dir / "version.staged").read_text() == "2026.13.0"
+        assert not (status_dir(tmp_path, "rootfs_b") / "status").exists()
+
+    def test_the_boot_after_it_is_the_trial_and_takes_the_version(self, tmp_path: Path):
+        _dir = self.stage(tmp_path)
+        _dpi = FakeDPI(resume_version="2026.13.0")
+
+        _ctrl = make_controller(tmp_path, _dpi)  # the reboot, on the same slot
+
+        assert _dpi.calls == ["layout", "resume"]
+        assert _ctrl.get_booted_ota_status() == OTAStatus.SUCCESS
+        assert (_dir / "version").read_text() == "2026.13.0"
+        assert not (_dir / "version.staged").exists()
+        assert _ctrl.load_version() == "2026.13.0"
+
+    def test_a_trial_the_dpi_fails_keeps_the_running_version(self, tmp_path: Path):
+        _dir = self.stage(tmp_path)
+        _dpi = FakeDPI(resume_error=True)
+
+        _ctrl = make_controller(tmp_path, _dpi)
+
+        assert _ctrl.get_booted_ota_status() == OTAStatus.FAILURE
+        assert (_dir / "version").read_text() == "2.9.0"
+        assert not (_dir / "version.staged").exists()
+        assert (_dir / "failure").is_file(), "why, for the report after the reboot"
+
+    def test_a_crash_before_the_reboot_is_a_failure_not_a_trial(self, tmp_path: Path):
+        """pre_update alone (the DPI never finished) must not look like a staged
+        trial on the next boot, or a crashed install would be concluded a success."""
+        _ctrl = make_controller(tmp_path)
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True, writes_slot=False)
+        _dpi = FakeDPI()
+
+        _ctrl = make_controller(tmp_path, _dpi)
+
+        assert _ctrl.get_booted_ota_status() == OTAStatus.FAILURE
+        assert _dpi.calls == ["layout", "resume"], "still asked once, as on any boot"
+
+    def test_a_slot_update_still_expects_the_standby(self, tmp_path: Path):
+        _ctrl = make_controller(tmp_path)
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True, writes_slot=True)
+        _ctrl.post_update("3.0.0")
+
+        assert (
+            status_dir(tmp_path, "rootfs_a") / "slot_in_use"
+        ).read_text() == "rootfs_b"
+        assert (
+            status_dir(tmp_path, "rootfs_b") / "status"
+        ).read_text() == OTAStatus.UPDATING.name
+        assert (status_dir(tmp_path, "rootfs_b") / "version").read_text() == "3.0.0"
+
+
 class TestUpdateFlow:
     def test_pre_update_only_records(self, tmp_path: Path):
         """Nothing is mounted or erased: the image the DPI writes covers every byte
@@ -264,10 +337,10 @@ class TestWhereTheStatusGoes:
         )
 
     def test_the_real_paths_are_the_ones_each_platform_installs(self):
-        """X2-Gen2 has a shared boot partition mounted rw on every boot. L4T has no
-        such thing -- its boot chain is in flash and both rootfs slots are
-        overwritten -- so the state goes on UDA, which `deploy/l4t/install-platform.sh`
-        mounts at /opt/data."""
+        """The grub layout has a shared boot partition mounted rw on every boot. L4T
+        has no such thing -- its boot chain is in flash and both rootfs slots are
+        overwritten -- so the state goes on UDA, which the platform installer mounts
+        at /opt/data."""
         assert STATE_DIR_BY_PLATFORM["grub"] == "/boot"
         assert STATE_DIR_BY_PLATFORM["l4t"] == "/opt/data"
 
@@ -289,13 +362,13 @@ class TestWhereTheStatusGoes:
             ota_errors.BootControlStartupFailed, match="survive a reboot"
         ):
             PartitionImageBootController(
-                dpi=FakeDPI(layout=self.jetson_layout(platform="driveos"))
+                dpi=FakeDPI(layout=self.jetson_layout(platform="somewhere-new"))
             )
 
-    def test_x2gen2_is_still_what_a_dpi_that_names_no_platform_means(
+    def test_grub_is_still_what_a_dpi_that_names_no_platform_means(
         self, tmp_path: Path
     ):
-        """The layout JSON grew the field; a DPI from before it reads as X2-Gen2."""
+        """The layout JSON grew the field; a DPI from before it reads as the grub layout."""
         _ctrl = make_controller(tmp_path)
         assert _ctrl.bootloader_type == BootloaderType.GRUB_VERITY
         assert status_dir(tmp_path, "rootfs_a").is_dir()

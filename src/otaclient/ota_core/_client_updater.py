@@ -20,15 +20,20 @@ import shutil
 import threading
 import time
 from pathlib import Path
-
-from typing_extensions import Unpack
+from typing import TYPE_CHECKING
 
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
+from typing_extensions import Unpack
 
 from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
-from otaclient import __version__, errors as ota_errors
+from otaclient import __version__
+from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAUpdatePhaseChangeReport, StatusReport
-from otaclient._types import ClientUpdateControlFlags, UpdatePhase
+from otaclient._types import (
+    ClientUpdateControlFlags,
+    MultipleECUStatusFlags,
+    UpdatePhase,
+)
 from otaclient._utils import wait_and_log
 from otaclient.client_package import OTAClientPackageDownloader
 from otaclient.configs.cfg import cfg, ecu_info
@@ -48,7 +53,45 @@ from ._updater_base import (
 logger = logging.getLogger(__name__)
 
 
-class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
+class _ClientUpdateFinishMixin:
+    """The steps both client updaters share once the client's package is on disk."""
+
+    if TYPE_CHECKING:
+        _standby_slot_dev: StrOrPath
+        client_update_control_flags: ClientUpdateControlFlags
+        ecu_status_flags: MultipleECUStatusFlags
+
+    def _wait_sub_ecus(self) -> None:
+        logger.info("wait for all sub-ECU to finish...")
+        # wait for all sub-ECU to finish OTA update
+        result = wait_and_log(
+            check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+            check_for=False,
+            message="client updating in sub ecus",
+            log_func=logger.info,
+            timeout=cfg.CLIENT_UPDATE_TIMEOUT,
+        )
+        if result is False:
+            logger.warning("sub-ECU client was aborted, skip waiting for sub-ecus")
+
+    def _notify_data_ready(self) -> None:
+        """Notify the main process that the client package is ready."""
+        logger.info("notify main process that the client package is ready..")
+        cmdhelper.ensure_umount(self._standby_slot_dev, ignore_error=False)
+        if _env.is_dynamic_client_running():
+            logger.info(
+                "ensure standby_slot dev is umounted before launching dynamic otaclient app ..."
+            )
+            cmdhelper.ensure_umount_from_host(
+                self._standby_slot_dev, ignore_error=False
+            )
+
+        self.client_update_control_flags.notify_data_ready_event.set()
+
+
+class OTAClientUpdater(
+    _ClientUpdateFinishMixin, LegacyOTAImageSupportMixin, OTAUpdateInitializer
+):
     """The implementation of OTA client update logic."""
 
     def __init__(
@@ -129,38 +172,11 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
         finally:
             self._downloader_pool.shutdown()
 
-    def _wait_sub_ecus(self) -> None:
-        logger.info("wait for all sub-ECU to finish...")
-        # wait for all sub-ECU to finish OTA update
-        result = wait_and_log(
-            check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-            check_for=False,
-            message="client updating in sub ecus",
-            log_func=logger.info,
-            timeout=cfg.CLIENT_UPDATE_TIMEOUT,
-        )
-        if result is False:
-            logger.warning("sub-ECU client was aborted, skip waiting for sub-ecus")
-
     def _is_same_client_package_version(self) -> bool:
         return self._ota_client_package.is_same_client_package_version()
 
     def _copy_client_package(self) -> None:
         self._ota_client_package.copy_client_package()
-
-    def _notify_data_ready(self):
-        """Notify the main process that the client package is ready."""
-        logger.info("notify main process that the client package is ready..")
-        cmdhelper.ensure_umount(self._standby_slot_dev, ignore_error=False)
-        if _env.is_dynamic_client_running():
-            logger.info(
-                "ensure standby_slot dev is umounted before launching dynamic otaclient app ..."
-            )
-            cmdhelper.ensure_umount_from_host(
-                self._standby_slot_dev, ignore_error=False
-            )
-
-        self.client_update_control_flags.notify_data_ready_event.set()
 
     # API
 
@@ -176,19 +192,15 @@ class OTAClientUpdater(LegacyOTAImageSupportMixin, OTAUpdateInitializer):
 OTACLIENT_SQUASHFS_NAME = "otaclient.squashfs"
 
 
-class OTAClientUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdateInitializer):
+class OTAClientUpdaterForOTAImageV1(
+    _ClientUpdateFinishMixin, OTAImageV1SupportMixin, OTAUpdateInitializer
+):
     """Updating otaclient itself from an OTA image version 1.
 
-    The same two steps as the legacy client update — fetch the client's own image, tell
-    the main process it is there to be run — with the package found the way a version 1
-    image says: an artifact of its own, reached through the signed index, its squashfs
-    downloaded by digest like any other resource. A campaign sends this before the
-    rootfs update, so that a client too old to read the new image, or too broken to
-    install it, can still be replaced.
-
-    Kept beside the legacy client updater rather than folded into it: the two formats
-    find the package in entirely different ways, and the legacy path is what the fleet
-    runs today.
+    The same steps as the legacy client update, with the client's package found through
+    the signed index as an artifact of the image. Kept beside the legacy client updater:
+    the two formats find the package in different ways, and the legacy path is what the
+    fleet runs today.
     """
 
     def __init__(
@@ -235,30 +247,6 @@ class OTAClientUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdateInitializer
         finally:
             self._downloader_pool.shutdown()
 
-    def _wait_sub_ecus(self) -> None:
-        logger.info("wait for all sub-ECU to finish...")
-        result = wait_and_log(
-            check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-            check_for=False,
-            message="client updating in sub ecus",
-            log_func=logger.info,
-            timeout=cfg.CLIENT_UPDATE_TIMEOUT,
-        )
-        if result is False:
-            logger.warning("sub-ECU client was aborted, skip waiting for sub-ecus")
-
-    def _notify_data_ready(self) -> None:
-        """Tell the main process the client package is there to be run."""
-        logger.info("notify main process that the client package is ready..")
-        # A no-op where the standby slot is never mounted (it is written as an image),
-        # and the umount the file-based path needs where it is.
-        cmdhelper.ensure_umount(self._standby_slot_dev, ignore_error=False)
-        if _env.is_dynamic_client_running():
-            cmdhelper.ensure_umount_from_host(
-                self._standby_slot_dev, ignore_error=False
-            )
-        self.client_update_control_flags.notify_data_ready_event.set()
-
     def _execute_client_update(self) -> None:
         logger.info(
             f"execute local client update({ecu_info.ecu_id=}): "
@@ -284,8 +272,8 @@ class OTAClientUpdaterForOTAImageV1(OTAImageV1SupportMixin, OTAUpdateInitializer
                 )
             self._wait_sub_ecus()
 
-            # The path is a constant on the running root; on a read-only root the image
-            # makes it a link to somewhere writable (see the X2-Gen2 platform pieces).
+            # NOTE: the path is a constant on the running root; an image with a
+            #       read-only root links it to somewhere writable.
             _dst = Path(get_otaclient_squashfs_download_dst())
             os.makedirs(_dst.parent, exist_ok=True)
             shutil.copy(_downloaded, _dst)

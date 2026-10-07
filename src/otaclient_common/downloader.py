@@ -503,7 +503,6 @@ class Downloader:
         return DownloadResult(err_count, downloaded_file_size, traffic_on_wire)
 
 
-
 def _range_honoured(resp: requests.Response, resume_from: int) -> bool:
     """Whether this response really is the rest of the file, from where we asked.
 

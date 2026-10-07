@@ -36,8 +36,9 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import MultipleECUStatusFlags, UpdatePhase
-from otaclient._utils import SharedOTAClientMetricsReader
-from otaclient.configs.cfg import cfg
+from otaclient._utils import SharedOTAClientMetricsReader, wait_and_log
+from otaclient.boot_control.protocol import BootControllerProtocol
+from otaclient.configs.cfg import cfg, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core._common import download_exception_handler
@@ -46,7 +47,7 @@ from otaclient.ota_core._download_resources import (
     DownloadHelperForOTAImageV1,
 )
 from otaclient.ota_core._update_libs import metadata_download_err_handler
-from otaclient_common import replace_root
+from otaclient_common import _env, replace_root
 from otaclient_common._io import remove_file
 from otaclient_common.downloader import DownloaderPool
 from otaclient_common.linux import is_directory
@@ -54,6 +55,8 @@ from otaclient_common.linux import is_directory
 from ._update_libs import download_resources_handler
 
 logger = logging.getLogger(__name__)
+
+WAIT_BEFORE_REBOOT = 6
 
 
 class OTAUpdateInterfaceArgs(TypedDict):
@@ -177,10 +180,48 @@ class OTAUpdateInitializer:
         # ------ setup downloader ------ #
         self._downloader_pool = downloader_pool
 
+    #
+    # ------ Mixins for OTA image specific supports to OTAUpdateInterface Implementation ------ #
+    #
 
-#
-# ------ Mixins for OTA image specific supports to OTAUpdateInterface Implementation ------ #
-#
+    def _finalize_update_and_reboot(
+        self, boot_controller: BootControllerProtocol
+    ) -> None:
+        """Finalize-Update: wait for all sub ECUs, publish the metrics, then reboot."""
+        logger.info("local update finished, wait on all sub ECUs...")
+        _current_finalizing_time = int(time.time())
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=UpdatePhase.FINALIZING_UPDATE,
+                    trigger_timestamp=_current_finalizing_time,
+                ),
+                session_id=self.session_id,
+            )
+        )
+        self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
+        if proxy_info.enable_local_ota_proxy:
+            wait_and_log(
+                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+                check_for=False,
+                message="permit reboot flag",
+                log_func=logger.info,
+            )
+
+        self._metrics.reboot_start_timestamp = int(time.time())
+
+        # publish the metrics before rebooting
+        try:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
+        except Exception as e:
+            logger.warning(f"failed to merge metrics: {e!r}")
+        self._metrics.publish()
+
+        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
+        time.sleep(WAIT_BEFORE_REBOOT)
+        boot_controller.finalizing_update(chroot=_env.get_dynamic_client_chroot_path())
 
 
 class LegacyOTAImageSupportMixin(OTAUpdateInitializer):

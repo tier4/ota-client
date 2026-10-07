@@ -41,6 +41,8 @@ from ota_image_libs.v1.media_types import PARTITION_IMAGE_BLOB, PARTITION_IMAGE_
 from ota_image_libs.v1.partition_image.schema import (
     DELTA_ALGORITHM_BLOCK_DIFF,
     BootFilesDescriptor,
+    DataImageBlobDescriptor,
+    DataImageEntry,
     DeliveryMode,
     PartitionAction,
     PartitionDeltaDescriptor,
@@ -101,7 +103,11 @@ def delta_against(source: str, *, size: int = 100) -> PartitionDeltaDescriptor:
     )
 
 
-def config(*partitions: PartitionEntry, delivery: DeliveryMode = DeliveryMode.direct):
+def config(
+    *partitions: PartitionEntry,
+    delivery: DeliveryMode = DeliveryMode.direct,
+    data_images: tuple[DataImageEntry, ...] = (),
+):
     """A payload config, built directly: what the updater reads, without the
     downloading that puts it there."""
     _kwargs = dict(
@@ -109,6 +115,7 @@ def config(*partitions: PartitionEntry, delivery: DeliveryMode = DeliveryMode.di
         image_version="2.9.0",
         delivery=delivery,
         partitions=list(partitions),
+        data_images=list(data_images),
         labels={
             "vnd.tier4.image.base-image": "ubuntu:24.04",
             "vnd.tier4.ota.image.blobs-count": 2,
@@ -120,6 +127,23 @@ def config(*partitions: PartitionEntry, delivery: DeliveryMode = DeliveryMode.di
             mediaType=VENDOR_PACKAGE_MEDIA, digest=f"sha256:{'e' * 64}", size=10
         )
     return PartitionImageConfig(**_kwargs)
+
+
+def data_image(
+    *, delta: Optional[PartitionDeltaDescriptor] = None, name: str = "ml_package"
+) -> DataImageEntry:
+    """A data image beside the partitions: a model set the device keeps as a file."""
+    return DataImageEntry(
+        name=name,
+        version="2026.9.1",
+        mount="/opt/autoware/ml",
+        image=DataImageBlobDescriptor(
+            mediaType="application/vnd.tier4.ota.partition-based-ota-image.data-image.v1",
+            digest=f"sha256:{'d' * 64}",
+            size=209715200,
+        ),
+        delta=delta,
+    )
 
 
 def rootfs(*, delta: Optional[PartitionDeltaDescriptor] = None) -> PartitionEntry:
@@ -176,10 +200,15 @@ class FakeDPI:
         self._digest_error = digest_error
         self._install_error = install_error
         self.installed: Optional[dict] = None
+        self.asked: list[tuple[int, Optional[str]]] = []
+        self.data_on_device: dict[str, str] = {}
 
-    def source_digest(self, *, size: int) -> str:
+    def source_digest(self, *, size: int, data_image: Optional[str] = None) -> str:
         if self._digest_error:
             raise DPIError("cannot read the slot")
+        self.asked.append((size, data_image))
+        if data_image is not None:
+            return self.data_on_device.get(data_image, "0" * 64)
         return self._on_device
 
     def install(self, **kwargs):
@@ -332,6 +361,52 @@ class TestPlan:
         )
 
         assert [_b.what for _b in _updater.plan().blobs] == ["the rootfs image"]
+
+    def test_a_data_image_is_planned_beside_the_partitions(self, tmp_path: Path):
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(
+            rootfs(),
+            PartitionEntry(
+                name="boot", action=PartitionAction.write, image=boot_files("c" * 64)
+            ),
+            data_images=(data_image(),),
+        )
+        _plan = _updater.plan()
+        assert [_b.what for _b in _plan.blobs] == [
+            "the rootfs image",
+            "the boot image",
+            "the ml_package data image",
+        ]
+
+    def test_a_data_image_delta_is_planned_when_the_device_holds_its_source(
+        self, tmp_path: Path
+    ):
+        _dpi = FakeDPI()
+        _dpi.data_on_device["ml_package"] = ON_DEVICE
+        _updater = make_updater(tmp_path, dpi=_dpi)
+        _updater.image_config = config(
+            PartitionEntry(name="rootfs", action=PartitionAction.keep),
+            PartitionEntry(name="boot", action=PartitionAction.keep),
+            data_images=(data_image(delta=delta_against(ON_DEVICE)),),
+        )
+        _plan = _updater.plan()
+        assert [_b.what for _b in _plan.blobs] == ["the ml_package data image delta"]
+        # asked of the data image's file, not of the rootfs slot
+        assert _dpi.asked[-1][1] == "ml_package"
+
+    def test_a_data_image_delta_that_does_not_fit_is_refused(self, tmp_path: Path):
+        _dpi = FakeDPI()
+        _dpi.data_on_device["ml_package"] = "9" * 64
+        _updater = make_updater(tmp_path, dpi=_dpi)
+        _updater.image_config = config(
+            PartitionEntry(name="rootfs", action=PartitionAction.keep),
+            PartitionEntry(name="boot", action=PartitionAction.keep),
+            data_images=(data_image(delta=delta_against(ON_DEVICE)),),
+        )
+        with pytest.raises(
+            ota_errors.ApplyOTAUpdateFailed, match="ml_package data image delta"
+        ):
+            _updater.plan()
 
     def test_a_vendor_package_is_fetched_whole_and_applied_by_the_platform(
         self, tmp_path: Path
@@ -598,9 +673,9 @@ class TestFinalize:
     def test_it_waits_for_a_child_ecu_before_rebooting(
         self, tmp_path: Path, monkeypatch
     ):
-        import otaclient.ota_core._partition_image as _mod
+        import otaclient.ota_core._updater_base as _base
 
-        monkeypatch.setattr(_mod, "WAIT_BEFORE_REBOOT", 0)
+        monkeypatch.setattr(_base, "WAIT_BEFORE_REBOOT", 0)
         _child_updating = threading.Event()
         _child_updating.set()
         _updater = make_full_updater(tmp_path, child_in_update=_child_updating)
@@ -626,9 +701,9 @@ class TestFinalize:
         self, tmp_path: Path, monkeypatch
     ):
         """Gigabytes on optdata, of use only to a retry that will not happen."""
-        import otaclient.ota_core._partition_image as _mod
+        import otaclient.ota_core._updater_base as _base
 
-        monkeypatch.setattr(_mod, "WAIT_BEFORE_REBOOT", 0)
+        monkeypatch.setattr(_base, "WAIT_BEFORE_REBOOT", 0)
         _updater = make_full_updater(tmp_path, child_in_update=threading.Event())
         _staging = tmp_path / "staging" / "3.0.0"
         (_staging / "blobs").mkdir(parents=True)
@@ -658,7 +733,7 @@ class TestWhereThePayloadIsStaged:
     """Gigabytes have to land somewhere that survives until the DPI has consumed
     them, and "outside the slots" is not available on every device side."""
 
-    def test_x2gen2_stages_on_optdata(self):
+    def test_the_grub_layout_stages_on_optdata(self):
         assert staging_dir_for(BootloaderType.GRUB_VERITY).startswith("/opt/data")
 
     def test_a_jetson_stages_inside_the_running_slot(self):
@@ -668,7 +743,7 @@ class TestWhereThePayloadIsStaged:
         assert staging_dir_for(BootloaderType.JETSON_DPI).startswith("/var/tmp")
 
     def test_an_unknown_one_falls_back_to_the_layout_this_was_written_for(self):
-        assert staging_dir_for("something-else") == STAGING_DIR
+        assert staging_dir_for("something-else") == STAGING_DIR  # type: ignore[arg-type]
 
 
 class TestTheUpdateAgentTheImageShips:

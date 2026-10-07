@@ -32,7 +32,7 @@ import pytest
 from ota_metadata.v1 import OTAImageHelper
 from otaclient_common.download_info import DownloadInfo
 
-MANIFEST_FNAME = "update_agent_release_manifest.json"
+MANIFEST_FNAME = "otaclient_release_manifest.json"
 
 
 class _FakeDescriptor:
@@ -44,11 +44,17 @@ class _FakeDescriptor:
 
 
 class _FakeIndex:
-    def __init__(self, descriptors: List[Any]) -> None:
+    def __init__(
+        self, descriptors: List[Any], legacy_descriptors: List[Any] | None = None
+    ) -> None:
         self._descriptors = descriptors
+        self._legacy_descriptors = legacy_descriptors or []
 
     def find_update_agent_package(self) -> Any:
         return self._descriptors[0] if self._descriptors else None
+
+    def find_otaclient_package(self) -> List[Any]:
+        return self._legacy_descriptors
 
 
 @pytest.fixture
@@ -118,7 +124,7 @@ def _drive(gen, tmp_path: Path, *, manifest: str) -> List[Any]:
 def test_every_step_hands_the_helper_a_batch(image_helper, tmp_path, monkeypatch):
     """`download_meta_files` iterates what it is given, so each step is a list. A bare
     DownloadInfo dispatches no download and the step after it never runs — a client
-    update that simply hangs, which is how this was found on the reference VM."""
+    update that simply hangs, which is how this was found."""
     monkeypatch.setattr("ota_metadata.v1._get_arch", lambda: "x86_64")
     image_helper.image_index = _FakeIndex([_FakeDescriptor("d" * 64)])
 
@@ -134,6 +140,60 @@ def test_every_step_hands_the_helper_a_batch(image_helper, tmp_path, monkeypatch
     for _step in _steps:
         assert isinstance(_step, list), "the helper takes a batch per step"
         assert all(isinstance(_i, DownloadInfo) for _i in _step)
+
+
+def _legacy_release_manifest(version: str = "1.2.3") -> str:
+    """The OTAClient release package as an image built before the update agent
+    release package existed carries it."""
+    _digest = "sha256:" + "a" * 64
+    return json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "artifactType": "application/vnd.tier4.otaclient.release-package.v1",
+            "config": {
+                "size": 2,
+                "digest": "sha256:" + "c" * 64,
+                "mediaType": "application/vnd.tier4.otaclient.release-package.manifest.v1+json",
+            },
+            "layers": [
+                {
+                    "size": 4,
+                    "digest": _digest,
+                    "mediaType": "application/vnd.tier4.otaclient.release-package.v1.squashfs",
+                    "annotations": {
+                        "version": version,
+                        "type": "squashfs",
+                        "architecture": "x86_64",
+                        "size": 4,
+                        "checksum": _digest,
+                    },
+                }
+            ],
+            "annotations": {"date": "2026-01-01"},
+        }
+    )
+
+
+def test_an_image_from_before_the_update_agent_package_still_updates_the_client(
+    image_helper, tmp_path, monkeypatch
+):
+    """A client at this version must still take its package from an image that lists
+    it the old way: the images already built are not rebuilt."""
+    monkeypatch.setattr("ota_metadata.v1._get_arch", lambda: "x86_64")
+    image_helper.image_index = _FakeIndex(
+        [], legacy_descriptors=[_FakeDescriptor("e" * 64)]
+    )
+
+    _steps = _drive(
+        image_helper.select_otaclient_package(
+            tmp_path / "otaclient.squashfs", "1.2.3", condition=threading.Condition()
+        ),
+        tmp_path,
+        manifest=_legacy_release_manifest(),
+    )
+
+    assert len(_steps) == 2, "the legacy manifest first, then the package it names"
 
 
 def test_an_image_without_a_package_asks_for_nothing(

@@ -15,11 +15,12 @@
 
 A partition-based payload is written to the standby slot as bytes, not rebuilt from
 files, and what may be written where is decided by the partition layout contract
-rather than by otaclient. The implementation of that contract is the DPI, a
-dependency-free bundle installed in the image, and otaclient drives it here instead
-of reimplementing it: the rules about which slot is standby, how a delta is applied,
-when a trial boot may be committed and what makes a pair of blobs bootable all stay
-in one place, and an image can carry a newer DPI than the otaclient that calls it.
+rather than by otaclient. The implementation of that contract is the DPI, the
+platform's own installer: a self-contained bundle the platform tooling puts into the
+image, not part of otaclient. otaclient drives it here instead of reimplementing it:
+the rules about which slot is standby, how a delta is applied, when a trial boot may
+be committed and what makes a pair of blobs bootable all stay in one place, and an
+image can carry a newer DPI than the otaclient that calls it.
 
 The protocol is three words on stdout — `PROGRESS <0..100>`, `VERSION <version>` and
 `REBOOT` — and everything else, on either stream, is a log line. Failure is a
@@ -106,12 +107,9 @@ class SlotLayout:
 
 
 class DPIClient:
-    """One process per call, which is also how the eSync shim drives it.
-
-    The DPI is coarse by design — `get-version`, `install` (minutes to hours),
-    `resume` — so process startup is not worth avoiding, and a crash cannot take
-    otaclient with it.
-    """
+    """One process per call: the DPI's verbs are coarse (`get-version`, `install`,
+    `resume`), so process startup is not worth avoiding, and a crash cannot take
+    otaclient with it."""
 
     def __init__(self, executable: Union[str, Path] = DEFAULT_DPI_PATH) -> None:
         self.executable = str(executable)
@@ -137,12 +135,9 @@ class DPIClient:
         """
         _cmd = [str(self.executable)] + args
         if _chroot := otaclient_env.get_dynamic_client_chroot_path():
-            # The DPI belongs to the image on the slot, and a dynamically loaded
-            # otaclient runs with the client's own app image as its root — which does
-            # not carry the DPI, only the client. The running slot is rbound at
-            # /host_root, so the DPI is run in the root it came from: its paths, its
-            # python, its bundle. Without this the boot controller cannot even ask
-            # which slot it is on (seen on the reference VM).
+            # NOTE: a dynamically loaded otaclient runs with its own app image as
+            #       root, which does not carry the DPI; the DPI is run in the slot's
+            #       root, rbound at the chroot path.
             _cmd = ["chroot", _chroot] + _cmd
         logger.debug(f"calling the DPI: {_cmd}")
 
@@ -173,11 +168,10 @@ class DPIClient:
             _timed_out.set()
             _proc.kill()
 
-        # stderr is the DPI's log. It is drained on its own thread, because a pipe
-        # left unread for the length of a slot write fills and blocks the DPI -- and
-        # it is never merged into stdout, which is the protocol and, for `layout` and
-        # `source-digest`, JSON (merging them broke both, seen on the reference VM).
-        # The timer bounds the read loop, which `wait(timeout)` after EOF would not.
+        # NOTE: stderr is the DPI's log, drained on its own thread so that it never
+        #       fills during a slot write, and never merged into stdout, which is the
+        #       protocol (JSON for `layout` and `source-digest`). The timer bounds
+        #       the read loop, which `wait(timeout)` after EOF would not.
         def _drain_stderr() -> None:
             assert _proc.stderr is not None
             for _line in _proc.stderr:
@@ -247,14 +241,18 @@ class DPIClient:
             self._run(["layout", "--json"], capture=True).output
         )
 
-    def source_digest(self, *, size: int) -> str:
-        """The hex sha256 of the first `size` bytes of the committed slot.
+    def source_digest(self, *, size: int, data_image: Optional[str] = None) -> str:
+        """The hex sha256 of the first `size` bytes of the committed slot, or of the
+        file the named data image is mounted from.
 
         What a delta says it applies to is named by digest, never by version, so this
         is the only thing that tells us whether a delta fits this device — and it has
         to be known before downloading, which is the whole reason to ask.
         """
-        _res = self._run(["source-digest", "--size", str(size)], capture=True)
+        _args = ["source-digest", "--size", str(size)]
+        if data_image is not None:
+            _args += ["--data-image", data_image]
+        _res = self._run(_args, capture=True)
         try:
             return str(json.loads(_res.output)["digest"])
         except (ValueError, KeyError, TypeError) as e:

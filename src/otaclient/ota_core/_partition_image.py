@@ -65,12 +65,11 @@ from otaclient._status_monitor import (
     UpdateProgressReport,
 )
 from otaclient._types import AbortState, UpdatePhase, VersionDetail
-from otaclient._utils import wait_and_log
 from otaclient.boot_control._dpi import DPIClient, DPIError
-from otaclient.boot_control.protocol import BootControllerProtocol
+from otaclient.boot_control._partition_image import PartitionImageBootController
 from otaclient.configs import BootloaderType
-from otaclient.configs.cfg import ecu_info, proxy_info
-from otaclient_common import _env, human_readable_size
+from otaclient.configs.cfg import ecu_info
+from otaclient_common import human_readable_size
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.downloader import Downloader, HashVerificationError
 
@@ -87,8 +86,6 @@ def _digest_of(path: Path) -> str:
 PACKAGE_NAME = "T4-ROOTFS"
 """What the DPI records the installed payload under. It is the component name a
 campaign uses, and the DPI reports it back when asked for a version."""
-
-WAIT_BEFORE_REBOOT = 6
 
 STAGING_DIR = "/opt/data/otaclient/partition-image"
 """Where the payload is assembled, on persistent storage rather than in the session
@@ -111,7 +108,7 @@ PARTIAL_SUFFIX = ".part"
 """What an unfinished download is called until its digest checks out."""
 
 
-def staging_dir_for(bootloader: str) -> str:
+def staging_dir_for(bootloader: BootloaderType) -> str:
     """Where this device side can hold a payload until the DPI has consumed it."""
     return STAGING_DIR_BY_BOOTLOADER.get(bootloader, STAGING_DIR)
 
@@ -167,13 +164,7 @@ class PartitionImageUpdater:
         self._base_url = base_url
         self._blob_base_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
         self._downloader = downloader
-        self._dpi = (
-            dpi
-            if dpi is not None
-            else DPIClient(
-                ecu_id=image_id.ecu_id, release_key=image_id.release_key.value
-            )
-        )
+        self._dpi = dpi if dpi is not None else DPIClient()
         self._image_id = image_id
         self._on_progress = on_progress
 
@@ -208,19 +199,10 @@ class PartitionImageUpdater:
     def _fetch_blob(self, descriptor: OCIDescriptor, *, what: str) -> Path:
         """A blob, into the place the unpacked image keeps it.
 
-        A blob can be in three states when this starts, and the file name is what
-        separates them: bytes arrive in `<digest>.part` and become `<digest>` only
-        once the whole file hashes to the digest, so a blob that is there is a blob
-        that is whole.
-
-        A complete one is reused after hashing it again. The size alone would not do:
-        a file of the right length whose contents are wrong is exactly what a
-        truncated write or a bad disk leaves behind, and the next thing to read it is
-        the write onto a partition. A partial one is continued from where it stopped
-        with a ranged request — a rootfs image is gigabytes, and a link that drops at
-        90% should not cost all of it. The digest is still computed over the whole
-        file, the part already on disk included, so a resumed download is trusted no
-        further than a fresh one.
+        Bytes arrive in `<digest>.part` and become `<digest>` once the whole file
+        hashes to the digest. A complete blob is reused after hashing it again (the
+        size alone does not prove its contents); a partial one is continued with a
+        ranged request, the digest still computed over the whole file.
         """
         _digest = descriptor.digest.digest_hex
         _dst = self._blob_dir / _digest
@@ -385,16 +367,25 @@ class PartitionImageUpdater:
                     "not at the version the delta was built from",
                     module=__name__,
                 )
+        # Data images, the same way: the DPI hashes the file it mounts for the name,
+        # so a delta is planned only when the device holds its source.
+        for _data in _config.data_images:
+            _what = f"the {_data.name} data image"
+            if _data.delta is None:
+                _blobs.append(PlannedBlob(_data.image, _what))
+            elif self._delta_fits(_data, data_image=_data.name):
+                _blobs.append(PlannedBlob(_data.delta, f"{_what} delta"))
+            else:
+                raise ota_errors.ApplyOTAUpdateFailed(
+                    f"{_what} delta does not apply to this device: it does not hold "
+                    "the image the delta was built from",
+                    module=__name__,
+                )
         return DownloadPlan(blobs=tuple(_blobs))
 
     def _planned_update_agents(self) -> tuple[PlannedBlob, ...]:
-        """Every agent bundle the image ships, when it ships any.
-
-        All of them, not the one otaclient would run: the consumer that installs a
-        bundle from here is the DPI, and which type and architecture it wants is its
-        business, not something otaclient can answer for it. They are megabytes beside
-        a payload of gigabytes.
-        """
+        """Every agent bundle the image ships: which one to install is the DPI's
+        choice, and they are megabytes beside a payload of gigabytes."""
         if self.update_agent_manifest is None:
             return ()
         return tuple(
@@ -402,12 +393,15 @@ class PartitionImageUpdater:
             for _b in self.update_agent_manifest.layers
         )
 
-    def _delta_fits(self, partition) -> bool:
-        """Whether the committed slot holds the bytes the delta names, as the DPI
-        hashes them; a DPI that cannot answer is a refusal."""
+    def _delta_fits(self, partition, *, data_image: Optional[str] = None) -> bool:
+        """Whether the committed slot (or the named data image's file) holds the bytes
+        the delta names, as the DPI hashes them; a DPI that cannot answer is a
+        refusal."""
         _delta = partition.delta
         try:
-            _on_device = self._dpi.source_digest(size=_delta.annotations.source_size)
+            _on_device = self._dpi.source_digest(
+                size=_delta.annotations.source_size, data_image=data_image
+            )
         except DPIError as e:
             logger.warning(
                 f"cannot tell whether the {partition.name} delta applies: {e!r}"
@@ -446,13 +440,8 @@ class PartitionImageUpdater:
         return self.image_dir
 
     def _check_there_is_room_for(self, plan: DownloadPlan) -> None:
-        """Refuse before downloading rather than partway through it.
-
-        Partway through is where it would otherwise be found: the first blob of a
-        partition-based payload is most of it, so a device that cannot hold the
-        payload discovers that after minutes of downloading, and reports it as a
-        failure to apply rather than as a device with no room.
-        """
+        """Refuse before downloading rather than partway through: the first blob is
+        most of the payload, and a device with no room should be reported as one."""
         self.image_dir.mkdir(exist_ok=True, parents=True)
         _free = shutil.disk_usage(self.image_dir).free
         _have = sum(
@@ -516,7 +505,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
     def __init__(
         self,
         *,
-        boot_controller: BootControllerProtocol,
+        boot_controller: PartitionImageBootController,
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         staging_dir: Optional[Union[str, Path]] = None,
@@ -654,9 +643,15 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             # The critical zone is the write and what it arms: a payload half written
             # onto the standby slot is safe to abandon, but only after the record and
             # the boot switch agree with each other.
+            # Every partition `keep` is a payload of data images alone: no slot is
+            # written and the trial boot is of the running slot, which the status
+            # files have to expect.
+            _writes_slot = any(
+                _p.action is not PartitionAction.keep for _p in _config.partitions
+            )
             with self._abort_handler.critical_zone():
                 self._boot_controller.pre_update(
-                    standby_as_ref=False, erase_standby=True
+                    standby_as_ref=False, erase_standby=True, writes_slot=_writes_slot
                 )
 
                 _now = self._report_phase(UpdatePhase.APPLYING_UPDATE)
@@ -716,31 +711,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
     def _finalize(self, staging: Path) -> None:
-        """Wait for the sub ECUs, publish the metrics, reboot into the trial slot."""
-        _now = self._report_phase(UpdatePhase.FINALIZING_UPDATE)
-        self._metrics.finalizing_update_start_timestamp = _now
-        if proxy_info.enable_local_ota_proxy:
-            wait_and_log(
-                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-                check_for=False,
-                message="permit reboot flag",
-                log_func=logger.info,
-            )
-
-        self._metrics.reboot_start_timestamp = int(time.time())
-        try:
-            if self._shm_metrics_reader:
-                self._metrics.shm_merge(self._shm_metrics_reader.sync_msg())
-        except Exception as e:
-            logger.warning(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
-
-        # The payload is on the standby slot now; what is staged is only of use to a
-        # retry that will not happen, and optdata is where the vehicle's data lives.
+        """Drop what was staged (the payload is on the standby slot now), then wait
+        for the sub ECUs, publish the metrics and reboot into the trial slot."""
         shutil.rmtree(staging, ignore_errors=True)
-
-        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
-        time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update(
-            chroot=_env.get_dynamic_client_chroot_path()
-        )
+        self._finalize_update_and_reboot(self._boot_controller)

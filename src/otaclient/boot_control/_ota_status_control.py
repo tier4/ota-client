@@ -29,6 +29,9 @@ from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
 logger = logging.getLogger(__name__)
 
 FinalizeSwitchBootFunc = Callable[[], bool]
+# The version a same-slot trial boot is of, kept beside the slot's version until that
+# boot concludes: promoted on success, dropped otherwise.
+STAGED_SUFFIX = ".staged"
 MAX_VERSION_STRING_LEN = 2048
 
 
@@ -127,7 +130,9 @@ class OTAStatusFilesControl:
             if self.finalize_switching_boot():
                 self._ota_status = OTAStatus.SUCCESS
                 self._store_current_status(OTAStatus.SUCCESS)
+                self._settle_staged_version(promote=True)
             else:
+                self._settle_staged_version(promote=False)
                 self._ota_status = (
                     OTAStatus.ROLLBACK_FAILURE
                     if _loaded_ota_status == OTAStatus.ROLLBACKING
@@ -147,6 +152,7 @@ class OTAStatusFilesControl:
                 "this indicates a failed first reboot"
             )
             logger.error(_err_msg)
+            self._settle_staged_version(promote=False)
             self._ota_status = (
                 OTAStatus.ROLLBACK_FAILURE
                 if _loaded_ota_status == OTAStatus.ROLLBACKING
@@ -226,11 +232,8 @@ class OTAStatusFilesControl:
     def store_failure(self, failure_type: FailureType, failure_reason: str) -> None:
         """Keep why this slot's OTA failed, for the report after the reboot.
 
-        A failure that happens before the reboot is reported from memory, and the
-        reboot is exactly what takes that memory away: the status file that survives
-        says FAILURE and nothing else, so the fleet learns that an update failed and
-        never why. A trial boot that does not come up is the case that matters most,
-        because there the reboot is not incidental — it is the mechanism.
+        The status file that survives a reboot says FAILURE and nothing else; this is
+        what lets a trial boot that did not come up be reported with its reason.
         """
         write_str_to_file_atomic(
             self.current_ota_status_dir / cfg.OTA_FAILURE_FNAME,
@@ -329,6 +332,57 @@ class OTAStatusFilesControl:
         if version_detail is not None:
             self._store_standby_version_detail(version_detail)
         self._store_standby_slot_in_use(self.standby_slot)
+
+    def pre_update_current_same_slot(self):
+        """A payload that writes no slot (data images alone) is tried by rebooting
+        the slot that is running. FAILURE until that boot concludes, as for a slot
+        switch; slot_in_use stays this slot, because this slot is where the trial
+        boot lands."""
+        self._store_current_status(OTAStatus.FAILURE)
+        self._store_current_slot_in_use(self.active_slot)
+
+    def post_update_current_same_slot(
+        self,
+        *,
+        version: str,
+        version_detail: Optional[VersionDetail] = None,
+    ):
+        """The next boot of this same slot is the trial: UPDATING here, with the
+        version kept aside until that boot concludes, so that a trial the health
+        check fails leaves the version this slot still runs."""
+        self._store_current_status(OTAStatus.UPDATING)
+        self._store_current_slot_in_use(self.active_slot)
+        write_str_to_file_atomic(
+            self.current_ota_status_dir / (cfg.OTA_VERSION_FNAME + STAGED_SUFFIX),
+            version,
+        )
+        _detail = self.current_ota_status_dir / (
+            cfg.OTA_VERSION_DETAIL_FNAME + STAGED_SUFFIX
+        )
+        if version_detail is None:
+            _detail.unlink(missing_ok=True)
+        else:
+            write_str_to_file_atomic(
+                _detail,
+                json.dumps(
+                    {
+                        "release_name": version_detail.release_name,
+                        "release_id": version_detail.release_id,
+                        "image_id": version_detail.image_id,
+                    }
+                ),
+            )
+
+    def _settle_staged_version(self, *, promote: bool) -> None:
+        """What a same-slot trial staged becomes this slot's version, or goes."""
+        for _fname in (cfg.OTA_VERSION_FNAME, cfg.OTA_VERSION_DETAIL_FNAME):
+            _staged = self.current_ota_status_dir / (_fname + STAGED_SUFFIX)
+            if not _staged.exists():
+                continue
+            if promote:
+                _staged.replace(self.current_ota_status_dir / _fname)
+            else:
+                _staged.unlink(missing_ok=True)
 
     def pre_rollback_current(self):
         self._store_current_status(OTAStatus.FAILURE)

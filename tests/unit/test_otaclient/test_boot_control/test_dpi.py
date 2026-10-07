@@ -188,7 +188,7 @@ class TestLayout:
 
     def test_the_dpis_log_on_stderr_does_not_reach_the_answer(self, tmp_path: Path):
         """The DPI logs what it resolved on stderr before it prints the JSON. Merging
-        the two streams made every layout unreadable (seen on the reference VM)."""
+        the two streams made every layout unreadable."""
         _layout = {
             "platform": "grub",
             "active_slot": "rootfs_a",
@@ -203,6 +203,17 @@ class TestLayout:
             f"print({json.dumps(json.dumps(_layout))})",
         )
         assert DPIClient(_dpi).layout().standby_slot == "rootfs_b"
+
+    def test_source_digest_may_ask_about_a_data_image(self, tmp_path: Path):
+        _dpi = fake_dpi(
+            tmp_path,
+            "import json; print(json.dumps({'digest': 'f' * 64 if '--data-image' in args else 'a' * 64}))",
+        )
+        assert DPIClient(_dpi).source_digest(size=4096) == "a" * 64
+        assert (
+            DPIClient(_dpi).source_digest(size=4096, data_image="ml_package")
+            == "f" * 64
+        )
 
     def test_an_unreadable_layout_is_an_error(self, tmp_path: Path):
         """Never guess a slot: writing the wrong partition is unrecoverable."""
@@ -227,7 +238,7 @@ def test_a_dynamically_loaded_client_runs_the_dpi_in_the_slots_own_root(
 ):
     """A dynamic otaclient runs with its own app image as root, and that image carries
     the client and nothing else. The DPI is the platform's, on the slot, rbound at
-    /host_root — so it is run there. On the reference VM, without this, the boot
+    /host_root — so it is run there. Without this, the boot
     controller could not even ask which slot it was on."""
     _calls = []
 

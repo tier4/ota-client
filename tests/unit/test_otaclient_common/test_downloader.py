@@ -34,8 +34,6 @@ from requests.structures import CaseInsensitiveDict as CIDict
 
 from otaclient_common.downloader import (
     DEFAULT_RETRY_COUNT,
-    _hash_existing,
-    _range_honoured,
     DEFAULT_RETRY_STATUS,
     BrokenDecompressionError,
     Downloader,
@@ -46,6 +44,8 @@ from otaclient_common.downloader import (
     HashVerificationError,
     PartialDownload,
     ZstdDecompressionAdapter,
+    _hash_existing,
+    _range_honoured,
     check_cache_policy_in_resp,
     inject_cache_control_header_in_req,
     inject_cache_retry_directory,

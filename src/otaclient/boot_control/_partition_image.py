@@ -56,9 +56,9 @@ STATE_DIR_BY_PLATFORM = {
 }
 """Where status files that must survive the reboot go, per device side.
 
-X2-Gen2 has a shared boot partition and uses it. A Jetson has no such thing -- its
-boot chain is in flash and both rootfs slots are overwritten -- so the state goes on
-the partition outside both slots that the platform installer mounts there (UDA on
+The grub layout has a shared boot partition and uses it. A Jetson has no such thing --
+its boot chain is in flash and both rootfs slots are overwritten -- so the state goes
+on the partition outside both slots that the platform installer mounts there (UDA on
 L4T). Getting this wrong writes the standby slot's status into the slot that is about
 to be overwritten, so an unknown platform is refused rather than defaulted."""
 
@@ -113,6 +113,7 @@ class PartitionImageBootController:
         self._bootloader_type = BOOTLOADER_BY_PLATFORM[self._layout.platform]
         _status_root = Path(boot_dir) / OTA_STATUS_DNAME
         self._switch_concluded = False
+        self._writes_slot = True
         self._ota_status_control = OTAStatusFilesControl(
             active_slot=self._layout.active_slot,
             standby_slot=self._layout.standby_slot,
@@ -126,13 +127,9 @@ class PartitionImageBootController:
     def _conclude_a_boot_that_did_not_switch(self) -> None:
         """Let the DPI close a staged update this boot is not the trial boot of.
 
-        A trial boot that does not come up healthy is rebooted back to the committed
-        slot by the platform, and otaclient wakes up on the old slot: from the status
-        files that is not a switching boot, so nothing above asks the DPI anything,
-        and the update it staged would stay staged for ever. The DPI has the record
-        and the reason, so it is asked once on every boot — which is also what the
-        other client that drives it does. It is idempotent: with nothing staged it
-        says so.
+        A trial boot that did not come up healthy is rebooted back to the committed
+        slot by the platform; from the status files that is not a switching boot, so
+        the DPI is asked once on every boot (it is idempotent) to close its record.
         """
         self._resume()
 
@@ -162,7 +159,7 @@ class PartitionImageBootController:
     # ------ properties ------ #
 
     @property
-    def bootloader_type(self) -> str:
+    def bootloader_type(self) -> BootloaderType:
         return self._bootloader_type
 
     @property
@@ -187,14 +184,9 @@ class PartitionImageBootController:
     # ------ versions and status ------ #
 
     def load_version(self) -> str:
-        """What is running, which is not only what otaclient installed.
-
-        The status files say what otaclient wrote here. A device that came off the
-        factory installer, or one whose last update was delivered by another client,
-        has none — and reporting an empty version to the server reads as "nothing is
-        installed" rather than "installed by someone else". The image carries its own
-        version and the DPI reads it, so that is the fallback.
-        """
+        """What is running: the version otaclient recorded, else the one the image
+        itself carries (a device installed by the factory installer or updated by
+        another client has no record)."""
         _recorded = self._ota_status_control.load_active_slot_version()
         if _recorded and _recorded != cfg.DEFAULT_VERSION_STR:
             return _recorded
@@ -217,12 +209,7 @@ class PartitionImageBootController:
         return self._ota_status_control.booted_ota_status
 
     def load_active_slot_image_version(self) -> str:
-        """The version the running image itself carries, as the DPI reports it.
-
-        The status files say what otaclient installed; this says what is actually
-        running, which is the answer when a device was installed by the factory
-        installer rather than by an update, and the one a campaign compares against.
-        """
+        """The version the running image itself carries, as the DPI reports it."""
         try:
             return self._dpi.get_version()
         except DPIError as e:
@@ -232,13 +219,9 @@ class PartitionImageBootController:
     # ------ failure paths ------ #
 
     def on_operation_failure(self) -> None:
-        """Nothing to unmount; the record is the whole cleanup.
-
-        A failure after the DPI has already written and armed the standby slot leaves
-        that slot armed for one trial boot. That is the design's own safe path — the
-        trial boot either passes its health check or is rolled back — so otaclient
-        records the failure and does not try to disarm something it did not arm.
-        """
+        """Nothing to unmount; the record is the whole cleanup. A standby slot the DPI
+        already armed is left armed: its one trial boot is health-checked or rolled
+        back by the platform, and otaclient does not disarm what it did not arm."""
         logger.warning("on failure: recording it; the standby slot is left as it is")
         self._ota_status_control.on_failure()
 
@@ -248,17 +231,27 @@ class PartitionImageBootController:
 
     # ------ the update ------ #
 
-    def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
+    def pre_update(
+        self, *, standby_as_ref: bool, erase_standby: bool, writes_slot: bool = True
+    ) -> None:
         """Only the status file moves here.
 
         The standby slot is not prepared, mounted or erased: the image the DPI writes
         covers every byte of it, and the scratch that goes with it is made fresh by
         the same write.
+
+        A payload that writes no slot (data images alone) is tried by rebooting the
+        running slot, and the status files have to expect that boot on this slot: a
+        slot switch they expected and that never came is a failed update to them.
         """
         del standby_as_ref, erase_standby  # nothing on this layout is built in place
+        self._writes_slot = writes_slot
         try:
             logger.info(f"{self.bootloader_type}: pre-update setup...")
-            self._ota_status_control.pre_update_current()
+            if writes_slot:
+                self._ota_status_control.pre_update_current()
+            else:
+                self._ota_status_control.pre_update_current_same_slot()
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -275,10 +268,16 @@ class PartitionImageBootController:
         """Record what was written. The boot switch is already armed by then."""
         try:
             logger.info(f"{self.bootloader_type}: post-update setup...")
-            self._ota_status_control.post_update_standby(
-                version=update_version,
-                version_detail=version_detail,
-            )
+            if self._writes_slot:
+                self._ota_status_control.post_update_standby(
+                    version=update_version,
+                    version_detail=version_detail,
+                )
+            else:
+                self._ota_status_control.post_update_current_same_slot(
+                    version=update_version,
+                    version_detail=version_detail,
+                )
             logger.info("post update finished, wait for reboot...")
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
