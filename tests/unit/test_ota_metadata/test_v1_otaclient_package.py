@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Union
 
 import pytest
 
@@ -66,8 +66,10 @@ def image_helper(tmp_path: Path) -> OTAImageHelper:
     )
 
 
-def _release_manifest(version: str = "1.2.3") -> str:
-    """The manifest as `add-otaclient-package` writes it into the image: an update
+def _release_manifest(
+    version: str = "1.2.3", agent_type: str = "tier4.otaclient.squashfs.v1"
+) -> str:
+    """The manifest as `add-update-agent-package` writes it into the image: an update
     agent release package whose layers are the bundles, annotated with type, version
     and architecture."""
     _digest = "sha256:" + "a" * 64
@@ -82,7 +84,7 @@ def _release_manifest(version: str = "1.2.3") -> str:
                     "digest": _digest,
                     "mediaType": "application/vnd.tier4.ota.update-agent.bundle.v1",
                     "annotations": {
-                        "vnd.tier4.ota.update-agent.type": "tier4.otaclient.squashfs.v1",
+                        "vnd.tier4.ota.update-agent.type": agent_type,
                         "vnd.tier4.ota.update-agent.version": version,
                         "vnd.tier4.ota.update-agent.architecture": "x86_64",
                     },
@@ -92,22 +94,25 @@ def _release_manifest(version: str = "1.2.3") -> str:
     )
 
 
-def _drive(gen, tmp_path: Path, *, manifest: str) -> List[Any]:
+def _drive(gen, tmp_path: Path, *, manifest: Union[str, List[str]]) -> List[Any]:
     """Consume the generator the way the download helper does.
 
     The generator holds the condition while suspended at a yield and waits on it after
     being resumed, so the notify has to come from another thread — in production, from
-    the worker that finished the download.
+    the worker that finished the download. `manifest` is what each manifest download
+    in turn brings; one string serves every step.
     """
+    _manifests = [manifest] if isinstance(manifest, str) else manifest
     _steps: List[Any] = []
     _stop = threading.Event()
 
     def _worker() -> None:
-        # Stand in for the downloads: the manifest arrives, then the generator is woken
-        # so it can go on to the package that manifest names.
+        # Stand in for the downloads: the manifest the current step asked for arrives,
+        # then the generator is woken so it can go on to what that manifest names.
         while not _stop.wait(0.02):
-            (tmp_path / MANIFEST_FNAME).write_text(manifest)
             with gen.gi_frame.f_locals["condition"]:
+                _n = min(max(len(_steps), 1), len(_manifests)) - 1
+                (tmp_path / MANIFEST_FNAME).write_text(_manifests[_n])
                 gen.gi_frame.f_locals["condition"].notify_all()
 
     _t = threading.Thread(target=_worker, daemon=True)
@@ -194,6 +199,34 @@ def test_an_image_from_before_the_update_agent_package_still_updates_the_client(
     )
 
     assert len(_steps) == 2, "the legacy manifest first, then the package it names"
+
+
+def test_an_update_agent_package_of_other_agents_does_not_hide_the_client_package(
+    image_helper, tmp_path, monkeypatch
+):
+    """An image whose update agent release package lists the partition agent keeps
+    otaclient in the OTAClient release package, the entry every client reads; the
+    client's package is found there, after the newer entry has been looked at."""
+    monkeypatch.setattr("ota_metadata.v1._get_arch", lambda: "x86_64")
+    image_helper.image_index = _FakeIndex(
+        [_FakeDescriptor("d" * 64)], legacy_descriptors=[_FakeDescriptor("e" * 64)]
+    )
+
+    _steps = _drive(
+        image_helper.select_otaclient_package(
+            tmp_path / "otaclient.squashfs", "1.2.3", condition=threading.Condition()
+        ),
+        tmp_path,
+        manifest=[
+            _release_manifest("1.2.3", agent_type="tier4.ota.agent.v1"),
+            _legacy_release_manifest("1.2.3"),
+        ],
+    )
+
+    assert len(_steps) == 3, "both manifests, then the package the legacy one names"
+    assert _steps[0][0].url.endswith("d" * 64), "the update agent release package first"
+    assert _steps[1][0].url.endswith("e" * 64), "then the OTAClient release package"
+    assert _steps[2][0].url.endswith("a" * 64), "the package it names"
 
 
 def test_an_image_without_a_package_asks_for_nothing(

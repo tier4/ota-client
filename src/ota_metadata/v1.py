@@ -286,45 +286,48 @@ class OTAImageHelper:
             logger.warning("this machine is not either x86_64 or arm64 machine, abort")
             return
 
-        # An image lists its agents in the update agent release package; one built
-        # before that entry existed carries the OTAClient release package instead.
-        _legacy_package = False
-        _package_descriptor = self.image_index.find_update_agent_package()
-        if _package_descriptor is None:
-            _legacy_descriptors = self.image_index.find_otaclient_package()
-            if not _legacy_descriptors:
-                logger.info("no otaclient release package found in the OTA image")
-                return
-            _package_descriptor, _legacy_package = _legacy_descriptors[0], True
+        # An image lists its agents in the update agent release package, otaclient
+        # among them when it ships that way; it may instead carry otaclient in the
+        # OTAClient release package, the entry every client reads, beside an update
+        # agent release package that lists other agents. Whichever names a package
+        # for this version and machine is taken, the newer entry first.
+        _agent_descriptor = self.image_index.find_update_agent_package()
+        _legacy_descriptors = self.image_index.find_otaclient_package()
+        if _agent_descriptor is None and not _legacy_descriptors:
+            logger.info("no otaclient release package found in the OTA image")
+            return
 
-        _otaclient_manifest_fpath = (
-            self._session_dir / "otaclient_release_manifest.json"
-        )
-        with condition:
-            # NOTE: a list, as every other generator here yields. The download helper
-            #       takes a batch per step; a bare descriptor dispatches nothing.
-            yield [
-                self.download_from_descriptor(
-                    _otaclient_manifest_fpath, _package_descriptor
-                )
-            ]
-            condition.wait()
-
-        _raw_manifest = _otaclient_manifest_fpath.read_text()
-        if _legacy_package:
-            _artifact = OTAClientPackageManifest.parse_metafile(
-                _raw_manifest
-            ).find_package(version=version, architecture=_arch)
-        else:
-            # One entry carries a bundle per agent the image serves: take otaclient's,
-            # for this machine, at the version the campaign says.
+        _manifest_fpath = self._session_dir / "otaclient_release_manifest.json"
+        _artifact = None
+        if _agent_descriptor is not None:
+            with condition:
+                # NOTE: a list, as every other generator here yields. The download
+                #       helper takes a batch per step; a bare descriptor dispatches
+                #       nothing.
+                yield [
+                    self.download_from_descriptor(_manifest_fpath, _agent_descriptor)
+                ]
+                condition.wait()
             _artifact = UpdateAgentPackageManifest.parse_metafile(
-                _raw_manifest
+                _manifest_fpath.read_text()
             ).find_bundle(
                 agent_type=UPDATE_AGENT_TYPE_OTACLIENT,
                 architecture=_arch,
                 version=version,
             )
+
+        if _artifact is None and _legacy_descriptors:
+            with condition:
+                yield [
+                    self.download_from_descriptor(
+                        _manifest_fpath, _legacy_descriptors[0]
+                    )
+                ]
+                condition.wait()
+            _artifact = OTAClientPackageManifest.parse_metafile(
+                _manifest_fpath.read_text()
+            ).find_package(version=version, architecture=_arch)
+
         if not _artifact:
             logger.warning(
                 f"failed to find otaclient({version=}) app image for {_arch=}"
