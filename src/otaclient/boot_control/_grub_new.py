@@ -1484,41 +1484,57 @@ class GrubBootController(BootControllerBase):
         _standby_slot_id = self._boot_slots.standby_slot
 
         # NOTE: order of function calls matters!
-        logger.info(f"setup boot slot dir for standby slot({_standby_slot_id=}) ...")
-        self._boot_control.setup_boot_slot_dir(
-            _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
-        )
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlBootConfigUpdateFailed,
+            "failed to setup boot files and boot config for standby slot",
+            module=__name__,
+        ):
+            logger.info(
+                f"setup boot slot dir for standby slot({_standby_slot_id=}) ..."
+            )
+            self._boot_control.setup_boot_slot_dir(
+                _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
+            )
 
-        # NOTE(20260507): wipe the legacy compat folder for the just-populated
-        #                 (standby) slot. This is for handling the case of
-        #                 the new image carries a Group B old otaclient.
-        #                 The backward compat implemented here doesn't fully implement
-        #                 the old grub boot control, so we must let the old controller
-        #                 bootstraps and rebuilds its boot control setup.
-        self._boot_control._wipe_legacy_compat_for_slot(_standby_slot_id)
+            # NOTE(20260507): wipe the legacy compat folder for the just-populated
+            #                 (standby) slot. This is for handling the case of
+            #                 the new image carries a Group B old otaclient.
+            #                 The backward compat implemented here doesn't fully implement
+            #                 the old grub boot control, so we must let the old controller
+            #                 bootstraps and rebuilds its boot control setup.
+            self._boot_control._wipe_legacy_compat_for_slot(_standby_slot_id)
 
-        logger.info(f"setup standby slot({_standby_slot_id=}) rootfs for OTA boot ...")
-        self._boot_control.setup_slot_rootfs_for_ota_boot(
-            slot_fsuuid=_standby_slot_info.uuid,
-            slot_mp=_standby_slot_mp,
-            reference_fstab=read_str_from_file(
-                replace_root(
-                    boot_cfg.FSTAB_FILE_PATH,
-                    cfg.CANONICAL_ROOT,
-                    self._mp_control.active_slot_mount_point,
-                )
-            ),
-        )
-        logger.info("install new ecu_info.yaml and proxy_info.yaml to boot partition")
-        self._install_new_ota_config_files()
+            logger.info(
+                f"setup standby slot({_standby_slot_id=}) rootfs for OTA boot ..."
+            )
+            self._boot_control.setup_slot_rootfs_for_ota_boot(
+                slot_fsuuid=_standby_slot_info.uuid,
+                slot_mp=_standby_slot_mp,
+                reference_fstab=read_str_from_file(
+                    replace_root(
+                        boot_cfg.FSTAB_FILE_PATH,
+                        cfg.CANONICAL_ROOT,
+                        self._mp_control.active_slot_mount_point,
+                    )
+                ),
+            )
+            logger.info(
+                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
+            )
+            self._install_new_ota_config_files()
 
-        logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
-        self._boot_control.setup_ota_boot_cfg_for_slot(
-            _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
-        )
+            logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
+            self._boot_control.setup_ota_boot_cfg_for_slot(
+                _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
+            )
 
         logger.info(f"configure grub-reboot to standby slot({_standby_slot_id=}) ...")
-        self._boot_control.grub_reboot_to_standby()
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlSwitchBootFailed,
+            "failed to configure grub-reboot to standby slot",
+            module=__name__,
+        ):
+            self._boot_control.grub_reboot_to_standby()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)

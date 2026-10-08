@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import NoReturn
 
 from otaclient import errors as ota_errors
-from otaclient._types import OTAStatus, VersionDetail
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 
 from ._ota_status_control import OTAStatusFilesControl
 from ._slot_mnt_helper import SlotMountHelper
@@ -80,6 +80,18 @@ class BootControllerBase(ABC):
         """Get the ota_status loaded from status file during otaclient starts up."""
         return self._ota_status_control.booted_ota_status
 
+    def store_failure_info(
+        self, *, failure_type: FailureType, failure_reason: str
+    ) -> None:
+        """Persist the failure of the OTA operation to the current slot."""
+        self._ota_status_control.store_failure_info(
+            failure_type=failure_type, failure_reason=failure_reason
+        )
+
+    def get_booted_failure_info(self) -> tuple[FailureType, str] | None:
+        """Get the persisted failure info if the booted ota_status is FAILURE."""
+        return self._ota_status_control.load_booted_failure_info()
+
     # ====== Common error handling ======
 
     def on_operation_failure(self):
@@ -118,18 +130,32 @@ class BootControllerBase(ABC):
             # Step 1: Update active slot's ota_status
             self._ota_status_control.pre_update_current()
 
+            _module = self.__class__.__module__
             # Step 2: Prepare standby slot device
-            self._pre_update_prepare_standby(erase_standby=erase_standby)
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlStandbySlotPrepareFailed,
+                "failed to prepare standby slot device",
+                module=_module,
+            ):
+                self._pre_update_prepare_standby(erase_standby=erase_standby)
 
             # Step 3: Mount slots
-            self._mp_control.mount_standby()
-            self._mp_control.mount_active()
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlSlotMountFailed,
+                "failed to mount slots",
+                module=_module,
+            ):
+                self._mp_control.mount_standby()
+                self._mp_control.mount_active()
 
             # Step 4: Platform-specific operations
             self._pre_update_platform_specific(
                 standby_as_ref=standby_as_ref, erase_standby=erase_standby
             )
 
+        except ota_errors.OTAError as e:
+            logger.error(f"failed on pre_update: {e!r}")
+            raise  # keep the more specific error from the inner steps
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)
@@ -166,6 +192,9 @@ class BootControllerBase(ABC):
             self._mp_control.umount_all(ignore_error=True)
             logger.info("post update finished, wait for reboot...")
 
+        except ota_errors.OTAError as e:
+            logger.error(f"failed on post_update: {e!r}")
+            raise  # keep the more specific error from the inner steps
         except Exception as e:
             _err_msg = f"failed on post_update: {e!r}"
             logger.error(_err_msg)

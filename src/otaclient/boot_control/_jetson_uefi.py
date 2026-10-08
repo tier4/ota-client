@@ -1000,17 +1000,22 @@ class JetsonUEFIBootControl(BootControllerBase):
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """Jetson UEFI-specific post-update operations."""
         # ------ update extlinux.conf ------ #
-        update_standby_slot_extlinux_cfg(
-            active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
-            standby_slot_extlinux_fpath=Path(
-                replace_root(
-                    boot_cfg.EXTLINUX_FILE,
-                    "/",
-                    self._mp_control.standby_slot_mount_point,
-                )
-            ),
-            standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
-        )
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlBootConfigUpdateFailed,
+            "failed to update extlinux.conf for standby slot",
+            module=__name__,
+        ):
+            update_standby_slot_extlinux_cfg(
+                active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
+                standby_slot_extlinux_fpath=Path(
+                    replace_root(
+                        boot_cfg.EXTLINUX_FILE,
+                        "/",
+                        self._mp_control.standby_slot_mount_point,
+                    )
+                ),
+                standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
+            )
 
         # ------ preserve /boot/ota folder to standby rootfs ------ #
         preserve_ota_config_files_to_standby(
@@ -1045,10 +1050,20 @@ class JetsonUEFIBootControl(BootControllerBase):
                 NVBootctrlJetsonUEFI.get_active_bootloader_slot()
             )
 
-        firmware_update_triggered = self._firmware_update()
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlFirmwareUpdateFailed,
+            "failed to prepare firmware update",
+            module=__name__,
+        ):
+            firmware_update_triggered = self._firmware_update()
         # NOTE: manual switch boot will cancel the scheduled firmware update!
         if not firmware_update_triggered:
-            self._uefi_control.switch_boot_to_standby()
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlSwitchBootFailed,
+                "failed to switch boot to standby slot",
+                module=__name__,
+            ):
+                self._uefi_control.switch_boot_to_standby()
             logger.info(
                 f"no firmware update configured, manually switch slot: \n{NVBootctrlJetsonUEFI.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"
             )
@@ -1061,12 +1076,17 @@ class JetsonUEFIBootControl(BootControllerBase):
                 "copy standby slot rootfs' /boot folder "
                 "to corresponding internal emmc dev ..."
             )
-            copy_standby_slot_boot_to_internal_emmc(
-                internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
-                internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
-                standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot",
-            )
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlBootConfigUpdateFailed,
+                "failed to copy standby slot's /boot to internal emmc",
+                module=__name__,
+            ):
+                copy_standby_slot_boot_to_internal_emmc(
+                    internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
+                    internal_emmc_devpath=self._uefi_control.standby_internal_emmc_devpath,
+                    standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
+                    / "boot",
+                )
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)

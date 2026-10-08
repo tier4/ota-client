@@ -68,6 +68,9 @@ class UpdateStandbySlot:
         self.max_workers = max_workers
         self._se = threading.Semaphore(concurrent_tasks)
         self._interrupted = threading.Event()
+        # NOTE: the first exception that interrupts the regular files processing,
+        #       for upper caller to determine the root cause of the failure.
+        self._first_exc: BaseException | None = None
 
         self._hardlink_group_lock = threading.Lock()
         self._hardlink_group: dict[int, Path] = {}
@@ -109,6 +112,8 @@ class UpdateStandbySlot:
             burst_suppressed_logger.error(
                 f"failure during processing: {_exc}", exc_info=_exc
             )
+            if self._first_exc is None:
+                self._first_exc = _exc
             self._internal_que.put_nowait(None)  # signal the status reporter
             self._interrupted.set()
 
@@ -258,4 +263,7 @@ class UpdateStandbySlot:
         self._process_regular_file_entries()
 
         if self._interrupted.is_set():
-            raise UpdateStandbySlotFailed("failure during regular files processing!")
+            _first_exc = self._first_exc
+            raise UpdateStandbySlotFailed(
+                f"failure during regular files processing: {_first_exc!r}"
+            ) from _first_exc
