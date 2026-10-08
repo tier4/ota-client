@@ -30,7 +30,7 @@ import time
 from concurrent.futures import Future
 from pathlib import Path
 from queue import Queue
-from typing import Generator, Iterable
+from typing import Generator, Iterable, NoReturn
 
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
@@ -63,7 +63,7 @@ from otaclient_common import (
     replace_root,
 )
 from otaclient_common._typing import StrOrPath
-from otaclient_common.downloader import DownloadResult
+from otaclient_common.downloader import DownloadInactiveTimeout, DownloadResult
 from otaclient_common.persist_file_handling import PersistFilesHandler
 
 from ._common import download_exception_handler
@@ -393,10 +393,40 @@ def metadata_download_err_handler():
         _err_msg = f"image metadata invalid: {e}"
         logger.error(_err_msg, exc_info=e)
         raise ota_errors.OTAImageInvalid(_err_msg, module=__name__) from e
+    except DownloadInactiveTimeout as e:
+        _err_msg = (
+            f"OTA image metadata downloading made no progress for "
+            f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}s, abort OTA"
+        )
+        logger.error(_err_msg, exc_info=e)
+        raise ota_errors.DownloadStalled(_err_msg, module=__name__) from e
     except Exception as e:
         _err_msg = f"failed to prepare ota metafiles: {e!r}"
         logger.error(_err_msg, exc_info=e)
         raise ota_errors.OTAMetaDownloadFailed(_err_msg, module=__name__) from e
+
+
+def raise_on_download_resources_failed(exc: Exception) -> NoReturn:
+    """Convert the exception interrupting the OTA resources downloading into OTAError.
+
+    OTAError(including OTAAbortSignal) is re-raised as is, so that the error code
+        determined by download_exception_handler(cookie invalid, image invalid,
+        space insufficient, etc.) will not be covered.
+    """
+    if isinstance(exc, ota_errors.OTAError):
+        raise exc
+
+    if isinstance(exc, DownloadInactiveTimeout):
+        _err_msg = (
+            f"OTA resources downloading made no progress for "
+            f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}s, abort OTA"
+        )
+        logger.error(_err_msg)
+        raise ota_errors.DownloadStalled(_err_msg, module=__name__) from exc
+
+    _err_msg = f"OTA resources downloading interrupted: {exc!r}"
+    logger.error(_err_msg)
+    raise ota_errors.OTAResourceDownloadFailed(_err_msg, module=__name__) from exc
 
 
 def process_persistents(

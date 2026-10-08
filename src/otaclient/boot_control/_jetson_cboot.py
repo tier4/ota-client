@@ -618,21 +618,31 @@ class JetsonCBootControl(BootControllerBase):
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """Jetson cboot-specific post-update operations."""
         # ------ update extlinux.conf ------ #
-        update_standby_slot_extlinux_cfg(
-            active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
-            standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
-            / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
-            standby_slot_partuuid=self._cboot_control.standby_rootfs_dev_partuuid,
-        )
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlBootConfigUpdateFailed,
+            "failed to update extlinux.conf for standby slot",
+            module=__name__,
+        ):
+            update_standby_slot_extlinux_cfg(
+                active_slot_extlinux_fpath=Path(boot_cfg.EXTLINUX_FILE),
+                standby_slot_extlinux_fpath=self._mp_control.standby_slot_mount_point
+                / Path(boot_cfg.EXTLINUX_FILE).relative_to("/"),
+                standby_slot_partuuid=self._cboot_control.standby_rootfs_dev_partuuid,
+            )
 
         # ------ firmware update ------ #
-        firmware_update_result = self._firmware_update()
-        if firmware_update_result is None:
-            logger.info("no firmware update occurs")
-        elif firmware_update_result is False:
-            raise JetsonCBootContrlError("firmware update failed")
-        else:
-            logger.info("new firmware is written to the standby slot")
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlFirmwareUpdateFailed,
+            "firmware update failed",
+            module=__name__,
+        ):
+            firmware_update_result = self._firmware_update()
+            if firmware_update_result is None:
+                logger.info("no firmware update occurs")
+            elif firmware_update_result is False:
+                raise JetsonCBootContrlError("firmware update failed")
+            else:
+                logger.info("new firmware is written to the standby slot")
 
         # ------ preserve /boot/ota folder to standby rootfs ------ #
         preserve_ota_config_files_to_standby(
@@ -652,17 +662,27 @@ class JetsonCBootControl(BootControllerBase):
                 "copy standby slot rootfs' /boot folder "
                 "to corresponding internal emmc dev ..."
             )
-            copy_standby_slot_boot_to_internal_emmc(
-                internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
-                internal_emmc_devpath=Path(
-                    self._cboot_control.standby_internal_emmc_devpath
-                ),
-                standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
-                / "boot",
-            )
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlBootConfigUpdateFailed,
+                "failed to copy standby slot's /boot to internal emmc",
+                module=__name__,
+            ):
+                copy_standby_slot_boot_to_internal_emmc(
+                    internal_emmc_mp=Path(boot_cfg.SEPARATE_BOOT_MOUNT_POINT),
+                    internal_emmc_devpath=Path(
+                        self._cboot_control.standby_internal_emmc_devpath
+                    ),
+                    standby_slot_boot_dirpath=self._mp_control.standby_slot_mount_point
+                    / "boot",
+                )
 
         # ------ switch boot to standby ------ #
-        self._cboot_control.switch_boot_to_standby()
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlSwitchBootFailed,
+            "failed to switch boot to standby slot",
+            module=__name__,
+        ):
+            self._cboot_control.switch_boot_to_standby()
 
         logger.info(
             f"[post-update]: \n{NVBootctrlJetsonCBOOT.dump_slots_info(chroot=_env.get_dynamic_client_chroot_path())}"

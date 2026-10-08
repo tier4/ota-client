@@ -155,22 +155,32 @@ class OTAClient:
         try:
             _boot_controller_type = get_boot_controller(ecu_info.bootloader)
         except Exception as e:
+            _ota_err = ota_errors.BootControlPlatformUnsupported(
+                f"failed to determine boot controller: {e!r}", module=__name__
+            )
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
-                failure_type=FailureType.UNRECOVERABLE,
-                failure_reason=f"failed to determine boot controller or create_standby mode: {e!r}",
+                failure_type=_ota_err.failure_type,
+                failure_reason=_ota_err.get_failure_reason(),
             )
             return
 
         try:
             self.boot_controller = _boot_controller_type()
         except Exception as e:
+            _ota_err = (
+                e
+                if isinstance(e, ota_errors.OTAError)
+                else ota_errors.BootControlStartupFailed(
+                    f"boot controller startup failed: {e!r}", module=__name__
+                )
+            )
             self._on_failure(
                 e,
                 ota_status=OTAStatus.FAILURE,
-                failure_type=FailureType.UNRECOVERABLE,
-                failure_reason=f"boot controller startup failed: {e!r}",
+                failure_type=_ota_err.failure_type,
+                failure_reason=_ota_err.get_failure_reason(),
             )
             return
         self._metrics.bootloader_type = self.boot_controller.bootloader_type
@@ -211,10 +221,25 @@ class OTAClient:
                 ),
             )
         )
+        # NOTE: restore the failure info of the previous failed OTA, as otaclient
+        #       might be restarted or the ECU might be rebooted after the OTA failure.
+        _failure_type, _failure_reason = FailureType.NO_FAILURE, ""
+        try:
+            if _booted_failure_info := self.boot_controller.get_booted_failure_info():
+                _failure_type, _failure_reason = _booted_failure_info
+                logger.info(
+                    f"restore failure info from previous OTA: {_failure_reason}"
+                )
+        except Exception as e:
+            logger.warning(f"failed to load failure info from previous OTA: {e!r}")
+            _failure_type, _failure_reason = FailureType.NO_FAILURE, ""
+
         status_report_queue.put_nowait(
             StatusReport(
                 payload=OTAStatusChangeReport(
                     new_ota_status=_boot_ctrl_loaded_ota_status,
+                    failure_type=_failure_type,
+                    failure_reason=_failure_reason,
                 ),
             )
         )
@@ -332,22 +357,22 @@ class OTAClient:
             )
         )
 
-        if self.proxy:
-            handle_upper_proxy(self.proxy)
-
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
-
-        download_pool = create_downloader_pool(
-            request.cookies_json,
-            self.proxy,
-            download_threads=self._download_threads,
-            hash_func=sha256,
-            chunk_size=cfg.CHUNK_SIZE,
-        )
         url_base = request.url_base
 
         try:
+            if self.proxy:
+                handle_upper_proxy(self.proxy)
+
+            download_pool = create_downloader_pool(
+                request.cookies_json,
+                self.proxy,
+                download_threads=self._download_threads,
+                hash_func=sha256,
+                chunk_size=cfg.CHUNK_SIZE,
+            )
+
             logger.info("[update] entering local update...")
             _common_args = OTAUpdateInterfaceArgs(
                 version=request.version,
@@ -369,9 +394,7 @@ class OTAClient:
                 logger.info(f"{url_base} hosts new OTA image version1")
                 self._metrics.ota_image_format = OTAImageFormat.V1
                 if not self.ca_store:
-                    raise ota_errors.MetadataJWTVerficationFailed(
-                        _no_ca_err, module=__name__
-                    )
+                    raise ota_errors.CACertNotInstalled(_no_ca_err, module=__name__)
 
                 # NOTE(20251009): currently the update API still doesn't support specify
                 #                 the image varient, provide a default value here.
@@ -392,9 +415,7 @@ class OTAClient:
                 logger.info(f"{url_base} hosts legacy OTA image")
                 self._metrics.ota_image_format = OTAImageFormat.LEGACY
                 if not self.ca_chains_store:
-                    raise ota_errors.MetadataJWTVerficationFailed(
-                        _no_ca_err, module=__name__
-                    )
+                    raise ota_errors.CACertNotInstalled(_no_ca_err, module=__name__)
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
                     abort_handler=self._abort_handler,
@@ -412,7 +433,17 @@ class OTAClient:
                 )
             )
             logger.info("OTA update aborted by abort handler")
-        except ota_errors.OTAError as e:
+        except Exception as e:
+            # NOTE: any exception escaped from here will terminate the update thread
+            #       with the OTA status stuck at UPDATING, so also capture the
+            #       unexpected exceptions here.
+            _ota_err = (
+                e
+                if isinstance(e, ota_errors.OTAError)
+                else ota_errors.OTAErrorUnrecoverable(
+                    f"unexpected error during OTA update: {e!r}", module=__name__
+                )
+            )
             if self._abort_handler.state in (
                 AbortState.ABORTING,
                 AbortState.ABORTED,
@@ -429,12 +460,22 @@ class OTAClient:
                 logger.info(f"OTA update aborted (error during shutdown: {e!r})")
             else:
                 self._live_ota_status = OTAStatus.FAILURE
+                _failure_reason = _ota_err.get_failure_reason()
                 self._on_failure(
                     e,
                     ota_status=OTAStatus.FAILURE,
-                    failure_reason=e.get_failure_reason(),
-                    failure_type=e.failure_type,
+                    failure_reason=_failure_reason,
+                    failure_type=_ota_err.failure_type,
                 )
+                # NOTE: persist the failure, so that the failure is still reported
+                #       after otaclient restarts or the ECU reboots.
+                try:
+                    self.boot_controller.store_failure_info(
+                        failure_type=_ota_err.failure_type,
+                        failure_reason=_failure_reason,
+                    )
+                except Exception as _persist_e:
+                    logger.warning(f"failed to persist failure info: {_persist_e!r}")
         finally:
             shutil.rmtree(session_wd, ignore_errors=True)
             try:
@@ -492,7 +533,7 @@ class OTAClient:
         try:
             logger.info("[client update] entering local update...")
             if not self.ca_chains_store:
-                raise ota_errors.MetadataJWTVerficationFailed(
+                raise ota_errors.CACertNotInstalled(
                     "no CA chains are installed, reject any OTA update",
                     module=__name__,
                 )
@@ -514,8 +555,8 @@ class OTAClient:
                 release_id=request.release_id,
                 image_id=request.image_id,
             ).execute()
-        except ota_errors.OTAError:
-            logger.warning("client update failed")
+        except ota_errors.OTAError as e:
+            logger.warning(f"client update failed: {e!r}")
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
             # As temporary workaround, we set the status to SUCCESS here when current process is dynamic client.
             self._live_ota_status = OTAStatus.SUCCESS

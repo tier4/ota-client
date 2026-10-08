@@ -49,7 +49,7 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
 
     Raises:
         UpdateRequestCookieInvalid on HTTP error 401 or 403,
-        OTAImageInvalid on HTTP error 404,
+        OTAImageNotFound(a sub-class of OTAImageInvalid) on HTTP error 404,
         StandbySlotInsufficientSpace on disk space not enough.
 
     Returns:
@@ -79,7 +79,7 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
             if http_errcode == HTTPStatus.NOT_FOUND:
                 _err_msg = f"download failed with 404 on some file(s): {exc!r}"
                 burst_suppressed_logger.error(_err_msg, exc_info=exc)
-                raise ota_errors.OTAImageInvalid(_err_msg, module=__name__)
+                raise ota_errors.OTAImageNotFound(_err_msg, module=__name__)
 
         if isinstance(exc, OSError) and exc.errno == errno.ENOSPC:
             _err_msg = f"download failed due to space insufficient: {exc!r}"
@@ -92,6 +92,18 @@ def download_exception_handler(_fut: Future[Any]) -> bool:
         del exc, _fut  # drop ref to exc instance
 
 
+def is_caused_by_enospc(exc: BaseException, *, max_depth: int = 8) -> bool:
+    """Check whether <exc> is caused by ENOSPC, by walking through the exception chain."""
+    _exc: BaseException | None = exc
+    for _ in range(max_depth):
+        if _exc is None:
+            return False
+        if isinstance(_exc, OSError) and _exc.errno == errno.ENOSPC:
+            return True
+        _exc = _exc.__cause__ or _exc.__context__
+    return False
+
+
 def handle_upper_proxy(_upper_proxy: str) -> None:
     """Ensure the upper proxy is online before starting the local OTA update."""
     logger.info(
@@ -99,21 +111,31 @@ def handle_upper_proxy(_upper_proxy: str) -> None:
         f"wait for otaproxy@{_upper_proxy} online..."
     )
 
-    # NOTE: will raise a built-in ConnnectionError at timeout
-    ensure_otaproxy_start(
-        _upper_proxy,
-        probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
-    )
+    try:
+        ensure_otaproxy_start(
+            _upper_proxy,
+            probing_timeout=WAIT_FOR_OTAPROXY_ONLINE,
+        )
+    except ConnectionError as e:
+        _err_msg = (
+            f"otaproxy@{_upper_proxy} is not online after {WAIT_FOR_OTAPROXY_ONLINE}s"
+        )
+        logger.error(_err_msg)
+        raise ota_errors.UpperOTAProxyUnreachable(_err_msg, module=__name__) from e
 
 
 def prepare_cookies(cookies_json: str) -> dict[str, str]:
     try:
         cookies = json.loads(cookies_json)
         if not isinstance(cookies, dict):
-            raise ValueError(f"invalid cookies, expecting json object: {cookies_json}")
+            # NOTE: not including the cookies content in the error message, as
+            #       the error message will be exposed via status API.
+            raise ValueError(
+                f"invalid cookies, expecting json object, got {type(cookies)}"
+            )
         return cookies
     except ValueError as e:
-        _err_msg = f"cookie is invalid: {cookies_json=}"
+        _err_msg = f"cookie is invalid: {e}"
         logger.error(_err_msg)
         raise ota_errors.InvalidUpdateRequest(_err_msg, module=__name__) from e
 

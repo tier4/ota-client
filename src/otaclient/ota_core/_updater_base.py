@@ -29,7 +29,6 @@ from ota_image_libs.v1.resource_table.utils import ResumeOTADownloadHelper
 from ota_metadata.legacy2.metadata import OTAMetadata, ResourceMeta
 from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
 from ota_metadata.v1 import OTAImageHelper
-from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
@@ -45,7 +44,10 @@ from otaclient.ota_core._download_resources import (
     DownloadHelperForLegacyOTAImage,
     DownloadHelperForOTAImageV1,
 )
-from otaclient.ota_core._update_libs import metadata_download_err_handler
+from otaclient.ota_core._update_libs import (
+    metadata_download_err_handler,
+    raise_on_download_resources_failed,
+)
 from otaclient_common import replace_root
 from otaclient_common._io import remove_file
 from otaclient_common.downloader import DownloaderPool
@@ -215,15 +217,8 @@ class LegacyOTAImageSupportMixin(OTAUpdateInitializer):
                 status_report_queue=self._status_report_queue,
                 session_id=self.session_id,
             )
-        except ota_errors.OTAAbortSignal:
-            raise
         except Exception as e:
-            _err_msg = (
-                "download aborted due to download stalls longer than "
-                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
+            raise_on_download_resources_failed(e)
         finally:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
@@ -352,15 +347,8 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
             # NOTE: only remove the download tmp when download finished successfully!
             #       this enables the OTA download resume feature.
             shutil.rmtree(_download_tmp, ignore_errors=True)
-        except ota_errors.OTAAbortSignal:
-            raise
         except Exception as e:
-            _err_msg = (
-                "download aborted due to download stalls longer than "
-                f"{cfg.DOWNLOAD_INACTIVE_TIMEOUT}, or otaclient process is terminated, abort OTA"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.NetworkError(_err_msg, module=__name__) from e
+            raise_on_download_resources_failed(e)
         finally:
             # NOTE: after this point, we don't need downloader anymore
             self._downloader_pool.shutdown()
