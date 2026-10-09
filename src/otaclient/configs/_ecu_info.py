@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
@@ -43,6 +43,11 @@ class BootloaderType(StrEnum):
     cboot: ADLink rqx-580, rqx-58g, with BSP 32.5.x.
         (theoretically other Nvidia jetson xavier devices using cboot are also supported)
     rpi_boot: raspberry pi 4 with eeprom version newer than 2020-10-28(with tryboot support).
+    grub-verity: x86_64 platform with grub, whose slots are read-only dm-verity images
+        written as partition images rather than rebuilt from files.
+    jetson-dpi: NVIDIA Jetson on L4T r39 and later, whose rootfs A/B slots are written
+        by NVIDIA's own OTA tools from a payload the DPI stages for them. otaclient
+        fetches the package and asks the DPI; it opens no partition here.
     """
 
     AUTO_DETECT = "auto_detect"
@@ -51,6 +56,8 @@ class BootloaderType(StrEnum):
     JETSON_CBOOT = "jetson-cboot"
     JETSON_UEFI = "jetson-uefi"
     RPI_BOOT = "rpi_boot"
+    GRUB_VERITY = "grub-verity"
+    JETSON_DPI = "jetson-dpi"
 
     @staticmethod
     def deprecation_validator(value: BootloaderType) -> BootloaderType:
@@ -99,6 +106,9 @@ class ECUInfo(BaseFixedConfig):
     ] = BootloaderType.AUTO_DETECT
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
+    dpi_executable: Optional[str] = None
+    """The DPI, for grub-verity and jetson-dpi: the executable the image build installed
+    (its privileged wrapper), which otaclient drives and never names itself."""
 
     def get_available_ecu_ids(self) -> list[str]:
         """

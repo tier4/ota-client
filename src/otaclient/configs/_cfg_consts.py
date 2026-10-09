@@ -116,6 +116,9 @@ class Consts:
     #
     # ota status files
     OTA_STATUS_FNAME = "status"
+    # Why the OTA recorded in OTA_STATUS_FNAME failed, kept beside it so that the
+    # report after a reboot can say more than "it failed".
+    OTA_FAILURE_FNAME = "failure"
     OTA_VERSION_FNAME = "version"
     OTA_VERSION_DETAIL_FNAME = "version_detail"
     SLOT_IN_USE_FNAME = "slot_in_use"

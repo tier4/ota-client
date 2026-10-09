@@ -5,3 +5,6 @@ ecu_id: autoware
 bootloader: grub
 available_ecu_ids:
   - autoware
+# For a layout the DPI writes (bootloader: grub-verity or jetson-dpi), the DPI's executable
+# as the image build installed it; otaclient drives it and never names it itself:
+# dpi_executable: /usr/local/sbin/<the platform's dpi wrapper>

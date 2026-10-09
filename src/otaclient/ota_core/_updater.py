@@ -36,11 +36,10 @@ from otaclient._status_monitor import (
     StatusReport,
 )
 from otaclient._types import AbortState, UpdatePhase, VersionDetail
-from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
 from otaclient.boot_control.protocol import BootControllerProtocol
-from otaclient.configs.cfg import cfg, ecu_info, proxy_info
+from otaclient.configs.cfg import cfg, ecu_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
@@ -67,7 +66,6 @@ from ._updater_base import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATUS_QUERY_INTERVAL = 1
-WAIT_BEFORE_REBOOT = 6
 
 STANDBY_SLOT_USED_SIZE_THRESHOLD = 0.8
 
@@ -325,43 +323,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
     def _finalize_update(self) -> None:
         """Finalize-Update: wait for all sub ECUs, and then reboot."""
-        logger.info("local update finished, wait on all sub ECUs...")
-        _current_finalizing_time = int(time.time())
-        self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=UpdatePhase.FINALIZING_UPDATE,
-                    trigger_timestamp=_current_finalizing_time,
-                ),
-                session_id=self.session_id,
-            )
-        )
-        self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
-        if proxy_info.enable_local_ota_proxy:
-            wait_and_log(
-                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-                check_for=False,
-                message="permit reboot flag",
-                log_func=logger.info,
-            )
-
-        _current_reboot_time = int(time.time())
-        self._metrics.reboot_start_timestamp = _current_reboot_time
-
-        # publish the metrics before rebooting
-        try:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
-        except Exception as e:
-            logger.warning(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
-
-        logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
-        time.sleep(WAIT_BEFORE_REBOOT)
-        self._boot_controller.finalizing_update(
-            chroot=_env.get_dynamic_client_chroot_path()
-        )
+        self._finalize_update_and_reboot(self._boot_controller)
 
     # API
 

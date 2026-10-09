@@ -44,6 +44,8 @@ from otaclient_common.downloader import (
     HashVerificationError,
     PartialDownload,
     ZstdDecompressionAdapter,
+    _hash_existing,
+    _range_honoured,
     check_cache_policy_in_resp,
     inject_cache_control_header_in_req,
     inject_cache_retry_directory,
@@ -726,3 +728,52 @@ def test_download_error_hierarchy() -> None:
     assert issubclass(PartialDownload, DownloadError)
     assert issubclass(HashVerificationError, DownloadError)
     assert issubclass(BrokenDecompressionError, DownloadError)
+
+
+# ---------------- resuming a download ---------------- #
+
+
+class _Resp:
+    """Just enough of a response for the range check: a status and headers."""
+
+    def __init__(self, status_code: int, content_range: str | None = None) -> None:
+        self.status_code = status_code
+        self.headers = CIDict({"Content-Range": content_range} if content_range else {})
+
+
+class TestRangeHonoured:
+    def test_a_206_from_where_we_asked_is_the_rest_of_the_file(self) -> None:
+        assert _range_honoured(_Resp(206, "bytes 1024-2047/2048"), 1024)
+
+    def test_a_200_is_the_whole_file_again(self) -> None:
+        """What the in-vehicle otaproxy answers: it forwards three headers of ours and
+        Range is not one of them. Appending that body to the part already on disk
+        would give a file of the right length and the wrong contents."""
+        assert not _range_honoured(_Resp(200), 1024)
+
+    def test_a_206_from_somewhere_else_is_not_the_continuation(self) -> None:
+        assert not _range_honoured(_Resp(206, "bytes 0-2047/2048"), 1024)
+
+    def test_a_content_range_we_cannot_read_is_not_trusted(self) -> None:
+        assert not _range_honoured(_Resp(206, "pages 1024-2047/2048"), 1024)
+        assert not _range_honoured(_Resp(206, "bytes ?-2047/2048"), 1024)
+        assert not _range_honoured(_Resp(206), 1024)
+
+
+class TestHashExisting:
+    def test_it_hashes_exactly_the_bytes_already_downloaded(self, tmp_path) -> None:
+        _f = tmp_path / "part"
+        _f.write_bytes(b"0123456789")
+        _digestobj = sha256()
+
+        with open(_f, "rb") as _fp:
+            _hash_existing(_fp, _digestobj, 4, chunk_size=3)
+
+        assert _digestobj.hexdigest() == sha256(b"0123").hexdigest()
+
+    def test_a_file_shorter_than_claimed_is_a_partial_download(self, tmp_path) -> None:
+        _f = tmp_path / "part"
+        _f.write_bytes(b"012")
+        with open(_f, "rb") as _fp:
+            with pytest.raises(PartialDownload):
+                _hash_existing(_fp, sha256(), 10, chunk_size=3)
