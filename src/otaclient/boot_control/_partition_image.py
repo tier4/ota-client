@@ -45,7 +45,7 @@ from otaclient.configs import BootloaderType
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
 
-from ._dpi import DPIClient, DPIError, SlotLayout
+from ._dpi import DPIClient, DPIError, SlotLayout, dpi_from_ecu_info
 from ._ota_status_control import OTAStatusFilesControl
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class PartitionImageBootController:
         dpi: Optional[DPIClient] = None,
         boot_dir: Optional[Union[str, Path]] = None,
     ) -> None:
-        self._dpi = dpi if dpi is not None else DPIClient()
+        self._dpi = dpi if dpi is not None else dpi_from_ecu_info()
         try:
             self._layout: SlotLayout = self._dpi.layout()
         except DPIError as e:

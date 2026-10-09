@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import yaml
 from pydantic import AfterValidator, BeforeValidator, Field, IPvAnyAddress
@@ -106,6 +106,9 @@ class ECUInfo(BaseFixedConfig):
     ] = BootloaderType.AUTO_DETECT
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
+    dpi_executable: Optional[str] = None
+    """The DPI, for grub-verity and jetson-dpi: the executable the image build installed
+    (its privileged wrapper), which otaclient drives and never names itself."""
 
     def get_available_ecu_ids(self) -> list[str]:
         """

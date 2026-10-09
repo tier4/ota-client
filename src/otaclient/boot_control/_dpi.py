@@ -42,9 +42,6 @@ from otaclient_common import _env as otaclient_env
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DPI_PATH = "/usr/local/sbin/rootfs-ua-dpi"
-"""The privileged wrapper the image install writes: runs the bundle as root and accepts
-only the DPI's own verbs."""
 
 DEFAULT_TIMEOUT = 60
 """Enough for anything that only reads state. Writing a partition gets its own."""
@@ -106,12 +103,24 @@ class SlotLayout:
             raise DPIError(f"the DPI reported a layout we cannot read: {e!r}") from e
 
 
+def dpi_from_ecu_info() -> DPIClient:
+    """The DPI this device's ecu_info.yaml names. The image build that installs the DPI
+    writes the path there; a layout driven by the DPI without one is misconfigured."""
+    from otaclient.configs.cfg import ecu_info
+
+    if not ecu_info.dpi_executable:
+        raise DPIError(
+            f"ecu_info.yaml names no dpi_executable, which bootloader {ecu_info.bootloader} needs"
+        )
+    return DPIClient(ecu_info.dpi_executable)
+
+
 class DPIClient:
     """One process per call: the DPI's verbs are coarse (`get-version`, `install`,
     `resume`), so process startup is not worth avoiding, and a crash cannot take
     otaclient with it."""
 
-    def __init__(self, executable: Union[str, Path] = DEFAULT_DPI_PATH) -> None:
+    def __init__(self, executable: Union[str, Path]) -> None:
         self.executable = str(executable)
 
     # ------ running it ------ #
@@ -263,7 +272,7 @@ class DPIClient:
         *,
         package: Union[str, Path],
         version: str,
-        name: str,
+        name: Optional[str] = None,
         rollback: bool = False,
         on_progress: Optional[Callable[[int], None]] = None,
         timeout: int = INSTALL_TIMEOUT,
@@ -283,9 +292,9 @@ class DPIClient:
             str(package),
             "--version",
             version,
-            "--name",
-            name,
         ]
+        if name is not None:
+            _args += ["--name", name]
         if rollback:
             _args.append("--rollback")
         return self._run(

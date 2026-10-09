@@ -35,7 +35,7 @@ from otaclient.boot_control._dpi import DPIClient, DPIError, SlotLayout
 
 def fake_dpi(tmp_path: Path, body: str) -> Path:
     """A stand-in DPI: `body` is python, with `args` bound to the verb and its flags."""
-    _script = tmp_path / "rootfs-ua-dpi"
+    _script = tmp_path / "dpi-wrapper"
     _script.write_text(
         "#!{interpreter}\nimport sys\nargs = sys.argv[1:]\n{body}\n".format(
             interpreter=sys.executable, body=body
@@ -55,7 +55,7 @@ class TestGetVersion:
             tmp_path,
             "print('VERSION ' + (args[args.index('--name') + 1] if '--name' in args else 'no-name'))",
         )
-        assert DPIClient(_dpi).get_version(name="T4-ROOTFS-AGENT") == "T4-ROOTFS-AGENT"
+        assert DPIClient(_dpi).get_version(name="AGENT") == "AGENT"
 
     def test_an_answer_without_a_version_is_an_error(self, tmp_path: Path):
         """Exit 0 and no VERSION line means the DPI answered something we cannot use;
@@ -79,14 +79,14 @@ class TestInstall:
         DPIClient(_dpi).install(
             package="/opt/data/ota/image.zip",
             version="2.9.0",
-            name="T4-ROOTFS",
+            name="PAYLOAD",
             rollback=True,
         )
         _argv = _seen.read_text().split()
         assert _argv[0] == "install"
         assert "--package" in _argv and "/opt/data/ota/image.zip" in _argv
         assert "--version" in _argv and "2.9.0" in _argv
-        assert "--name" in _argv and "T4-ROOTFS" in _argv
+        assert "--name" in _argv and "PAYLOAD" in _argv
         assert "--rollback" in _argv
 
     def test_progress_is_reported_as_it_arrives(self, tmp_path: Path):
@@ -252,10 +252,10 @@ def test_a_dynamically_loaded_client_runs_the_dpi_in_the_slots_own_root(
     )
 
     with pytest.raises(DPIError):
-        DPIClient(executable="/usr/local/sbin/rootfs-ua-dpi")._run(["get-version"])
+        DPIClient(executable="/usr/local/sbin/dpi-wrapper")._run(["get-version"])
 
     assert _calls == [
-        ["chroot", "/host_root", "/usr/local/sbin/rootfs-ua-dpi", "get-version"]
+        ["chroot", "/host_root", "/usr/local/sbin/dpi-wrapper", "get-version"]
     ]
 
 
@@ -274,15 +274,26 @@ def test_the_dpi_is_run_directly_when_the_client_is_the_images_own(
     )
 
     with pytest.raises(DPIError):
-        DPIClient(executable="/usr/local/sbin/rootfs-ua-dpi")._run(["get-version"])
+        DPIClient(executable="/usr/local/sbin/dpi-wrapper")._run(["get-version"])
 
-    assert _calls == [["/usr/local/sbin/rootfs-ua-dpi", "get-version"]]
+    assert _calls == [["/usr/local/sbin/dpi-wrapper", "get-version"]]
 
 
-def test_the_wrapper_path_is_the_one_the_image_installs():
-    """otaclient calls the privileged wrapper, not the bundle: the wrapper is what
-    holds the sudoers rule and the rule that a delivered agent may supersede the
-    image's."""
-    from otaclient.boot_control._dpi import DEFAULT_DPI_PATH
+class _ECUInfo:
+    def __init__(self, dpi_executable):
+        self.bootloader = "grub-verity"
+        self.dpi_executable = dpi_executable
 
-    assert os.path.basename(DEFAULT_DPI_PATH) == "rootfs-ua-dpi"
+
+def test_the_dpi_is_the_executable_ecu_info_names(monkeypatch):
+    """otaclient drives whatever DPI the image build installed and wrote into
+    ecu_info.yaml: it names no agent, no wrapper, no path of its own. A DPI layout
+    whose ecu_info.yaml names none is a misconfigured image, refused up front."""
+    from otaclient.configs import cfg as cfg_module
+
+    monkeypatch.setattr(cfg_module, "ecu_info", _ECUInfo("/usr/local/sbin/dpi-wrapper"))
+    assert _dpi.dpi_from_ecu_info().executable == "/usr/local/sbin/dpi-wrapper"
+
+    monkeypatch.setattr(cfg_module, "ecu_info", _ECUInfo(None))
+    with pytest.raises(DPIError, match="dpi_executable"):
+        _dpi.dpi_from_ecu_info()

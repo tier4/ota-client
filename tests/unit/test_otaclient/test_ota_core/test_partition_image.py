@@ -609,18 +609,20 @@ class TestDownloadAndApply:
         _dpi = FakeDPI()
         _updater = make_updater(tmp_path, _dpi)
 
-        assert _updater.apply(version="2.9.0", name="T4-ROOTFS") is True
+        assert _updater.apply(version="2.9.0") is True
 
         assert _dpi.installed is not None
         assert _dpi.installed["package"] == tmp_path / "image"
         assert _dpi.installed["version"] == "2.9.0"
-        assert _dpi.installed["name"] == "T4-ROOTFS"
+        assert _dpi.installed.get("name") is None, (
+            "otaclient has no component name to give"
+        )
         assert _dpi.installed["rollback"] is False
 
     def test_a_refused_payload_is_a_failed_update(self, tmp_path: Path):
         _updater = make_updater(tmp_path, FakeDPI(install_error=True))
         with pytest.raises(ota_errors.ApplyOTAUpdateFailed):
-            _updater.apply(version="2.9.0", name="T4-ROOTFS")
+            _updater.apply(version="2.9.0")
 
 
 class FakeBootController:

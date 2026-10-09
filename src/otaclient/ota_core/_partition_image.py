@@ -65,7 +65,7 @@ from otaclient._status_monitor import (
     UpdateProgressReport,
 )
 from otaclient._types import AbortState, UpdatePhase, VersionDetail
-from otaclient.boot_control._dpi import DPIClient, DPIError
+from otaclient.boot_control._dpi import DPIClient, DPIError, dpi_from_ecu_info
 from otaclient.boot_control._partition_image import PartitionImageBootController
 from otaclient.configs import BootloaderType
 from otaclient.configs.cfg import ecu_info
@@ -82,10 +82,6 @@ logger = logging.getLogger(__name__)
 def _digest_of(path: Path) -> str:
     return file_sha256(path).hexdigest()
 
-
-PACKAGE_NAME = "T4-ROOTFS"
-"""What the DPI records the installed payload under. It is the component name a
-campaign uses, and the DPI reports it back when asked for a version."""
 
 STAGING_DIR = "/opt/data/otaclient/partition-image"
 """Where the payload is assembled, on persistent storage rather than in the session
@@ -164,7 +160,7 @@ class PartitionImageUpdater:
         self._base_url = base_url
         self._blob_base_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
         self._downloader = downloader
-        self._dpi = dpi if dpi is not None else DPIClient()
+        self._dpi = dpi if dpi is not None else dpi_from_ecu_info()
         self._image_id = image_id
         self._on_progress = on_progress
 
@@ -459,7 +455,6 @@ class PartitionImageUpdater:
         self,
         *,
         version: str,
-        name: str,
         rollback: bool = False,
         on_progress: Optional[Callable[[int], None]] = None,
     ) -> bool:
@@ -472,7 +467,6 @@ class PartitionImageUpdater:
             return self._dpi.install(
                 package=self.image_dir,
                 version=version,
-                name=name,
                 rollback=rollback,
                 on_progress=on_progress or self._on_progress,
                 # An image built for a vehicle carries one payload per ECU and the DPI
@@ -516,7 +510,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
         self._boot_controller = boot_controller
         self._abort_handler = abort_handler
         self._image_id = image_identifier
-        self._dpi = dpi if dpi is not None else DPIClient()
+        self._dpi = dpi if dpi is not None else dpi_from_ecu_info()
         if staging_dir is None:
             staging_dir = staging_dir_for(boot_controller.bootloader_type)
         self._staging_root = Path(staging_dir)
@@ -658,7 +652,6 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
                 self._metrics.apply_update_start_timestamp = _now
                 _reboot_required = _updater.apply(
                     version=_config.image_version,
-                    name=PACKAGE_NAME,
                     on_progress=lambda _p: self._on_write_progress(
                         _p, total_bytes=_total_write
                     ),
