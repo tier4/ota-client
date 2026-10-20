@@ -384,6 +384,8 @@ class StatusResponse(
 
 class UpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     __slots__ = calculate_slots(pb2.UpdateRequestEcu)
+    # NOTE: cookies carry the credentials for accessing the OTA image
+    _redacted_fields = frozenset({"cookies"})
     cookies: str
     ecu_id: str
     url: str
@@ -461,6 +463,8 @@ class UpdateResponse(ECUList[UpdateResponseEcu], MessageWrapper[pb2.UpdateRespon
 
 class ClientUpdateRequestEcu(MessageWrapper[pb2.UpdateRequestEcu]):
     __slots__ = calculate_slots(pb2.UpdateRequestEcu)
+    # NOTE: cookies carry the credentials for accessing the OTA image
+    _redacted_fields = frozenset({"cookies"})
     cookies: str
     ecu_id: str
     url: str

@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import multiprocessing.synchronize as mp_sync
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Optional
 
 from _otaclient_version import __version__
@@ -219,7 +219,8 @@ class UpdateRequestV2(IPCRequest):
 
     version: str
     url_base: str
-    cookies_json: str
+    # NOTE: cookies carry the credentials for accessing the OTA image
+    cookies_json: str = field(repr=False)
     release_name: str = ""
     release_id: str = ""
     image_id: str = ""
@@ -236,7 +237,8 @@ class ClientUpdateRequestV2(IPCRequest):
 
     version: str
     url_base: str
-    cookies_json: str
+    # NOTE: cookies carry the credentials for accessing the OTA image
+    cookies_json: str = field(repr=False)
     release_name: str = ""
     release_id: str = ""
     image_id: str = ""
