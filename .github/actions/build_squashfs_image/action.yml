@@ -26,12 +26,12 @@ runs:
         VERSION: ${{ inputs.version }}
       shell: bash
       run: |
-        echo "DOCKER_IMAGE=otaclient-${PLATFORM_SUFFIX}:${VERSION}" >> $GITHUB_ENV
-        echo "DOCKER_CONTAINER=otaclient-${PLATFORM_SUFFIX}_v${VERSION}" >> $GITHUB_ENV
+        echo "DOCKER_IMAGE=otaclient-${PLATFORM_SUFFIX}:${VERSION}" >> $GITHUB_OUTPUT
+        echo "DOCKER_CONTAINER=otaclient-${PLATFORM_SUFFIX}_v${VERSION}" >> $GITHUB_OUTPUT
 
     - name: build docker image
       env:
-        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
+        DOCKER_IMAGE: ${{ steps.set-vars.outputs.DOCKER_IMAGE }}
         PLATFORM: ${{ inputs.platform }}
         PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
         BASE_IMAGE: ${{ inputs.base_image }}
@@ -44,14 +44,16 @@ runs:
           .
 
     - name: quick check the build
+      env:
+        DOCKER_IMAGE: ${{ steps.set-vars.outputs.DOCKER_IMAGE }}
       shell: bash
       run: |
         docker run --rm ${DOCKER_IMAGE} version
 
     - name: export squashfs image
       env:
-        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
-        DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
+        DOCKER_IMAGE: ${{ steps.set-vars.outputs.DOCKER_IMAGE }}
+        DOCKER_CONTAINER: ${{ steps.set-vars.outputs.DOCKER_CONTAINER }}
         SQUASHFS: ${{ inputs.output_squashfs }}
       shell: bash
       # although zstd squashfs kernel support is available since ubuntu 18.04,
@@ -70,8 +72,8 @@ runs:
 
     - name: cleanup
       env:
-        DOCKER_IMAGE: ${{ env.DOCKER_IMAGE }}
-        DOCKER_CONTAINER: ${{ env.DOCKER_CONTAINER }}
+        DOCKER_IMAGE: ${{ steps.set-vars.outputs.DOCKER_IMAGE }}
+        DOCKER_CONTAINER: ${{ steps.set-vars.outputs.DOCKER_CONTAINER }}
       shell: bash
       run: |
         docker rm ${DOCKER_CONTAINER}
