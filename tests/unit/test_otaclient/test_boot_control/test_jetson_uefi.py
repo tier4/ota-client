@@ -228,6 +228,13 @@ class TestL4TLauncherBSPVersionControl:
                     sha256_digest="b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
                 ),
             ),
+            (
+                "R39.2.0:c9b54649f7a05fc326d1bf82fc68fa234d6e5a915cb56f8030874fdb21514d32",
+                L4TLauncherBSPVersionControl(
+                    bsp_ver=BSPVersion(39, 2, 0),
+                    sha256_digest="c9b54649f7a05fc326d1bf82fc68fa234d6e5a915cb56f8030874fdb21514d32",
+                ),
+            ),
         ),
     )
     def test_parse(self, _in, expected):
@@ -259,6 +266,14 @@ class TestL4TLauncherBSPVersionControl:
             BSPVersion(1, 2, 3),
             BSPVersion(36, 3, 0),
             "R36.3.0:b14fa3623f4078d05573d9dcf2a0b46ea2ae07d6b75d9843f9da6ff24db13718",
+        ),
+        # no version file, lookup table hit(R39)
+        (
+            "invalid_version_file",
+            "c9b54649f7a05fc326d1bf82fc68fa234d6e5a915cb56f8030874fdb21514d32",
+            BSPVersion(1, 2, 3),
+            BSPVersion(39, 2, 0),
+            "R39.2.0:c9b54649f7a05fc326d1bf82fc68fa234d6e5a915cb56f8030874fdb21514d32",
         ),
         # valid version file, hash mismatched, use slot BSP version
         (
@@ -312,7 +327,9 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
     @pytest.mark.parametrize(
         "current_bsp_version, download_bsp_version, expected_result",
         (
-            # Same generation compatibility: R35 -> R35.x
+            # NOTE: the check is an EXACT match against the current slot's firmware
+            #   BSP version. Being within the same generation is NOT enough.
+            # R35
             (
                 "R35.1.0",
                 "R35.1.0",
@@ -323,7 +340,7 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
                 "R35.1.0",
                 False,
             ),
-            # Same generation compatibility: R36 -> R36.x
+            # R36
             (
                 "R36.1.0",
                 "R36.3.0",
@@ -334,6 +351,17 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
                 "R36.3.0",
                 True,
             ),
+            # R39
+            (
+                "R39.2.0",
+                "R39.2.0",
+                True,
+            ),
+            (
+                "R39.2.0",
+                "R39.1.0",
+                False,
+            ),
             # Cross-generation incompatibility
             (
                 "R35.1.0",
@@ -343,6 +371,21 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
             (
                 "R36.1.0",
                 "R35.1.0",
+                False,
+            ),
+            (
+                "R36.3.0",
+                "R39.2.0",
+                False,
+            ),
+            (
+                "R39.2.0",
+                "R36.3.0",
+                False,
+            ),
+            (
+                "R35.4.1",
+                "R39.2.0",
                 False,
             ),
         ),
@@ -378,8 +421,8 @@ class TestJetsonUEFIBootControlBSPVersionCheck:
         """Test that uses current slot BSP version when standby slot BSP version is None."""
         boot_control = mocker.MagicMock(spec=JetsonUEFIBootControl)
 
-        # When standby is None, fall back to current slot version (R35.4.1)
-        # against download version (R35.4.1) — same generation should match.
+        # Standby slot version is not consulted at all; the check always compares
+        # against the current slot version (R35.4.1 == R35.4.1 -> match).
         mock_fw_bsp_ver_control = mocker.MagicMock()
         mock_fw_bsp_ver_control.standby_slot_bsp_ver = None
         mock_fw_bsp_ver_control.current_slot_bsp_ver = BSPVersion.parse("R35.4.1")

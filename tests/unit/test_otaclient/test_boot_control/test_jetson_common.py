@@ -67,6 +67,9 @@ class TestBSPVersion:
             ("r32.6.1", BSPVersion(32, 6, 1), None),
             ("32.6.1", BSPVersion(32, 6, 1), None),
             ("R35.4.1", BSPVersion(35, 4, 1), None),
+            ("R36.4.0", BSPVersion(36, 4, 0), None),
+            ("R39.2.0", BSPVersion(39, 2, 0), None),
+            ("r39.2.0", BSPVersion(39, 2, 0), None),
             ("1.22.333", BSPVersion(1, 22, 333), None),
             ("not_a_valid_bsp_ver", None, ValueError),
             (123, None, ValueError),
@@ -89,6 +92,7 @@ class TestBSPVersion:
         (
             (BSPVersion(35, 4, 1), "R35.4.1"),
             (BSPVersion(32, 6, 1), "R32.6.1"),
+            (BSPVersion(39, 2, 0), "R39.2.0"),
             (BSPVersion(1, 22, 333), "R1.22.333"),
         ),
     )
@@ -124,6 +128,17 @@ class TestFirmwareBSPVersionControl:
         (
             "# R35 (release), REVISION: 5.0, GCID: 35550185, BOARD: t186ref, EABI: aarch64, DATE: Tue Feb 20 04:46:31 UTC 2024",
             BSPVersion(35, 5, 0),
+        ),
+        (
+            "# R36 (release), REVISION: 4.0, GCID: 37537400, BOARD: generic, EABI: aarch64, DATE: Fri Sep 13 04:36:44 UTC 2024",
+            BSPVersion(36, 4, 0),
+        ),
+        # NOTE(r39): taken verbatim from an R39.2.0 AGX Orin (SKU 699-13701-0005-501).
+        #   R39 switched the DATE field to a 12-hour clock ("09:28:48 PM"); the
+        #   pattern stops at EABI so this does not affect parsing.
+        (
+            "# R39 (release), REVISION: 2.0, GCID: 45755727, BOARD: generic, EABI: aarch64, DATE: Mon Jun  1 09:28:48 PM UTC 2026",
+            BSPVersion(39, 2, 0),
         ),
     ),
 )
