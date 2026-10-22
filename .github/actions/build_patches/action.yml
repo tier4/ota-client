@@ -16,7 +16,8 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: set self version as environment variable
+    - name: parse self version
+      id: self_version
       env:
         VERSION: ${{ inputs.version }}
       shell: bash
@@ -25,11 +26,12 @@ runs:
         MINOR=$(echo ${VERSION} | cut -d. -f2)
         PATCH=$(echo ${VERSION} | cut -d. -f3)
 
-        echo "MAJOR=${MAJOR:-0}" >> $GITHUB_ENV
-        echo "MINOR=${MINOR:-0}" >> $GITHUB_ENV
-        echo "PATCH=${PATCH:-0}" >> $GITHUB_ENV
+        echo "MAJOR=${MAJOR:-0}" >> $GITHUB_OUTPUT
+        echo "MINOR=${MINOR:-0}" >> $GITHUB_OUTPUT
+        echo "PATCH=${PATCH:-0}" >> $GITHUB_OUTPUT
 
     - name: get released versions
+      id: released_versions
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -39,14 +41,15 @@ runs:
           --jq '.[].tagName' | \
           sed 's/^v//' | \
           tr '\n' ' ')
-        echo "RELEASED_VERSIONS=${RELEASED_VERSIONS}" >> $GITHUB_ENV
+        echo "RELEASED_VERSIONS=${RELEASED_VERSIONS}" >> $GITHUB_OUTPUT
 
     - name: extract target versions
+      id: target_versions
       env:
-        RELEASED_VERSIONS: ${{ env.RELEASED_VERSIONS }}
-        MAJOR: ${{ env.MAJOR }}
-        MINOR: ${{ env.MINOR }}
-        PATCH: ${{ env.PATCH }}
+        RELEASED_VERSIONS: ${{ steps.released_versions.outputs.RELEASED_VERSIONS }}
+        MAJOR: ${{ steps.self_version.outputs.MAJOR }}
+        MINOR: ${{ steps.self_version.outputs.MINOR }}
+        PATCH: ${{ steps.self_version.outputs.PATCH }}
       shell: bash
       # extract versions that meet the the following conditions:
       # 1. include the same major version and the same or the previous minor version
@@ -57,11 +60,11 @@ runs:
           grep -E "^${MAJOR}\.(${MINOR}|$(( ${MINOR} - 1)))\.[0-9]+$" | \
           grep -vE "^${MAJOR}\.${MINOR}\.${PATCH}$" | \
           tr '\n' ' ' || true)
-        echo "BASE_VERSIONS=${BASE_VERSIONS}" >> $GITHUB_ENV
+        echo "BASE_VERSIONS=${BASE_VERSIONS}" >> $GITHUB_OUTPUT
 
     - name: download and create patches for target versions
       env:
-        BASE_VERSIONS: ${{ env.BASE_VERSIONS }}
+        BASE_VERSIONS: ${{ steps.target_versions.outputs.BASE_VERSIONS }}
         PLATFORM_SUFFIX: ${{ inputs.platform_suffix }}
         VERSION: ${{ inputs.version }}
         SQUASHFS: ${{ inputs.squashfs }}

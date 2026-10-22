@@ -22,7 +22,9 @@ from functools import update_wrapper
 from io import StringIO
 from typing import (
     Any,
+    ClassVar,
     Dict,
+    FrozenSet,
     Generic,
     Iterable,
     List,
@@ -50,6 +52,7 @@ __all__ = [
     "SCALAR_VALUE_TYPES",
     # ------ detailed core types/utils ------ #
     "calculate_slots",
+    "REDACTED_STR",
     # wrapper base
     "MessageWrapper",
     "EnumWrapper",
@@ -61,6 +64,8 @@ __all__ = [
     "ScalarMapContainer",
     "MessageMapContainer",
 ]
+
+REDACTED_STR = "<redacted>"
 
 # typing helpers
 
@@ -589,6 +594,8 @@ class MessageWrapper(WrapperBase[MessageType]):
     _proto_class: Type[MessageType]
     _fields: List[str]
     __slots__: List[str]
+    # fields whose value should not be shown by __str__/__repr__, i.e., credentials
+    _redacted_fields: ClassVar[FrozenSet[str]] = frozenset()
 
     # internal
 
@@ -683,7 +690,10 @@ class MessageWrapper(WrapperBase[MessageType]):
         _buffer = StringIO()
         _buffer.write("{\n")
         for _field_name in self._fields:
-            _attrv_str = str(getattr(self, _field_name))
+            if _field_name in self._redacted_fields:
+                _attrv_str = REDACTED_STR
+            else:
+                _attrv_str = str(getattr(self, _field_name))
             _buffer.write(f" {_field_name} :")
             for _idx, _line in enumerate(_attrv_str.splitlines(keepends=True)):
                 if _idx == 0:
