@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import atexit
 import logging
-import shutil
 from functools import partial
 from pathlib import Path
 from typing import Mapping
@@ -29,6 +28,7 @@ from otaclient.boot_control._ota_config_files import (
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
+from otaclient_common.common import copytree_identical
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +111,9 @@ class SlotMountHelper:  # pragma: no cover
 
         /boot/ota folder contains the ota setting for this device,
         so we should preserve it for each slot, accross each update.
+        The standby's /boot/ota is made identical to the active one, as the Jetson
+        boot controllers do, so that nothing from the OTA image's /boot/ota is left,
+        and a symlink in it is replaced instead of written through.
         After that, <ota_config_files> loaded from the OTA image are installed,
         see install_ota_config_files for details.
         """
@@ -120,7 +123,7 @@ class SlotMountHelper:  # pragma: no cover
         try:
             _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
             _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            shutil.copytree(_src, _dst, dirs_exist_ok=True)
+            copytree_identical(_src, _dst)
             install_ota_config_files(
                 ota_config_files,
                 dst_ota_dpath=_dst,

@@ -371,3 +371,45 @@ class TestPreserveOTAFolderToStandby:
             PROXY_INFO_FNAME: OLD_PROXY_INFO,
             "active_only_file": "active",
         }
+
+    def test_nothing_left_from_the_image(self, tmp_path: Path, preserve_func):
+        """The standby's /boot/ota ends up as the active one, also when the OTA config
+        files are persisted but the active slot doesn't have them."""
+        _active_ota_dir = _write_ota_dir(
+            tmp_path / "active/boot/ota", {"active_only_file": "active"}
+        )
+        _standby_ota_dir = _write_ota_dir(
+            tmp_path / "standby/boot/ota",
+            {
+                ECU_INFO_FNAME: NEW_ECU_INFO,
+                PROXY_INFO_FNAME: NEW_PROXY_INFO,
+                "image_only_file": "image",
+            },
+        )
+
+        preserve_func(_active_ota_dir, _standby_ota_dir, {})
+
+        assert _read_ota_dir(_standby_ota_dir) == {"active_only_file": "active"}
+
+    def test_symlink_in_the_image_not_written_through(
+        self, tmp_path: Path, preserve_func
+    ):
+        """A symlink in the OTA image's /boot/ota is replaced, its target is untouched."""
+        _active_ota_dir = _write_ota_dir(
+            tmp_path / "active/boot/ota",
+            {ECU_INFO_FNAME: OLD_ECU_INFO, PROXY_INFO_FNAME: OLD_PROXY_INFO},
+        )
+        _standby_ota_dir = _write_ota_dir(tmp_path / "standby/boot/ota", {})
+        # an absolute symlink is resolved against the running rootfs
+        _link_target = tmp_path / "running_rootfs_file"
+        _link_target.write_text("running")
+        (_standby_ota_dir / PROXY_INFO_FNAME).symlink_to(_link_target)
+
+        preserve_func(_active_ota_dir, _standby_ota_dir, {})
+
+        assert not (_standby_ota_dir / PROXY_INFO_FNAME).is_symlink()
+        assert _read_ota_dir(_standby_ota_dir) == {
+            ECU_INFO_FNAME: OLD_ECU_INFO,
+            PROXY_INFO_FNAME: OLD_PROXY_INFO,
+        }
+        assert _link_target.read_text() == "running"
