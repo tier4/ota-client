@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import NoReturn
+from typing import Mapping, NoReturn
 
 import pytest
 from pytest_mock import MockerFixture
@@ -53,8 +53,11 @@ def _make_concrete_boot_controller_cls(mocker: MockerFixture):
         ) -> None:
             self.pre_update_platform_called = True
 
-        def _post_update_platform_specific(self, *, update_version: str) -> None:
+        def _post_update_platform_specific(
+            self, *, update_version: str, ota_config_files: Mapping[str, str]
+        ) -> None:
             self.post_update_platform_called = True
+            self.post_update_ota_config_files = ota_config_files
 
         def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
             raise SystemExit("mock reboot")
@@ -157,6 +160,15 @@ class TestBootControllerBase:
         controller._ota_status_control.post_update_standby.assert_called_once()
         controller._mp_control.umount_all.assert_called_once()
         assert controller.post_update_platform_called is True
+        assert controller.post_update_ota_config_files == {}
+
+    def test_post_update_with_ota_config_files(self, controller):
+        _ota_config_files = {"ecu_info.yaml": "ecu_id: autoware\n"}
+        controller.post_update(
+            update_version="2.0.0", ota_config_files=_ota_config_files
+        )
+
+        assert controller.post_update_ota_config_files == _ota_config_files
 
     def test_post_update_with_version_detail(self, controller):
         _version_detail = VersionDetail(

@@ -477,6 +477,11 @@ class TestGrubBootControllerPreUpdate:
 #
 
 NEW_ECU_INFO = 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.20.1"\n'
+# the OTA config files loaded from the new image
+NEW_OTA_CONFIG_FILES = {
+    "proxy_info.yaml": "new-proxy-config",
+    "ecu_info.yaml": NEW_ECU_INFO,
+}
 
 
 def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> None:
@@ -496,12 +501,6 @@ def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> No
 
     # Config files at <standby_mp>/etc/
     _create_grub_rootfs(standby_mp)
-
-    # OTA config files from the new image
-    standby_ota = standby_mp / "boot" / "ota"
-    standby_ota.mkdir(parents=True, exist_ok=True)
-    (standby_ota / "proxy_info.yaml").write_text("new-proxy-config")
-    (standby_ota / "ecu_info.yaml").write_text(NEW_ECU_INFO)
 
     # Active slot mount (bind-mounted ro in real life)
     active_mp = mnt_dir / "active"
@@ -583,7 +582,9 @@ class TestGrubBootControllerPostUpdate:
             boot_dir, mnt_dir, rootfs_dir, mocker
         )
 
-        controller.post_update(update_version="3.0.0")
+        controller.post_update(
+            update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+        )
 
         # === OTA status files on standby slot (boot_dir/ota-slot_b/) ===
         slot_b_dir = boot_dir / "ota-slot_b"
@@ -675,7 +676,9 @@ class TestGrubBootControllerPostUpdate:
         ota_dir.mkdir(parents=True, exist_ok=True)
         (ota_dir / "ecu_info.yaml").write_text(current_ecu_info)
 
-        controller.post_update(update_version="3.0.0")
+        controller.post_update(
+            update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+        )
 
         # proxy_info.yaml always overwritten
         assert (ota_dir / "proxy_info.yaml").read_text() == "new-proxy-config"

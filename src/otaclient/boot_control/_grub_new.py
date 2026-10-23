@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
-from typing import Callable, Generator, Literal, NoReturn
+from typing import Callable, Generator, Literal, Mapping, NoReturn
 
 from _otaclient_version import version as _running_otaclient_version
 from packaging.version import InvalidVersion, Version
@@ -34,10 +34,7 @@ from typing_extensions import Self
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
-from otaclient.boot_control._ota_config_files import (
-    install_ota_config_files,
-    load_ota_config_files_from_image,
-)
+from otaclient.boot_control._ota_config_files import install_ota_config_files
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
@@ -1385,7 +1382,9 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _install_new_ota_config_files(self) -> None:
+    def _install_new_ota_config_files(
+        self, ota_config_files: Mapping[str, str]
+    ) -> None:
         """Install new OTA config files to the shared boot partition.
 
         See install_ota_config_files for which files from the OTA image are installed.
@@ -1393,15 +1392,8 @@ class GrubBootController(BootControllerBase):
         NOTE: as /boot/ota is shared by both slots, the old slot also uses the
             new OTA config files if it is booted again after this OTA.
         """
-        _image_ota_dpath = Path(
-            replace_root(
-                cfg.OTA_DPATH,
-                cfg.CANONICAL_ROOT,
-                self._mp_control.standby_slot_mount_point,
-            )
-        )
         install_ota_config_files(
-            load_ota_config_files_from_image(_image_ota_dpath),
+            ota_config_files,
             dst_ota_dpath=Path(cfg.OTA_DPATH),
             current_ecu_info_fpath=Path(cfg.ECU_INFO_FPATH),
         )
@@ -1450,7 +1442,9 @@ class GrubBootController(BootControllerBase):
                 f"pre_update: failed to also write legacy boot slot's OTA status file: {e!r}"
             )
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: Mapping[str, str]
+    ) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
         _kernel_ver = self._boot_control.detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
@@ -1512,7 +1506,7 @@ class GrubBootController(BootControllerBase):
             logger.info(
                 "install new ecu_info.yaml and proxy_info.yaml to boot partition"
             )
-            self._install_new_ota_config_files()
+            self._install_new_ota_config_files(ota_config_files)
 
             logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
             self._boot_control.setup_ota_boot_cfg_for_slot(

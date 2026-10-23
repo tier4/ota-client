@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
@@ -98,7 +98,14 @@ class BootControllerProtocol(Protocol):
         update_version: str,
         *,
         version_detail: VersionDetail | None = None,
-    ) -> None: ...
+        ota_config_files: Mapping[str, str] | None = None,
+    ) -> None:
+        """Configure the standby slot to be booted.
+
+        Args:
+            ota_config_files: the OTA config files(ecu_info.yaml, proxy_info.yaml)
+                loaded from the OTA image, to install for the next boot.
+        """
 
     @abstractmethod
     def finalizing_update(self, *, chroot: str | None = None) -> None:

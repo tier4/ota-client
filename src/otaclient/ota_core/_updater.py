@@ -39,6 +39,7 @@ from otaclient._types import AbortState, UpdatePhase, VersionDetail
 from otaclient._utils import wait_and_log
 from otaclient.boot_control._jetson_common import parse_nv_tegra_release
 from otaclient.boot_control._jetson_uefi import JetsonUEFIBootControl
+from otaclient.boot_control._ota_config_files import load_ota_config_files_from_image
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.create_standby._common import ResourcesDigestWithSize
@@ -48,6 +49,7 @@ from otaclient.ota_core import _download_bsp_version_file
 from otaclient_common import (
     _env,
     human_readable_size,
+    replace_root,
 )
 from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
@@ -304,9 +306,22 @@ class OTAUpdaterBase(OTAUpdateInitializer):
 
         # NOTE(20240219): move persist file handling at post_update hook
         assert self._iter_persists_func
-        if _gen := self._iter_persists_func():
+        _gen = self._iter_persists_func()
+        _persist_entries = list(_gen) if _gen else []
+
+        # NOTE: load the OTA config files from the OTA image before the persist
+        #       files handling replaces the persisted ones with the active slot's.
+        #       A file listed in the persist files is not loaded, the current one is kept.
+        _ota_config_files = load_ota_config_files_from_image(
+            Path(
+                replace_root(cfg.OTA_DPATH, cfg.CANONICAL_ROOT, self._standby_slot_mp)
+            ),
+            persist_entries=_persist_entries,
+        )
+
+        if _gen:
             process_persistents(
-                _gen,
+                _persist_entries,
                 active_slot_mp=self._active_slot_mp,
                 standby_slot_mp=self._standby_slot_mp,
             )
@@ -327,6 +342,7 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         self._boot_controller.post_update(
             self.update_version,
             version_detail=_version_detail,
+            ota_config_files=_ota_config_files,
         )
 
     def _finalize_update(self) -> None:

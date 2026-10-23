@@ -82,6 +82,42 @@ def test_load_ota_config_files_from_image_no_ota_dir(tmp_path: Path):
 
 
 @pytest.mark.parametrize(
+    "persist_entries, expected",
+    (
+        (["/boot/ota/ecu_info.yaml"], {PROXY_INFO_FNAME: NEW_PROXY_INFO}),
+        (["/boot/ota/proxy_info.yaml"], {ECU_INFO_FNAME: NEW_ECU_INFO}),
+        (
+            ["/boot/ota/ecu_info.yaml", "/boot/ota/proxy_info.yaml"],
+            {},
+        ),
+        # listed by a parent folder
+        (["/boot/ota"], {}),
+        (["/boot/ota/"], {}),
+        (["/boot"], {}),
+        # not listed
+        (
+            ["/etc/hosts", "/boot/ota/ecu_info.yaml.bak", "/boot/ota_backup"],
+            {ECU_INFO_FNAME: NEW_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+        ),
+    ),
+)
+def test_load_ota_config_files_from_image_persisted(
+    tmp_path: Path, persist_entries: list[str], expected: dict
+):
+    """A file listed in the persist files is not loaded, so the current one is kept."""
+    _image_ota_dir = _write_ota_dir(
+        tmp_path / "boot/ota",
+        {ECU_INFO_FNAME: NEW_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+    )
+    assert (
+        load_ota_config_files_from_image(
+            _image_ota_dir, persist_entries=persist_entries
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
     "image_files, current_files, expected",
     (
         # the ecu_info.yaml with the same ecu_id from the image is installed
@@ -156,55 +192,65 @@ def test_install_ota_config_files_no_dst_dir(tmp_path: Path):
     }
 
 
-def test_grub_install_new_ota_config_files(tmp_path: Path, mocker: MockerFixture):
-    """The grub boot controller installs the files from the OTA image to the shared /boot/ota."""
+@pytest.mark.parametrize(
+    "ota_config_files, expected",
+    (
+        (
+            {ECU_INFO_FNAME: NEW_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+            {ECU_INFO_FNAME: NEW_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+        ),
+        # ecu_info.yaml is persisted, so not loaded from the image
+        (
+            {PROXY_INFO_FNAME: NEW_PROXY_INFO},
+            {ECU_INFO_FNAME: OLD_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+        ),
+    ),
+)
+def test_grub_install_new_ota_config_files(
+    tmp_path: Path, mocker: MockerFixture, ota_config_files: dict, expected: dict
+):
+    """The grub boot controller installs the files to the shared /boot/ota."""
     _shared_ota_dir = _write_ota_dir(
         tmp_path / "boot/ota",
         {ECU_INFO_FNAME: OLD_ECU_INFO, PROXY_INFO_FNAME: OLD_PROXY_INFO},
-    )
-    _standby_mp = tmp_path / "standby"
-    _write_ota_dir(
-        _standby_mp / _shared_ota_dir.relative_to("/"),
-        {ECU_INFO_FNAME: NEW_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
     )
     mocker.patch.object(
         _grub_new,
         "cfg",
         SimpleNamespace(
-            CANONICAL_ROOT="/",
             OTA_DPATH=str(_shared_ota_dir),
             ECU_INFO_FPATH=str(_shared_ota_dir / ECU_INFO_FNAME),
         ),
     )
     _controller = object.__new__(GrubBootController)
-    _controller._mp_control = SimpleNamespace(standby_slot_mount_point=_standby_mp)  # type: ignore[assignment]
 
-    _controller._install_new_ota_config_files()
+    _controller._install_new_ota_config_files(ota_config_files)
 
-    assert _read_ota_dir(_shared_ota_dir) == {
-        ECU_INFO_FNAME: NEW_ECU_INFO,
-        PROXY_INFO_FNAME: NEW_PROXY_INFO,
-    }
+    assert _read_ota_dir(_shared_ota_dir) == expected
 
 
 class TestPreserveOTAFolderToStandby:
     """Both the Jetson and the RPi boot controllers preserve the active slot's /boot/ota,
-    with the OTA config files from the OTA image installed over it."""
+    with the OTA config files loaded from the OTA image installed over it."""
 
     @pytest.fixture(params=["jetson", "rpi"])
     def preserve_func(self, request):
-        def _jetson(active_ota_dir: Path, standby_ota_dir: Path):
+        def _jetson(active_ota_dir: Path, standby_ota_dir: Path, ota_config_files):
             preserve_ota_config_files_to_standby(
                 active_slot_ota_dirpath=active_ota_dir,
                 standby_slot_ota_dirpath=standby_ota_dir,
+                ota_config_files=ota_config_files,
             )
 
-        def _rpi(active_ota_dir: Path, standby_ota_dir: Path):
+        def _rpi(active_ota_dir: Path, standby_ota_dir: Path, ota_config_files):
             _mp_control = SimpleNamespace(
                 active_slot_mount_point=active_ota_dir.parents[1],
                 standby_slot_mount_point=standby_ota_dir.parents[1],
             )
-            SlotMountHelper.preserve_ota_folder_to_standby(_mp_control)  # type: ignore[arg-type]
+            SlotMountHelper.preserve_ota_folder_to_standby(
+                _mp_control,  # type: ignore[arg-type]
+                ota_config_files,
+            )
 
         return _jetson if request.param == "jetson" else _rpi
 
@@ -217,6 +263,11 @@ class TestPreserveOTAFolderToStandby:
             ),
             (
                 {ECU_INFO_FNAME: OTHER_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+                {ECU_INFO_FNAME: OLD_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
+            ),
+            # ecu_info.yaml is persisted, so not loaded from the image
+            (
+                {PROXY_INFO_FNAME: NEW_PROXY_INFO},
                 {ECU_INFO_FNAME: OLD_ECU_INFO, PROXY_INFO_FNAME: NEW_PROXY_INFO},
             ),
             (
@@ -240,9 +291,9 @@ class TestPreserveOTAFolderToStandby:
                 "active_only_file": "active",
             },
         )
-        _standby_ota_dir = _write_ota_dir(tmp_path / "standby/boot/ota", image_files)
+        _standby_ota_dir = tmp_path / "standby/boot/ota"
 
-        preserve_func(_active_ota_dir, _standby_ota_dir)
+        preserve_func(_active_ota_dir, _standby_ota_dir, image_files)
 
         _res = _read_ota_dir(_standby_ota_dir)
         assert _res.pop("active_only_file") == "active"

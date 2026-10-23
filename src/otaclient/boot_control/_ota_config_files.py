@@ -16,13 +16,16 @@
 /boot/ota/ecu_info.yaml and /boot/ota/proxy_info.yaml hold the OTA settings of the ECU,
     including the addresses the ECUs use to reach each other. At each OTA, the copies
     shipped in the OTA image are installed, so that a change to these settings in the
-    OTA image reaches the ECU.
+    OTA image reaches the ECU. A file listed in the persist files of the OTA image
+    is not installed, the current one is kept for it.
 """
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
+from typing import Iterable, Mapping
 
 import yaml
 
@@ -36,18 +39,41 @@ ECU_INFO_FNAME = Path(cfg.ECU_INFO_FPATH).name
 PROXY_INFO_FNAME = Path(cfg.PROXY_INFO_FPATH).name
 
 
-def load_ota_config_files_from_image(image_ota_dpath: Path) -> dict[str, str]:
+def _is_persisted(fpath: PurePosixPath, persist_entries: Iterable[str]) -> bool:
+    """Whether <fpath> is listed in the persist files, by itself or by one of its parents."""
+    for _entry in persist_entries:
+        _entry_path = PurePosixPath(os.path.normpath(_entry))
+        if _entry_path == fpath or _entry_path in fpath.parents:
+            return True
+    return False
+
+
+def load_ota_config_files_from_image(
+    image_ota_dpath: Path, *, persist_entries: Iterable[str] = ()
+) -> dict[str, str]:
     """Load the OTA config files shipped in the OTA image.
 
-    This must be called before the /boot/ota folder of the OTA image is replaced
-        with the active slot's one.
+    This must be called before the persist files handling, which replaces the
+        persisted files in the OTA image with the active slot's ones.
+
+    Args:
+        image_ota_dpath: the /boot/ota folder of the OTA image.
+        persist_entries: the persist files of the OTA image. A file listed in it
+            is not loaded, so that the current one is kept.
 
     Returns:
         A dict maps the file name to the file content. Files not shipped in
-            the OTA image are not included.
+            the OTA image, or listed in the persist files, are not included.
     """
+    _persist_entries = list(persist_entries)
     res: dict[str, str] = {}
     for _fname in (ECU_INFO_FNAME, PROXY_INFO_FNAME):
+        if _is_persisted(PurePosixPath(cfg.OTA_DPATH) / _fname, _persist_entries):
+            logger.info(
+                f"{_fname} is listed in the persist files, keep the current one"
+            )
+            continue
+
         _fpath = image_ota_dpath / _fname
         if _fpath.is_file():
             res[_fname] = _fpath.read_text()
@@ -61,7 +87,7 @@ def _load_ecu_id(ecu_info_yaml: str) -> str:
 
 
 def install_ota_config_files(
-    image_ota_config_files: dict[str, str],
+    image_ota_config_files: Mapping[str, str],
     *,
     dst_ota_dpath: Path,
     current_ecu_info_fpath: Path,
@@ -76,7 +102,7 @@ def install_ota_config_files(
         an ECU is not expected to be changed via OTA.
     In these cases, the ecu_info.yaml at <dst_ota_dpath> is left as it is.
 
-    A file not shipped in the OTA image is left as it is.
+    A file not shipped in the OTA image, or listed in the persist files, is left as it is.
 
     Args:
         image_ota_config_files: the files loaded by load_ota_config_files_from_image.
