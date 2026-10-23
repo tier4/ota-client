@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, ClassVar, Generator, Literal, NoReturn
+from typing import Any, ClassVar, Generator, Literal, Mapping, NoReturn
 
 from pydantic import BaseModel
 from typing_extensions import Self
@@ -1000,7 +1000,9 @@ class JetsonUEFIBootControl(BootControllerBase):
         logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
         return False, (_bsp_ver, fw_bsp_ver)
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: Mapping[str, str]
+    ) -> None:
         """Jetson UEFI-specific post-update operations."""
         # ------ update extlinux.conf ------ #
         with ota_errors.raise_as_ota_error(
@@ -1020,7 +1022,7 @@ class JetsonUEFIBootControl(BootControllerBase):
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 
-        # ------ preserve /boot/ota folder to standby rootfs ------ #
+        # ------ preserve /boot/ota folder to standby rootfs, and install the OTA config files ------ #
         preserve_ota_config_files_to_standby(
             active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
             / "boot"
@@ -1028,6 +1030,7 @@ class JetsonUEFIBootControl(BootControllerBase):
             standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
             / "boot"
             / "ota",
+            ota_config_files=ota_config_files,
         )
 
         # ------ firmware update & switch boot to standby ------ #

@@ -123,6 +123,17 @@ DEFAULT_ECU_INFO = ECUInfo(
 )
 
 
+def load_ecu_info(raw_yaml: str) -> ECUInfo:
+    """Load the content of an ecu_info.yaml file.
+
+    Raises:
+        Exception if <raw_yaml> is not a valid ecu_info.yaml.
+    """
+    loaded_ecu_info = yaml.safe_load(raw_yaml)
+    assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
+    return ECUInfo.model_validate(loaded_ecu_info, strict=True)
+
+
 def parse_ecu_info(ecu_info_file: StrOrPath) -> tuple[bool, ECUInfo]:
     """Parse the ecu_info.yaml file located at <ecu_info_file>.
 
@@ -139,9 +150,7 @@ def parse_ecu_info(ecu_info_file: StrOrPath) -> tuple[bool, ECUInfo]:
         return False, DEFAULT_ECU_INFO
 
     try:
-        loaded_ecu_info = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(loaded_ecu_info, dict), "not a valid yaml file"
-        return True, ECUInfo.model_validate(loaded_ecu_info, strict=True)
+        return True, load_ecu_info(_raw_yaml_str)
     except Exception as e:
         logger.warning(f"{ecu_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default ecu_info: {DEFAULT_ECU_INFO}")

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
-from typing import Callable, Generator, Literal, NoReturn
+from typing import Callable, Generator, Literal, Mapping, NoReturn
 
 from _otaclient_version import version as _running_otaclient_version
 from packaging.version import InvalidVersion, Version
@@ -34,6 +34,7 @@ from typing_extensions import Self
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
+from otaclient.boot_control._ota_config_files import install_ota_config_files
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
@@ -1381,39 +1382,21 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _install_new_ota_config_files(self) -> None:
+    def _install_new_ota_config_files(
+        self, ota_config_files: Mapping[str, str]
+    ) -> None:
         """Install new OTA config files to the shared boot partition.
 
-        For proxy_info.yaml, we always install the new version.
-        For ecu_info.yaml, we only install the new version when there is
-            no ecu_info.yaml presented in the /boot/ota.
+        See install_ota_config_files for which files from the OTA image are installed.
+
+        NOTE: as /boot/ota is shared by both slots, the old slot also uses the
+            new OTA config files if it is booted again after this OTA.
         """
-        _proxy_info_dst = Path(cfg.PROXY_INFO_FPATH)
-        _proxy_info_src = Path(
-            replace_root(
-                cfg.PROXY_INFO_FPATH,
-                cfg.CANONICAL_ROOT,
-                self._mp_control.standby_slot_mount_point,
-            )
+        install_ota_config_files(
+            ota_config_files,
+            dst_ota_dpath=Path(cfg.OTA_DPATH),
+            current_ecu_info_fpath=Path(cfg.ECU_INFO_FPATH),
         )
-
-        Path(cfg.OTA_DPATH).mkdir(exist_ok=True, parents=True)
-        if _proxy_info_src.is_file():
-            copyfile_atomic(_proxy_info_src, _proxy_info_dst)
-
-        _ecu_info_dst = Path(cfg.ECU_INFO_FPATH)
-        _ecu_info_src = Path(
-            replace_root(
-                cfg.ECU_INFO_FPATH,
-                cfg.CANONICAL_ROOT,
-                self._mp_control.standby_slot_mount_point,
-            )
-        )
-        if _ecu_info_src.is_file() and not _ecu_info_dst.is_file():
-            logger.warning(
-                f"no ecu_info.yaml file found at {_ecu_info_dst}, install the one from the OTA image ..."
-            )
-            copyfile_atomic(_ecu_info_src, _ecu_info_dst)
 
     # API
 
@@ -1459,7 +1442,9 @@ class GrubBootController(BootControllerBase):
                 f"pre_update: failed to also write legacy boot slot's OTA status file: {e!r}"
             )
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: Mapping[str, str]
+    ) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
         _kernel_ver = self._boot_control.detect_slot_kernel_ver(
             self._mp_control.standby_slot_mount_point
@@ -1518,15 +1503,18 @@ class GrubBootController(BootControllerBase):
                     )
                 ),
             )
-            logger.info(
-                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
-            )
-            self._install_new_ota_config_files()
-
             logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
             self._boot_control.setup_ota_boot_cfg_for_slot(
                 _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
             )
+
+            # NOTE: /boot/ota is shared by both slots, install the new OTA config
+            #       files as late as possible, so that a failure of the steps above
+            #       doesn't leave the current slot with the new ones.
+            logger.info(
+                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
+            )
+            self._install_new_ota_config_files(ota_config_files)
 
         logger.info(f"configure grub-reboot to standby slot({_standby_slot_id=}) ...")
         with ota_errors.raise_as_ota_error(

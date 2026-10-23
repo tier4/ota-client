@@ -21,7 +21,7 @@ import os
 import subprocess
 from pathlib import Path
 from string import Template
-from typing import Any, Generator, Literal, NoReturn
+from typing import Any, Generator, Literal, Mapping, NoReturn
 
 from typing_extensions import Self
 
@@ -491,9 +491,11 @@ class RPIBootController(BootControllerBase):
             fslabel=self._rpiboot_control.standby_slot,
         )
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: Mapping[str, str]
+    ) -> None:
         """RPI-specific post-update operations."""
-        self._mp_control.preserve_ota_folder_to_standby()
+        self._mp_control.preserve_ota_folder_to_standby(ota_config_files)
         with ota_errors.raise_as_ota_error(
             ota_errors.BootControlBootConfigUpdateFailed,
             "failed to update fstab for standby slot",

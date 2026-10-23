@@ -17,13 +17,18 @@ from __future__ import annotations
 
 import atexit
 import logging
-import shutil
 from functools import partial
 from pathlib import Path
+from typing import Mapping
 
+from otaclient.boot_control._ota_config_files import (
+    ECU_INFO_FNAME,
+    install_ota_config_files,
+)
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
+from otaclient_common.common import copytree_identical
 
 logger = logging.getLogger(__name__)
 
@@ -101,20 +106,32 @@ class SlotMountHelper:  # pragma: no cover
             raise_exception=True,
         )
 
-    def preserve_ota_folder_to_standby(self):
+    def preserve_ota_folder_to_standby(self, ota_config_files: Mapping[str, str]):
         """Copy the /boot/ota folder to standby slot to preserve it.
 
         /boot/ota folder contains the ota setting for this device,
         so we should preserve it for each slot, accross each update.
+        The standby's /boot/ota is made identical to the active one, as the Jetson
+        boot controllers do, so that nothing from the OTA image's /boot/ota is left,
+        and a symlink in it is replaced instead of written through.
+        After that, <ota_config_files> loaded from the OTA image are installed,
+        see install_ota_config_files for details.
         """
-        logger.debug("copy /boot/ota from active to standby.")
+        logger.debug(
+            "copy /boot/ota from active to standby, and install the OTA config files"
+        )
         try:
             _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
             _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
-            shutil.copytree(_src, _dst, dirs_exist_ok=True)
+            copytree_identical(_src, _dst)
+            install_ota_config_files(
+                ota_config_files,
+                dst_ota_dpath=_dst,
+                current_ecu_info_fpath=_src / ECU_INFO_FNAME,
+            )
         except Exception as e:
             raise ValueError(
-                f"failed to copy /boot/ota from active to standby: {e!r}"
+                f"failed to preserve /boot/ota to standby and install the OTA config files: {e!r}"
             ) from e
 
     def prepare_standby_dev(

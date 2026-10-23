@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, Mapping
 
 import pytest
 
@@ -346,6 +346,7 @@ class MockBootController:
         update_version: str,
         *,
         version_detail: VersionDetail | None = None,
+        ota_config_files: Mapping[str, str] | None = None,
     ) -> None:
         logger.info(
             f"MockBootController: post_update(version={update_version}, version_detail={version_detail})"

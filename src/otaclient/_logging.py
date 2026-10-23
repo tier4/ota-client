@@ -234,10 +234,12 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-        # TODO: Currently, we cannot update /boot/ota/proxy_info.yaml because it is not included in the OTA image.
+        # TODO: ECUs updated by older otaclient keep their old /boot/ota/proxy_info.yaml, as it was not
+        # installed from the OTA image at OTA(otaclient now installs it, unless it is listed in the persist files).
         # As a workaround, we use the HTTP host with the gRPC port for gRPC communication,
         # since their hosts are essentially the same.
-        # In the future, once we can update proxy_info.yaml, we should switch to using the dedicated gRPC endpoint in proxy_info.yaml.
+        # In the future, once the ECUs carry the intended proxy_info.yaml, we should switch to using
+        # the dedicated gRPC endpoint in proxy_info.yaml.
         _parsed_http = urlparse(str(logging_upload_endpoint))
         _scheme = _parsed_http.scheme
         _host = _parsed_http.hostname
