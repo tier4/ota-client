@@ -205,9 +205,10 @@ class OTAMetadata:
         metadata_jwt = self.metadata_jwt
 
         # ------ setup database ------ #
-        with closing(self.connect_fstable()) as fst_conn, closing(
-            self.connect_rstable()
-        ) as rst_conn:
+        with (
+            closing(self.connect_fstable()) as fst_conn,
+            closing(self.connect_rstable()) as rst_conn,
+        ):
             # ------ bootstrap each tables in the file_table database ------ #
             ft_regular_orm = FileTableRegularORM(fst_conn)
             ft_regular_orm.orm_bootstrap_db()

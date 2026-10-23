@@ -242,9 +242,10 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             download_tmp_dir=download_tmp_dir,
         )
 
-        with self._downloader_pool_with_retry(
-            "download_ota_resources"
-        ) as _mapper, _rst_orm_pool:
+        with (
+            self._downloader_pool_with_retry("download_ota_resources") as _mapper,
+            _rst_orm_pool,
+        ):
             for _fut in _mapper.ensure_tasks(
                 partial(
                     self._download_single_resource_at_thread,
