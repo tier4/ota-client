@@ -477,9 +477,11 @@ class TestGrubBootControllerPreUpdate:
 #
 
 NEW_ECU_INFO = 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.20.1"\n'
+NEW_PROXY_INFO = 'upper_ota_proxy: "http://192.168.20.1:8082"\n'
+CURRENT_PROXY_INFO = 'upper_ota_proxy: "http://192.168.30.1:8082"\n'
 # the OTA config files loaded from the new image
 NEW_OTA_CONFIG_FILES = {
-    "proxy_info.yaml": "new-proxy-config",
+    "proxy_info.yaml": NEW_PROXY_INFO,
     "ecu_info.yaml": NEW_ECU_INFO,
 }
 
@@ -622,7 +624,7 @@ class TestGrubBootControllerPostUpdate:
 
         # === OTA config files installed ===
         ota_dir = rootfs_dir / "boot" / "ota"
-        assert (ota_dir / "proxy_info.yaml").read_text() == "new-proxy-config"
+        assert (ota_dir / "proxy_info.yaml").read_text() == NEW_PROXY_INFO
         assert (ota_dir / "ecu_info.yaml").read_text() == NEW_ECU_INFO
 
         # === Per-slot boot cfg generated ===
@@ -643,17 +645,19 @@ class TestGrubBootControllerPostUpdate:
         mock_umount_all.assert_called_once_with(ignore_error=True)
 
     @pytest.mark.parametrize(
-        "current_ecu_info, expected_ecu_info",
+        "current_ecu_info, expected_ecu_info, expected_proxy_info",
         (
-            # same ecu_id: the ecu_info.yaml from the OTA image is installed
+            # same ecu_id: the files from the OTA image are installed
             (
                 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n',
                 NEW_ECU_INFO,
+                NEW_PROXY_INFO,
             ),
-            # ecu_id mismatched: the current ecu_info.yaml is kept
+            # ecu_id mismatched: the current files are kept
             (
                 'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
                 'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
+                CURRENT_PROXY_INFO,
             ),
         ),
     )
@@ -665,24 +669,56 @@ class TestGrubBootControllerPostUpdate:
         mocker: MockerFixture,
         current_ecu_info: str,
         expected_ecu_info: str,
+        expected_proxy_info: str,
     ):
-        """ecu_info.yaml at destination is replaced unless the ecu_id differs."""
+        """The files at destination are replaced unless the ecu_id differs."""
         controller, _ = self._create_post_update_ready_controller(
             boot_dir, mnt_dir, rootfs_dir, mocker
         )
 
-        # Pre-create ecu_info.yaml at destination
+        # Pre-create the current files at destination
         ota_dir = rootfs_dir / "boot" / "ota"
         ota_dir.mkdir(parents=True, exist_ok=True)
         (ota_dir / "ecu_info.yaml").write_text(current_ecu_info)
+        (ota_dir / "proxy_info.yaml").write_text(CURRENT_PROXY_INFO)
 
         controller.post_update(
             update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
         )
 
-        # proxy_info.yaml always overwritten
-        assert (ota_dir / "proxy_info.yaml").read_text() == "new-proxy-config"
         assert (ota_dir / "ecu_info.yaml").read_text() == expected_ecu_info
+        assert (ota_dir / "proxy_info.yaml").read_text() == expected_proxy_info
+
+    def test_post_update_boot_cfg_failure_keeps_ota_config_files(
+        self,
+        boot_dir: Path,
+        mnt_dir: Path,
+        rootfs_dir: Path,
+        mocker: MockerFixture,
+    ):
+        """/boot/ota is shared by both slots, so it is not touched when post_update fails earlier."""
+        controller, _ = self._create_post_update_ready_controller(
+            boot_dir, mnt_dir, rootfs_dir, mocker
+        )
+        controller._boot_control.setup_ota_boot_cfg_for_slot = mocker.MagicMock(
+            side_effect=ValueError("failed to generate boot cfg")
+        )
+
+        ota_dir = rootfs_dir / "boot" / "ota"
+        ota_dir.mkdir(parents=True, exist_ok=True)
+        _current_ecu_info = (
+            'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n'
+        )
+        (ota_dir / "ecu_info.yaml").write_text(_current_ecu_info)
+        (ota_dir / "proxy_info.yaml").write_text(CURRENT_PROXY_INFO)
+
+        with pytest.raises(BootControlPostUpdateFailed):
+            controller.post_update(
+                update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+            )
+
+        assert (ota_dir / "ecu_info.yaml").read_text() == _current_ecu_info
+        assert (ota_dir / "proxy_info.yaml").read_text() == CURRENT_PROXY_INFO
 
     def test_post_update_wraps_exception(
         self,

@@ -110,6 +110,10 @@ def otaproxy_process(
         #                   to ensure that, unfortunately), currently there is no way to update the proxy_info.yaml
         #                   file on the ECU via OTA.
         #                 For now, hardcoded to disable OTA cache on the child ECU.
+        # NOTE(20261023): otaclient now installs proxy_info.yaml from the OTA image at OTA,
+        #                   unless it is listed in the persist files. ECUs updated by older
+        #                   otaclient still keep their old proxy_info.yaml, so keep the hardcoded
+        #                   setting until the OTA images and the ECUs carry the intended one.
         #                 To be noticed that, otaproxy OTA cache on main ECU is still needed for streaming
         #                   the same requests from multiple child ECUs to reduce duplicate downloads.
         enable_cache=proxy_info.enable_local_ota_proxy_cache

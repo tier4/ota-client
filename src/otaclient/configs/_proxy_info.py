@@ -143,6 +143,18 @@ DEFAULT_PROXY_INFO = ProxyInfo(
 )
 
 
+def load_proxy_info(raw_yaml: str) -> ProxyInfo:
+    """Load the content of a proxy_info.yaml file.
+
+    Raises:
+        Exception if <raw_yaml> is not a valid proxy_info.yaml.
+    """
+    loaded_proxy_info = yaml.safe_load(raw_yaml)
+    assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
+    _deprecation_check(loaded_proxy_info)
+    return ProxyInfo.model_validate(loaded_proxy_info, strict=True)
+
+
 def parse_proxy_info(proxy_info_file: StrOrPath) -> tuple[bool, ProxyInfo]:
     """Parse the proxy_info.yaml file located at <proxy_info_file>.
 
@@ -159,10 +171,7 @@ def parse_proxy_info(proxy_info_file: StrOrPath) -> tuple[bool, ProxyInfo]:
         return False, DEFAULT_PROXY_INFO
 
     try:
-        loaded_proxy_info = yaml.safe_load(_raw_yaml_str)
-        assert isinstance(loaded_proxy_info, dict), "not a valid yaml file"
-        _deprecation_check(loaded_proxy_info)
-        return True, ProxyInfo.model_validate(loaded_proxy_info, strict=True)
+        return True, load_proxy_info(_raw_yaml_str)
     except Exception as e:
         logger.warning(f"{proxy_info_file=} is invalid: {e!r}\n{_raw_yaml_str=}")
         logger.warning(f"use default proxy_info: {DEFAULT_PROXY_INFO}")

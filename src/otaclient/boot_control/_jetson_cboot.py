@@ -646,7 +646,7 @@ class JetsonCBootControl(BootControllerBase):
             else:
                 logger.info("new firmware is written to the standby slot")
 
-        # ------ preserve /boot/ota folder to standby rootfs ------ #
+        # ------ preserve /boot/ota folder to standby rootfs, and install the OTA config files ------ #
         preserve_ota_config_files_to_standby(
             active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
             / "boot"

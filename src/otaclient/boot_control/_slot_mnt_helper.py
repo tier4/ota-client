@@ -114,7 +114,9 @@ class SlotMountHelper:  # pragma: no cover
         After that, <ota_config_files> loaded from the OTA image are installed,
         see install_ota_config_files for details.
         """
-        logger.debug("copy /boot/ota from active to standby.")
+        logger.debug(
+            "copy /boot/ota from active to standby, and install the OTA config files"
+        )
         try:
             _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
             _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
@@ -126,7 +128,7 @@ class SlotMountHelper:  # pragma: no cover
             )
         except Exception as e:
             raise ValueError(
-                f"failed to copy /boot/ota from active to standby: {e!r}"
+                f"failed to preserve /boot/ota to standby and install the OTA config files: {e!r}"
             ) from e
 
     def prepare_standby_dev(

@@ -1503,15 +1503,18 @@ class GrubBootController(BootControllerBase):
                     )
                 ),
             )
-            logger.info(
-                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
-            )
-            self._install_new_ota_config_files(ota_config_files)
-
             logger.info(f"setup boot cfg for standby slot({_standby_slot_id=}) ...")
             self._boot_control.setup_ota_boot_cfg_for_slot(
                 _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
             )
+
+            # NOTE: /boot/ota is shared by both slots, install the new OTA config
+            #       files as late as possible, so that a failure of the steps above
+            #       doesn't leave the current slot with the new ones.
+            logger.info(
+                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
+            )
+            self._install_new_ota_config_files(ota_config_files)
 
         logger.info(f"configure grub-reboot to standby slot({_standby_slot_id=}) ...")
         with ota_errors.raise_as_ota_error(
