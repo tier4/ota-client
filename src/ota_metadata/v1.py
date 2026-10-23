@@ -40,9 +40,11 @@ from ota_image_libs.v1.index_jwt.utils import (
     decode_index_jwt_with_verification,
     get_index_jwt_sign_cert_chain,
 )
+from ota_image_libs.v1.media_types import UPDATE_AGENT_TYPE_OTACLIENT
 from ota_image_libs.v1.otaclient_package.schema import OTAClientPackageManifest
 from ota_image_libs.v1.resource_table import RESOURCE_TABLE_FNAME
 from ota_image_libs.v1.resource_table.db import ResourceTableDBHelper
+from ota_image_libs.v1.update_agent_package.schema import UpdateAgentPackageManifest
 
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient_common.common import urljoin_ensure_base
@@ -179,6 +181,9 @@ class OTAImageHelper:
     ) -> Generator[list[DownloadInfo]]:
         """Select one OTA image payload and download all the meta files required."""
         assert (_image_index := self.image_index)
+        # find_image is the file-based one: an image may carry a payload of either kind
+        # for the same ECU, so that one build serves a fleet of mixed devices, and this
+        # path rebuilds a slot file by file.
         _manifest_descriptor = _image_index.find_image(_image_identifier)
         if not _manifest_descriptor:
             raise ImageMetadataInvalid(
@@ -281,31 +286,48 @@ class OTAImageHelper:
             logger.warning("this machine is not either x86_64 or arm64 machine, abort")
             return
 
-        _otaclient_package_manifests = self.image_index.find_otaclient_package()
-        if not _otaclient_package_manifests:
-            logger.info("not otaclient release package manifest found in the OTA image")
+        # An image lists its agents in the update agent release package, otaclient
+        # among them when it ships that way; it may instead carry otaclient in the
+        # OTAClient release package, the entry every client reads, beside an update
+        # agent release package that lists other agents. Whichever names a package
+        # for this version and machine is taken, the newer entry first.
+        _agent_descriptor = self.image_index.find_update_agent_package()
+        _legacy_descriptors = self.image_index.find_otaclient_package()
+        if _agent_descriptor is None and not _legacy_descriptors:
+            logger.info("no otaclient release package found in the OTA image")
             return
 
-        # NOTE: normally we will only put one otaclient release into the OTA image
-        if len(_otaclient_package_manifests) != 1:
-            logger.warning(
-                "multiple otaclient package manifest found in the OTA image. Will pick the first one"
+        _manifest_fpath = self._session_dir / "otaclient_release_manifest.json"
+        _artifact = None
+        if _agent_descriptor is not None:
+            with condition:
+                # NOTE: a list, as every other generator here yields. The download
+                #       helper takes a batch per step; a bare descriptor dispatches
+                #       nothing.
+                yield [
+                    self.download_from_descriptor(_manifest_fpath, _agent_descriptor)
+                ]
+                condition.wait()
+            _artifact = UpdateAgentPackageManifest.parse_metafile(
+                _manifest_fpath.read_text()
+            ).find_bundle(
+                agent_type=UPDATE_AGENT_TYPE_OTACLIENT,
+                architecture=_arch,
+                version=version,
             )
-        _otaclient_package_manifest_descriptor = _otaclient_package_manifests[0]
 
-        _otaclient_manifest_fpath = (
-            self._session_dir / "otaclient_release_manifest.json"
-        )
-        with condition:
-            yield self.download_from_descriptor(
-                _otaclient_manifest_fpath,
-                _otaclient_package_manifest_descriptor,
-            )
-            condition.wait()
+        if _artifact is None and _legacy_descriptors:
+            with condition:
+                yield [
+                    self.download_from_descriptor(
+                        _manifest_fpath, _legacy_descriptors[0]
+                    )
+                ]
+                condition.wait()
+            _artifact = OTAClientPackageManifest.parse_metafile(
+                _manifest_fpath.read_text()
+            ).find_package(version=version, architecture=_arch)
 
-        _artifact = OTAClientPackageManifest.parse_metafile(
-            _otaclient_manifest_fpath.read_text()
-        ).find_package(version=version, architecture=_arch)
         if not _artifact:
             logger.warning(
                 f"failed to find otaclient({version=}) app image for {_arch=}"
@@ -313,10 +335,7 @@ class OTAImageHelper:
             return
 
         with condition:
-            yield self.download_from_descriptor(
-                save_dst,
-                _artifact,
-            )
+            yield [self.download_from_descriptor(save_dst, _artifact)]
             condition.wait()
 
     def get_resource_url(self, digest_hex: str) -> str:

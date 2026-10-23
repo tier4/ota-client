@@ -85,7 +85,7 @@ from ._abort_handler import (
     AbortHandler,
     _abort_signal_handler,
 )
-from ._client_updater import OTAClientUpdater
+from ._client_updater import OTAClientUpdater, OTAClientUpdaterForOTAImageV1
 from ._common import handle_upper_proxy
 
 logger = logging.getLogger(__name__)
@@ -530,31 +530,49 @@ class OTAClient:
             chunk_size=cfg.CHUNK_SIZE,
         )
         session_wd = self._update_session_dir / new_session_id
+        _common_args = OTAUpdateInterfaceArgs(
+            version=request.version,
+            raw_url_base=request.url_base,
+            session_wd=session_wd,
+            ecu_status_flags=self.ecu_status_flags,
+            status_report_queue=self._status_report_queue,
+            downloader_pool=download_pool,
+            session_id=new_session_id,
+            metrics=self._metrics,
+            shm_metrics_reader=self._shm_metrics_reader,
+            release_name=request.release_name,
+            release_id=request.release_id,
+            image_id=request.image_id,
+        )
         try:
             logger.info("[client update] entering local update...")
-            if not self.ca_chains_store:
-                raise ota_errors.CACertNotInstalled(
-                    "no CA chains are installed, reject any OTA update",
-                    module=__name__,
-                )
-
-            OTAClientUpdater(
-                version=request.version,
-                raw_url_base=request.url_base,
-                session_wd=session_wd,
-                standby_slot_dev=self.boot_controller.standby_slot_dev,
-                ca_chains_store=self.ca_chains_store,
-                ecu_status_flags=self.ecu_status_flags,
-                status_report_queue=self._status_report_queue,
-                downloader_pool=download_pool,
-                session_id=new_session_id,
-                client_update_control_flags=self._client_update_control_flags,
-                metrics=self._metrics,
-                shm_metrics_reader=self._shm_metrics_reader,
-                release_name=request.release_name,
-                release_id=request.release_id,
-                image_id=request.image_id,
-            ).execute()
+            _no_ca_err = "no CA chains are installed, reject any OTA update"
+            if check_if_ota_image_v1(request.url_base, downloader_pool=download_pool):
+                # The client's own package is an artifact of the image, found through
+                # the signed index; the legacy layout has it somewhere else entirely.
+                if not self.ca_store:
+                    raise ota_errors.CACertNotInstalled(_no_ca_err, module=__name__)
+                # NOTE(20251009): as for a rootfs update, the API does not carry the
+                #                 image variant yet; the default is this ECU's dev one.
+                OTAClientUpdaterForOTAImageV1(
+                    standby_slot_dev=self.boot_controller.standby_slot_dev,
+                    ca_store=self.ca_store,
+                    image_identifier=ImageIdentifier(
+                        ecu_id=ecu_info.ecu_id,
+                        release_key=OTAReleaseKey.dev,
+                    ),
+                    client_update_control_flags=self._client_update_control_flags,
+                    **_common_args,
+                ).execute()
+            else:
+                if not self.ca_chains_store:
+                    raise ota_errors.CACertNotInstalled(_no_ca_err, module=__name__)
+                OTAClientUpdater(
+                    standby_slot_dev=self.boot_controller.standby_slot_dev,
+                    ca_chains_store=self.ca_chains_store,
+                    client_update_control_flags=self._client_update_control_flags,
+                    **_common_args,
+                ).execute()
         except ota_errors.OTAError as e:
             logger.warning(f"client update failed: {e!r}")
             # TODO(airkei) [2025-06-19]: should return the dedicated error code for "client update"
