@@ -19,7 +19,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Protocol
 
-from otaclient._types import OTAStatus, VersionDetail
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 
 from ._ota_status_control import OTAStatusFilesControl
 
@@ -74,6 +74,16 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def on_abort(self) -> None:
         """Cleanup by boot_control implementation when OTA is aborted."""
+
+    @abstractmethod
+    def store_failure_info(
+        self, *, failure_type: FailureType, failure_reason: str
+    ) -> None:
+        """Persist the failure of the OTA operation to the current slot."""
+
+    @abstractmethod
+    def get_booted_failure_info(self) -> tuple[FailureType, str] | None:
+        """Get the persisted failure info if the booted ota_status is FAILURE."""
 
     #
     # ------ update ------ #

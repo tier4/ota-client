@@ -494,12 +494,27 @@ class RPIBootController(BootControllerBase):
     def _post_update_platform_specific(self, *, update_version: str) -> None:
         """RPI-specific post-update operations."""
         self._mp_control.preserve_ota_folder_to_standby()
-        self._write_standby_fstab()
-        self._rpiboot_control.update_firmware(
-            target_slot=self._rpiboot_control.standby_slot,
-            target_slot_mp=self._mp_control.standby_slot_mount_point,
-        )
-        self._rpiboot_control.prepare_tryboot_txt()
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlBootConfigUpdateFailed,
+            "failed to update fstab for standby slot",
+            module=__name__,
+        ):
+            self._write_standby_fstab()
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlFirmwareUpdateFailed,
+            "failed to update firmware for standby slot",
+            module=__name__,
+        ):
+            self._rpiboot_control.update_firmware(
+                target_slot=self._rpiboot_control.standby_slot,
+                target_slot_mp=self._mp_control.standby_slot_mount_point,
+            )
+        with ota_errors.raise_as_ota_error(
+            ota_errors.BootControlSwitchBootFailed,
+            "failed to prepare tryboot.txt for switching boot to standby slot",
+            module=__name__,
+        ):
+            self._rpiboot_control.prepare_tryboot_txt()
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         self._rpiboot_control.reboot_tryboot(chroot=chroot)

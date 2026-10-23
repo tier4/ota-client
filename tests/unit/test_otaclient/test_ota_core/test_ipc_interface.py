@@ -23,14 +23,16 @@ import pytest_mock
 from otaclient import ota_core
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
+    OTAStatusChangeReport,
     StatusReport,
 )
-from otaclient._types import OTAStatus, UpdateRequestV2
+from otaclient._types import FailureType, OTAStatus, UpdateRequestV2
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdaterForLegacyOTAImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
+OTA_CORE_COMMON_MODULE = ota_core._common.__name__
 
 
 class TestOTAClient:
@@ -131,6 +133,122 @@ class TestOTAClient:
 
         mock_publish.assert_called_once()
         mock_exit_from_dynamic_client.assert_called_once()
+        # the failure is persisted for being reported after otaclient restarts
+        self.ota_client.boot_controller.store_failure_info.assert_called_once_with(
+            failure_type=_error.failure_type,
+            failure_reason=_error.get_failure_reason(),
+        )
+
+    def test_restore_failure_info_on_startup(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: pytest_mock.MockerFixture,
+    ):
+        _, status_report_queue = ota_status_collector
+        _boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
+        _boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
+        _boot_controller.load_version_detail.return_value = None
+        _boot_controller.get_booted_ota_status.return_value = OTAStatus.FAILURE
+        _boot_controller.get_booted_failure_info.return_value = (
+            FailureType.RECOVERABLE,
+            "E504: stalled",
+        )
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
+            return_value=lambda: _boot_controller,
+        )
+        _put_spy = mocker.spy(status_report_queue, "put_nowait")
+
+        OTAClient(
+            ecu_status_flags=mocker.MagicMock(),
+            status_report_queue=status_report_queue,
+            client_update_control_flags=mocker.MagicMock(),
+            shm_metrics_reader=mocker.MagicMock(),
+        )
+
+        _status_change_reports = [
+            _call.args[0].payload
+            for _call in _put_spy.call_args_list
+            if isinstance(_call.args[0].payload, OTAStatusChangeReport)
+        ]
+        assert _status_change_reports == [
+            OTAStatusChangeReport(
+                new_ota_status=OTAStatus.FAILURE,
+                failure_type=FailureType.RECOVERABLE,
+                failure_reason="E504: stalled",
+            )
+        ]
+
+    def test_update_upper_otaproxy_unreachable(self, mocker: pytest_mock.MockerFixture):
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+        mocker.patch.object(self.ota_client, "_exit_from_dynamic_client")
+        mocker.patch(
+            f"{OTA_CORE_COMMON_MODULE}.ensure_otaproxy_start",
+            side_effect=ConnectionError("timeout"),
+        )
+        _on_failure_spy = mocker.spy(self.ota_client, "_on_failure")
+        self.ota_client.proxy = "http://10.0.0.1:8082"
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_update_upper_otaproxy_unreachable",
+            )
+        )
+
+        self.ota_updater.execute.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+        _on_failure_spy.assert_called_once()
+        _failure_reason = _on_failure_spy.call_args.kwargs["failure_reason"]
+        assert _failure_reason.startswith("E523: ")
+        assert "http://10.0.0.1:8082" in _failure_reason
+
+    def test_update_unexpected_exception(self, mocker: pytest_mock.MockerFixture):
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+        mocker.patch.object(self.ota_client, "_exit_from_dynamic_client")
+        self.ota_updater.execute.side_effect = RuntimeError("unexpected by test")
+        _on_failure_spy = mocker.spy(self.ota_client, "_on_failure")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_update_unexpected_exception",
+            )
+        )
+
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+        _on_failure_spy.assert_called_once()
+        _failure_reason = _on_failure_spy.call_args.kwargs["failure_reason"]
+        assert _failure_reason.startswith("E500: ")
+        assert "unexpected by test" in _failure_reason
+
+    def test_update_invalid_cookies(self, mocker: pytest_mock.MockerFixture):
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+        mocker.patch.object(self.ota_client, "_exit_from_dynamic_client")
+        _on_failure_spy = mocker.spy(self.ota_client, "_on_failure")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json="not-a-json",
+                request_id="test-request-id",
+                session_id="test_update_invalid_cookies",
+            )
+        )
+
+        self.ota_updater.execute.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+        _on_failure_spy.assert_called_once()
+        _failure_reason = _on_failure_spy.call_args.kwargs["failure_reason"]
+        assert _failure_reason.startswith("E400: ")
+        assert "not-a-json" not in _failure_reason
 
     def test_client_update_normal_finished(self):
         """Test client update with normal completion."""

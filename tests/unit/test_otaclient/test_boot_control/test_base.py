@@ -114,12 +114,42 @@ class TestBootControllerBase:
         assert controller.pre_update_platform_called is True
 
     def test_pre_update_failure_handling(self, controller):
+        controller._ota_status_control.pre_update_current.side_effect = Exception(
+            "write ota_status failed"
+        )
+
+        with pytest.raises(ota_errors.BootControlPreUpdateFailed) as exc_info:
+            controller.pre_update(standby_as_ref=False, erase_standby=False)
+
+        assert type(exc_info.value) is ota_errors.BootControlPreUpdateFailed
+        assert "failed on pre_update" in str(exc_info.value)
+
+    def test_pre_update_prepare_standby_failure(self, controller):
+        controller._mp_control.prepare_standby_dev.side_effect = Exception(
+            "mkfs failed"
+        )
+
+        # NOTE: still the sub-class of BootControlPreUpdateFailed
+        with pytest.raises(ota_errors.BootControlPreUpdateFailed) as exc_info:
+            controller.pre_update(standby_as_ref=False, erase_standby=True)
+
+        _err = exc_info.value
+        assert isinstance(_err, ota_errors.BootControlStandbySlotPrepareFailed)
+        assert _err.failure_errcode_str == "E552"
+        assert "mkfs failed" in _err.get_failure_reason()
+        controller._mp_control.mount_standby.assert_not_called()
+
+    def test_pre_update_mount_failure(self, controller):
         controller._mp_control.mount_standby.side_effect = Exception("Mount failed")
 
         with pytest.raises(ota_errors.BootControlPreUpdateFailed) as exc_info:
             controller.pre_update(standby_as_ref=False, erase_standby=False)
 
-        assert "failed on pre_update" in str(exc_info.value)
+        _err = exc_info.value
+        assert isinstance(_err, ota_errors.BootControlSlotMountFailed)
+        assert _err.failure_errcode_str == "E553"
+        assert "Mount failed" in _err.get_failure_reason()
+        assert controller.pre_update_platform_called is False
 
     def test_post_update_success(self, controller):
         controller.post_update(update_version="2.0.0")
@@ -150,7 +180,30 @@ class TestBootControllerBase:
         with pytest.raises(ota_errors.BootControlPostUpdateFailed) as exc_info:
             controller.post_update(update_version="2.0.0")
 
+        assert type(exc_info.value) is ota_errors.BootControlPostUpdateFailed
         assert "failed on post_update" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "error_cls",
+        [
+            ota_errors.BootControlBootConfigUpdateFailed,
+            ota_errors.BootControlFirmwareUpdateFailed,
+            ota_errors.BootControlSwitchBootFailed,
+        ],
+    )
+    def test_post_update_platform_specific_error_kept(self, controller, error_cls):
+        def raise_error(**kwargs):
+            with ota_errors.raise_as_ota_error(
+                error_cls, "platform step failed", module=__name__
+            ):
+                raise ValueError("Platform-specific error")
+
+        controller._post_update_platform_specific = raise_error
+
+        with pytest.raises(ota_errors.BootControlPostUpdateFailed) as exc_info:
+            controller.post_update(update_version="2.0.0")
+
+        assert type(exc_info.value) is error_cls
 
     def test_template_method_execution_order(self, controller):
         call_order: list[str] = []

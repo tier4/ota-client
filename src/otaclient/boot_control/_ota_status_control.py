@@ -21,10 +21,14 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional, Union
 
-from otaclient._types import OTAStatus, VersionDetail
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env
-from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
+from otaclient_common._io import (
+    read_str_from_file,
+    remove_file,
+    write_str_to_file_atomic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +170,7 @@ class OTAStatusFilesControl:
 
         # check potential failed switching boot
         if _loaded_slot_in_use != self.active_slot:
-            logger.warning(
+            logger.error(
                 f"boot into old slot {self.active_slot}, "
                 f"but slot_in_use indicates it should boot into {_loaded_slot_in_use}, "
                 "this might indicate a failed finalization at first reboot after update/rollback"
@@ -258,6 +262,8 @@ class OTAStatusFilesControl:
         and set slot_in_use to standby slot."""
         self._store_current_status(OTAStatus.FAILURE)
         self._store_current_slot_in_use(self.standby_slot)
+        # failure info of previous OTA is not relevant anymore
+        remove_file(self.current_ota_status_dir / cfg.OTA_FAILURE_INFO_FNAME)
 
     def post_update_standby(
         self,
@@ -281,6 +287,8 @@ class OTAStatusFilesControl:
         if version_detail is not None:
             self._store_standby_version_detail(version_detail)
         self._store_standby_slot_in_use(self.standby_slot)
+        # cleanup the failure info left by previous OTA on the standby slot
+        remove_file(self.standby_ota_status_dir / cfg.OTA_FAILURE_INFO_FNAME)
 
     def pre_rollback_current(self):
         self._store_current_status(OTAStatus.FAILURE)
@@ -344,6 +352,67 @@ class OTAStatusFilesControl:
     def on_abort(self):
         """Store ABORTED to status file on abort."""
         self._store_current_status(OTAStatus.ABORTED)
+
+    # failure info control
+
+    def store_failure_info(
+        self, *, failure_type: FailureType, failure_reason: str
+    ) -> None:
+        """Persist the failure of the OTA operation to the current slot.
+
+        The current slot's ota_status is also set to FAILURE, so that the failure
+            with its reason is still reported after otaclient restarts or the ECU reboots.
+        """
+        self._store_current_status(OTAStatus.FAILURE)
+        _status_stat = (self.current_ota_status_dir / cfg.OTA_STATUS_FNAME).stat()
+        write_str_to_file_atomic(
+            self.current_ota_status_dir / cfg.OTA_FAILURE_INFO_FNAME,
+            json.dumps(
+                {
+                    "failure_type": str(failure_type),
+                    "failure_reason": failure_reason,
+                    # NOTE: bind the failure info to the status file written above,
+                    #       see load_booted_failure_info for more details.
+                    "status_ino": _status_stat.st_ino,
+                    "status_mtime_ns": _status_stat.st_mtime_ns,
+                }
+            ),
+        )
+
+    def load_booted_failure_info(self) -> tuple[FailureType, str] | None:
+        """Load the persisted failure info when the booted ota_status is FAILURE.
+
+        The failure info is only valid when the status file is exactly the one written
+            together with the failure info. If the status file has been re-written after that,
+            for example, by an older otaclient which doesn't know the failure info file
+            (new -> old -> new otaclient), or by the first reboot after OTA,
+            the failure info is stale and will be ignored.
+
+        Returns:
+            A tuple of failure_type and failure_reason, or None if not available.
+        """
+        if self._ota_status not in (OTAStatus.FAILURE, OTAStatus.ROLLBACK_FAILURE):
+            return None
+
+        _failure_info_f = self.current_ota_status_dir / cfg.OTA_FAILURE_INFO_FNAME
+        _raw = read_str_from_file(_failure_info_f, _default="")
+        if not _raw:
+            return None
+        try:
+            _data = json.loads(_raw)
+            _status_stat = (self.current_ota_status_dir / cfg.OTA_STATUS_FNAME).stat()
+            if (
+                _data["status_ino"] != _status_stat.st_ino
+                or _data["status_mtime_ns"] != _status_stat.st_mtime_ns
+            ):
+                logger.info(
+                    "failure_info is stale as status file has been re-written, ignored"
+                )
+                return None
+            return FailureType(_data["failure_type"]), str(_data["failure_reason"])
+        except Exception as e:
+            logger.warning(f"failed to load failure_info, ignored: {e!r}")
+            return None
 
     @property
     def booted_ota_status(self) -> OTAStatus:

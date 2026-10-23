@@ -24,7 +24,7 @@ from typing import Optional
 import pytest
 from pytest_mock import MockerFixture
 
-from otaclient._types import OTAStatus, VersionDetail
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient_common._io import read_str_from_file, write_str_to_file_atomic
@@ -320,6 +320,84 @@ class TestOTAStatusFilesControl:
         # Both current and standby status files should be set to FAILURE
         assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
         assert read_str_from_file(self.slot_b_status_file) == OTAStatus.FAILURE
+
+    def test_failure_info_restored_after_restart(self):
+        """Test that the persisted failure info is restored by the next otaclient instance."""
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.SUCCESS)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        status_control = self._make_status_control()
+
+        status_control.store_failure_info(
+            failure_type=FailureType.RECOVERABLE, failure_reason="E504: stalled"
+        )
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.FAILURE
+
+        # otaclient restarts
+        restarted = self._make_status_control()
+        assert restarted.booted_ota_status == OTAStatus.FAILURE
+        assert restarted.load_booted_failure_info() == (
+            FailureType.RECOVERABLE,
+            "E504: stalled",
+        )
+
+    def test_failure_info_ignored_when_status_not_failure(self):
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        status_control = self._make_status_control()
+        status_control.store_failure_info(
+            failure_type=FailureType.RECOVERABLE, failure_reason="E504: stalled"
+        )
+        status_control.on_abort()
+
+        restarted = self._make_status_control()
+        assert restarted.booted_ota_status == OTAStatus.ABORTED
+        assert restarted.load_booted_failure_info() is None
+
+    def test_stale_failure_info_ignored_after_status_rewritten(self):
+        """Simulate new -> old -> new otaclient: an older otaclient doesn't know the
+        failure info file, it re-writes the status file but leaves the failure info as it."""
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        status_control = self._make_status_control()
+        status_control.store_failure_info(
+            failure_type=FailureType.RECOVERABLE, failure_reason="E504: stalled"
+        )
+
+        # older otaclient re-writes the status file with its own failure
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.FAILURE)
+
+        restarted = self._make_status_control()
+        assert restarted.booted_ota_status == OTAStatus.FAILURE
+        assert restarted.load_booted_failure_info() is None
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["not-a-json", json.dumps({"failure_reason": "E504: stalled"})],
+    )
+    def test_invalid_failure_info_ignored(self, raw: str):
+        write_str_to_file_atomic(self.slot_a_status_file, OTAStatus.FAILURE)
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        write_str_to_file_atomic(
+            self.slot_a_ota_status_dir / otaclient_cfg.OTA_FAILURE_INFO_FNAME, raw
+        )
+        status_control = self._make_status_control()
+        assert status_control.load_booted_failure_info() is None
+
+    def test_failure_info_cleared_on_new_ota(self):
+        """Test that failure info is cleared on pre_update(current) and post_update(standby)."""
+        _current_failure_info = (
+            self.slot_a_ota_status_dir / otaclient_cfg.OTA_FAILURE_INFO_FNAME
+        )
+        _standby_failure_info = (
+            self.slot_b_ota_status_dir / otaclient_cfg.OTA_FAILURE_INFO_FNAME
+        )
+        write_str_to_file_atomic(_current_failure_info, "{}")
+        write_str_to_file_atomic(_standby_failure_info, "{}")
+        status_control = self._make_status_control()
+
+        status_control.pre_update_current()
+        assert not _current_failure_info.exists()
+
+        status_control.post_update_standby(version="dummy_version")
+        assert not _standby_failure_info.exists()
 
     def test_post_update_with_version_detail(self):
         """Test that post_update_standby stores version_detail JSON file."""

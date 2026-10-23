@@ -53,6 +53,7 @@ from otaclient_common.cmdhelper import ensure_umount
 from otaclient_common.linux import fstrim_at_subprocess
 
 from ._abort_handler import AbortHandler
+from ._common import is_caused_by_enospc
 from ._update_libs import (
     DeltaCalculator,
     process_persistents,
@@ -232,9 +233,14 @@ class OTAUpdaterBase(OTAUpdateInitializer):
                 resource_dir=self._resource_dir_on_standby,
             )
             standby_slot_creator.update_slot()
-        except ota_errors.OTAAbortSignal:
+        except ota_errors.OTAError:
             raise
         except Exception as e:
+            if is_caused_by_enospc(e):
+                raise ota_errors.StandbySlotInsufficientSpace(
+                    f"no space left on standby slot when applying update: {e!r}",
+                    module=__name__,
+                ) from e
             raise ota_errors.ApplyOTAUpdateFailed(
                 f"failed to apply update to standby slot: {e!r}", module=__name__
             ) from e
@@ -385,14 +391,24 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             # inconsistent state. Abort requests arriving during this phase
             # are queued (REQUESTED) and executed when the zone exits.
             with self._abort_handler.critical_zone():
-                self._pre_update()
+                # NOTE: boot controller raises its own BootControlPreUpdateFailed(and its sub-classes),
+                #       other unexpected failures during pre-update are reported as PreUpdateFailed.
+                with ota_errors.raise_as_ota_error(
+                    ota_errors.PreUpdateFailed, "pre-update failed", module=__name__
+                ):
+                    self._pre_update()
 
             self._in_update()
 
             # Close the abort window before entering final phases.
             # If abort is in progress, this raises OTAAbortSignal.
             self._abort_handler.enter_final_phase()
-            self._post_update()
+            # NOTE: boot controller raises its own BootControlPostUpdateFailed(and its sub-classes),
+            #       other unexpected failures during post-update are reported as PostUpdateFailed.
+            with ota_errors.raise_as_ota_error(
+                ota_errors.PostUpdateFailed, "post-update failed", module=__name__
+            ):
+                self._post_update()
             self._finalize_update()
 
         except ota_errors.OTAAbortSignal:

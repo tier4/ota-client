@@ -329,6 +329,12 @@ class MockBootController:
     def on_abort(self) -> None:
         logger.info("MockBootController: on_abort")
 
+    def store_failure_info(self, *, failure_type, failure_reason: str) -> None:
+        logger.info(f"MockBootController: store_failure_info({failure_reason=})")
+
+    def get_booted_failure_info(self):
+        return None
+
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
         logger.info(
             f"MockBootController: pre_update(standby_as_ref={standby_as_ref}, erase_standby={erase_standby})"

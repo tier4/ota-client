@@ -94,6 +94,14 @@ class HashVerificationError(DownloadError):
     """Hash verification failed for the downloaded file."""
 
 
+class DownloadInactiveTimeout(ValueError):
+    """Downloading made no progress longer than the configured idle timeout.
+
+    Raised by the DownloaderPool.downloading_watchdog.
+    NOTE: inherit from ValueError for backward compatibility.
+    """
+
+
 class BrokenDecompressionError(DownloadError):
     """Failed to decompress the downloading file stream.
 
@@ -512,7 +520,7 @@ class DownloaderPool:
 
         This method is designed to use with ThreadPoolExecutorWithRetry.
         When configured to use, if the downloading is idle longer than <max_idle_timeout>,
-            call to this function will raise ValueError.
+            call to this function will raise DownloadInactiveTimeout(a ValueError).
         """
         downloaded_bytes = self.total_downloaded_bytes
 
@@ -525,7 +533,7 @@ class DownloaderPool:
         if current_tiemstamp - ctx["previous_active_timestamp"] > max_idle_timeout:
             _err_msg = f"downloader stuck for {max_idle_timeout} seconds, abort"
             logger.error(_err_msg)
-            raise ValueError(_err_msg)
+            raise DownloadInactiveTimeout(_err_msg)
 
     def get_instance(self) -> Downloader:
         """Get a reference of the downloader instance for the calling thread.

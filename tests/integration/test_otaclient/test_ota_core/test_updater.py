@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import errno
 from contextlib import contextmanager
 from pathlib import Path
 from queue import Queue
@@ -29,6 +30,7 @@ from otaclient._types import (
     IPCResEnum,
     OTAStatus,
 )
+from otaclient.create_standby.delta_gen import UpdateStandbySlotFailed
 from otaclient.ota_core import _updater
 from otaclient.ota_core._abort_handler import AbortHandler
 
@@ -277,6 +279,133 @@ class TestOTAUpdaterWithAbortHandler:
             mock_updater.execute()
 
         self.mock_boot_controller.on_operation_failure.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "phase, expected_error",
+        [
+            ("_pre_update", ota_errors.PreUpdateFailed),
+            ("_post_update", ota_errors.PostUpdateFailed),
+        ],
+    )
+    def test_unexpected_error_mapped_to_phase_error(
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
+        phase: str,
+        expected_error: type[ota_errors.OTAError],
+    ):
+        """Test that non-OTAError during pre/post-update is reported with phase specific error code."""
+
+        @contextmanager
+        def _critical_zone():
+            yield
+
+        mock_abort_handler.critical_zone = _critical_zone
+        for _method in (
+            "_process_metadata",
+            "_pre_update",
+            "_in_update",
+            "_post_update",
+            "_finalize_update",
+        ):
+            mocker.patch.object(mock_updater, _method)
+        mocker.patch.object(
+            mock_updater, phase, side_effect=OSError("unexpected by test")
+        )
+
+        with pytest.raises(expected_error) as exc_info:
+            mock_updater.execute()
+
+        assert "unexpected by test" in exc_info.value.get_failure_reason()
+        self.mock_boot_controller.on_operation_failure.assert_called_once()
+
+    def test_boot_control_error_not_covered_by_phase_error(
+        self,
+        mock_updater: MockOTAUpdater,
+        mock_abort_handler,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Test that boot control error raised during post-update keeps its own error code."""
+        for _method in ("_process_metadata", "_pre_update", "_in_update"):
+            mocker.patch.object(mock_updater, _method)
+        mocker.patch.object(
+            mock_updater,
+            "_post_update",
+            side_effect=ota_errors.BootControlFirmwareUpdateFailed(
+                "firmware update failed", module=__name__
+            ),
+        )
+
+        with pytest.raises(ota_errors.BootControlFirmwareUpdateFailed):
+            mock_updater.execute()
+
+    @pytest.mark.parametrize(
+        "cause, expected_error",
+        [
+            (
+                OSError(errno.ENOSPC, "No space left on device"),
+                ota_errors.StandbySlotInsufficientSpace,
+            ),
+            (OSError(errno.EIO, "I/O error"), ota_errors.ApplyOTAUpdateFailed),
+        ],
+    )
+    def test_apply_update_failure(
+        self,
+        mock_updater: MockOTAUpdater,
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+        cause: OSError,
+        expected_error: type[ota_errors.OTAError],
+    ):
+        """Test that ENOSPC during applying update is reported as StandbySlotInsufficientSpace."""
+        mock_updater._fst_db_helper = mocker.MagicMock()
+        mock_updater._standby_slot_mp = tmp_path / "standby"
+        mock_updater._active_slot_mp = tmp_path / "active"
+        mock_updater._resource_dir_on_standby = tmp_path / "resources"
+        mocker.patch(
+            f"{OTA_UPDATER_MODULE}.DeltaCalculator"
+        ).return_value.calculate_delta.return_value = {}
+
+        def _raise_update_slot_failed():
+            try:
+                raise cause
+            except OSError as e:
+                raise UpdateStandbySlotFailed(
+                    f"failure during regular files processing: {e!r}"
+                ) from e
+
+        mocker.patch(
+            f"{OTA_UPDATER_MODULE}.UpdateStandbySlot"
+        ).return_value.update_slot.side_effect = _raise_update_slot_failed
+
+        with pytest.raises(expected_error) as exc_info:
+            mock_updater._in_update()
+        assert type(exc_info.value) is expected_error
+
+    def test_apply_update_abort_signal_passthrough(
+        self,
+        mock_updater: MockOTAUpdater,
+        mocker: pytest_mock.MockerFixture,
+        tmp_path: Path,
+    ):
+        """Test that OTAAbortSignal during applying update is re-raised as is."""
+        mock_updater._fst_db_helper = mocker.MagicMock()
+        mock_updater._standby_slot_mp = tmp_path / "standby"
+        mock_updater._active_slot_mp = tmp_path / "active"
+        mock_updater._resource_dir_on_standby = tmp_path / "resources"
+        mocker.patch(
+            f"{OTA_UPDATER_MODULE}.DeltaCalculator"
+        ).return_value.calculate_delta.return_value = {}
+
+        _abort_signal = ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+        mocker.patch(
+            f"{OTA_UPDATER_MODULE}.UpdateStandbySlot"
+        ).return_value.update_slot.side_effect = _abort_signal
+
+        with pytest.raises(ota_errors.OTAAbortSignal) as exc_info:
+            mock_updater._in_update()
+        assert exc_info.value is _abort_signal
 
     def test_ota_error_during_abort_raises_abort_signal(
         self,

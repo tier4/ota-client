@@ -119,6 +119,7 @@ class Consts:
     OTA_VERSION_FNAME = "version"
     OTA_VERSION_DETAIL_FNAME = "version_detail"
     SLOT_IN_USE_FNAME = "slot_in_use"
+    OTA_FAILURE_INFO_FNAME = "failure_info"
 
     DEFAULT_VERSION_STR = ""
 
