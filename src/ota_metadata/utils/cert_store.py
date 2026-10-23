@@ -198,6 +198,12 @@ class CAStoreMap(Dict[str, CACertStore]):
     def verify(
         self, cert: Certificate, interm_cas: list[Certificate] | None = None
     ) -> CACertStore | None:
+        """Verify <cert> against each of the CA stores.
+
+        Returns:
+            The CA store that <cert> is verified against, or None if <cert> cannot
+                be verified against any of them. The caller MUST check the result.
+        """
         for _name, _store in self.items():
             try:
                 _store.verify(cert, interm_cas=interm_cas or [])

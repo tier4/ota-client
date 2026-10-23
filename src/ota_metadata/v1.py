@@ -139,12 +139,15 @@ class OTAImageHelper:
         except Exception as e:
             raise ImageMetadataInvalid(f"index.jwt header is invalid: {e}") from e
 
-        try:
-            self._ca_store.verify(
-                _sign_cert_chain.ee, interm_cas=_sign_cert_chain.interms
+        # NOTE: CAStoreMap.verify returns None instead of raising on failure.
+        _trusted_ca_store = self._ca_store.verify(
+            _sign_cert_chain.ee, interm_cas=_sign_cert_chain.interms
+        )
+        if _trusted_ca_store is None:
+            raise SignCertInvalid(
+                "index.jwt sign cert is not issued by any of the trusted CAs: "
+                f"{list(self._ca_store)}"
             )
-        except Exception as e:
-            raise SignCertInvalid(f"fail to verify sign cert: {e}") from e
 
         logger.info("verify index.json against index.jwt ...")
         try:

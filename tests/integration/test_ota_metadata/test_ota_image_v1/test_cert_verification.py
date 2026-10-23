@@ -76,4 +76,31 @@ def test_ca_store_map(chain, gen_ca_chains: tuple[Path, Path, Path]):
     _interm = load_pem_x509_certificate(
         (_interm_dir / f"{chain}.interm.pem").read_bytes()
     )
-    ca_stores.verify(_cert, interm_cas=[_interm])
+    assert (
+        ca_stores.verify(_cert, interm_cas=[_interm]) is ca_stores[f"{chain}.root.pem"]
+    )
+
+
+@pytest.mark.parametrize(
+    "chain, trusted_chains",
+    (
+        ("dev", ["stg", "prd"]),
+        ("prd", ["dev"]),
+    ),
+)
+def test_ca_store_map_untrusted(
+    chain, trusted_chains, gen_ca_chains: tuple[Path, Path, Path], tmp_path: Path
+):
+    """A cert not issued by any of the CA stores is not verified."""
+    _ca_dir, _interm_dir, _certs_dir = gen_ca_chains
+    _trusted_ca_dir = tmp_path / "trusted_root_ca"
+    _trusted_ca_dir.mkdir()
+    for _trusted in trusted_chains:
+        shutil.copy(_ca_dir / f"{_trusted}.root.pem", _trusted_ca_dir)
+    ca_stores = load_ca_store(_trusted_ca_dir)
+
+    _cert = load_pem_x509_certificate((_certs_dir / f"{chain}.sign.pem").read_bytes())
+    _interm = load_pem_x509_certificate(
+        (_interm_dir / f"{chain}.interm.pem").read_bytes()
+    )
+    assert ca_stores.verify(_cert, interm_cas=[_interm]) is None
