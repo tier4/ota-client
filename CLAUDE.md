@@ -53,7 +53,7 @@ src/
 
 - gRPC service: `OtaClientService` with `Update`, `Abort`, `Rollback`, `Status`, `ClientUpdate` methods
 - Async throughout: pytest-asyncio with `asyncio_mode = "auto"`
-- Python 3.8+ minimum, tested up to 3.13
+- Python 3.10+ minimum, tested up to 3.13
 
 ## Dependency Management
 
