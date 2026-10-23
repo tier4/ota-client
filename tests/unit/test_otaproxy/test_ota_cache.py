@@ -276,12 +276,16 @@ class TestOTACacheNfsCacheLookupOrder:
 
             nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-            with patch.object(
-                cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
-            ) as mock_local, patch.object(
-                cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
-            ) as mock_nfs, patch.object(
-                cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+            with (
+                patch.object(
+                    cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+                ) as mock_local,
+                patch.object(
+                    cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+                ) as mock_nfs,
+                patch.object(
+                    cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+                ),
             ):
                 mock_local.return_value = None
                 mock_nfs.return_value = nfs_result
@@ -312,12 +316,16 @@ class TestOTACacheNfsCacheLookupOrder:
         local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
         nfs_result = (AsyncMock(), CIMultiDict({"source": "nfs"}))
 
-        with patch.object(
-            cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
-        ) as mock_local, patch.object(
-            cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
-        ) as mock_nfs, patch.object(
-            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+        with (
+            patch.object(
+                cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+            ) as mock_local,
+            patch.object(
+                cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+            ) as mock_nfs,
+            patch.object(
+                cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+            ),
         ):
             mock_local.return_value = local_result
             mock_nfs.return_value = nfs_result
@@ -347,12 +355,16 @@ class TestOTACacheNfsCacheLookupOrder:
 
         local_result = (AsyncMock(), CIMultiDict({"source": "local"}))
 
-        with patch.object(
-            cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
-        ) as mock_local, patch.object(
-            cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
-        ) as mock_nfs, patch.object(
-            cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+        with (
+            patch.object(
+                cache, "_retrieve_file_by_cache_lookup", new_callable=AsyncMock
+            ) as mock_local,
+            patch.object(
+                cache, "_retrieve_file_by_external_cache", new_callable=AsyncMock
+            ) as mock_nfs,
+            patch.object(
+                cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+            ),
         ):
             mock_local.return_value = local_result
             mock_nfs.return_value = None
