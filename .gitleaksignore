@@ -1,0 +1,6 @@
+# Reviewed: test fixtures and false positives in history
+243b1e309bb7d63c75e35a10e3a85b9f3059f0c2:tests2/keys/sign.key:private-key:4
+38e7df84ecfad2f0406747b3ab62d012e0ecd8b4:tests/ota_client_params.py:private-key:5
+243b1e309bb7d63c75e35a10e3a85b9f3059f0c2:app2/otaclient_v2_pb2.py:generic-api-key:22
+243b1e309bb7d63c75e35a10e3a85b9f3059f0c2:app2/otaclient_pb2.py:generic-api-key:22
+9e9ffdbcacada3231a5d4f5762b0faaf558a5e19:app/otaclient_pb2.py:generic-api-key:22
