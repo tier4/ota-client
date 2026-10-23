@@ -374,9 +374,10 @@ def fst_db_helper(tmp_path_factory: pytest.TempPathFactory) -> FileTableDBHelper
     ft_dbf = image_meta_d / "file_table.sqlite3"
     rst_dbf = image_meta_d / "resource_table.sqlite3"
 
-    with closing(sqlite3.connect(ft_dbf)) as fst_conn, closing(
-        sqlite3.connect(rst_dbf)
-    ) as rst_conn:
+    with (
+        closing(sqlite3.connect(ft_dbf)) as fst_conn,
+        closing(sqlite3.connect(rst_dbf)) as rst_conn,
+    ):
         ft_regular_orm = FileTableRegularORM(fst_conn)
         ft_regular_orm.orm_bootstrap_db()
         ft_dir_orm = FileTableDirORM(fst_conn)
