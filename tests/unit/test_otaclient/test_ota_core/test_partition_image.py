@@ -167,13 +167,15 @@ class FakeDownloader:
         self, served: Optional[Path] = None, fail_with: Optional[Exception] = None
     ) -> None:
         self.calls: List[Tuple[str, Path]] = []
+        self.resumed_from: List[int] = []
         self._served = served
         self._fail_with = fail_with
 
-    def download(self, url, dst, *, digest=None, size=None, **kwargs):
+    def download(self, url, dst, *, digest=None, size=None, resume_from=0, **kwargs):
         dst = Path(dst)
         dst.parent.mkdir(parents=True, exist_ok=True)
         self.calls.append((url, dst))
+        self.resumed_from.append(resume_from)
         if self._fail_with is not None:
             raise self._fail_with
         if self._served is not None:
@@ -485,10 +487,13 @@ class TestDownloadAndApply:
 
         assert len(_updater._downloader.calls) == 1
 
-    def test_a_half_downloaded_blob_is_downloaded_again(self, tmp_path: Path):
-        """What an interrupted download left is not a blob: it is fetched again from
-        the start into the same place, and only the whole, verified file carries the
-        digest as its name."""
+    def test_a_half_downloaded_blob_is_continued_from_where_it_stopped(
+        self, tmp_path: Path
+    ):
+        """A rootfs image is gigabytes and a link that drops at 90% should not cost
+        all of it. What is on disk is offered to the downloader as a byte count; the
+        digest is still computed over the whole file, so the resumed part is trusted
+        no further than a fresh one."""
         _updater = make_updater(tmp_path)
         _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
         _plan = _updater.plan()
@@ -499,14 +504,31 @@ class TestDownloadAndApply:
 
         _updater.download_payload(_plan)
 
-        assert [_dst for _, _dst in _updater._downloader.calls] == [_part]
-        _blob = tmp_path / "image" / RESOURCE_DIR / _delta.digest_hex
-        assert _blob.is_file() and _blob.stat().st_size == _delta.size
+        assert _updater._downloader.resumed_from == [_delta.size // 2]
+        _, _dst = _updater._downloader.calls[0]
+        assert _dst == _part, "the bytes go on arriving in the same file"
+        # and only a whole, verified blob carries the digest as its name
+        assert (tmp_path / "image" / RESOURCE_DIR / _delta.digest_hex).is_file()
         assert not _part.exists()
 
-    def test_bytes_that_do_not_hash_to_the_digest_are_removed(self, tmp_path: Path):
-        """A whole file that hashes to something else is not this blob, and nothing
-        is left that the next attempt could take for one."""
+    def test_a_part_longer_than_the_blob_is_not_a_prefix_of_it(self, tmp_path: Path):
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _delta = _plan.blobs[0]
+        _part = tmp_path / "image" / RESOURCE_DIR / f"{_delta.digest_hex}.part"
+        _part.parent.mkdir(parents=True)
+        _part.write_bytes(b"x" * (_delta.size + 1))
+
+        _updater.download_payload(_plan)
+
+        assert _updater._downloader.resumed_from == [0]
+
+    def test_bytes_that_do_not_hash_to_the_digest_are_not_resumed_from(
+        self, tmp_path: Path
+    ):
+        """A whole file that hashes to something else is not this blob in part either,
+        and the next attempt must not build on it."""
         _updater = make_updater(tmp_path)
         _updater._downloader = FakeDownloader(fail_with=HashVerificationError("nope"))
         _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
@@ -520,6 +542,25 @@ class TestDownloadAndApply:
             _updater.download_payload(_plan)
 
         assert not _part.exists()
+
+    def test_an_interrupted_download_leaves_its_bytes_for_the_next_attempt(
+        self, tmp_path: Path
+    ):
+        """The campaign is resent and pays only for what did not arrive."""
+        _updater = make_updater(tmp_path)
+        _updater._downloader = FakeDownloader(fail_with=ConnectionError("link dropped"))
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _delta = _plan.blobs[0]
+        _part = tmp_path / "image" / RESOURCE_DIR / f"{_delta.digest_hex}.part"
+        _part.parent.mkdir(parents=True)
+        _arrived = _delta.size // 2
+        _part.write_bytes(b"x" * _arrived)
+
+        with pytest.raises(ConnectionError):
+            _updater.download_payload(_plan)
+
+        assert _part.is_file() and _part.stat().st_size == _arrived
 
     def test_a_device_without_room_is_told_before_the_download_starts(
         self, tmp_path: Path, monkeypatch

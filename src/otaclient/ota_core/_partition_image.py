@@ -197,8 +197,8 @@ class PartitionImageUpdater:
 
         Bytes arrive in `<digest>.part` and become `<digest>` once the whole file
         hashes to the digest. A complete blob is reused after hashing it again (the
-        size alone does not prove its contents); a partial one is downloaded again
-        from the start.
+        size alone does not prove its contents); a partial one is continued with a
+        ranged request, the digest still computed over the whole file.
         """
         _digest = descriptor.digest.digest_hex
         _dst = self._blob_dir / _digest
@@ -214,16 +214,33 @@ class PartitionImageUpdater:
             _dst.unlink(missing_ok=True)
         _dst.parent.mkdir(exist_ok=True, parents=True)
 
+        _resume_from = 0
+        if _part.is_file():
+            _have = _part.stat().st_size
+            if 0 < _have < descriptor.size:
+                _resume_from = _have
+                logger.info(
+                    f"{what}: {human_readable_size(_have)} of "
+                    f"{human_readable_size(descriptor.size)} is already here; "
+                    "continuing from there"
+                )
+            else:
+                # Nothing to continue, or more bytes than the blob has: either way not
+                # a prefix of it.
+                _part.unlink(missing_ok=True)
+
         try:
             self._downloader.download(
                 urljoin_ensure_base(self._blob_base_url, _digest),
                 _part,
                 digest=_digest,
                 size=descriptor.size,
+                resume_from=_resume_from,
             )
         except HashVerificationError:
-            # The file does not hash to the digest, so it is not this blob; nothing
-            # is left behind that could be taken for one.
+            # The file does not hash to the digest, so it is not this blob — not in
+            # whole and not in part. Resuming from it would build on bytes already
+            # known to be wrong.
             _part.unlink(missing_ok=True)
             raise
         # Whole and verified; from here on it is a blob, not a download.
