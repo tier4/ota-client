@@ -21,6 +21,11 @@ import shutil
 from functools import partial
 from pathlib import Path
 
+from otaclient.boot_control._ota_config_files import (
+    ECU_INFO_FNAME,
+    install_ota_config_files,
+    load_ota_config_files_from_image,
+)
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env, cmdhelper
 from otaclient_common._typing import StrOrPath
@@ -106,12 +111,20 @@ class SlotMountHelper:  # pragma: no cover
 
         /boot/ota folder contains the ota setting for this device,
         so we should preserve it for each slot, accross each update.
+        After that, the OTA config files shipped in the OTA image are installed,
+        see install_ota_config_files for details.
         """
         logger.debug("copy /boot/ota from active to standby.")
         try:
             _src = self.active_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
             _dst = self.standby_slot_mount_point / Path(cfg.OTA_DPATH).relative_to("/")
+            _image_ota_config_files = load_ota_config_files_from_image(_dst)
             shutil.copytree(_src, _dst, dirs_exist_ok=True)
+            install_ota_config_files(
+                _image_ota_config_files,
+                dst_ota_dpath=_dst,
+                current_ecu_info_fpath=_src / ECU_INFO_FNAME,
+            )
         except Exception as e:
             raise ValueError(
                 f"failed to copy /boot/ota from active to standby: {e!r}"

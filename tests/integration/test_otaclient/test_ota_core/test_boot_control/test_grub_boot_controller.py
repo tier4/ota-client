@@ -476,6 +476,8 @@ class TestGrubBootControllerPreUpdate:
 # ------------ Post-update tests ------------ #
 #
 
+NEW_ECU_INFO = 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.20.1"\n'
+
 
 def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> None:
     """Simulate standby rootfs after OTA image has been written.
@@ -499,7 +501,7 @@ def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> No
     standby_ota = standby_mp / "boot" / "ota"
     standby_ota.mkdir(parents=True, exist_ok=True)
     (standby_ota / "proxy_info.yaml").write_text("new-proxy-config")
-    (standby_ota / "ecu_info.yaml").write_text("new-ecu-config")
+    (standby_ota / "ecu_info.yaml").write_text(NEW_ECU_INFO)
 
     # Active slot mount (bind-mounted ro in real life)
     active_mp = mnt_dir / "active"
@@ -620,7 +622,7 @@ class TestGrubBootControllerPostUpdate:
         # === OTA config files installed ===
         ota_dir = rootfs_dir / "boot" / "ota"
         assert (ota_dir / "proxy_info.yaml").read_text() == "new-proxy-config"
-        assert (ota_dir / "ecu_info.yaml").read_text() == "new-ecu-config"
+        assert (ota_dir / "ecu_info.yaml").read_text() == NEW_ECU_INFO
 
         # === Per-slot boot cfg generated ===
         _assert_slot_boot_cfg(boot_dir, "ota-slot_b")
@@ -639,14 +641,31 @@ class TestGrubBootControllerPostUpdate:
         # === Cleanup ===
         mock_umount_all.assert_called_once_with(ignore_error=True)
 
-    def test_post_update_ecu_info_not_overwritten(
+    @pytest.mark.parametrize(
+        "current_ecu_info, expected_ecu_info",
+        (
+            # same ecu_id: the ecu_info.yaml from the OTA image is installed
+            (
+                'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n',
+                NEW_ECU_INFO,
+            ),
+            # ecu_id mismatched: the current ecu_info.yaml is kept
+            (
+                'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
+                'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
+            ),
+        ),
+    )
+    def test_post_update_ecu_info_install(
         self,
         boot_dir: Path,
         mnt_dir: Path,
         rootfs_dir: Path,
         mocker: MockerFixture,
+        current_ecu_info: str,
+        expected_ecu_info: str,
     ):
-        """ecu_info.yaml at destination is preserved if it already exists."""
+        """ecu_info.yaml at destination is replaced unless the ecu_id differs."""
         controller, _ = self._create_post_update_ready_controller(
             boot_dir, mnt_dir, rootfs_dir, mocker
         )
@@ -654,14 +673,13 @@ class TestGrubBootControllerPostUpdate:
         # Pre-create ecu_info.yaml at destination
         ota_dir = rootfs_dir / "boot" / "ota"
         ota_dir.mkdir(parents=True, exist_ok=True)
-        (ota_dir / "ecu_info.yaml").write_text("original-ecu-config")
+        (ota_dir / "ecu_info.yaml").write_text(current_ecu_info)
 
         controller.post_update(update_version="3.0.0")
 
         # proxy_info.yaml always overwritten
         assert (ota_dir / "proxy_info.yaml").read_text() == "new-proxy-config"
-        # ecu_info.yaml NOT overwritten — original content preserved
-        assert (ota_dir / "ecu_info.yaml").read_text() == "original-ecu-config"
+        assert (ota_dir / "ecu_info.yaml").read_text() == expected_ecu_info
 
     def test_post_update_wraps_exception(
         self,

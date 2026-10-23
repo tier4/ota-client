@@ -34,6 +34,10 @@ from typing_extensions import Self
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
+from otaclient.boot_control._ota_config_files import (
+    install_ota_config_files,
+    load_ota_config_files_from_image,
+)
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
@@ -1384,36 +1388,23 @@ class GrubBootController(BootControllerBase):
     def _install_new_ota_config_files(self) -> None:
         """Install new OTA config files to the shared boot partition.
 
-        For proxy_info.yaml, we always install the new version.
-        For ecu_info.yaml, we only install the new version when there is
-            no ecu_info.yaml presented in the /boot/ota.
+        See install_ota_config_files for which files from the OTA image are installed.
+
+        NOTE: as /boot/ota is shared by both slots, the old slot also uses the
+            new OTA config files if it is booted again after this OTA.
         """
-        _proxy_info_dst = Path(cfg.PROXY_INFO_FPATH)
-        _proxy_info_src = Path(
+        _image_ota_dpath = Path(
             replace_root(
-                cfg.PROXY_INFO_FPATH,
+                cfg.OTA_DPATH,
                 cfg.CANONICAL_ROOT,
                 self._mp_control.standby_slot_mount_point,
             )
         )
-
-        Path(cfg.OTA_DPATH).mkdir(exist_ok=True, parents=True)
-        if _proxy_info_src.is_file():
-            copyfile_atomic(_proxy_info_src, _proxy_info_dst)
-
-        _ecu_info_dst = Path(cfg.ECU_INFO_FPATH)
-        _ecu_info_src = Path(
-            replace_root(
-                cfg.ECU_INFO_FPATH,
-                cfg.CANONICAL_ROOT,
-                self._mp_control.standby_slot_mount_point,
-            )
+        install_ota_config_files(
+            load_ota_config_files_from_image(_image_ota_dpath),
+            dst_ota_dpath=Path(cfg.OTA_DPATH),
+            current_ecu_info_fpath=Path(cfg.ECU_INFO_FPATH),
         )
-        if _ecu_info_src.is_file() and not _ecu_info_dst.is_file():
-            logger.warning(
-                f"no ecu_info.yaml file found at {_ecu_info_dst}, install the one from the OTA image ..."
-            )
-            copyfile_atomic(_ecu_info_src, _ecu_info_dst)
 
     # API
 
