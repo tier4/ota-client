@@ -67,6 +67,8 @@ class DownloadResult:
     retry_count: int = 0
     download_size: int = 0
     traffic_on_wire: int = 0
+    resource_slice: bool = False
+    """The download is one slice of a resource, not a resource of its own."""
 
 
 # ------ errors definition ------ #
