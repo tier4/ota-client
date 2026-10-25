@@ -18,7 +18,7 @@ import contextlib
 import random
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Generator, Iterable
@@ -90,22 +90,58 @@ class _BaseDownloadHelper:
         finally:
             self._downloader_pool.release_all_instances()
 
+    @staticmethod
+    def _download_one(
+        downloader: Downloader, _download_info: DownloadInfo
+    ) -> DownloadResult:
+        return downloader.download(
+            url=_download_info.url,
+            dst=_download_info.dst,
+            digest=_download_info.digest,
+            size=_download_info.original_size,
+            compression_alg=_download_info.compression_alg,
+        )
+
+    def _download_one_at_batch_thread(
+        self, _download_info: DownloadInfo
+    ) -> DownloadResult | None:
+        """Download with a spare downloader instance, None if the pool has none."""
+        try:
+            _downloader = self._downloader_pool.get_instance()
+        except ValueError:
+            return None
+        try:
+            return self._download_one(_downloader, _download_info)
+        finally:
+            self._downloader_pool.release_instance()
+
     def _download_with_condition_at_thread(
         self, _to_download: list[DownloadInfo], condition: threading.Condition
     ) -> list[DownloadResult]:
         downloader = self._downloader_mapper[threading.get_native_id()]
-        _res = []
         with condition:
-            for _download_info in _to_download:
-                _res.append(
-                    downloader.download(
-                        url=_download_info.url,
-                        dst=_download_info.dst,
-                        digest=_download_info.digest,
-                        size=_download_info.original_size,
-                        compression_alg=_download_info.compression_alg,
+            # NOTE(20261025): the files of one batch (e.g., the file_table and the
+            #   resource_table of OTA image v1, ~15MiB and ~10MiB) don't depend on
+            #   each other, download them concurrently. Each download is one TCP
+            #   stream, whose throughput is bounded by RTT and packet loss on cellular
+            #   links, so downloading them one by one leaves most of the link idle.
+            # NOTE: the spare downloader instances are the ones no worker thread of
+            #   the pool holds; a file that gets none is downloaded by this worker.
+            _batch_res: list[DownloadResult | None] = [None] * len(_to_download)
+            if len(_to_download) > 1:
+                with ThreadPoolExecutor(
+                    max_workers=len(_to_download),
+                    thread_name_prefix="download_ota_image_metafiles_batch",
+                ) as _batch_pool:
+                    _batch_res = list(
+                        _batch_pool.map(
+                            self._download_one_at_batch_thread, _to_download
+                        )
                     )
-                )
+            _res = [
+                _r if _r is not None else self._download_one(downloader, _info)
+                for _r, _info in zip(_batch_res, _to_download, strict=True)
+            ]
             condition.notify()
         return _res
 
