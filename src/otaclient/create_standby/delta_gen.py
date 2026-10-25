@@ -622,6 +622,18 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
         the unused files on the standby slot inplace.
     """
 
+    def _match_by_size(self, fpath: Path, expected_digest: bytes) -> tuple[bytes, int]:
+        """Without re-hashing, take <fpath> as <expected_digest> when its size matches.
+
+        Returns the digest <fpath> is taken as (empty when not matched) and its size.
+        """
+        file_size = fpath.stat().st_size
+        try:
+            matched = self._resources_to_check[expected_digest] == file_size
+        except KeyError:  # already collected from another path
+            matched = False
+        return (expected_digest if matched else b""), file_size
+
     def _process_file_thread_worker(self) -> None:
         """Thread worker to scan files."""
         worker_helper = ProcessFileHelper(
@@ -651,7 +663,14 @@ class InPlaceDeltaWithBaseFileTable(DeltaWithBaseFileTable):
                         continue
 
                     try:
-                        calculated_digest, file_size = worker_helper.verify_file(fpath)
+                        if cfg.VERIFY_STANDBY_RESOURCES_BY_HASH:
+                            calculated_digest, file_size = worker_helper.verify_file(
+                                fpath
+                            )
+                        else:
+                            calculated_digest, file_size = self._match_by_size(
+                                fpath, expected_digest
+                            )
                     except BaseException:
                         continue
 

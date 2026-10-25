@@ -108,10 +108,33 @@ class ResourceScanner(_ResourceOperatorBase):
         self._thread_local = threading.local()
         self._inner_queue: Queue[int | None] = Queue()
 
+    def _reuse_resource_by_size(
+        self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
+    ) -> None:
+        """Take the resource named <expected_digest_hex> as is when its size matches."""
+        file_size = os.stat(expected_digest_hex, dir_fd=dir_fd).st_size
+        try:
+            expected_size = self._all_resource_digests[expected_digest]
+        except KeyError:
+            return
+        if file_size != expected_size:
+            self._remove_entry(expected_digest_hex, dir_fd)
+            return
+
+        with contextlib.suppress(KeyError):
+            self._all_resource_digests.pop(expected_digest)
+            self._inner_queue.put_nowait(file_size)
+
     def _process_resource_at_thread(
         self, expected_digest: bytes, expected_digest_hex: str, *, dir_fd: int
     ) -> None:
         try:
+            if not cfg.VERIFY_STANDBY_RESOURCES_BY_HASH:
+                self._reuse_resource_by_size(
+                    expected_digest, expected_digest_hex, dir_fd=dir_fd
+                )
+                return
+
             hash_f, file_size = sha256(), 0
             buffer, bufferview = (
                 self._thread_local.buffer,

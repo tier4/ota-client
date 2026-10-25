@@ -89,6 +89,13 @@ class _OTAClientSettings(BaseModel):
     FSTRIM_AT_OTA: bool = True
     FSTRIM_AT_OTA_TIMEOUT: int = 30  # seconds
 
+    # In-place update mode re-hashes every file it reuses from the standby slot (the
+    #   OTA resource dir and the files the base file_table names), i.e., reads most of
+    #   the image in every OTA. With False, such a file is reused on a size match: it
+    #   was written and verified by the previous OTA. The cost is not detecting a file
+    #   of the right size corrupted on the standby slot since then.
+    VERIFY_STANDBY_RESOURCES_BY_HASH: bool = True
+
 
 class _MultipleECUSettings(BaseModel):
     # The timeout of waiting sub ECU acks the OTA request.

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import queue
+from hashlib import sha256
 from pathlib import Path
 from typing import cast
 
@@ -23,6 +24,7 @@ import pytest
 import pytest_mock
 from ota_image_libs.v1.file_table.db import FileTableDBHelper
 
+from otaclient.configs.cfg import cfg
 from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.delta_gen import InPlaceDeltaWithBaseFileTable
 from otaclient.create_standby.resume_ota import ResourceScanner
@@ -50,11 +52,15 @@ def mocked_full_disk_scan_mode(mocker: pytest_mock.MockerFixture):
     mocker.patch(f"{DELTA_GEN_MODULE}.MAX_FILENUM_PER_FOLDER", 2**64)
 
 
+@pytest.mark.parametrize("verify_by_hash", (True, False))
 def test_resume_ota(
+    verify_by_hash: bool,
     ab_slots_for_inplace: SlotAB,
     fst_db_helper: FileTableDBHelper,
     resource_dir: Path,
+    mocker: pytest_mock.MockerFixture,
 ) -> None:
+    mocker.patch.object(cfg, "VERIFY_STANDBY_RESOURCES_BY_HASH", verify_by_hash)
     logger.info("process slot and generating OTA resources ...")
     _all_digests = ResourcesDigestWithSize.from_iterable(
         fst_db_helper.select_all_digests_with_size()
@@ -76,3 +82,33 @@ def test_resume_ota(
         status_report_queue=MockedQue,
         session_id="session_id",
     ).resume_ota()
+
+    # with the standby slot intact, reusing by size collects the same, valid resources
+    for _resource in resource_dir.iterdir():
+        assert sha256(_resource.read_bytes()).hexdigest() == _resource.name
+
+
+def test_resource_scanner_reuse_by_size(
+    tmp_path: Path, mocker: pytest_mock.MockerFixture
+) -> None:
+    mocker.patch.object(cfg, "VERIFY_STANDBY_RESOURCES_BY_HASH", False)
+    contents = {"good": b"good resource", "truncated": b"truncated resource"}
+    digests = {_name: sha256(_c).digest() for _name, _c in contents.items()}
+    (tmp_path / digests["good"].hex()).write_bytes(contents["good"])
+    (tmp_path / digests["truncated"].hex()).write_bytes(contents["truncated"][:5])
+
+    _all_digests = ResourcesDigestWithSize.from_iterable(
+        (digests[_name], len(_c)) for _name, _c in contents.items()
+    )
+    ResourceScanner(
+        all_resource_digests=_all_digests,
+        resource_dir=tmp_path,
+        status_report_queue=MockedQue,
+        session_id="session_id",
+    ).resume_ota()
+
+    # the size-matched resource is taken, the truncated one is removed and still needed
+    assert (tmp_path / digests["good"].hex()).is_file()
+    assert not (tmp_path / digests["truncated"].hex()).exists()
+    assert digests["good"] not in _all_digests
+    assert digests["truncated"] in _all_digests
