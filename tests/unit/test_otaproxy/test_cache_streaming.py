@@ -706,6 +706,18 @@ class TestCacheReaderPool:
         result = await self.pool.read_file_once(str(f))
         assert result == b"small content"
 
+    async def test_stream_read_file_from_an_offset(self, tmp_path: Path):
+        """The rest of a cached file, for a client continuing a download."""
+        f = tmp_path / "large"
+        data = random.randbytes(5000)
+        f.write_bytes(data)
+        offset = 1234
+
+        gen = await self.pool.stream_read_file(str(f), offset=offset)
+        got = b"".join([chunk async for chunk in gen])
+
+        assert got == data[offset:]
+
     async def test_stream_read_file(self, tmp_path: Path):
         f = tmp_path / "large.bin"
         data = b"x" * 256

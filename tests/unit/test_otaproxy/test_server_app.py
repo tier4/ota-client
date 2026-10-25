@@ -38,14 +38,18 @@ from multidict import CIMultiDict
 from ota_proxy._consts import (
     BHEADER_AUTHORIZATION,
     BHEADER_CONTENT_ENCODING,
+    BHEADER_CONTENT_RANGE,
     BHEADER_CONTENT_TYPE,
     BHEADER_COOKIE,
     BHEADER_OTA_FILE_CACHE_CONTROL,
+    BHEADER_RANGE,
     HEADER_AUTHORIZATION,
     HEADER_CONTENT_ENCODING,
+    HEADER_CONTENT_RANGE,
     HEADER_CONTENT_TYPE,
     HEADER_COOKIE,
     HEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_RANGE,
 )
 from ota_proxy.errors import (
     BaseOTACacheError,
@@ -141,6 +145,12 @@ class TestParseRawHeaders:
         result = parse_raw_headers(raw)
         assert result[HEADER_OTA_FILE_CACHE_CONTROL] == "no-cache"
 
+    def test_range_header(self):
+        """A client continuing an interrupted download asks for the rest of the file."""
+        raw = [(BHEADER_RANGE, b"bytes=1048576-")]
+        result = parse_raw_headers(raw)
+        assert result[HEADER_RANGE] == "bytes=1048576-"
+
     def test_unknown_headers_are_ignored(self):
         raw = [
             (b"x-custom-header", b"custom-value"),
@@ -219,6 +229,14 @@ class TestEncodeHeaders:
         )
         result = encode_headers(headers)
         assert (BHEADER_OTA_FILE_CACHE_CONTROL, b"file-sha256=deadbeef") in result
+
+    def test_content_range(self):
+        """The remote's answer to a ranged request says which bytes it carries."""
+        headers: CIMultiDict[str] = CIMultiDict(
+            {HEADER_CONTENT_RANGE: "bytes 100-199/200"}
+        )
+        result = encode_headers(headers)
+        assert (BHEADER_CONTENT_RANGE, b"bytes 100-199/200") in result
 
     def test_unknown_header_not_included(self):
         """Headers not in the allow-list must not be forwarded to the client."""
@@ -575,6 +593,44 @@ class TestPullDataAndSend:
         # Last message: empty body to terminate stream
         assert sent[-1]["body"] == b""
         assert not sent[-1].get("more_body")
+
+    async def test_the_rest_of_a_file_is_sent_as_partial_content(self):
+        """A ranged request's answer from the remote goes to the client as the 206 it
+        is, with its content-range, so the client can tell it continues the file."""
+
+        async def _async_gen():
+            yield b"the rest"
+
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (
+            _async_gen(),
+            CIMultiDict({HEADER_CONTENT_RANGE: "bytes 100-107/108"}),
+        )
+        app = App(mock_cache)
+        sent = await self._do_pull(app, headers=[(BHEADER_RANGE, b"bytes=100-")])
+
+        assert sent[0]["status"] == HTTPStatus.PARTIAL_CONTENT
+        assert (BHEADER_CONTENT_RANGE, b"bytes 100-107/108") in sent[0]["headers"]
+        _, _headers_to_cache = mock_cache.retrieve_file.call_args.args
+        assert _headers_to_cache[HEADER_RANGE] == "bytes=100-"
+
+    async def test_a_remote_that_ignored_the_range_answers_the_whole_file_as_200(self):
+        """Only content-range makes a 206: a remote that answered the whole file to a
+        ranged request is passed on as the 200 it sent, which the client reads as
+        "start again"."""
+
+        async def _async_gen():
+            yield b"the whole file"
+
+        mock_cache = _make_ota_cache_mock()
+        mock_cache.retrieve_file.return_value = (_async_gen(), CIMultiDict())
+        app = App(mock_cache)
+        sent = await self._do_pull(app, headers=[(BHEADER_RANGE, b"bytes=100-")])
+
+        assert sent[0]["status"] == HTTPStatus.OK
+        assert not any(
+            _name == BHEADER_CONTENT_RANGE for _name, _ in sent[0]["headers"]
+        )
 
     async def test_retrieve_none_sends_500(self):
         """retrieve_file returning None must result in 500."""

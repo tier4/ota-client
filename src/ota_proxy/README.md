@@ -20,6 +20,16 @@ When a file is requested, ota-proxy tries the following sources in order:
 4. **New caching** — download from remote and cache locally (if disk limits allow and `no_cache` is not set).
 5. **Direct download** — fallback when cache is disabled or disk hard limit is reached.
 
+A request with a `Range` header of the form `bytes=<start>-` (a client continuing an
+interrupted download) is answered from a whole cached copy when one of the sources above
+holds it: the rest of the file from a plain copy, as a `206` with its `Content-Range`; a
+copy the external cache keeps compressed is answered whole, as a whole-file request is.
+Otherwise the request goes to the remote (or the upper ota-proxy) as it is, and the answer —
+a `206` with its `Content-Range`, or a `200` if the remote ignored the range — goes back to
+the client uncached: the cache keeps whole files only. When such a request also carries
+`retry_caching`, no cache is consulted and the entry the client found corrupted is dropped,
+so that the next client caches the file whole.
+
 ## Features
 
 1. **HTTP proxy for files downloading**: ota-proxy implements standard HTTP proxy mechanism to allow normal HTTP proxy requests from the ota-client. Only the GET method is supported.
