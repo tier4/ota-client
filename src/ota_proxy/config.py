@@ -80,7 +80,10 @@ class Config:
     TABLE_NAME = f"ota_cache_{TABLE_DEFINITION_VERSION}"
 
     # cache streaming behavior
-    AIOHTTP_SOCKET_READ_TIMEOUT = 16  # second
+    # NOTE: just below the client's read timeout (otaclient_common.downloader, 32s), so that
+    #       otaproxy still answers a stalled remote first, while a link blackout of ~15s (which
+    #       TCP retransmission backs off to ~28s of silence) no longer cuts the response.
+    AIOHTTP_SOCKET_READ_TIMEOUT = 30  # second
     AIOHTTP_DNS_CACHE_TTL = 60  # second
 
     TMP_FILE_PREFIX = "tmp"

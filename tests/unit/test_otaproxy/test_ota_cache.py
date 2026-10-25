@@ -29,6 +29,7 @@ from ota_proxy.cache_index import CacheIndex
 from ota_proxy.db import CacheMeta
 from ota_proxy.ota_cache import OTACache
 from ota_proxy.utils import url_based_hash
+from otaclient_common.downloader import DEFAULT_READ_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,14 @@ class TestOTACacheCDNCacheHit:
 #
 # ------------ Tests: OTACache DNS TTL configuration ------------ #
 #
+
+
+class TestOTACacheSocketReadTimeout:
+    def test_otaproxy_waits_for_the_remote_as_long_as_its_client_allows(self):
+        """A stalled remote is answered by otaproxy before the client gives up on
+        otaproxy, and a blackout of ~15s (~28s of silence once TCP retransmission
+        has backed off) is ridden through rather than cutting the response."""
+        assert 28 < cfg.AIOHTTP_SOCKET_READ_TIMEOUT < DEFAULT_READ_TIMEOUT
 
 
 class TestOTACacheDNSTTL:
