@@ -409,6 +409,82 @@ class TestRetryOnDigestMismatch:
         assert retry_headers is not None
         assert "retry_caching" in retry_headers[CACHE_HEADER]
 
+    @pytest.mark.parametrize("dst_as_kwarg", [False, True], ids=["positional", "kwarg"])
+    def test_a_download_cut_short_is_continued_by_the_retry(
+        self, tmp_path, dst_as_kwarg: bool
+    ) -> None:
+        """An otaproxy ends the response when the remote stalls. What arrived is the
+        start of the file, so the retry asks only for the rest of it. The callers pass
+        <dst> by keyword; it is found either way."""
+        _dst, calls = tmp_path / "blob", []
+
+        @retry_on_digest_mismatch
+        def _fake_download(self, url, dst, **kwargs):
+            calls.append(dict(kwargs))
+            if len(calls) == 1:
+                dst.write_bytes(b"x" * 40)
+                raise PartialDownload("cut short")
+            return DownloadResult(0, 100, 60)
+
+        if dst_as_kwarg:
+            _fake_download(None, "http://example.com/blob", dst=_dst, size=100)
+        else:
+            _fake_download(None, "http://example.com/blob", _dst, size=100)
+
+        assert calls[1]["resume_from"] == 40
+
+    def test_a_download_decompressed_as_it_arrives_is_not_continued(
+        self, tmp_path
+    ) -> None:
+        """A range is over the compressed bytes on the wire, and what is on disk is
+        what they decompressed to."""
+        _dst, calls = tmp_path / "blob", []
+
+        @retry_on_digest_mismatch
+        def _fake_download(self, url, dst, **kwargs):
+            calls.append(dict(kwargs))
+            if len(calls) == 1:
+                dst.write_bytes(b"x" * 40)
+                raise PartialDownload("cut short")
+            return DownloadResult(0, 100, 60)
+
+        _fake_download(
+            None, "http://example.com/blob", _dst, size=100, compression_alg="zstd"
+        )
+
+        assert calls[1]["resume_from"] == 0
+
+    def test_a_file_not_shorter_than_expected_is_not_continued(self, tmp_path) -> None:
+        _dst, calls = tmp_path / "blob", []
+
+        @retry_on_digest_mismatch
+        def _fake_download(self, url, dst, **kwargs):
+            calls.append(dict(kwargs))
+            if len(calls) == 1:
+                dst.write_bytes(b"x" * 120)
+                raise PartialDownload("too long")
+            return DownloadResult(0, 100, 100)
+
+        _fake_download(None, "http://example.com/blob", dst=_dst, size=100)
+
+        assert calls[1]["resume_from"] == 0
+
+    def test_bytes_that_hashed_wrong_are_not_continued(self, tmp_path) -> None:
+        """A resumed download that does not hash right may be wrong in the part it
+        resumed from, so the retry fetches the whole file."""
+        _dst, calls = tmp_path / "blob", []
+
+        @retry_on_digest_mismatch
+        def _fake_download(self, url, dst, **kwargs):
+            calls.append(dict(kwargs))
+            if len(calls) == 1:
+                raise HashVerificationError("wrong bytes")
+            return DownloadResult(0, 100, 100)
+
+        _fake_download(None, "http://example.com/blob", _dst, size=100, resume_from=40)
+
+        assert calls[1]["resume_from"] == 0
+
     def test_does_not_retry_on_unrelated_exception(self) -> None:
         calls: list[dict] = []
 
@@ -747,8 +823,8 @@ class TestRangeHonoured:
         assert _range_honoured(_Resp(206, "bytes 1024-2047/2048"), 1024)
 
     def test_a_200_is_the_whole_file_again(self) -> None:
-        """What the in-vehicle otaproxy answers: it forwards three headers of ours and
-        Range is not one of them. Appending that body to the part already on disk
+        """What a server that ignores Range answers, and an otaproxy that does not
+        pass ranged requests through. Appending that body to the part already on disk
         would give a file of the right length and the wrong contents."""
         assert not _range_honoured(_Resp(200), 1024)
 

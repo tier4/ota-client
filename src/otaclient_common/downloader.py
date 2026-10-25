@@ -276,9 +276,29 @@ def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retry mechanism does its job.
             burst_suppressed_logger.warning(f"trigger cache retry due to: {e!r}")
-            return func(*args, **inject_cache_retry_directory(kwargs))
+            kwargs = inject_cache_retry_directory(kwargs)
+            # A download cut short (an otaproxy ends the response when the remote stalls)
+            #   is continued; bytes that hashed wrong are not built on.
+            if isinstance(e, PartialDownload):
+                kwargs["resume_from"] = _resumable_part(args, kwargs)
+            elif kwargs.get("resume_from"):
+                kwargs["resume_from"] = 0
+            return func(*args, **kwargs)
 
     return _wrapper
+
+
+def _resumable_part(args: tuple[Any, ...], kwargs: dict[str, Any]) -> int:
+    """Bytes a cut-short `Downloader.download` left at <dst> that its retry can continue.
+
+    They are a prefix of the file unless the caller has the file decompressed as it
+    arrives, as a range is over the bytes on the wire.
+    """
+    _dst = kwargs.get("dst", args[2] if len(args) > 2 else None)
+    _size = kwargs.get("size")
+    if not _dst or not _size or kwargs.get("compression_alg"):
+        return 0
+    return resumable_bytes(_dst, _size)
 
 
 DEFAULT_CONNECTION_POOL_SIZE = 20
@@ -467,8 +487,8 @@ class Downloader:
         ) as resp:
             resp.raise_for_status()
             # Asking is not getting: a plain 200 means the range was not honoured and the
-            # body is the whole file — which the in-vehicle otaproxy does, because it
-            # forwards only three headers of ours and caches whole objects. Appending that
+            # body is the whole file — which a server that ignores Range does, and so
+            # does an otaproxy that does not pass ranged requests through. Appending that
             # to what is already here would make a file of the right length and the wrong
             # contents, so the only safe reading of a 200 is "start again".
             resumed = resume_from > 0 and _range_honoured(resp, resume_from)
