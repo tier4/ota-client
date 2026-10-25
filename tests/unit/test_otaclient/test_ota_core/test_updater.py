@@ -21,8 +21,10 @@ from types import SimpleNamespace
 import pytest
 import pytest_mock
 
+from ota_metadata.legacy2.metadata import OTAMetadata
 from otaclient._status_monitor import StatusReport
 from otaclient._types import AbortState, OTAStatus
+from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.ota_core import _updater
 from otaclient.ota_core._abort_handler import WAIT_FOR_STATUS_REPORT, AbortHandler
 
@@ -77,6 +79,8 @@ class TestPostUpdateOTAConfigFiles:
         self.process_persistents = mocker.patch(
             f"{_updater.__name__}.process_persistents", side_effect=_persist
         )
+        self.ecu_info = SimpleNamespace(ecu_id="autoware")
+        mocker.patch(f"{_updater.__name__}.ecu_info", self.ecu_info)
         _resource_dir = tmp_path / "resource_dir"
         _resource_dir.mkdir()
         return SimpleNamespace(
@@ -101,18 +105,18 @@ class TestPostUpdateOTAConfigFiles:
         (
             (
                 None,
-                {"ecu_info.yaml": NEW_ECU_INFO, "proxy_info.yaml": NEW_PROXY_INFO},
+                OTAConfigFiles(ecu_info=NEW_ECU_INFO, proxy_info=NEW_PROXY_INFO),
             ),
             (
                 ["/etc/hosts"],
-                {"ecu_info.yaml": NEW_ECU_INFO, "proxy_info.yaml": NEW_PROXY_INFO},
+                OTAConfigFiles(ecu_info=NEW_ECU_INFO, proxy_info=NEW_PROXY_INFO),
             ),
             # persisted files are not loaded, the current ones are kept
             (
                 ["/boot/ota/ecu_info.yaml"],
-                {"proxy_info.yaml": NEW_PROXY_INFO},
+                OTAConfigFiles(proxy_info=NEW_PROXY_INFO),
             ),
-            (["/boot/ota"], {}),
+            (["/boot/ota"], OTAConfigFiles()),
         ),
     )
     def test_post_update(self, updater, persist_entries, expected):
@@ -129,4 +133,38 @@ class TestPostUpdateOTAConfigFiles:
             assert list(self.process_persistents.call_args.args[0]) == persist_entries
         updater._boot_controller.post_update.assert_called_once_with(
             "2.0.0", version_detail=None, ota_config_files=expected
+        )
+
+    def test_post_update_ecu_id_mismatched(self, updater):
+        """The OTA image's ecu_info.yaml is compared with the running otaclient's ecu_id."""
+        updater._iter_persists_func = lambda: None
+        self.ecu_info.ecu_id = "perception1"
+
+        _updater.OTAUpdaterBase._post_update(updater)  # type: ignore[arg-type]
+
+        updater._boot_controller.post_update.assert_called_once_with(
+            "2.0.0", version_detail=None, ota_config_files=OTAConfigFiles()
+        )
+
+    def test_post_update_legacy_persists_txt(self, updater, tmp_path: Path):
+        """The quoted entries of the legacy persists.txt are matched."""
+        _session_dir = tmp_path / "session"
+        _session_dir.mkdir()
+        (_session_dir / OTAMetadata.PERSIST_META_FNAME).write_text(
+            "'/boot/ota/ecu_info.yaml'\n'/etc/hosts'\n"
+        )
+        _legacy_metadata = object.__new__(OTAMetadata)
+        _legacy_metadata._session_dir = _session_dir
+        updater._iter_persists_func = _legacy_metadata.iter_persist_entries
+
+        _updater.OTAUpdaterBase._post_update(updater)  # type: ignore[arg-type]
+
+        assert list(self.process_persistents.call_args.args[0]) == [
+            "/boot/ota/ecu_info.yaml",
+            "/etc/hosts",
+        ]
+        updater._boot_controller.post_update.assert_called_once_with(
+            "2.0.0",
+            version_detail=None,
+            ota_config_files=OTAConfigFiles(proxy_info=self.NEW_PROXY_INFO),
         )

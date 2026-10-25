@@ -23,7 +23,7 @@ import re
 import subprocess
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping, NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 from pydantic import BeforeValidator, PlainSerializer
 from typing_extensions import Annotated, Literal, Self
@@ -34,7 +34,6 @@ from otaclient_common._typing import StrOrPath
 from otaclient_common.common import copytree_identical
 from otaclient_common.linux import subprocess_run_wrapper
 
-from ._ota_config_files import ECU_INFO_FNAME, install_ota_config_files
 from .configs import jetson_common_cfg
 
 logger = logging.getLogger(__name__)
@@ -392,31 +391,6 @@ def copy_standby_slot_boot_to_internal_emmc(
         raise ValueError(_msg) from e
     finally:
         cmdhelper.umount(internal_emmc_mp, raise_exception=False)
-
-
-def preserve_ota_config_files_to_standby(
-    *,
-    active_slot_ota_dirpath: Path,
-    standby_slot_ota_dirpath: Path,
-    ota_config_files: Mapping[str, str],
-) -> None:
-    """Preserve /boot/ota to standby /boot folder.
-
-    After that, <ota_config_files> loaded from the OTA image are installed,
-        see install_ota_config_files for details.
-    """
-    if not active_slot_ota_dirpath.is_dir():  # basically this should not happen
-        logger.warning(
-            f"{active_slot_ota_dirpath} doesn't exist, skip preserve /boot/ota folder."
-        )
-        return
-
-    copytree_identical(active_slot_ota_dirpath, standby_slot_ota_dirpath)
-    install_ota_config_files(
-        ota_config_files,
-        dst_ota_dpath=standby_slot_ota_dirpath,
-        current_ecu_info_fpath=active_slot_ota_dirpath / ECU_INFO_FNAME,
-    )
 
 
 def update_standby_slot_extlinux_cfg(

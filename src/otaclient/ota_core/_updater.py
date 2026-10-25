@@ -307,19 +307,20 @@ class OTAUpdaterBase(OTAUpdateInitializer):
         # NOTE(20240219): move persist file handling at post_update hook
         assert self._iter_persists_func
         _gen = self._iter_persists_func()
-        _persist_entries = list(_gen) if _gen else []
+        _persist_entries = list(_gen) if _gen is not None else []
 
         # NOTE: load the OTA config files from the OTA image before the persist
         #       files handling replaces the persisted ones with the active slot's.
-        #       A file listed in the persist files is not loaded, the current one is kept.
+        #       See load_ota_config_files_from_image for which files are loaded.
         _ota_config_files = load_ota_config_files_from_image(
             Path(
                 replace_root(cfg.OTA_DPATH, cfg.CANONICAL_ROOT, self._standby_slot_mp)
             ),
             persist_entries=_persist_entries,
+            current_ecu_id=ecu_info.ecu_id,
         )
 
-        if _gen:
+        if _gen is not None:
             process_persistents(
                 _persist_entries,
                 active_slot_mp=self._active_slot_mp,

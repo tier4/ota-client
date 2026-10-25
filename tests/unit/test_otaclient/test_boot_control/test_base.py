@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, NoReturn
+from typing import NoReturn
 
 import pytest
 from pytest_mock import MockerFixture
@@ -24,6 +24,7 @@ from pytest_mock import MockerFixture
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus, VersionDetail
 from otaclient.boot_control._base import BootControllerBase
+from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 
@@ -54,7 +55,7 @@ def _make_concrete_boot_controller_cls(mocker: MockerFixture):
             self.pre_update_platform_called = True
 
         def _post_update_platform_specific(
-            self, *, update_version: str, ota_config_files: Mapping[str, str]
+            self, *, update_version: str, ota_config_files: OTAConfigFiles
         ) -> None:
             self.post_update_platform_called = True
             self.post_update_ota_config_files = ota_config_files
@@ -160,10 +161,10 @@ class TestBootControllerBase:
         controller._ota_status_control.post_update_standby.assert_called_once()
         controller._mp_control.umount_all.assert_called_once()
         assert controller.post_update_platform_called is True
-        assert controller.post_update_ota_config_files == {}
+        assert controller.post_update_ota_config_files == OTAConfigFiles()
 
     def test_post_update_with_ota_config_files(self, controller):
-        _ota_config_files = {"ecu_info.yaml": "ecu_id: autoware\n"}
+        _ota_config_files = OTAConfigFiles(ecu_info="ecu_id: autoware\n")
         controller.post_update(
             update_version="2.0.0", ota_config_files=_ota_config_files
         )
@@ -267,7 +268,9 @@ class TestBootControllerBase:
             def bootloader_type(self) -> str:
                 return "minimal"
 
-            def _post_update_platform_specific(self, *, update_version: str) -> None:
+            def _post_update_platform_specific(
+                self, *, update_version: str, ota_config_files: OTAConfigFiles
+            ) -> None:
                 pass
 
             def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:

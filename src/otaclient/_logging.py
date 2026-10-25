@@ -234,8 +234,8 @@ def configure_logging() -> None:
     # ------ configure each sub loggers and attach ota logging handler ------ #
     log_upload_handler = None
     if logging_upload_endpoint := proxy_info.logging_server:
-        # TODO: ECUs updated by older otaclient keep their old /boot/ota/proxy_info.yaml, as it was not
-        # installed from the OTA image at OTA(otaclient now installs it, unless it is listed in the persist files).
+        # TODO: Jetson/RPi ECUs updated by older otaclient, and ECUs listing /boot/ota/proxy_info.yaml in
+        # the persist files, keep their old proxy_info.yaml(otaclient now installs it from the OTA image at OTA).
         # As a workaround, we use the HTTP host with the gRPC port for gRPC communication,
         # since their hosts are essentially the same.
         # In the future, once the ECUs carry the intended proxy_info.yaml, we should switch to using

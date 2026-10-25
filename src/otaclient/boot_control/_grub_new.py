@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
-from typing import Callable, Generator, Literal, Mapping, NoReturn
+from typing import Callable, Generator, Literal, NoReturn
 
 from _otaclient_version import version as _running_otaclient_version
 from packaging.version import InvalidVersion, Version
@@ -34,7 +34,12 @@ from typing_extensions import Self
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus
 from otaclient.boot_control._base import BootControllerBase
-from otaclient.boot_control._ota_config_files import install_ota_config_files
+from otaclient.boot_control._ota_config_files import (
+    OTAConfigFiles,
+    backup_ota_config_files,
+    install_ota_config_files,
+    restore_ota_config_files,
+)
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient.boot_control._slot_mnt_helper import SlotMountHelper
 from otaclient.configs.cfg import cfg
@@ -1382,21 +1387,43 @@ class GrubBootController(BootControllerBase):
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
-    def _install_new_ota_config_files(
-        self, ota_config_files: Mapping[str, str]
+    def _install_new_ota_config_files_and_switch_boot(
+        self, ota_config_files: OTAConfigFiles
     ) -> None:
-        """Install new OTA config files to the shared boot partition.
+        """Install new OTA config files to the shared boot partition, and configure
+        grub-reboot to the standby slot.
 
-        See install_ota_config_files for which files from the OTA image are installed.
+        As /boot/ota is shared by both slots, the new OTA config files are installed
+            right before grub-reboot, and the current ones are restored if either fails,
+            so that the current slot is not left with the new ones.
 
-        NOTE: as /boot/ota is shared by both slots, the old slot also uses the
-            new OTA config files if it is booted again after this OTA.
+        NOTE: the old slot still uses the new OTA config files if it is booted again
+            after the switch, e.g., grub falls back to it when the new slot fails to boot.
         """
-        install_ota_config_files(
-            ota_config_files,
-            dst_ota_dpath=Path(cfg.OTA_DPATH),
-            current_ecu_info_fpath=Path(cfg.ECU_INFO_FPATH),
-        )
+        _ota_dpath = Path(cfg.OTA_DPATH)
+        _backup = backup_ota_config_files(_ota_dpath, ota_config_files)
+        try:
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlBootConfigUpdateFailed,
+                "failed to install the OTA config files to the boot partition",
+                module=__name__,
+            ):
+                install_ota_config_files(ota_config_files, dst_ota_dpath=_ota_dpath)
+
+            logger.info(
+                f"configure grub-reboot to standby slot({self._standby_slot}) ..."
+            )
+            with ota_errors.raise_as_ota_error(
+                ota_errors.BootControlSwitchBootFailed,
+                "failed to configure grub-reboot to standby slot",
+                module=__name__,
+            ):
+                self._boot_control.grub_reboot_to_standby()
+        except Exception:
+            if _backup:
+                logger.warning("restore the OTA config files at the boot partition ...")
+                restore_ota_config_files(_ota_dpath, _backup)
+            raise
 
     # API
 
@@ -1443,7 +1470,7 @@ class GrubBootController(BootControllerBase):
             )
 
     def _post_update_platform_specific(
-        self, *, update_version: str, ota_config_files: Mapping[str, str]
+        self, *, update_version: str, ota_config_files: OTAConfigFiles
     ) -> None:
         """GRUB-specific post-update: update fstab, copy boot files, and reboot to standby."""
         _kernel_ver = self._boot_control.detect_slot_kernel_ver(
@@ -1508,21 +1535,7 @@ class GrubBootController(BootControllerBase):
                 _kernel_ver, slot_id=_standby_slot_id, slot_mp=_standby_slot_mp
             )
 
-            # NOTE: /boot/ota is shared by both slots, install the new OTA config
-            #       files as late as possible, so that a failure of the steps above
-            #       doesn't leave the current slot with the new ones.
-            logger.info(
-                "install new ecu_info.yaml and proxy_info.yaml to boot partition"
-            )
-            self._install_new_ota_config_files(ota_config_files)
-
-        logger.info(f"configure grub-reboot to standby slot({_standby_slot_id=}) ...")
-        with ota_errors.raise_as_ota_error(
-            ota_errors.BootControlSwitchBootFailed,
-            "failed to configure grub-reboot to standby slot",
-            module=__name__,
-        ):
-            self._boot_control.grub_reboot_to_standby()
+        self._install_new_ota_config_files_and_switch_boot(ota_config_files)
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
         cmdhelper.reboot(chroot=chroot)

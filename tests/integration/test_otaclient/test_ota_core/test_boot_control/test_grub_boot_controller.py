@@ -30,8 +30,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from otaclient._types import OTAStatus
+from otaclient.boot_control import _ota_config_files
 from otaclient.boot_control._grub_common import OTAManagedCfg
 from otaclient.boot_control._grub_new import GrubBootController
+from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.errors import BootControlPostUpdateFailed, BootControlPreUpdateFailed
 
 from .conftest import (
@@ -479,11 +481,9 @@ class TestGrubBootControllerPreUpdate:
 NEW_ECU_INFO = 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.20.1"\n'
 NEW_PROXY_INFO = 'upper_ota_proxy: "http://192.168.20.1:8082"\n'
 CURRENT_PROXY_INFO = 'upper_ota_proxy: "http://192.168.30.1:8082"\n'
+CURRENT_ECU_INFO = 'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n'
 # the OTA config files loaded from the new image
-NEW_OTA_CONFIG_FILES = {
-    "proxy_info.yaml": NEW_PROXY_INFO,
-    "ecu_info.yaml": NEW_ECU_INFO,
-}
+NEW_OTA_CONFIG_FILES = OTAConfigFiles(ecu_info=NEW_ECU_INFO, proxy_info=NEW_PROXY_INFO)
 
 
 def _setup_standby_rootfs_for_post_update(mnt_dir: Path, rootfs_dir: Path) -> None:
@@ -644,56 +644,56 @@ class TestGrubBootControllerPostUpdate:
         # === Cleanup ===
         mock_umount_all.assert_called_once_with(ignore_error=True)
 
+    @pytest.fixture
+    def current_ota_dir(self, rootfs_dir: Path) -> Path:
+        """The shared /boot/ota with the current OTA config files."""
+        ota_dir = rootfs_dir / "boot" / "ota"
+        ota_dir.mkdir(parents=True, exist_ok=True)
+        (ota_dir / "ecu_info.yaml").write_text(CURRENT_ECU_INFO)
+        (ota_dir / "proxy_info.yaml").write_text(CURRENT_PROXY_INFO)
+        return ota_dir
+
     @pytest.mark.parametrize(
-        "current_ecu_info, expected_ecu_info, expected_proxy_info",
+        "ota_config_files, expected_ecu_info, expected_proxy_info",
         (
-            # same ecu_id: the files from the OTA image are installed
+            (NEW_OTA_CONFIG_FILES, NEW_ECU_INFO, NEW_PROXY_INFO),
             (
-                'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n',
-                NEW_ECU_INFO,
+                OTAConfigFiles(proxy_info=NEW_PROXY_INFO),
+                CURRENT_ECU_INFO,
                 NEW_PROXY_INFO,
             ),
-            # ecu_id mismatched: the current files are kept
-            (
-                'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
-                'format_version: 1\necu_id: "perception"\nip_addr: "192.168.30.1"\n',
-                CURRENT_PROXY_INFO,
-            ),
+            (OTAConfigFiles(), CURRENT_ECU_INFO, CURRENT_PROXY_INFO),
         ),
     )
-    def test_post_update_ecu_info_install(
+    def test_post_update_ota_config_files_install(
         self,
         boot_dir: Path,
         mnt_dir: Path,
         rootfs_dir: Path,
+        current_ota_dir: Path,
         mocker: MockerFixture,
-        current_ecu_info: str,
+        ota_config_files: OTAConfigFiles,
         expected_ecu_info: str,
         expected_proxy_info: str,
     ):
-        """The files at destination are replaced unless the ecu_id differs."""
+        """The given files replace the ones at the shared /boot/ota, the others are kept."""
         controller, _ = self._create_post_update_ready_controller(
             boot_dir, mnt_dir, rootfs_dir, mocker
         )
 
-        # Pre-create the current files at destination
-        ota_dir = rootfs_dir / "boot" / "ota"
-        ota_dir.mkdir(parents=True, exist_ok=True)
-        (ota_dir / "ecu_info.yaml").write_text(current_ecu_info)
-        (ota_dir / "proxy_info.yaml").write_text(CURRENT_PROXY_INFO)
-
         controller.post_update(
-            update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+            update_version="3.0.0", ota_config_files=ota_config_files
         )
 
-        assert (ota_dir / "ecu_info.yaml").read_text() == expected_ecu_info
-        assert (ota_dir / "proxy_info.yaml").read_text() == expected_proxy_info
+        assert (current_ota_dir / "ecu_info.yaml").read_text() == expected_ecu_info
+        assert (current_ota_dir / "proxy_info.yaml").read_text() == expected_proxy_info
 
     def test_post_update_boot_cfg_failure_keeps_ota_config_files(
         self,
         boot_dir: Path,
         mnt_dir: Path,
         rootfs_dir: Path,
+        current_ota_dir: Path,
         mocker: MockerFixture,
     ):
         """/boot/ota is shared by both slots, so it is not touched when post_update fails earlier."""
@@ -704,21 +704,76 @@ class TestGrubBootControllerPostUpdate:
             side_effect=ValueError("failed to generate boot cfg")
         )
 
-        ota_dir = rootfs_dir / "boot" / "ota"
-        ota_dir.mkdir(parents=True, exist_ok=True)
-        _current_ecu_info = (
-            'format_version: 1\necu_id: "autoware"\nip_addr: "192.168.30.1"\n'
+        with pytest.raises(BootControlPostUpdateFailed):
+            controller.post_update(
+                update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+            )
+
+        assert (current_ota_dir / "ecu_info.yaml").read_text() == CURRENT_ECU_INFO
+        assert (current_ota_dir / "proxy_info.yaml").read_text() == CURRENT_PROXY_INFO
+
+    def test_post_update_grub_reboot_failure_restores_ota_config_files(
+        self,
+        boot_dir: Path,
+        mnt_dir: Path,
+        rootfs_dir: Path,
+        current_ota_dir: Path,
+        mocker: MockerFixture,
+    ):
+        """The current OTA config files are restored when grub-reboot fails after the install."""
+        controller, _ = self._create_post_update_ready_controller(
+            boot_dir, mnt_dir, rootfs_dir, mocker
         )
-        (ota_dir / "ecu_info.yaml").write_text(_current_ecu_info)
-        (ota_dir / "proxy_info.yaml").write_text(CURRENT_PROXY_INFO)
+        controller._boot_control.grub_reboot_to_standby = mocker.MagicMock(
+            side_effect=ValueError("failed to grub-reboot")
+        )
+        # proxy_info.yaml doesn't exist before the OTA, it is removed again
+        (current_ota_dir / "proxy_info.yaml").unlink()
 
         with pytest.raises(BootControlPostUpdateFailed):
             controller.post_update(
                 update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
             )
 
-        assert (ota_dir / "ecu_info.yaml").read_text() == _current_ecu_info
-        assert (ota_dir / "proxy_info.yaml").read_text() == CURRENT_PROXY_INFO
+        assert (current_ota_dir / "ecu_info.yaml").read_text() == CURRENT_ECU_INFO
+        assert not (current_ota_dir / "proxy_info.yaml").exists()
+
+    def test_post_update_install_failure_restores_ota_config_files(
+        self,
+        boot_dir: Path,
+        mnt_dir: Path,
+        rootfs_dir: Path,
+        current_ota_dir: Path,
+        mocker: MockerFixture,
+    ):
+        """The current OTA config files are restored when the install fails halfway."""
+        controller, _ = self._create_post_update_ready_controller(
+            boot_dir, mnt_dir, rootfs_dir, mocker
+        )
+        _real_write = _ota_config_files.write_str_to_file_atomic
+        _calls = []
+
+        def _write_then_fail(fpath, _input, **kwargs):
+            _calls.append(fpath)
+            if len(_calls) > 1:
+                raise OSError("no space left on device")
+            _real_write(fpath, _input, **kwargs)
+
+        mocker.patch.object(
+            _ota_config_files, "write_str_to_file_atomic", side_effect=_write_then_fail
+        )
+        _grub_reboot = mocker.MagicMock()
+        controller._boot_control.grub_reboot_to_standby = _grub_reboot
+
+        with pytest.raises(BootControlPostUpdateFailed):
+            controller.post_update(
+                update_version="3.0.0", ota_config_files=NEW_OTA_CONFIG_FILES
+            )
+
+        assert len(_calls) == 2
+        assert (current_ota_dir / "ecu_info.yaml").read_text() == CURRENT_ECU_INFO
+        assert (current_ota_dir / "proxy_info.yaml").read_text() == CURRENT_PROXY_INFO
+        _grub_reboot.assert_not_called()
 
     def test_post_update_wraps_exception(
         self,

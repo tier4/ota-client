@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
-from typing import Mapping, NoReturn, Optional
+from typing import NoReturn, Optional
 
 from otaclient import errors as ota_errors
 from otaclient.boot_control._firmware_package import (
@@ -51,8 +51,11 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
-    preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
+)
+from ._ota_config_files import (
+    OTAConfigFiles,
+    preserve_ota_dir_and_install_config_files,
 )
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import cboot_cfg as boot_cfg
@@ -616,7 +619,7 @@ class JetsonCBootControl(BootControllerBase):
             self._cboot_control.set_standby_rootfs_unbootable()
 
     def _post_update_platform_specific(
-        self, *, update_version: str, ota_config_files: Mapping[str, str]
+        self, *, update_version: str, ota_config_files: OTAConfigFiles
     ) -> None:
         """Jetson cboot-specific post-update operations."""
         # ------ update extlinux.conf ------ #
@@ -647,13 +650,9 @@ class JetsonCBootControl(BootControllerBase):
                 logger.info("new firmware is written to the standby slot")
 
         # ------ preserve /boot/ota folder to standby rootfs, and install the OTA config files ------ #
-        preserve_ota_config_files_to_standby(
-            active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-            / "boot"
-            / "ota",
-            standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-            / "boot"
-            / "ota",
+        preserve_ota_dir_and_install_config_files(
+            active_slot_mp=self._mp_control.active_slot_mount_point,
+            standby_slot_mp=self._mp_control.standby_slot_mount_point,
             ota_config_files=ota_config_files,
         )
 

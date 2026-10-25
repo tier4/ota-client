@@ -17,11 +17,14 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import Mapping, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
 from ._ota_status_control import OTAStatusFilesControl
+
+if TYPE_CHECKING:
+    from ._ota_config_files import OTAConfigFiles
 
 
 class BootControllerProtocol(Protocol):
@@ -98,7 +101,7 @@ class BootControllerProtocol(Protocol):
         update_version: str,
         *,
         version_detail: VersionDetail | None = None,
-        ota_config_files: Mapping[str, str] | None = None,
+        ota_config_files: OTAConfigFiles | None = None,
     ) -> None:
         """Configure the standby slot to be booted.
 
