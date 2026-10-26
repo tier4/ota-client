@@ -33,35 +33,83 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import subprocess
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
-from otaclient.boot_control.protocol import PartitionInstallError
+from otaclient.boot_control.protocol import (
+    PartitionInstallerProtocol,
+    PartitionInstallError,
+)
 from otaclient_common import _env as otaclient_env
 
 logger = logging.getLogger(__name__)
 
 
 # the DPI logs to stderr as "<date> <time> <LEVEL> <logger>: <message>"; the message
-# alone is what a failure reason is built from
+# alone is what a failure reason is built from, and the level is carried into our log
 _LOG_LINE_PREFIX = re.compile(
-    r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:,\d{3})? (?P<level>[A-Z]+) \S+: "
+    r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:,\d{3})? (?P<level>[A-Z]+) (?P<name>\S+): "
 )
+
 DEFAULT_TIMEOUT = 60
-"""Enough for anything that only reads state. Writing a partition gets its own."""
+"""Enough for a verb that only reads state. The verbs that wait or write get their
+own, below."""
 
 INSTALL_TIMEOUT = 3600
 """A slot write is gigabytes onto storage that may be slow; the DPI reports progress
 throughout, so a stall is visible long before this."""
 
+RESUME_TIMEOUT = 1800
+"""`resume` on the trial boot blocks until the health check has its verdict: the DPI
+waits for that with its own backstop (`health_timeout`, 900 s unless the image sets
+`ROOTFS_UA_HEALTH_TIMEOUT`), then commits. Cutting it short would leave a healthy
+slot uncommitted, so this is twice the DPI's backstop, not a read timeout."""
+
+SOURCE_DIGEST_MIN_RATE = 32 << 20
+"""`source-digest` reads and hashes the committed slot up to the delta's source size,
+gigabytes on eMMC or SATA. Its timeout grows with the size at this assumed rate
+(bytes per second), with `DEFAULT_TIMEOUT` as the floor."""
+
+TERMINATE_GRACE = 10
+"""Seconds a DPI that overran its timeout gets to end on SIGTERM before SIGKILL."""
+
+_DPI_ENV = {
+    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "LANG": "C.UTF-8",
+}
+"""The environment the DPI is run in: not otaclient's own. The DPI reads
+`ROOTFS_UA_*` variables for its trust anchor and its paths, so nothing otaclient
+happens to have inherited may reach it; the two selectors below are the only
+variables added, and neither names a path."""
+
+_LOG_LEVELS = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
 
 class DPIError(PartitionInstallError):
     """The DPI refused, failed, or could not be run at all."""
+
+
+def _split_log_line(line: str) -> tuple[str | None, str | None, str]:
+    """A line of the DPI's log as (level, logger name, message).
+
+    A line without the DPI's log prefix (the wrapper's, a traceback's continuation)
+    is a message with no level and no name.
+    """
+    _prefix = _LOG_LINE_PREFIX.match(line)
+    if _prefix is None:
+        return None, None, line
+    return _prefix.group("level"), _prefix.group("name"), line[_prefix.end() :]
 
 
 @dataclass
@@ -84,9 +132,6 @@ class DPIResult:
         """What to tell about a failed verb: its last error, else its last word."""
         return self.last_error or self.last_line
 
-    """The last line the DPI wrote to stderr, which is where it says why. Carried so
-    that a failure can be reported with its reason instead of an exit code."""
-
 
 @dataclass
 class SlotLayout:
@@ -101,10 +146,11 @@ class SlotLayout:
     standby_slot: str
     active_dev: str
     standby_dev: str
-    platform: str = "grub"
+    platform: str
     """Which device side the DPI found itself on. It decides where state that must
     outlive the reboot can be kept, which differs per platform and is not derivable
-    from the slots."""
+    from the slots. Every DPI that knows more than one platform names it; one that
+    does not is refused rather than guessed."""
 
     @classmethod
     def from_json(cls, raw: str) -> SlotLayout:
@@ -115,10 +161,21 @@ class SlotLayout:
                 standby_slot=_parsed["standby_slot"],
                 active_dev=_parsed["active_dev"],
                 standby_dev=_parsed["standby_dev"],
-                platform=_parsed.get("platform") or "grub",
+                platform=_parsed["platform"],
             )
         except (ValueError, KeyError, TypeError) as e:
             raise DPIError(f"the DPI reported a layout we cannot read: {e!r}") from e
+
+
+class DPIProtocol(PartitionInstallerProtocol, Protocol):
+    """What the partition-image boot control asks of the DPI, on top of being the
+    installer: the slots, the running version, and the conclusion of a trial."""
+
+    def layout(self) -> SlotLayout: ...
+
+    def get_version(self, *, name: str | None = None) -> str: ...
+
+    def resume(self) -> str | None: ...
 
 
 def dpi_from_ecu_info() -> DPIClient:
@@ -160,17 +217,18 @@ class DPIClient:
         this reads the stream instead of waiting for the process: a slot write is the
         longest phase of the update and otaclient has to keep reporting during it.
         """
-        _cmd = [str(self.executable)] + args
+        _cmd = [self.executable, *args]
         if _chroot := otaclient_env.get_dynamic_client_chroot_path():
             # NOTE: a dynamically loaded otaclient runs with its own app image as
             #       root, which does not carry the DPI; the DPI is run in the slot's
             #       root, rbound at the chroot path.
-            _cmd = ["chroot", _chroot] + _cmd
+            _cmd = ["chroot", _chroot, *_cmd]
         logger.debug(f"calling the DPI: {_cmd}")
 
-        _env = os.environ.copy()
+        _env = dict(_DPI_ENV)
         # Which payload of a multi-ECU image is this device's: the DPI refuses to
-        # choose, and otaclient knows from ecu_info.yaml.
+        # choose, and otaclient knows from ecu_info.yaml. Both are matched against
+        # the image index's annotations, never used as a path or a command.
         if ecu_id:
             _env["ROOTFS_UA_ECU_ID"] = ecu_id
         if release_key:
@@ -179,9 +237,11 @@ class DPIClient:
         try:
             _proc = subprocess.Popen(
                 _cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                universal_newlines=True,
+                encoding="utf-8",
+                errors="replace",
                 env=_env,
             )
         except OSError as e:
@@ -192,8 +252,14 @@ class DPIClient:
         _timed_out = threading.Event()
 
         def _kill() -> None:
+            # SIGTERM first: a DPI in the middle of a write or a commit gets to end
+            # cleanly; only one that ignores it is killed.
             _timed_out.set()
-            _proc.kill()
+            _proc.terminate()
+            try:
+                _proc.wait(TERMINATE_GRACE)
+            except subprocess.TimeoutExpired:
+                _proc.kill()
 
         # NOTE: stderr is the DPI's log, drained on its own thread so that it never
         #       fills during a slot write, and never merged into stdout, which is the
@@ -205,11 +271,13 @@ class DPIClient:
                 _line = _line.strip()
                 if not _line:
                     continue
-                logger.info(f"dpi: {_line}")
-                _prefix = _LOG_LINE_PREFIX.match(_line)
-                _msg = _line[_prefix.end() :] if _prefix else _line
+                _level, _name, _msg = _split_log_line(_line)
+                logger.log(
+                    _LOG_LEVELS.get(_level or "", logging.INFO),
+                    f"dpi {_name}: {_msg}" if _name else f"dpi: {_msg}",
+                )
                 _result.last_line = _msg
-                if _prefix is None or _prefix.group("level") in ("ERROR", "CRITICAL"):
+                if _level is None or _level in ("ERROR", "CRITICAL"):
                     _result.last_error = _msg
 
         _stderr_reader = threading.Thread(target=_drain_stderr, daemon=True)
@@ -238,13 +306,24 @@ class DPIClient:
                     # Not protocol and not asked for: logged, like stderr.
                     logger.info(f"dpi: {_line}")
             _result.returncode = _proc.wait()
+        except BaseException:
+            # Whatever interrupted the reading (a progress callback that raised, a
+            # signal), the DPI is not left running on its own, nor left a zombie.
+            _proc.kill()
+            _proc.wait()
+            raise
         finally:
             _timer.cancel()
             _stderr_reader.join(timeout=5)
+            if _stderr_reader.is_alive():
+                logger.warning(
+                    "the DPI's stderr is still open after it exited (a child of its "
+                    "own?); its log may be incomplete"
+                )
             for _stream in (_proc.stdout, _proc.stderr):
                 if _stream is not None:
                     _stream.close()
-        if _timed_out.is_set():
+        if _timed_out.is_set() and _result.returncode != 0:
             raise DPIError(f"the DPI did not finish {args[0]} within {timeout}s")
 
         _result.output = "\n".join(_captured)
@@ -286,7 +365,11 @@ class DPIClient:
         _args = ["source-digest", "--size", str(size)]
         if data_image is not None:
             _args += ["--data-image", data_image]
-        _res = self._run(_args, capture=True)
+        _res = self._run(
+            _args,
+            capture=True,
+            timeout=max(DEFAULT_TIMEOUT, size // SOURCE_DIGEST_MIN_RATE),
+        )
         try:
             return str(json.loads(_res.output)["digest"])
         except (ValueError, KeyError, TypeError) as e:
@@ -325,11 +408,13 @@ class DPIClient:
     def resume(self) -> str | None:
         """Conclude an update staged before this boot.
 
-        The DPI decides commit or rollback from the health check; a non-zero exit is
-        its verdict that this boot failed, not a bug in otaclient, so the caller
-        turns it into a failed switch rather than an error.
+        On the trial boot this blocks until the health check has its verdict (the
+        DPI's own wait, bounded by `RESUME_TIMEOUT`). The DPI decides commit or
+        rollback from that verdict; a non-zero exit is its verdict that this boot
+        failed, not a bug in otaclient, so the caller turns it into a failed switch
+        rather than an error.
         """
-        _res = self._run(["resume"], check=False)
+        _res = self._run(["resume"], check=False, timeout=RESUME_TIMEOUT)
         if _res.returncode != 0:
             raise DPIError(
                 _res.reason

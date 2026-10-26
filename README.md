@@ -10,6 +10,7 @@ It is designed to work with web.auto FMS OTA component.
 ## Features
 
 - A/B partition update with support for generic x86_64 device, NVIDIA Jetson series based devices and Raspberry Pi
+- A/B update of the partition contract layouts (`bootloader: grub-verity` on x86_64, `jetson-dpi` on NVIDIA Jetson), where the platform's DPI writes the slots as partition images and otaclient drives it
   device.
 - Full Rootfs update, with delta update support.
 - Local delta calculation, allowing update to any version of OTA image without the need of a pre-generated delta OTA

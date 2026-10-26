@@ -22,18 +22,36 @@ because a drift there is invisible until an update runs on a device.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import stat
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from otaclient.boot_control import _dpi
-from otaclient.boot_control._dpi import DPIClient, DPIError, SlotLayout
+from otaclient.boot_control._dpi import (
+    DEFAULT_TIMEOUT,
+    SOURCE_DIGEST_MIN_RATE,
+    TERMINATE_GRACE,
+    DPIClient,
+    DPIError,
+    SlotLayout,
+)
 from otaclient.boot_control.protocol import (
     PartitionInstallerProtocol,
     PartitionInstallError,
 )
+
+A_LAYOUT = {
+    "platform": "grub",
+    "active_slot": "rootfs_a",
+    "standby_slot": "rootfs_b",
+    "active_dev": "/dev/sda3",
+    "standby_dev": "/dev/sda4",
+}
 
 
 def fake_dpi(tmp_path: Path, body: str) -> Path:
@@ -48,11 +66,19 @@ def fake_dpi(tmp_path: Path, body: str) -> Path:
     return _script
 
 
+@pytest.fixture
+def our_log(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
+    """The DPI's lines are INFO in our log; caplog only sees them when asked."""
+    caplog.set_level(logging.DEBUG, logger="otaclient.boot_control")
+    return caplog
+
+
 def test_the_client_is_a_partition_installer():
     """What the partition-image updater asks of its installer, the DPI answers; a
     refusal is the error that updater catches."""
-    _installer: PartitionInstallerProtocol = DPIClient("/usr/local/sbin/rootfs-ua-dpi")
-    assert callable(_installer.source_digest) and callable(_installer.install)
+    assert isinstance(
+        DPIClient("/usr/local/sbin/rootfs-ua-dpi"), PartitionInstallerProtocol
+    )
     assert issubclass(DPIError, PartitionInstallError)
 
 
@@ -111,28 +137,76 @@ class TestInstall:
         ], "no component name, no rollback: otaclient has neither to give"
         assert _env == "perception prd"
 
-    def test_progress_is_reported_as_it_arrives(self, tmp_path: Path):
-        """A slot write is the longest phase of an update; otaclient has to keep
-        reporting during it rather than after."""
+    def test_nothing_of_otaclients_environment_reaches_the_dpi(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """The DPI takes its trust anchor and its paths from ROOTFS_UA_* variables:
+        whatever otaclient inherited must not become such an input. The two
+        selectors are the only variables it is given, beside a fixed PATH."""
+        monkeypatch.setenv("ROOTFS_UA_IMAGE_CA", "/tmp/not-the-real-one.pem")
+        monkeypatch.setenv("LD_PRELOAD", "/tmp/evil.so")
+        _seen = tmp_path / "env"
         _dpi = fake_dpi(
             tmp_path,
-            "import sys\n"
+            "import os\n"
+            f"open({str(_seen)!r}, 'w').write(' '.join(sorted(os.environ)))\n"
+            "print('REBOOT')",
+        )
+        DPIClient(_dpi).install(
+            package=Path("p"), version="1", ecu_id="autoware", release_key="dev"
+        )
+        assert _seen.read_text().split() == [
+            "LANG",
+            "PATH",
+            "ROOTFS_UA_ECU_ID",
+            "ROOTFS_UA_RELEASE_KEY",
+        ]
+
+    def test_progress_is_reported_as_it_arrives(self, tmp_path: Path):
+        """A slot write is the longest phase of an update; otaclient has to keep
+        reporting during it rather than after. The stand-in waits, after each line,
+        for the callback to have seen it before it writes the next: a reader that
+        collected everything at exit would never let it finish."""
+        _ack = tmp_path / "ack"
+        _dpi = fake_dpi(
+            tmp_path,
+            "import os, sys, time\n"
             "for p in (0, 50, 100):\n"
             "    print('PROGRESS %d' % p); sys.stdout.flush()\n"
+            "    for _ in range(200):\n"
+            f"        if os.path.exists({str(_ack)!r} + str(p)): break\n"
+            "        time.sleep(0.05)\n"
+            "    else: sys.exit(3)\n"
             "print('REBOOT')",
         )
         _seen = []
+
+        def _on_progress(p: int) -> None:
+            _seen.append(p)
+            (tmp_path / f"ack{p}").touch()
+
         DPIClient(_dpi).install(
             package=Path("p"),
             version="1",
             ecu_id="autoware",
             release_key="dev",
-            on_progress=_seen.append,
+            on_progress=_on_progress,
         )
         assert _seen == [0, 50, 100]
 
+    def test_unparsable_progress_is_logged_not_fatal(self, tmp_path: Path, our_log):
+        _dpi = fake_dpi(tmp_path, "print('PROGRESS lots')\nprint('REBOOT')")
+        DPIClient(_dpi).install(
+            package=Path("p"),
+            version="1",
+            ecu_id="autoware",
+            release_key="dev",
+            on_progress=lambda _: None,
+        )
+        assert "unparsable progress" in our_log.text
+
     def test_a_dpi_that_asks_for_no_reboot_is_logged_not_refused(
-        self, tmp_path: Path, caplog
+        self, tmp_path: Path, our_log
     ):
         """The update is concluded by the trial boot otaclient reboots into whatever
         the DPI said; the oddity is worth a line in the log."""
@@ -140,7 +214,7 @@ class TestInstall:
         DPIClient(_dpi).install(
             package=Path("p"), version="1", ecu_id="autoware", release_key="dev"
         )
-        assert "without asking for a reboot" in caplog.text
+        assert "without asking for a reboot" in our_log.text
 
     def test_a_refused_install_raises_with_the_reason(self, tmp_path: Path):
         _dpi = fake_dpi(
@@ -192,34 +266,35 @@ class TestResume:
         with pytest.raises(DPIError, match=r"could not conclude the update \(exit 2\)"):
             DPIClient(_dpi).resume()
 
+    def test_resume_is_given_the_health_checks_time(self, tmp_path: Path, monkeypatch):
+        """On the trial boot the DPI's resume waits for the health verdict (minutes)
+        before it commits; cut short, a healthy slot would stay uncommitted."""
+        _seen = {}
+
+        def _fake_run(self, args, **kwargs):
+            _seen["timeout"] = kwargs.get("timeout")
+            return _dpi.DPIResult(returncode=0, version="1")
+
+        monkeypatch.setattr(DPIClient, "_run", _fake_run)
+        DPIClient("dpi").resume()
+        assert _seen["timeout"] == _dpi.RESUME_TIMEOUT >= 2 * 900
+
 
 class TestLayout:
     def test_reads_the_slots_the_dpi_resolved(self, tmp_path: Path):
-        _layout = {
-            "active_slot": "rootfs_a",
-            "standby_slot": "rootfs_b",
-            "active_dev": "/dev/sda3",
-            "standby_dev": "/dev/sda4",
-        }
-        _dpi = fake_dpi(tmp_path, f"print({json.dumps(json.dumps(_layout))})")
+        _dpi = fake_dpi(tmp_path, f"print({json.dumps(json.dumps(A_LAYOUT))})")
         assert DPIClient(_dpi).layout() == SlotLayout(
             active_slot="rootfs_a",
             standby_slot="rootfs_b",
             active_dev="/dev/sda3",
             standby_dev="/dev/sda4",
+            platform="grub",
         )
 
     def test_the_dpis_log_on_stderr_does_not_reach_the_answer(self, tmp_path: Path):
         """The DPI logs what it resolved on stderr before it prints the JSON. Merging
         the two streams made every layout unreadable."""
-        _layout = {
-            "platform": "grub",
-            "active_slot": "rootfs_a",
-            "standby_slot": "rootfs_b",
-            "active_dev": "/dev/sda3",
-            "standby_dev": "/dev/sda4",
-            "boot_dev": "/dev/sda2",
-        }
+        _layout = {**A_LAYOUT, "boot_dev": "/dev/sda2"}
         _dpi = fake_dpi(
             tmp_path,
             "print('INFO dpi.platforms.grub.layout: root is on /dev/sda3', file=sys.stderr)\n"
@@ -238,14 +313,112 @@ class TestLayout:
             == "f" * 64
         )
 
-    def test_an_unreadable_layout_is_an_error(self, tmp_path: Path):
-        """Never guess a slot: writing the wrong partition is unrecoverable."""
-        _dpi = fake_dpi(tmp_path, 'print(\'{"active_slot": "rootfs_a"}\')')
+    def test_source_digest_waits_in_proportion_to_what_is_hashed(self, monkeypatch):
+        """The DPI reads the committed slot up to the delta's source size -- gigabytes
+        on eMMC -- so a fixed read timeout would cut a fitting delta off as 'not
+        fitting'."""
+        _seen = []
+
+        def _fake_run(self, args, **kwargs):
+            _seen.append(kwargs.get("timeout"))
+            return _dpi.DPIResult(returncode=0, output='{"digest": "ab"}')
+
+        monkeypatch.setattr(DPIClient, "_run", _fake_run)
+        DPIClient("dpi").source_digest(size=4096)
+        DPIClient("dpi").source_digest(size=64 << 30)
+        assert _seen == [DEFAULT_TIMEOUT, (64 << 30) // SOURCE_DIGEST_MIN_RATE]
+        assert _seen[1] > DEFAULT_TIMEOUT
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "not json at all",
+            "[]",
+            '{"active_slot": "rootfs_a"}',
+            json.dumps({k: v for k, v in A_LAYOUT.items() if k != "platform"}),
+        ],
+        ids=["text", "a list", "half a layout", "no platform"],
+    )
+    def test_an_unreadable_layout_is_an_error(self, tmp_path: Path, answer: str):
+        """Never guess a slot, nor the platform: writing the wrong partition is
+        unrecoverable, and the platform decides where the state goes."""
+        _dpi = fake_dpi(tmp_path, f"print({answer!r})")
         with pytest.raises(DPIError, match="layout"):
             DPIClient(_dpi).layout()
 
 
-def test_log_lines_do_not_become_protocol(tmp_path: Path, caplog):
+class TestRunning:
+    def test_a_dpi_that_overruns_its_time_is_ended_and_reported(self, tmp_path: Path):
+        _dpi = fake_dpi(
+            tmp_path,
+            "import time; print('PROGRESS 0'); sys.stdout.flush(); time.sleep(60)",
+        )
+        _started = time.monotonic()
+        with pytest.raises(DPIError, match=r"did not finish resume within 1s"):
+            DPIClient(_dpi)._run(["resume"], timeout=1)
+        assert time.monotonic() - _started < TERMINATE_GRACE
+
+    def test_a_dpi_that_ignores_sigterm_is_killed(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr(_dpi, "TERMINATE_GRACE", 1)
+        _dpi_script = fake_dpi(
+            tmp_path,
+            "import signal, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "print('PROGRESS 0'); sys.stdout.flush(); time.sleep(60)",
+        )
+        _started = time.monotonic()
+        with pytest.raises(DPIError, match="did not finish"):
+            DPIClient(_dpi_script)._run(["install"], timeout=1)
+        assert time.monotonic() - _started < 10
+
+    def test_a_callback_that_raises_does_not_leave_the_dpi_running(
+        self, tmp_path: Path
+    ):
+        """Whatever interrupts the reading, the DPI is neither left writing on its
+        own nor left a zombie."""
+        _pid_file = tmp_path / "pid"
+        _dpi = fake_dpi(
+            tmp_path,
+            "import os, time\n"
+            f"open({str(_pid_file)!r}, 'w').write(str(os.getpid()))\n"
+            "print('PROGRESS 10'); sys.stdout.flush(); time.sleep(60)",
+        )
+
+        def _boom(_: int) -> None:
+            raise RuntimeError("the reporter is broken")
+
+        with pytest.raises(RuntimeError, match="the reporter is broken"):
+            DPIClient(_dpi)._run(["install"], on_progress=_boom)
+        _pid = int(_pid_file.read_text())
+        with pytest.raises(ProcessLookupError):
+            os.kill(_pid, 0)  # reaped, not a zombie and not alive
+
+    def test_the_dpis_log_keeps_its_level_in_ours(self, tmp_path: Path, our_log):
+        """An ERROR of the DPI is an ERROR in the uploaded log, not an INFO line
+        that happens to contain the word."""
+        _dpi = fake_dpi(
+            tmp_path,
+            "print('2026-10-26 09:28:48,587 INFO dpi.state: cleared the pending update record', file=sys.stderr)\n"
+            "print('2026-10-26 09:28:48,590 ERROR dpi.health: the health check did not pass', file=sys.stderr)\n"
+            "print('sudo: a word from the wrapper', file=sys.stderr)\n"
+            "print('VERSION 1')",
+        )
+        DPIClient(_dpi).get_version()
+        _records = {
+            r.getMessage(): r.levelno
+            for r in our_log.records
+            if r.getMessage().startswith("dpi")
+        }
+        assert _records["dpi dpi.state: cleared the pending update record"] == (
+            logging.INFO
+        )
+        assert _records["dpi dpi.health: the health check did not pass"] == (
+            logging.ERROR
+        )
+        assert _records["dpi: sudo: a word from the wrapper"] == logging.INFO
+
+
+def test_log_lines_do_not_become_protocol(tmp_path: Path, our_log):
     """Everything that is not one of the three words is a log line, including a line
     that merely mentions them."""
     _dpi = fake_dpi(
@@ -253,7 +426,7 @@ def test_log_lines_do_not_become_protocol(tmp_path: Path, caplog):
         "print('about to PROGRESS through the write')\nprint('VERSION 2.9.0')",
     )
     assert DPIClient(_dpi).get_version() == "2.9.0"
-    assert "about to PROGRESS through the write" in caplog.text
+    assert "about to PROGRESS through the write" in our_log.text
 
 
 def test_a_dynamically_loaded_client_runs_the_dpi_in_the_slots_own_root(

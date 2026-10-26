@@ -39,6 +39,7 @@ of the device side the DPI reports.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
@@ -47,8 +48,9 @@ from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.configs import BootloaderType
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
+from otaclient_common._io import remove_file, write_str_to_file_atomic
 
-from ._dpi import DPIClient, DPIError, SlotLayout, dpi_from_ecu_info
+from ._dpi import DPIError, DPIProtocol, dpi_from_ecu_info
 from ._ota_status_control import OTAStatusFilesControl
 
 if TYPE_CHECKING:
@@ -56,38 +58,54 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-STATE_DIR_BY_PLATFORM = {
-    "grub": "/boot",
-    "l4t": "/opt/data",
+
+@dataclass(frozen=True)
+class _Platform:
+    """Where otaclient keeps its own things on one device side of the contract."""
+
+    bootloader: BootloaderType
+    state_dir: str
+    """Where status files that must survive the reboot go: the grub layout has a
+    shared boot partition and uses it; a Jetson has no such thing -- its boot chain
+    is in flash and both rootfs slots are overwritten -- so the state goes on the
+    optdata partition the platform installer mounts outside both slots."""
+    staging_dir: str
+    """Where a payload is staged until the DPI has consumed it. optdata on both
+    sides: outside the slots, gigabytes of room (15 GiB on the Jetson layout, where
+    the DPI's own download and data image directories are too), mounted at
+    /opt/data by the platform, root-owned and not world-writable -- a payload must
+    not be staged where another user can place the directory first, nor on the
+    scratch, which is 2 GiB and remade on every update."""
+
+
+PLATFORMS = {
+    "grub": _Platform(
+        bootloader=BootloaderType.GRUB_VERITY,
+        state_dir="/boot",
+        staging_dir="/opt/data/otaclient",
+    ),
+    "l4t": _Platform(
+        bootloader=BootloaderType.JETSON_DPI,
+        state_dir="/opt/data",
+        staging_dir="/opt/data/otaclient",
+    ),
 }
-"""Where status files that must survive the reboot go, per device side.
-
-The grub layout has a shared boot partition and uses it. A Jetson has no such thing --
-its boot chain is in flash and both rootfs slots are overwritten -- so the state goes
-on the partition outside both slots that the platform installer mounts there (UDA on
-L4T). Getting this wrong writes the standby slot's status into the slot that is about
-to be overwritten, so an unknown platform is refused rather than defaulted."""
-
-STAGING_DIR_BY_PLATFORM = {
-    "grub": "/opt/data/otaclient",
-    "l4t": "/var/tmp/otaclient",
-}
-"""Where a payload is staged until the DPI has consumed it, per device side: outside
-the slots where the device has room there, inside the running slot where it does not.
-
-On the grub layout optdata is outside both slots and holds gigabytes. On L4T the only
-partition outside the slots is UDA, which the platform installer mounts at /opt/data
-and which is a few hundred megabytes -- room for a record, not for a payload. What is
-staged only has to survive until the reboot, and the write that consumes it happens
-before that, so it goes on the running slot's scratch (/var), where the DPI stages
-its own copy for the same reason."""
-
-BOOTLOADER_BY_PLATFORM = {
-    "grub": BootloaderType.GRUB_VERITY,
-    "l4t": BootloaderType.JETSON_DPI,
-}
+"""The device sides the DPI may report. Getting the state directory wrong writes
+the standby slot's status into the slot that is about to be overwritten, so an
+unknown platform is refused rather than defaulted."""
 
 OTA_STATUS_DNAME = "ota-status"
+
+BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
+STAGED_IN_BOOT_FNAME = "staged-in-boot"
+"""Written beside the status directories when an update starts, holding the boot id
+of the boot it started in. The DPI's `resume` concludes "the reboot after a staging"
+and consumes its record either way; it must not be asked by an otaclient that merely
+restarted before that reboot, while the staged slot is still armed."""
+
+
+def _current_boot_id() -> str:
+    return Path(BOOT_ID_FPATH).read_text().strip()
 
 
 class PartitionImageBootController:
@@ -102,63 +120,99 @@ class PartitionImageBootController:
     def __init__(
         self,
         *,
-        dpi: DPIClient | None = None,
+        dpi: DPIProtocol | None = None,
         state_dir: str | Path | None = None,
         staging_dir: str | Path | None = None,
     ) -> None:
-        self._dpi = dpi if dpi is not None else dpi_from_ecu_info()
         try:
-            self._layout: SlotLayout = self._dpi.layout()
-        except DPIError as e:
-            _err_msg = f"cannot determine the slots: {e!r}"
+            self._dpi = dpi if dpi is not None else dpi_from_ecu_info()
+            self._layout = self._dpi.layout()
+            logger.info(
+                f"partition-image boot control: active={self._layout.active_slot} "
+                f"({self._layout.active_dev}), standby={self._layout.standby_slot} "
+                f"({self._layout.standby_dev}), platform={self._layout.platform}"
+            )
+            _platform = PLATFORMS.get(self._layout.platform)
+            if _platform is None:
+                raise DPIError(
+                    f"the DPI reports platform {self._layout.platform!r}, and there "
+                    "is no place on it where status about the standby slot is known "
+                    "to survive a reboot"
+                )
+            self._bootloader_type = _platform.bootloader
+            self._staging_dir = Path(
+                staging_dir if staging_dir is not None else _platform.staging_dir
+            )
+            self._status_root = (
+                Path(state_dir if state_dir is not None else _platform.state_dir)
+                / OTA_STATUS_DNAME
+            )
+
+            self._switch_concluded = False
+            self._not_committed: str | None = None
+            self._ota_status_control = OTAStatusFilesControl(
+                active_slot=self._layout.active_slot,
+                standby_slot=self._layout.standby_slot,
+                current_ota_status_dir=self._status_root / self._layout.active_slot,
+                standby_ota_status_dir=self._status_root / self._layout.standby_slot,
+                finalize_switching_boot=self._finalize_switching_boot,
+            )
+            if self._switch_concluded:
+                self._forget_the_staging_boot()
+            elif self._a_reboot_followed_the_staging():
+                self._conclude_a_boot_that_did_not_switch()
+                self._forget_the_staging_boot()
+            self._record_why_the_trial_was_not_committed()
+        except ota_errors.OTAError:
+            raise
+        except Exception as e:
+            _layout = getattr(self, "_layout", None)
+            _err_msg = (
+                "partition-image boot control failed to start (platform "
+                f"{_layout.platform if _layout else 'unknown'}, state under "
+                f"{getattr(self, '_status_root', 'an undecided directory')}): {e!r}"
+            )
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
-        logger.info(
-            f"partition-image boot control: active={self._layout.active_slot} "
-            f"({self._layout.active_dev}), standby={self._layout.standby_slot} "
-            f"({self._layout.standby_dev}), platform={self._layout.platform}"
-        )
 
-        _platform = self._layout.platform
-        if _platform not in STATE_DIR_BY_PLATFORM:
-            _err_msg = (
-                f"the DPI reports platform {_platform!r}, and there is no place on it "
-                "where status about the standby slot is known to survive a reboot"
-            )
-            logger.error(_err_msg)
-            raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__)
-        self._bootloader_type = BOOTLOADER_BY_PLATFORM[_platform]
-        self._staging_dir = Path(
-            staging_dir
-            if staging_dir is not None
-            else STAGING_DIR_BY_PLATFORM[_platform]
-        )
-        _status_root = (
-            Path(
-                state_dir if state_dir is not None else STATE_DIR_BY_PLATFORM[_platform]
-            )
-            / OTA_STATUS_DNAME
-        )
+    # ------ the boot an update was staged in ------ #
 
-        self._switch_concluded = False
-        self._not_committed: str | None = None
-        self._ota_status_control = OTAStatusFilesControl(
-            active_slot=self._layout.active_slot,
-            standby_slot=self._layout.standby_slot,
-            current_ota_status_dir=_status_root / self._layout.active_slot,
-            standby_ota_status_dir=_status_root / self._layout.standby_slot,
-            finalize_switching_boot=self._finalize_switching_boot,
-        )
-        if not self._switch_concluded:
-            self._conclude_a_boot_that_did_not_switch()
-        self._record_why_the_trial_was_not_committed()
+    @property
+    def _staged_in_boot_fpath(self) -> Path:
+        return self._status_root / STAGED_IN_BOOT_FNAME
+
+    def _remember_the_staging_boot(self) -> None:
+        """Before the DPI is asked to stage anything: which boot it happens in."""
+        self._status_root.mkdir(parents=True, exist_ok=True)
+        write_str_to_file_atomic(self._staged_in_boot_fpath, _current_boot_id())
+
+    def _forget_the_staging_boot(self) -> None:
+        remove_file(self._staged_in_boot_fpath)
+
+    def _a_reboot_followed_the_staging(self) -> bool:
+        """Did otaclient stage an update in an earlier boot than this one?
+
+        True means the DPI has something to conclude (or to report as not taken).
+        False means either nothing was staged by otaclient, or it was staged in
+        this very boot and the reboot has not happened yet: the slot is armed, the
+        DPI's record is live, and asking `resume` now would consume both.
+        """
+        try:
+            _staged_in = self._staged_in_boot_fpath.read_text().strip()
+        except FileNotFoundError:
+            return False
+        try:
+            return _staged_in != _current_boot_id()
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"cannot read this boot's id, assuming a reboot: {e!r}")
+            return True
 
     def _conclude_a_boot_that_did_not_switch(self) -> None:
         """Let the DPI close a staged update this boot is not the trial boot of.
 
         A trial boot that did not come up healthy is rebooted back to the committed
         slot by the platform; from the status files that is not a switching boot, so
-        the DPI is asked once on every boot (it is idempotent) to close its record.
+        the DPI is asked once (it is idempotent) to close its record.
         """
         self._resume()
 
@@ -206,15 +260,16 @@ class PartitionImageBootController:
 
     def _finalize_switching_boot(self) -> bool:
         """Being on the slot we staged is necessary and not sufficient: the DPI
-        commits only once the health check has passed. False is a failed switch; the
-        reboot back is the platform's own backstop."""
+        commits only once the health check has passed, and `resume` waits for that
+        verdict. False is a failed switch; the reboot back is the platform's own
+        backstop."""
         self._switch_concluded = True
         return self._resume()
 
     # ------ PartitionLayoutBootControllerProtocol ------ #
 
     @property
-    def partition_installer(self) -> DPIClient:
+    def partition_installer(self) -> DPIProtocol:
         """The DPI writes the payload: it is the installer of this layout."""
         return self._dpi
 
@@ -287,7 +342,9 @@ class PartitionImageBootController:
     def on_operation_failure(self) -> None:
         """Nothing to unmount; the record is the whole cleanup. A standby slot the DPI
         already armed is left armed: its one trial boot is health-checked or rolled
-        back by the platform, and otaclient does not disarm what it did not arm."""
+        back by the platform, and otaclient does not disarm what it did not arm. The
+        standby's status record, written before the DPI was asked, makes that trial
+        boot a switching boot, so it is concluded and reported like any other."""
         logger.warning("on failure: recording it; the standby slot is left as it is")
         self._ota_status_control.on_failure()
 
@@ -310,16 +367,26 @@ class PartitionImageBootController:
     # ------ the update ------ #
 
     def pre_update(self, *, standby_as_ref: bool, erase_standby: bool) -> None:
-        """Only the status file moves here.
+        """Only records move here, and all of them before the DPI touches the slot.
 
         The standby slot is not prepared, mounted or erased: the image the DPI writes
         covers every byte of it, and the scratch that goes with it is made fresh by
-        the same write.
+        the same write. What is written is (1) which boot this staging happens in,
+        (2) the current slot's "an update is in flight to the standby", and (3) the
+        standby's own UPDATING record -- the last one here rather than after the
+        write, because the DPI arms the trial boot as part of writing: an abort or a
+        power cut after that must still find the staged slot recorded as the one
+        being updated, so that its trial boot is concluded instead of booting as
+        nothing in particular.
         """
         del standby_as_ref, erase_standby  # nothing on this layout is built in place
         try:
             logger.info(f"{self.bootloader_type}: pre-update setup...")
+            self._remember_the_staging_boot()
             self._ota_status_control.pre_update_current()
+            self._ota_status_control.post_update_standby(
+                version=cfg.DEFAULT_VERSION_STR
+            )
         except Exception as e:
             _err_msg = f"failed on pre_update: {e!r}"
             logger.error(_err_msg)

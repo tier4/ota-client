@@ -485,6 +485,18 @@ class OTAClient:
                 self._metrics.ota_image_format = OTAImageFormat.LEGACY
                 if not self.ca_chains_store:
                     raise ota_errors.CACertNotInstalled(_no_ca_err, module=__name__)
+                if isinstance(
+                    self.boot_controller, PartitionLayoutBootControllerProtocol
+                ):
+                    # A legacy image is applied file by file into a mounted standby
+                    # slot, which this layout does not have: refused here, before
+                    # any status record is written for an update that cannot run.
+                    raise ota_errors.OTAImageInvalid(
+                        "a legacy OTA image cannot be applied to a partition-based "
+                        "layout; this ECU takes the partition-based payload of a v1 "
+                        "OTA image",
+                        module=__name__,
+                    )
                 OTAUpdaterForLegacyOTAImage(
                     ca_chains_store=self.ca_chains_store,
                     abort_handler=self._abort_handler,

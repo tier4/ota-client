@@ -124,6 +124,7 @@ class PartitionInstallError(Exception):
     """The partition installer refused the payload, failed, or could not be run."""
 
 
+@runtime_checkable
 class PartitionInstallerProtocol(Protocol):
     """What writes a partition-based OTA image payload on this device.
 

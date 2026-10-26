@@ -146,6 +146,41 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
             ),
             id="multi_ecu_jetson_uefi_main",
         ),
+        # partition contract layout: the DPI the image build installed
+        pytest.param(
+            (
+                "format_version: 1\n"
+                'ecu_id: "autoware"\n'
+                'bootloader: "jetson-dpi"\n'
+                'dpi_executable: "/usr/local/sbin/rootfs-ua-dpi"\n'
+            ),
+            (
+                True,
+                ECUInfo(
+                    ecu_id="autoware",
+                    bootloader=BootloaderType.JETSON_DPI,
+                    dpi_executable="/usr/local/sbin/rootfs-ua-dpi",
+                ),
+            ),
+            id="jetson_dpi_with_the_dpi_named",
+        ),
+        pytest.param(
+            (
+                "format_version: 1\n"
+                'ecu_id: "ava"\n'
+                'bootloader: "grub-verity"\n'
+                'dpi_executable: "/usr/local/sbin/rootfs-ua-dpi"\n'
+            ),
+            (
+                True,
+                ECUInfo(
+                    ecu_id="ava",
+                    bootloader=BootloaderType.GRUB_VERITY,
+                    dpi_executable="/usr/local/sbin/rootfs-ua-dpi",
+                ),
+            ),
+            id="grub_verity_with_the_dpi_named",
+        ),
     ],
 )
 def test_ecu_info(
