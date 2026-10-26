@@ -47,7 +47,7 @@ frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
-grpcio==1.83.0
+grpcio==1.85.0
     # via otaclient
 h11==0.16.0
     # via uvicorn
