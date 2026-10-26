@@ -79,7 +79,7 @@ propcache==0.5.2
     # via
     #   aiohttp
     #   yarl
-protobuf==7.35.1
+protobuf==7.36.2
     # via otaclient
 pycares==5.0.1 ; sys_platform != 'android' and sys_platform != 'ios'
     # via aiodns
