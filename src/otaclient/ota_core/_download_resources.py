@@ -15,10 +15,11 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import random
 import threading
 import time
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Generator, Iterable
@@ -40,6 +41,8 @@ from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
     ThreadPoolExecutorWithRetry,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
 
@@ -70,11 +73,13 @@ class _BaseDownloadHelper:
         )
 
     @contextlib.contextmanager
-    def _downloader_pool_with_retry(self, thread_name_prefix: str):
+    def _downloader_pool_with_retry(
+        self, thread_name_prefix: str, *, max_workers: int | None = None
+    ):
         try:
             with ThreadPoolExecutorWithRetry(
                 max_concurrent=self._max_concurrent,
-                max_workers=self._downloader_threads,
+                max_workers=max_workers or self._downloader_threads,
                 thread_name_prefix=thread_name_prefix,
                 initializer=self._downloader_worker_initializer,
                 watchdog_func=partial(
@@ -90,22 +95,73 @@ class _BaseDownloadHelper:
         finally:
             self._downloader_pool.release_all_instances()
 
+    @staticmethod
+    def _download_one(
+        downloader: Downloader, _download_info: DownloadInfo
+    ) -> DownloadResult:
+        return downloader.download(
+            url=_download_info.url,
+            dst=_download_info.dst,
+            digest=_download_info.digest,
+            size=_download_info.original_size,
+            compression_alg=_download_info.compression_alg,
+        )
+
+    def _download_one_at_batch_thread(
+        self, _download_info: DownloadInfo
+    ) -> DownloadResult | None:
+        """Download with a spare downloader instance, None if the pool has none."""
+        try:
+            _downloader = self._downloader_pool.get_instance()
+        except ValueError:
+            return None
+        try:
+            return self._download_one(_downloader, _download_info)
+        finally:
+            self._downloader_pool.release_instance()
+
     def _download_with_condition_at_thread(
         self, _to_download: list[DownloadInfo], condition: threading.Condition
     ) -> list[DownloadResult]:
         downloader = self._downloader_mapper[threading.get_native_id()]
-        _res = []
         with condition:
-            for _download_info in _to_download:
-                _res.append(
-                    downloader.download(
-                        url=_download_info.url,
-                        dst=_download_info.dst,
-                        digest=_download_info.digest,
-                        size=_download_info.original_size,
-                        compression_alg=_download_info.compression_alg,
-                    )
+            if len(_to_download) < 2:
+                _res = [self._download_one(downloader, _info) for _info in _to_download]
+                condition.notify()
+                return _res
+
+            # NOTE(20261025): the files of one batch (e.g., the file_table and the
+            #   resource_table of OTA image v1, ~15MiB and ~10MiB) don't depend on
+            #   each other, download them concurrently. Each download is one TCP
+            #   stream, whose throughput is bounded by RTT and packet loss on cellular
+            #   links, so downloading them one by one leaves most of the link idle.
+            # NOTE: this worker downloads the first file, each of the others takes a
+            #   spare downloader instance, one no worker thread holds: the metafiles
+            #   pool has one worker thread (see download_meta_files), so no worker
+            #   thread starts and asks for an instance while they are taken. A file
+            #   that gets no spare instance is downloaded by this worker afterwards.
+            with ThreadPoolExecutor(
+                max_workers=len(_to_download) - 1,
+                thread_name_prefix="download_ota_image_metafiles_batch",
+            ) as _batch_pool:
+                _others = [
+                    _batch_pool.submit(self._download_one_at_batch_thread, _info)
+                    for _info in _to_download[1:]
+                ]
+                _batch_res: list[DownloadResult | None] = [
+                    self._download_one(downloader, _to_download[0])
+                ]
+                _batch_res += [_fut.result() for _fut in _others]
+
+            if _no_spare := _batch_res.count(None):
+                logger.info(
+                    f"no spare downloader instance for {_no_spare} of the "
+                    f"{len(_to_download)} files of the batch, download them one by one"
                 )
+            _res = [
+                _r if _r is not None else self._download_one(downloader, _info)
+                for _r, _info in zip(_batch_res, _to_download, strict=True)
+            ]
             condition.notify()
         return _res
 
@@ -115,11 +171,16 @@ class _BaseDownloadHelper:
         condition: threading.Condition,
     ) -> Generator[Future[list[DownloadResult]]]:
         """
+        The files of one batch must not depend on each other: they are downloaded
+            concurrently. The producer yields the next batch only after the condition
+            is notified, i.e., one batch at a time, so one worker thread is enough,
+            leaving the other downloader instances to the files of the batch.
+
         Raises:
             Last exception that interrupts the work pool, or TaskEnsureFailed if no exc is wrapped.
         """
         with self._downloader_pool_with_retry(
-            "download_ota_image_metafiles"
+            "download_ota_image_metafiles", max_workers=1
         ) as _mapper:
             try:
                 for _fut in _mapper.ensure_tasks(
