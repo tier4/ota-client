@@ -83,6 +83,8 @@ class Config:
     # NOTE: just below the client's read timeout (otaclient_common.downloader, 32s), so that
     #       otaproxy still answers a stalled remote first, while a link blackout of ~15s (which
     #       TCP retransmission backs off to ~28s of silence) no longer cuts the response.
+    #       It also waits for the response headers, and the subscribers of an ongoing caching
+    #       wait as long (CacheTracker.SUBSCRIBER_WAIT_TIMEOUT).
     AIOHTTP_SOCKET_READ_TIMEOUT = 30  # second
     AIOHTTP_DNS_CACHE_TTL = 60  # second
 
