@@ -176,6 +176,10 @@ class TestOTAClient:
     ):
         """A boot controller that provides no partition installer (every one today)
         applies a version 1 image file by file, as before this updater existed."""
+        # NOTE: a spec'd mock, as the real controllers: on Python < 3.12 a
+        #       runtime_checkable Protocol is checked with hasattr, which an
+        #       unspec'd MagicMock answers for any name.
+        self.ota_client.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
         _file_based_updater = mocker.MagicMock(spec=OTAUpdaterForOTAImageV1)
