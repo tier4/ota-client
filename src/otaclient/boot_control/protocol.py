@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
@@ -113,3 +113,82 @@ class BootControllerProtocol(Protocol):
     @abstractmethod
     def finalizing_update(self, *, chroot: str | None = None) -> None:
         """Normally this method only reboots the device."""
+
+
+#
+# ------ partition-based layout ------ #
+#
+
+
+class PartitionInstallError(Exception):
+    """The partition installer refused the payload, failed, or could not be run."""
+
+
+class PartitionInstallerProtocol(Protocol):
+    """What writes a partition-based OTA image payload on this device.
+
+    The implementation owns everything that touches a partition: which slot is
+        standby, how a block diff is applied, what makes a boot blob and a rootfs
+        blob a bootable pair, when a trial boot may be committed. otaclient asks it
+        two things only: what bytes the device holds, and to install what otaclient
+        has staged.
+    """
+
+    @abstractmethod
+    def source_digest(self, *, size: int, data_image: str | None = None) -> str:
+        """The hex sha256 of the first <size> bytes of the committed slot, or of the
+            file the data image <data_image> is mounted from.
+
+        A delta names the bytes it applies to by digest, so this is what tells
+            whether a delta fits this device, before it is downloaded.
+
+        Raises:
+            PartitionInstallError: when the device cannot answer.
+        """
+
+    @abstractmethod
+    def install(
+        self,
+        *,
+        package: Path,
+        version: str,
+        ecu_id: str,
+        release_key: str,
+        on_progress: Callable[[int], None] | None = None,
+    ) -> bool:
+        """Write the payload of the unpacked OTA image at <package> onto this device.
+
+        Args:
+            package: the unpacked OTA image otaclient staged: index.json, index.jwt
+                and the blobs this device needs.
+            version: the version the installer records the payload under.
+            ecu_id, release_key: which payload of a multi-ECU image is this device's.
+            on_progress: called with the percent of the write done, as it is made.
+
+        Returns:
+            Whether the update takes effect only after a reboot.
+
+        Raises:
+            PartitionInstallError: when the payload is refused or the write fails.
+        """
+
+
+@runtime_checkable
+class PartitionLayoutBootControllerProtocol(Protocol):
+    """What a boot controller of a partition-based layout provides beside
+        BootControllerProtocol.
+
+    A version 1 OTA image is applied on such a boot controller by the partition
+        image updater, through the installer it provides, not file by file.
+    """
+
+    @property
+    @abstractmethod
+    def partition_installer(self) -> PartitionInstallerProtocol:
+        """What writes the payload on this device."""
+
+    @property
+    @abstractmethod
+    def payload_staging_dir(self) -> Path:
+        """Where this device can hold a payload, gigabytes, until the installer has
+        consumed it: on persistent storage, as the session directory is a tmpfs."""
