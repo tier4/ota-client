@@ -111,8 +111,8 @@ class TestInstall:
         self, tmp_path: Path
     ):
         """An image built for a vehicle carries one payload per ECU, and the DPI
-        refuses to choose between them: otaclient says which one through the
-        environment the DPI reads."""
+        refuses to choose between them: otaclient says which one on the DPI's
+        command line, where a DPI that does not know the flag fails loudly."""
         _seen = tmp_path / "seen"
         _dpi = fake_dpi(
             tmp_path,
@@ -134,15 +134,19 @@ class TestInstall:
             "/opt/data/otaclient/staged/3_0_0/image",
             "--version",
             "2.9.0",
+            "--ecu-id",
+            "perception",
+            "--release-key",
+            "prd",
         ], "no component name, no rollback: otaclient has neither to give"
-        assert _env == "perception prd"
+        assert _env == "- -", "nothing goes through the environment"
 
     def test_nothing_of_otaclients_environment_reaches_the_dpi(
         self, tmp_path: Path, monkeypatch
     ):
         """The DPI takes its trust anchor and its paths from ROOTFS_UA_* variables:
-        whatever otaclient inherited must not become such an input. The two
-        selectors are the only variables it is given, beside a fixed PATH."""
+        whatever otaclient inherited must not become such an input. It is given a
+        fixed PATH and locale and nothing else."""
         monkeypatch.setenv("ROOTFS_UA_IMAGE_CA", "/tmp/not-the-real-one.pem")
         monkeypatch.setenv("LD_PRELOAD", "/tmp/evil.so")
         _seen = tmp_path / "env"
@@ -155,12 +159,7 @@ class TestInstall:
         DPIClient(_dpi).install(
             package=Path("p"), version="1", ecu_id="autoware", release_key="dev"
         )
-        assert _seen.read_text().split() == [
-            "LANG",
-            "PATH",
-            "ROOTFS_UA_ECU_ID",
-            "ROOTFS_UA_RELEASE_KEY",
-        ]
+        assert _seen.read_text().split() == ["LANG", "PATH"]
 
     def test_progress_is_reported_as_it_arrives(self, tmp_path: Path):
         """A slot write is the longest phase of an update; otaclient has to keep

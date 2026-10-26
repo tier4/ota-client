@@ -84,8 +84,8 @@ _DPI_ENV = {
 }
 """The environment the DPI is run in: not otaclient's own. The DPI reads
 `ROOTFS_UA_*` variables for its trust anchor and its paths, so nothing otaclient
-happens to have inherited may reach it; the two selectors below are the only
-variables added, and neither names a path."""
+happens to have inherited may reach it. Everything otaclient has to tell the DPI
+goes on its command line."""
 
 _LOG_LEVELS = {
     "DEBUG": logging.DEBUG,
@@ -208,8 +208,6 @@ class DPIClient:
         on_progress: Callable[[int], None] | None = None,
         check: bool = True,
         capture: bool = False,
-        ecu_id: str | None = None,
-        release_key: str | None = None,
     ) -> DPIResult:
         """Run one verb, translating its stdout as it arrives.
 
@@ -225,15 +223,6 @@ class DPIClient:
             _cmd = ["chroot", _chroot, *_cmd]
         logger.debug(f"calling the DPI: {_cmd}")
 
-        _env = dict(_DPI_ENV)
-        # Which payload of a multi-ECU image is this device's: the DPI refuses to
-        # choose, and otaclient knows from ecu_info.yaml. Both are matched against
-        # the image index's annotations, never used as a path or a command.
-        if ecu_id:
-            _env["ROOTFS_UA_ECU_ID"] = ecu_id
-        if release_key:
-            _env["ROOTFS_UA_RELEASE_KEY"] = release_key
-
         try:
             _proc = subprocess.Popen(
                 _cmd,
@@ -242,7 +231,7 @@ class DPIClient:
                 stderr=subprocess.PIPE,
                 encoding="utf-8",
                 errors="replace",
-                env=_env,
+                env=dict(_DPI_ENV),
             )
         except OSError as e:
             raise DPIError(f"cannot run the DPI at {self.executable}: {e!r}") from e
@@ -387,17 +376,28 @@ class DPIClient:
     ) -> None:
         """Write the payload onto the standby slot and arm its trial boot.
 
-        The DPI verifies index.jwt against its own trust anchor and every blob it
-        writes against the digest the index names, then arms one trial boot of what
-        it wrote. The update is concluded by that boot: a DPI that reports no reboot
-        is logged, the trial boot is taken anyway.
+        Which payload of a multi-ECU image is this device's, the DPI refuses to
+        guess: otaclient names the ECU and the release key it staged the payload for
+        (from ecu_info.yaml), on the command line. The DPI verifies index.jwt against
+        its own trust anchor and every blob it writes against the digest the index
+        names, then arms one trial boot of what it wrote. The update is concluded by
+        that boot: a DPI that reports no reboot is logged, the trial boot is taken
+        anyway.
         """
         _res = self._run(
-            ["install", "--package", str(package), "--version", version],
+            [
+                "install",
+                "--package",
+                str(package),
+                "--version",
+                version,
+                "--ecu-id",
+                ecu_id,
+                "--release-key",
+                release_key,
+            ],
             timeout=timeout,
             on_progress=on_progress,
-            ecu_id=ecu_id,
-            release_key=release_key,
         )
         if not _res.reboot_required:
             logger.warning(
