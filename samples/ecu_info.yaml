@@ -5,3 +5,6 @@ ecu_id: autoware
 bootloader: grub
 available_ecu_ids:
   - autoware
+# On the partition layout contract (bootloader: grub-verity or jetson-dpi), the DPI the
+# image build installed; otaclient drives it and never names it itself:
+# dpi_executable: /usr/local/sbin/rootfs-ua-dpi
