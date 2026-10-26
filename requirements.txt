@@ -137,7 +137,7 @@ urllib3==2.8.0
     # via
     #   otaclient
     #   requests
-uvicorn==0.52.0
+uvicorn==0.54.0
     # via otaclient
 uvloop==0.22.1 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
     # via uvicorn
