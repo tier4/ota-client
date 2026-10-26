@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
 
       - name: setup python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           # use the minimum py ver we support to generate the wheel
           python-version-file: ".python-version"
@@ -45,7 +45,7 @@ jobs:
       - name: install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "0.12.1"
+          version: "0.13.5"
 
       - name: build otaclient package
         env:
@@ -62,7 +62,7 @@ jobs:
           echo OTACLIENT_VERSION=${OTACLIENT_VERSION} >> $GITHUB_OUTPUT
 
       - name: upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: artifacts-python-packages
           path: dist/*.whl
@@ -119,7 +119,7 @@ jobs:
           output_dir: dist
 
       - name: upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: artifacts-squashfs_${{ matrix.platform }}
           path: |
@@ -138,19 +138,19 @@ jobs:
           persist-credentials: false
 
       - name: download python packages artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: artifacts-python-packages
           path: dist
 
       - name: download squashfs x86_64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: artifacts-squashfs_x86_64
           path: dist
 
       - name: download squashfs arm64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: artifacts-squashfs_arm64
           path: dist
@@ -168,7 +168,7 @@ jobs:
           directory: "dist"
 
       - name: upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: artifacts-manifest
           path: |
@@ -176,7 +176,7 @@ jobs:
 
       - name: publish release artifacts
         if: ${{ github.event_name == 'release' }}
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           files: |
             dist/*.whl

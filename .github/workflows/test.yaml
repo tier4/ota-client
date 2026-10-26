@@ -66,7 +66,7 @@ jobs:
           mkdir -p test_result
           docker compose -f docker/test_base/docker-compose_tests_py313.yml run --rm tester-ubuntu-22.04
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8
         # best-effort: a missing or invalid SONAR_TOKEN must not fail CI
         continue-on-error: true
         env:
