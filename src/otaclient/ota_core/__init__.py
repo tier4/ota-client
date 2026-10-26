@@ -15,6 +15,7 @@
 from ._abort_handler import EXIT_CODE_OTA_ABORTED
 from ._client_updater import OTAClientUpdater
 from ._main import OTAClient, ota_core_process
+from ._partition_image import OTAUpdaterForPartitionImage
 from ._updater import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from ._updater_base import OTAUpdateInitializer
 
@@ -25,5 +26,6 @@ __all__ = [
     "OTAUpdateInitializer",
     "OTAUpdaterForLegacyOTAImage",
     "OTAUpdaterForOTAImageV1",
+    "OTAUpdaterForPartitionImage",
     "OTAClientUpdater",
 ]

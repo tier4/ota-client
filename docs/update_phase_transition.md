@@ -4,6 +4,7 @@ stateDiagram-v2
     INITIALIZING --> PROCESSING_METADATA : metadata processing is started
     PROCESSING_METADATA --> CALCULATING_DELTA : delta calculation is started
     CALCULATING_DELTA --> DOWNLOADING_OTA_FILES : delta resource downloading is started
+    PROCESSING_METADATA --> DOWNLOADING_OTA_FILES : partition-based payload, no delta calculation
     DOWNLOADING_OTA_FILES --> APPLYING_UPDATE : update applying is started
     APPLYING_UPDATE --> PROCESSING_POSTUPDATE : post update processing is started
     PROCESSING_POSTUPDATE --> FINALIZING_UPDATE : finalizing update is started

@@ -63,10 +63,12 @@ from otaclient._utils import (
     get_traceback,
 )
 from otaclient.boot_control import get_boot_controller
+from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
+from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
@@ -454,13 +456,30 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                OTAUpdaterForOTAImageV1(
-                    ca_store=self.ca_store,
-                    abort_handler=self._abort_handler,
-                    boot_controller=self.boot_controller,
-                    image_identifier=image_id,
-                    **_common_args,
-                ).execute()
+                if isinstance(
+                    self.boot_controller, PartitionLayoutBootControllerProtocol
+                ):
+                    # The slots of this layout are read-only dm-verity images, written
+                    # as bytes and never rebuilt from files: the payload this device
+                    # applies is the partition-based one, through the installer its
+                    # boot control provides.
+                    OTAUpdaterForPartitionImage(
+                        ca_store=self.ca_store,
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        installer=self.boot_controller.partition_installer,
+                        staging_dir=self.boot_controller.payload_staging_dir,
+                        **_common_args,
+                    ).execute()
+                else:
+                    OTAUpdaterForOTAImageV1(
+                        ca_store=self.ca_store,
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        **_common_args,
+                    ).execute()
             else:
                 logger.info(f"{url_base} hosts legacy OTA image")
                 self._metrics.ota_image_format = OTAImageFormat.LEGACY

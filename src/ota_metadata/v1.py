@@ -184,6 +184,14 @@ class OTAImageHelper:
         assert (_image_index := self.image_index)
         _manifest_descriptor = _image_index.find_image(_image_identifier)
         if not _manifest_descriptor:
+            # NOTE: a partition-based payload (spec/partition_image.md) is told apart by
+            #       its artifactType, and a consumer that rebuilds the standby slot from
+            #       files refuses it rather than reading it as a rootfs.
+            if _image_index.find_partition_image(_image_identifier) is not None:
+                raise ImageMetadataInvalid(
+                    f"the payload for {_image_identifier} is partition-based, "
+                    "which this ECU, updated file by file, does not apply"
+                )
             raise ImageMetadataInvalid(
                 f"image indicated by {_image_identifier} cannot be found in OTA image!"
             )

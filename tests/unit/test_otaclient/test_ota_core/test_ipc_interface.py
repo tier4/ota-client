@@ -16,7 +16,9 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from queue import Empty, Queue
+from typing import Protocol
 
 import pytest
 import pytest_mock
@@ -35,8 +37,15 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient.boot_control import BootControllerProtocol
+from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
 from otaclient.errors import OTAErrorRecoverable
-from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdaterForLegacyOTAImage
+from otaclient.ota_core import (
+    OTAClient,
+    OTAClientUpdater,
+    OTAUpdaterForLegacyOTAImage,
+    OTAUpdaterForOTAImageV1,
+)
+from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
 OTA_CORE_COMMON_MODULE = ota_core._common.__name__
@@ -119,6 +128,84 @@ class TestOTAClient:
         assert self.ota_client.live_ota_status == OTAStatus.UPDATING
 
         mock_publish.assert_called_once()
+
+    def test_update_on_a_partition_layout_goes_through_its_installer(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        """A boot controller of a partition-based layout provides the installer;
+        a version 1 image is then applied through it, not file by file."""
+
+        class _PartitionLayoutBootController(
+            BootControllerProtocol, PartitionLayoutBootControllerProtocol, Protocol
+        ): ...
+
+        _boot_controller = mocker.MagicMock(spec=_PartitionLayoutBootController)
+        _boot_controller.payload_staging_dir = Path("/opt/data/otaclient/staging")
+        self.ota_client.boot_controller = _boot_controller
+        self.ota_client.ca_store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        _file_based_updater = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1"
+        )
+        _partition_updater = mocker.MagicMock(spec=OTAUpdaterForPartitionImage)
+        _partition_updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForPartitionImage",
+            return_value=_partition_updater,
+        )
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_update_on_a_partition_layout",
+            )
+        )
+
+        _partition_updater.execute.assert_called_once()
+        _file_based_updater.assert_not_called()
+        _kwargs = _partition_updater_cls.call_args.kwargs
+        assert _kwargs["installer"] is _boot_controller.partition_installer
+        assert _kwargs["staging_dir"] == Path("/opt/data/otaclient/staging")
+        assert _kwargs["boot_controller"] is _boot_controller
+
+    def test_update_with_a_v1_image_on_an_ordinary_boot_controller_is_file_based(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        """A boot controller that provides no partition installer (every one today)
+        applies a version 1 image file by file, as before this updater existed."""
+        # NOTE: a spec'd mock, as the real controllers: on Python < 3.12 a
+        #       runtime_checkable Protocol is checked with hasattr, which an
+        #       unspec'd MagicMock answers for any name.
+        self.ota_client.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
+        self.ota_client.ca_store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        _file_based_updater = mocker.MagicMock(spec=OTAUpdaterForOTAImageV1)
+        _file_based_updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1",
+            return_value=_file_based_updater,
+        )
+        _partition_updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForPartitionImage"
+        )
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_update_on_an_ordinary_boot_controller",
+            )
+        )
+
+        _file_based_updater.execute.assert_called_once()
+        _partition_updater_cls.assert_not_called()
+        _kwargs = _file_based_updater_cls.call_args.kwargs
+        assert _kwargs["boot_controller"] is self.ota_client.boot_controller
 
     def test_update_interrupted(self, mocker: pytest_mock.MockerFixture):
         mock_exit_from_dynamic_client = mocker.patch.object(
