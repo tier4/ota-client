@@ -62,7 +62,12 @@ msgpack==1.2.1
     # via
     #   ota-image-libs
     #   otaclient
-multidict==6.9.1
+multidict==7.1.0 ; python_full_version < '3.11'
+    # via
+    #   aiohttp
+    #   otaclient
+    #   yarl
+multidict==7.2.1 ; python_full_version >= '3.11'
     # via
     #   aiohttp
     #   otaclient
