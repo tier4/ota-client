@@ -67,6 +67,7 @@ from otaclient_common.downloader import DownloadInactiveTimeout, DownloadResult
 from otaclient_common.persist_file_handling import PersistFilesHandler
 
 from ._common import download_exception_handler
+from ._download_resources import SliceDownloadResult
 
 logger = logging.getLogger(__name__)
 
@@ -343,7 +344,9 @@ def download_resources_handler(
         if download_exception_handler(_fut):
             _download_res = _fut.result()
 
-            _merged_payload.processed_file_num += 1
+            # a slice is only a part of a resource, the resource itself is counted
+            if not isinstance(_download_res, SliceDownloadResult):
+                _merged_payload.processed_file_num += 1
             _merged_payload.processed_file_size += _download_res.download_size
             _merged_payload.errors += _download_res.retry_count
             _merged_payload.downloaded_bytes += _download_res.traffic_on_wire
