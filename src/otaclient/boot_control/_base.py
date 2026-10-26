@@ -23,6 +23,7 @@ from typing import NoReturn
 from otaclient import errors as ota_errors
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
+from ._ota_config_files import OTAConfigFiles
 from ._ota_status_control import OTAStatusFilesControl
 from ._slot_mnt_helper import SlotMountHelper
 
@@ -168,6 +169,7 @@ class BootControllerBase(ABC):
         update_version: str,
         *,
         version_detail: VersionDetail | None = None,
+        ota_config_files: OTAConfigFiles | None = None,
     ):
         """Template method for post-update setup.
 
@@ -175,6 +177,10 @@ class BootControllerBase(ABC):
         1. Update standby slot's OTA status
         2. Platform-specific post-update operations
         3. Unmount all slots
+
+        Args:
+            ota_config_files: the OTA config files loaded from the OTA image,
+                see load_ota_config_files_from_image for which files are loaded.
         """
         try:
             logger.info(f"{self.bootloader_type}: post-update setup...")
@@ -186,7 +192,14 @@ class BootControllerBase(ABC):
             )
 
             # Step 2: Platform-specific operations (fstab, boot config, firmware, etc.)
-            self._post_update_platform_specific(update_version=update_version)
+            self._post_update_platform_specific(
+                update_version=update_version,
+                ota_config_files=(
+                    ota_config_files
+                    if ota_config_files is not None
+                    else OTAConfigFiles()
+                ),
+            )
 
             # Step 3: Prepare to reboot
             self._mp_control.umount_all(ignore_error=True)
@@ -228,10 +241,13 @@ class BootControllerBase(ABC):
         pass  # Default: no additional operations (intentionally empty for optional hook)
 
     @abstractmethod
-    def _post_update_platform_specific(self, *, update_version: str):
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: OTAConfigFiles
+    ):
         """Platform-specific operations during post_update.
 
         This is where platforms should:
+        - Install the OTA config files for the next boot
         - Update boot configuration files
         - Update fstab
         - Perform firmware updates

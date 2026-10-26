@@ -32,6 +32,7 @@ from typing import Any, Generator
 import pytest
 
 from otaclient._types import OTAStatus, VersionDetail
+from otaclient.boot_control._ota_config_files import OTAConfigFiles
 
 # NOTE: for loading autouse fixture
 from tests._fixtures_ota_core import mock_ensure_umount  # noqa: F401
@@ -346,6 +347,7 @@ class MockBootController:
         update_version: str,
         *,
         version_detail: VersionDetail | None = None,
+        ota_config_files: OTAConfigFiles | None = None,
     ) -> None:
         logger.info(
             f"MockBootController: post_update(version={update_version}, version_detail={version_detail})"
