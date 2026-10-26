@@ -33,18 +33,24 @@ is a payload this device cannot use.
 What is downloaded is laid out as an unpacked OTA image -- `index.json`, `index.jwt`
 and `blobs/sha256/<digest>` -- because that is what an installer reads: it verifies
 `index.jwt` again on the device, so the bytes it is given are the ones published.
+The blobs are fetched through the same download helper as the metafiles of a
+file-based update, so a stalled or failing download is retried, watched and reported
+with the same error codes.
+
+The sys_config of a partition-based payload is informational (the root filesystem is
+read-only; what it lists was applied when the image was built), so nothing of it is
+installed here, and the ecu_info.yaml / proxy_info.yaml of the image are not either:
+the standby slot is never mounted on this path.
 """
 
 from __future__ import annotations
 
-import errno
 import logging
 import shutil
 import threading
-import time
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple, Union
 
 from ota_image_libs.common import OCIDescriptor
 from ota_image_libs.common.io import file_sha256
@@ -52,8 +58,10 @@ from ota_image_libs.v1.consts import IMAGE_INDEX_FNAME, INDEX_JWT_FNAME, RESOURC
 from ota_image_libs.v1.image_index.schema import ImageIndex
 from ota_image_libs.v1.image_manifest.schema import ImageIdentifier
 from ota_image_libs.v1.partition_image.schema import (
+    DataImageEntry,
     DeliveryMode,
     PartitionAction,
+    PartitionEntry,
     PartitionImageConfig,
     PartitionImageManifest,
 )
@@ -63,27 +71,28 @@ from ota_image_libs.v1.update_agent_package.schema import (
 from typing_extensions import Unpack
 
 from ota_metadata.utils.cert_store import CAStoreMap
-from ota_metadata.v1 import OTAImageHelper
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
-    OTAUpdatePhaseChangeReport,
     SetUpdateMetaReport,
     StatusReport,
     UpdateProgressReport,
 )
-from otaclient._types import AbortState, UpdatePhase, VersionDetail
+from otaclient._types import AbortState, UpdatePhase
+from otaclient._utils import safe_dir_name
 from otaclient.boot_control.protocol import (
     BootControllerProtocol,
     PartitionInstallerProtocol,
     PartitionInstallError,
 )
-from otaclient.configs.cfg import cfg, ecu_info
+from otaclient.configs.cfg import ecu_info
 from otaclient.ota_core._common import download_exception_handler
-from otaclient.ota_core._download_resources import DownloadHelperForOTAImageV1
-from otaclient.ota_core._update_libs import metadata_download_err_handler
+from otaclient.ota_core._update_libs import (
+    metadata_download_err_handler,
+    raise_on_download_resources_failed,
+)
 from otaclient_common import human_readable_size
 from otaclient_common.common import urljoin_ensure_base
-from otaclient_common.downloader import Downloader, HashVerificationError
+from otaclient_common.download_info import DownloadInfo
 
 from ._abort_handler import AbortHandler
 from ._updater_base import OTAUpdateInitializer, OTAUpdateInterfaceArgs
@@ -95,6 +104,11 @@ def _digest_of(path: Path) -> str:
     return file_sha256(path).hexdigest()
 
 
+STAGING_SUBDIR = "staged"
+"""otaclient's own subdirectory of the staging directory the boot controller
+provides: everything under it is otaclient's to create and remove, whatever else the
+boot controller keeps beside it."""
+
 PARTIAL_SUFFIX = ".part"
 """What an unfinished download is called until its digest checks out."""
 
@@ -105,8 +119,8 @@ class PlannedBlob:
 
     descriptor: OCIDescriptor
     what: str
-    """What it is, for the log: a reader deciding whether a campaign behaved has to
-    see which of the two the device chose."""
+    """A label for the log, e.g. "the rootfs delta" against "the rootfs image": a
+    reader deciding whether a campaign behaved has to see what the device chose."""
 
     @property
     def digest_hex(self) -> str:
@@ -121,11 +135,16 @@ class PlannedBlob:
 class DownloadPlan:
     """Everything to fetch for this update, after the device has been consulted."""
 
-    blobs: Tuple[PlannedBlob, ...]
+    blobs: tuple[PlannedBlob, ...]
 
     @property
     def total_size(self) -> int:
         return sum(_b.size for _b in self.blobs)
+
+
+OnBlobDone = Callable[[PlannedBlob, bool], None]
+"""Called as each planned blob is in place: the blob, and whether it was downloaded
+(False: it was there from an earlier attempt and hashed to its digest)."""
 
 
 class PartitionImageUpdater:
@@ -134,78 +153,101 @@ class PartitionImageUpdater:
     Nothing here opens a partition, computes a hash tree or decides a slot: those are
     the installer's, and the division is deliberate -- the rules about what may be
     written where live in one place, on the device.
+
+    The downloads are produced as batches of `DownloadInfo` for
+    `DownloadHelperForOTAImageV1.download_meta_files`, as `OTAImageHelper` produces
+    the metafiles: a batch is yielded under the condition and the generator waits on
+    it until the helper has downloaded the batch.
     """
 
     def __init__(
         self,
         *,
         base_url: str,
-        downloader: Downloader,
         session_dir: Path,
         image_id: ImageIdentifier,
         installer: PartitionInstallerProtocol,
-        on_progress: Optional[Callable[[int], None]] = None,
     ) -> None:
-        self._base_url = base_url
         self._blob_base_url = urljoin_ensure_base(base_url, RESOURCE_DIR)
-        self._downloader = downloader
         self._installer = installer
         self._image_id = image_id
-        self._on_progress = on_progress
 
         # The unpacked image otaclient assembles and the installer reads.
         self.image_dir = session_dir / "image"
         self._blob_dir = self.image_dir / RESOURCE_DIR
 
-        self.image_index: Optional[ImageIndex] = None
-        self.image_manifest: Optional[PartitionImageManifest] = None
-        self.image_config: Optional[PartitionImageConfig] = None
-        self.update_agent_manifest: Optional[UpdateAgentPackageManifest] = None
+        self.image_config: PartitionImageConfig | None = None
+        self.update_agent_manifest: UpdateAgentPackageManifest | None = None
 
-    # ------ metadata ------ #
+    # ------ blobs ------ #
 
-    def _fetch_blob(self, descriptor: OCIDescriptor, *, what: str) -> Path:
-        """A blob, into the place the unpacked image keeps it.
+    def _blob_is_here(self, descriptor: OCIDescriptor, *, what: str) -> bool:
+        """Whether the unpacked image already holds this blob, whole and verified.
 
-        Bytes arrive in `<digest>.part` and become `<digest>` once the whole file
-        hashes to the digest. A complete blob is reused after hashing it again (the
-        size alone does not prove its contents); a partial one is downloaded again
-        from the start.
+        A complete blob is reused after hashing it again (the size alone does not
+        prove its contents); one of another size, or of the right size but other
+        bytes, is not this blob and is removed.
         """
         _digest = descriptor.digest.digest_hex
         _dst = self._blob_dir / _digest
-        _part = _dst.with_name(_dst.name + PARTIAL_SUFFIX)
-        if _dst.is_file() and _dst.stat().st_size == descriptor.size:
-            if _digest_of(_dst) == _digest:
-                logger.info(f"{what} is already downloaded: {_digest[:12]}…")
-                return _dst
-            logger.warning(
-                f"{what} was downloaded before but does not hash to {_digest[:12]}…; "
-                "downloading it again"
-            )
-            _dst.unlink(missing_ok=True)
-        _dst.parent.mkdir(exist_ok=True, parents=True)
+        if not _dst.is_file():
+            return False
+        if _dst.stat().st_size == descriptor.size and _digest_of(_dst) == _digest:
+            logger.info(f"{what} is already downloaded: {_digest[:12]}...")
+            return True
+        logger.warning(
+            f"{what} was downloaded before but is not {_digest[:12]}...; "
+            "downloading it again"
+        )
+        _dst.unlink(missing_ok=True)
+        return False
 
-        try:
-            self._downloader.download(
-                urljoin_ensure_base(self._blob_base_url, _digest),
-                _part,
-                digest=_digest,
-                size=descriptor.size,
-            )
-        except HashVerificationError:
-            # The file does not hash to the digest, so it is not this blob; nothing
-            # is left behind that could be taken for one.
-            _part.unlink(missing_ok=True)
-            raise
+    def _fetch_blob(
+        self, descriptor: OCIDescriptor, *, what: str, condition: threading.Condition
+    ) -> Generator[list[DownloadInfo], None, bool]:
+        """Yield the download of one blob, unless the unpacked image holds it.
+
+        Bytes arrive in `<digest>.part` and become `<digest>` once the helper has
+        downloaded the whole file and it hashed to the digest (the downloader checks
+        both before returning, and the helper retries until it does); a partial
+        file an interrupted attempt left is downloaded again from the start.
+
+        Returns:
+            Whether the blob was downloaded (False: reused).
+        """
+        if self._blob_is_here(descriptor, what=what):
+            return False
+        _digest = descriptor.digest.digest_hex
+        _dst = self._blob_dir / _digest
+        _part = _dst.with_name(_dst.name + PARTIAL_SUFFIX)
+        _dst.parent.mkdir(exist_ok=True, parents=True)
+        with condition:
+            yield [
+                DownloadInfo(
+                    url=urljoin_ensure_base(self._blob_base_url, _digest),
+                    dst=_part,
+                    original_size=descriptor.size,
+                    digest=_digest,
+                )
+            ]
+            condition.wait()
         # Whole and verified; from here on it is a blob, not a download.
         _part.replace(_dst)
-        return _dst
+        return True
+
+    # ------ metadata ------ #
 
     def download_metadata(
-        self, image_index: ImageIndex, *, index_json: Path, index_jwt: Path
-    ) -> PartitionImageConfig:
-        """This ECU's payload manifest and config, from the verified image index.
+        self,
+        image_index: ImageIndex,
+        *,
+        index_json: Path,
+        index_jwt: Path,
+        condition: threading.Condition,
+    ) -> Generator[list[DownloadInfo], None, None]:
+        """Fetch this ECU's payload manifest and config from the verified image
+        index; afterwards `image_config` (and `update_agent_manifest`, when the
+        image ships one) are set.
 
         `index.json` and `index.jwt` go into the unpacked image as they were
         downloaded, beside the blobs: the installer verifies the signature again on
@@ -215,7 +257,6 @@ class PartitionImageUpdater:
         self.image_dir.mkdir(exist_ok=True, parents=True)
         shutil.copyfile(index_jwt, self.image_dir / INDEX_JWT_FNAME)
         shutil.copyfile(index_json, self.image_dir / IMAGE_INDEX_FNAME)
-        self.image_index = image_index
 
         _manifest_descriptor = image_index.find_partition_image(self._image_id)
         if _manifest_descriptor is None:
@@ -224,22 +265,24 @@ class PartitionImageUpdater:
                 module=__name__,
             )
 
-        _manifest_fpath = self._fetch_blob(
-            _manifest_descriptor, what="the payload manifest"
+        yield from self._fetch_blob(
+            _manifest_descriptor, what="the payload manifest", condition=condition
         )
         try:
-            self.image_manifest = _manifest = PartitionImageManifest.parse_metafile(
-                _manifest_fpath.read_text()
+            _manifest = PartitionImageManifest.parse_metafile(
+                (self._blob_dir / _manifest_descriptor.digest.digest_hex).read_text()
             )
         except Exception as e:
             raise ota_errors.OTAImageInvalid(
                 f"the payload manifest is invalid: {e!r}", module=__name__
             ) from e
 
-        _config_fpath = self._fetch_blob(_manifest.config, what="the payload config")
+        yield from self._fetch_blob(
+            _manifest.config, what="the payload config", condition=condition
+        )
         try:
-            self.image_config = _config = PartitionImageConfig.parse_metafile(
-                _config_fpath.read_text()
+            _config = PartitionImageConfig.parse_metafile(
+                (self._blob_dir / _manifest.config.digest.digest_hex).read_text()
             )
         except Exception as e:
             raise ota_errors.OTAImageInvalid(
@@ -253,146 +296,165 @@ class PartitionImageUpdater:
         # fetched.
         _agent_descriptor = image_index.find_update_agent_package()
         if _agent_descriptor is not None:
-            _agent_fpath = self._fetch_blob(
-                _agent_descriptor, what="the update agent package manifest"
+            yield from self._fetch_blob(
+                _agent_descriptor,
+                what="the update agent package manifest",
+                condition=condition,
             )
             try:
                 self.update_agent_manifest = UpdateAgentPackageManifest.parse_metafile(
-                    _agent_fpath.read_text()
+                    (self._blob_dir / _agent_descriptor.digest.digest_hex).read_text()
                 )
             except Exception as e:
                 raise ota_errors.OTAImageInvalid(
                     f"the update agent package is invalid: {e!r}", module=__name__
                 ) from e
 
+        self.image_config = _config
         logger.info(
             f"partition-based payload {_config.image_version} for {self._image_id}, "
             f"delivery {_config.delivery}"
         )
-        return _config
 
     # ------ what to fetch ------ #
 
     def plan(self) -> DownloadPlan:
-        """What to fetch, per written partition: the delta when the entry ships one --
-        after the device has confirmed it holds the bytes it applies to -- else the
-        image. A delta that does not fit is refused here rather than after a gigabyte
-        of downloading: a delta payload carries no whole image."""
+        """Decide what to fetch: every blob the payload ships, as the config lists
+        them (`payload_descriptors`), with one difference -- a partition or data
+        image that ships a delta is fetched as the delta only after the device has
+        confirmed it holds the bytes it applies to, and refused here otherwise, rather
+        than after a gigabyte of downloading: a delta payload carries no whole image.
+        """
         _config = self.image_config
         if _config is None:
             raise ValueError("download_metadata() has not run")
+
+        _blobs: list[PlannedBlob] = []
+        if _config.delivery is DeliveryMode.direct:
+            for _partition in _config.partitions:
+                if _partition.action is not PartitionAction.write:
+                    continue  # mkfs and keep carry nothing to download
+                assert (
+                    _partition.image is not None
+                )  # the schema refuses a write by the agent without one
+                _blobs.append(
+                    self._image_or_delta(_partition, f"the {_partition.name}")
+                )
+        # Data images and firmware ride under either delivery: a vendor package
+        # writes the partitions, the installer places these.
+        for _data in _config.data_images:
+            _blobs.append(
+                self._image_or_delta(
+                    _data, f"the {_data.name} data image", data_image=_data.name
+                )
+            )
+        if (_firmware := _config.firmware) is not None:
+            _blobs.append(
+                PlannedBlob(
+                    _firmware.package,
+                    f"the {_firmware.name} firmware package {_firmware.version}",
+                )
+            )
         if _config.delivery is DeliveryMode.vendor_package:
             # One opaque package that the platform's own updater applies; otaclient
             # fetches it and the installer hands it over.
             assert _config.package is not None  # the schema refuses the pair
-            return DownloadPlan(
-                blobs=(
-                    PlannedBlob(_config.package, "the vendor package"),
-                    *self._planned_update_agents(),
+            _blobs.append(PlannedBlob(_config.package, "the vendor package"))
+        # Every agent bundle the image ships: which one to install is the installer's
+        # choice, and they are megabytes beside a payload of gigabytes.
+        if self.update_agent_manifest is not None:
+            _blobs.extend(
+                PlannedBlob(
+                    _b, f"the {_b.annotations.type} agent {_b.annotations.version}"
                 )
+                for _b in self.update_agent_manifest.layers
             )
-
-        _blobs: List[PlannedBlob] = list(self._planned_update_agents())
-        for _partition in _config.partitions:
-            if _partition.action is not PartitionAction.write:
-                continue  # mkfs and keep carry nothing to download
-            assert (
-                _partition.image is not None
-            )  # the schema refuses a write without one
-            if _partition.delta is None:
-                _blobs.append(
-                    PlannedBlob(_partition.image, f"the {_partition.name} image")
-                )
-            elif self._delta_fits(_partition):
-                _blobs.append(
-                    PlannedBlob(_partition.delta, f"the {_partition.name} delta")
-                )
-            else:
-                raise ota_errors.ApplyOTAUpdateFailed(
-                    f"the {_partition.name} delta does not apply to this device: it is "
-                    "not at the version the delta was built from",
-                    module=__name__,
-                )
-        # Data images, the same way: the installer hashes the file it mounts for the
-        # name, so a delta is planned only when the device holds its source.
-        for _data in _config.data_images:
-            _what = f"the {_data.name} data image"
-            if _data.delta is None:
-                _blobs.append(PlannedBlob(_data.image, _what))
-            elif self._delta_fits(_data, data_image=_data.name):
-                _blobs.append(PlannedBlob(_data.delta, f"{_what} delta"))
-            else:
-                raise ota_errors.ApplyOTAUpdateFailed(
-                    f"{_what} delta does not apply to this device: it does not hold "
-                    "the image the delta was built from",
-                    module=__name__,
-                )
         return DownloadPlan(blobs=tuple(_blobs))
 
-    def _planned_update_agents(self) -> tuple[PlannedBlob, ...]:
-        """Every agent bundle the image ships: which one to install is the
-        installer's choice, and they are megabytes beside a payload of gigabytes."""
-        if self.update_agent_manifest is None:
-            return ()
-        return tuple(
-            PlannedBlob(_b, f"the {_b.annotations.type} agent {_b.annotations.version}")
-            for _b in self.update_agent_manifest.layers
+    def _image_or_delta(
+        self,
+        entry: PartitionEntry | DataImageEntry,
+        what: str,
+        *,
+        data_image: str | None = None,
+    ) -> PlannedBlob:
+        """The delta when the entry ships one and the device holds its source, else
+        the image; a delta the device cannot apply is a refusal."""
+        assert entry.image is not None
+        if entry.delta is None:
+            return PlannedBlob(entry.image, f"{what} image")
+        if self._delta_fits(entry, data_image=data_image):
+            return PlannedBlob(entry.delta, f"{what} delta")
+        raise ota_errors.ApplyOTAUpdateFailed(
+            f"{what} delta does not apply to this device: it does not hold the bytes "
+            "the delta was built from",
+            module=__name__,
         )
 
-    def _delta_fits(self, partition, *, data_image: Optional[str] = None) -> bool:
+    def _delta_fits(
+        self,
+        entry: PartitionEntry | DataImageEntry,
+        *,
+        data_image: str | None = None,
+    ) -> bool:
         """Whether the committed slot (or the named data image's file) holds the bytes
         the delta names, as the installer hashes them; an installer that cannot
         answer is a refusal."""
-        _delta = partition.delta
+        _delta = entry.delta
+        assert _delta is not None
         try:
             _on_device = self._installer.source_digest(
                 size=_delta.annotations.source_size, data_image=data_image
             )
         except PartitionInstallError as e:
-            logger.warning(
-                f"cannot tell whether the {partition.name} delta applies: {e!r}"
-            )
+            logger.warning(f"cannot tell whether the {entry.name} delta applies: {e!r}")
             return False
 
-        _wanted = _delta.annotations.source_digest
-        _wanted_hex = _wanted.split(":")[-1]
+        _wanted_hex = _delta.annotations.source_digest.split(":")[-1]
         if _on_device == _wanted_hex:
-            logger.info(f"the {partition.name} delta applies to this device")
+            logger.info(f"the {entry.name} delta applies to this device")
             return True
         logger.info(
-            f"the {partition.name} delta applies to {_wanted_hex[:12]}… but this device "
-            f"holds {_on_device[:12]}…"
+            f"the {entry.name} delta applies to {_wanted_hex[:12]}... but this device "
+            f"holds {_on_device[:12]}..."
         )
         return False
 
     # ------ fetching and applying ------ #
 
-    def download_payload(self, plan: DownloadPlan) -> Path:
+    def download_payload(
+        self,
+        plan: DownloadPlan,
+        *,
+        condition: threading.Condition,
+        on_blob_done: OnBlobDone | None = None,
+    ) -> Generator[list[DownloadInfo], None, None]:
+        """Yield the downloads of the planned blobs, one at a time, in plan order."""
         self._check_there_is_room_for(plan)
         for _blob in plan.blobs:
-            logger.info(f"downloading {_blob.what}: {_blob.size} bytes")
-            try:
-                self._fetch_blob(_blob.descriptor, what=_blob.what)
-            except OSError as e:
-                if e.errno != errno.ENOSPC:
-                    raise
-                # The check above passed and the disk filled anyway: something else
-                # on this device is writing too. Still a space problem, and still one
-                # that clearing space and retrying fixes.
-                raise ota_errors.StandbySlotInsufficientSpace(
-                    f"ran out of room staging {_blob.what} in {self.image_dir}",
-                    module=__name__,
-                ) from e
-        return self.image_dir
+            _downloaded = yield from self._fetch_blob(
+                _blob.descriptor, what=_blob.what, condition=condition
+            )
+            if _downloaded:
+                logger.info(
+                    f"downloaded {_blob.what}: {human_readable_size(_blob.size)}"
+                )
+            if on_blob_done is not None:
+                on_blob_done(_blob, _downloaded)
 
     def _check_there_is_room_for(self, plan: DownloadPlan) -> None:
-        """Refuse before downloading rather than partway through: the first blob is
-        most of the payload, and a device with no room should be reported as one."""
+        """Refuse before downloading rather than partway through: the rootfs image or
+        delta is most of the payload, and a device with no room should be reported as
+        one. A blob of the right size is taken as there; one that then turns out not
+        to hash to its digest is downloaded again, and the disk filling meanwhile is
+        reported by the download itself."""
         self.image_dir.mkdir(exist_ok=True, parents=True)
         _free = shutil.disk_usage(self.image_dir).free
-        _have = sum(
-            _b.size for _b in plan.blobs if (self._blob_dir / _b.digest_hex).is_file()
-        )
+        _have = 0
+        for _b in plan.blobs:
+            _dst = self._blob_dir / _b.digest_hex
+            if _dst.is_file() and _dst.stat().st_size == _b.size:
+                _have += _b.size
         _needed = plan.total_size - _have
         if _needed > _free:
             raise ota_errors.StandbySlotInsufficientSpace(
@@ -402,18 +464,12 @@ class PartitionImageUpdater:
             )
 
     def apply(
-        self,
-        *,
-        version: str,
-        on_progress: Optional[Callable[[int], None]] = None,
-    ) -> bool:
-        """Hand the unpacked image to the installer.
-
-        Returns:
-            Whether a reboot is needed, as the installer reported it.
-        """
+        self, *, version: str, on_progress: Callable[[int], None] | None = None
+    ) -> None:
+        """Hand the unpacked image to the installer, which writes it and arms the
+        trial boot."""
         try:
-            return self._installer.install(
+            self._installer.install(
                 package=self.image_dir,
                 version=version,
                 # An image built for a vehicle carries one payload per ECU and the
@@ -422,7 +478,7 @@ class PartitionImageUpdater:
                 # disagree.
                 ecu_id=self._image_id.ecu_id,
                 release_key=self._image_id.release_key.value,
-                on_progress=on_progress or self._on_progress,
+                on_progress=on_progress,
             )
         except PartitionInstallError as e:
             raise ota_errors.ApplyOTAUpdateFailed(
@@ -453,7 +509,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         installer: PartitionInstallerProtocol,
-        staging_dir: Union[str, Path],
+        staging_dir: str | Path,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         super().__init__(**kwargs)
@@ -461,38 +517,35 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
         self._abort_handler = abort_handler
         self._image_id = image_identifier
         self._installer = installer
-        self._staging_root = Path(staging_dir)
+        # otaclient's own corner of what the boot controller provides: pruned freely.
+        self._staging_root = Path(staging_dir) / STAGING_SUBDIR
         self._written_bytes_reported = 0
 
         # The index is verified as every version 1 image's is, against this ECU's
         # own CA store, before anything in it is believed.
-        self._ota_image_helper = OTAImageHelper(
-            session_dir=self._session_workdir,
-            base_url=self.url_base,
-            ca_store=ca_store,
-        )
-        self._download_helper = DownloadHelperForOTAImageV1(
-            downloader_pool=self._downloader_pool,
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+        self._ota_image_helper, self._download_helper = (
+            self._create_ota_image_v1_helpers(ca_store=ca_store)
         )
 
-    # ------ phases ------ #
+    # ------ reporting ------ #
 
-    def _report_phase(self, phase: UpdatePhase) -> int:
-        _now = int(time.time())
+    def _on_blob_done(self, blob: PlannedBlob, downloaded: bool) -> None:
+        """One planned blob is in place: counted as a file either way, as traffic
+        only when it was downloaded."""
         self._status_report_queue.put_nowait(
             StatusReport(
-                payload=OTAUpdatePhaseChangeReport(
-                    new_update_phase=phase, trigger_timestamp=_now
+                payload=UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                    processed_file_num=1,
+                    processed_file_size=blob.size,
+                    downloaded_bytes=blob.size if downloaded else 0,
                 ),
                 session_id=self.session_id,
             )
         )
-        return _now
 
     def _on_write_progress(self, percent: int, *, total_bytes: int) -> None:
-        """The installer counts percent of a partition; otaclient counts bytes applied.
+        """The installer reports percent of the whole write; otaclient reports bytes.
 
         Reported as a difference so the console's total keeps climbing rather than
         restarting, which is what the file-based path does for every file it writes.
@@ -512,15 +565,32 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             )
         )
 
+    # ------ staging ------ #
+
+    def _session_staging_dir(self) -> Path:
+        """Where this update stages its payload: under otaclient's own staging
+        subdirectory, named after the requested version.
+
+        The version comes from the update request, so it is only ever a directory
+        name here (`safe_dir_name`), never a path: `..` or an absolute version would
+        otherwise stage, and later remove, somewhere else.
+        """
+        _dir = self._staging_root / safe_dir_name(self.update_version)
+        if _dir.parent != self._staging_root:  # pragma: no cover
+            raise ota_errors.InvalidUpdateRequest(
+                f"version {self.update_version!r} cannot name a staging directory",
+                module=__name__,
+            )
+        return _dir
+
     def _prune_staging(self, keep: Path) -> None:
         """Last update's payload is dead weight on persistent storage; this one's
         may be a retry.
 
         Only what this update staged is kept. The blobs are named by digest, so a
-        retry of the same version finds its downloads where it left them.
+        retry of the same version finds its downloads where it left them. Nothing
+        outside otaclient's own subdirectory is touched.
         """
-        if not self._staging_root.is_dir():
-            return
         for _entry in self._staging_root.iterdir():
             if _entry == keep or not _entry.is_dir():
                 continue
@@ -529,18 +599,14 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
 
     # ------ the metadata ------ #
 
-    def _verify_image_index(self) -> ImageIndex:
+    def _verify_image_index(self, condition: threading.Condition) -> ImageIndex:
         """`index.jwt` and `index.json`, downloaded into the session directory and
         verified against this ECU's CA store, as for any version 1 image."""
-        with metadata_download_err_handler():
-            _condition = threading.Condition()
-            for _fut in self._download_helper.download_meta_files(
-                self._ota_image_helper.download_and_verify_image_index(
-                    condition=_condition
-                ),
-                condition=_condition,
-            ):
-                download_exception_handler(_fut)
+        for _fut in self._download_helper.download_meta_files(
+            self._ota_image_helper.download_and_verify_image_index(condition=condition),
+            condition=condition,
+        ):
+            download_exception_handler(_fut)
         _index = self._ota_image_helper.image_index
         if _index is None:  # the helper raises rather than leaving it unset
             raise ota_errors.OTAImageInvalid(
@@ -549,7 +615,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
         return _index
 
     @property
-    def _verified_index_files(self) -> Tuple[Path, Path]:
+    def _verified_index_files(self) -> tuple[Path, Path]:
         """`index.json` and `index.jwt` as `_verify_image_index` left them."""
         return (
             self._session_workdir / IMAGE_INDEX_FNAME,
@@ -560,17 +626,31 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
     def _refuse_what_this_boot_control_cannot_try(
         config: PartitionImageConfig,
     ) -> None:
-        """A payload that writes no slot (data images alone) is tried by rebooting
-        the running slot. The status files of a slot switch cannot describe that
-        boot, and this client's boot control has no other kind of trial, so such a
-        payload is refused before anything is downloaded rather than applied and
+        """A payload that writes no slot (data images or firmware alone) is tried by
+        rebooting the running slot. The status files of a slot switch cannot describe
+        that boot, and this client's boot control has no other kind of trial, so such
+        a payload is refused before anything is downloaded rather than applied and
         then reported as a failed switch."""
-        if not any(_p.action is not PartitionAction.keep for _p in config.partitions):
+        if all(_p.action is PartitionAction.keep for _p in config.partitions):
             raise ota_errors.OTAImageInvalid(
-                "the payload writes no slot (data images alone), which is applied by "
-                "a trial boot of the running slot; this client tries a slot switch only",
+                "the payload writes no slot (data images or firmware alone), which is "
+                "applied by a trial boot of the running slot; this client tries a "
+                "slot switch only",
                 module=__name__,
             )
+
+    @staticmethod
+    def _bytes_to_write(config: PartitionImageConfig) -> int:
+        """What the installer ends up writing: every partition image and data image,
+        at the size it decodes to (a compressed blob carries that in its
+        annotations); the boot files tar is unpacked as it is."""
+        _total = 0
+        for _p in config.partitions:
+            if _p.action is PartitionAction.write and _p.image is not None:
+                _total += getattr(_p.image, "image_size", _p.image.size)
+        for _d in config.data_images:
+            _total += _d.image.image_size
+        return _total
 
     # ------ the update ------ #
 
@@ -579,39 +659,43 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             f"execute local partition-image update({ecu_info.ecu_id=}): "
             f"{self.update_version=}, {self.release_name=}, {self.release_id=}"
         )
-        _session_staging = self._staging_root / self.update_version
+        _session_staging = self._session_staging_dir()
         try:
+            self._staging_root.mkdir(exist_ok=True, parents=True, mode=0o700)
             self._prune_staging(keep=_session_staging)
-            _session_staging.mkdir(exist_ok=True, parents=True)
+            _session_staging.mkdir(exist_ok=True, mode=0o700)
 
             _updater = PartitionImageUpdater(
                 base_url=self.url_base,
-                downloader=self._downloader_pool.get_instance(),
                 session_dir=_session_staging,
                 image_id=self._image_id,
                 installer=self._installer,
             )
+            _condition = threading.Condition()
 
             # ------ metadata ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_METADATA)
             self._metrics.processing_metadata_start_timestamp = _now
-            _index = self._verify_image_index()
-            _index_json, _index_jwt = self._verified_index_files
-            _config = _updater.download_metadata(
-                _index, index_json=_index_json, index_jwt=_index_jwt
-            )
+            with metadata_download_err_handler():
+                _index = self._verify_image_index(_condition)
+                _index_json, _index_jwt = self._verified_index_files
+                for _fut in self._download_helper.download_meta_files(
+                    _updater.download_metadata(
+                        _index,
+                        index_json=_index_json,
+                        index_jwt=_index_jwt,
+                        condition=_condition,
+                    ),
+                    condition=_condition,
+                ):
+                    download_exception_handler(_fut)
+            _config = _updater.image_config
+            assert _config is not None  # download_metadata() sets it or raises
             self._refuse_what_this_boot_control_cannot_try(_config)
 
             # ------ what this device needs ------ #
             _plan = _updater.plan()
-            # What the partitions end up holding: for a compressed blob that is in
-            # its annotations, not the stored size; the boot files tar is unpacked
-            # as it is.
-            _total_write = sum(
-                getattr(_p.image, "image_size", _p.image.size)
-                for _p in _config.partitions
-                if _p.action is PartitionAction.write and _p.image is not None
-            )
+            _total_write = self._bytes_to_write(_config)
             logger.info(
                 f"this device needs {len(_plan.blobs)} blobs, "
                 f"{human_readable_size(_plan.total_size)} on the wire, "
@@ -633,32 +717,34 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             # ------ downloading ------ #
             _now = self._report_phase(UpdatePhase.DOWNLOADING_OTA_FILES)
             self._metrics.download_start_timestamp = _now
-            _updater.download_payload(_plan)
-            for _blob in _plan.blobs:
-                self._status_report_queue.put_nowait(
-                    StatusReport(
-                        payload=UpdateProgressReport(
-                            operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                            processed_file_num=1,
-                            processed_file_size=_blob.size,
-                            downloaded_bytes=_blob.size,
-                        ),
-                        session_id=self.session_id,
-                    )
-                )
+            try:
+                for _fut in self._download_helper.download_meta_files(
+                    _updater.download_payload(
+                        _plan, condition=_condition, on_blob_done=self._on_blob_done
+                    ),
+                    condition=_condition,
+                ):
+                    download_exception_handler(_fut)
+            except Exception as e:
+                raise_on_download_resources_failed(e)
 
             # ------ writing ------ #
-            # The critical zone is the write and what it arms: a payload half written
-            # onto the standby slot is safe to abandon, but only after the record and
-            # the boot switch agree with each other.
+            # The installer arms the trial boot while it writes (the boot files and
+            # the rootfs image are one build, written together or not at all), so an
+            # abort that arrives during the write waits for the write to end: a
+            # standby slot half written is safe to abandon, a slot armed before its
+            # record is written is not.
             with self._abort_handler.critical_zone():
-                self._boot_controller.pre_update(
-                    standby_as_ref=False, erase_standby=True
-                )
+                with ota_errors.raise_as_ota_error(
+                    ota_errors.PreUpdateFailed, "pre-update failed", module=__name__
+                ):
+                    self._boot_controller.pre_update(
+                        standby_as_ref=False, erase_standby=True
+                    )
 
                 _now = self._report_phase(UpdatePhase.APPLYING_UPDATE)
                 self._metrics.apply_update_start_timestamp = _now
-                _reboot_required = _updater.apply(
+                _updater.apply(
                     # The version the payload carries is what the installer records
                     # and the device reports for the image; otaclient's own record
                     # of the update is the version the request named.
@@ -673,20 +759,13 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             # ------ post update ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_POSTUPDATE)
             self._metrics.post_update_start_timestamp = _now
-            _version_detail: Optional[VersionDetail] = None
-            if self.release_name and self.release_id and self.image_id:
-                _version_detail = VersionDetail(
-                    release_name=self.release_name,
-                    release_id=self.release_id,
-                    image_id=self.image_id,
+            with ota_errors.raise_as_ota_error(
+                ota_errors.PostUpdateFailed, "post-update failed", module=__name__
+            ):
+                self._boot_controller.post_update(
+                    self.update_version, version_detail=self._version_detail
                 )
-            self._boot_controller.post_update(
-                self.update_version, version_detail=_version_detail
-            )
 
-            if not _reboot_required:
-                logger.info("the payload needs no reboot; the update is done")
-                return
             self._finalize(_session_staging)
 
         except ota_errors.OTAAbortSignal:
@@ -703,6 +782,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             raise
         except Exception as e:
             if self._abort_handler.state in (AbortState.ABORTING, AbortState.ABORTED):
+                logger.info(f"OTA update aborted (error during shutdown: {e!r})")
                 raise ota_errors.OTAAbortSignal(
                     "abort in progress", module=__name__
                 ) from e
@@ -712,6 +792,7 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             ) from e
         finally:
             self._downloader_pool.release_instance()
+            self._downloader_pool.shutdown()
             shutil.rmtree(self._session_workdir, ignore_errors=True)
 
     def _finalize(self, staging: Path) -> None:

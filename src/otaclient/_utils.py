@@ -133,6 +133,16 @@ def gen_request_id(
     return f"{_time_factor}-{_random_factor}"
 
 
+def safe_dir_name(value: str) -> str:
+    """<value> as one directory name: path separators, `.`, NUL and the other
+    characters a filesystem or a shell may read as something else become `_`.
+
+    For strings that come from outside (the version of an OTA request) and end up
+        as a path element: `Path(root) / "/etc"` is `/etc`, and `..` climbs.
+    """
+    return _illegal_chars_pattern.sub("_", value) or "_"
+
+
 def gen_session_id(
     update_version: str, *, random_bytes_num: int = SESSION_RANDOM_LEN
 ) -> str:  # pragma: no cover

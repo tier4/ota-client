@@ -155,18 +155,23 @@ class PartitionInstallerProtocol(Protocol):
         ecu_id: str,
         release_key: str,
         on_progress: Callable[[int], None] | None = None,
-    ) -> bool:
-        """Write the payload of the unpacked OTA image at <package> onto this device.
+    ) -> None:
+        """Write the payload of the unpacked OTA image at <package> onto this device
+            and arm one trial boot of it.
+
+        The installer verifies index.jwt against its own trust anchor and every
+            blob it writes against the digest the index names: otaclient's checks
+            while staging are not relied on. The update is concluded by the trial
+            boot otaclient reboots into afterwards, so a payload that would take
+            effect without a reboot is not one this protocol describes.
 
         Args:
             package: the unpacked OTA image otaclient staged: index.json, index.jwt
                 and the blobs this device needs.
             version: the version the installer records the payload under.
             ecu_id, release_key: which payload of a multi-ECU image is this device's.
-            on_progress: called with the percent of the write done, as it is made.
-
-        Returns:
-            Whether the update takes effect only after a reboot.
+            on_progress: called with the percent of the whole write done (every
+                partition and data image together), as it is made.
 
         Raises:
             PartitionInstallError: when the payload is refused or the write fails.
@@ -191,4 +196,10 @@ class PartitionLayoutBootControllerProtocol(Protocol):
     @abstractmethod
     def payload_staging_dir(self) -> Path:
         """Where this device can hold a payload, gigabytes, until the installer has
-        consumed it: on persistent storage, as the session directory is a tmpfs."""
+        consumed it: on persistent storage, as the session directory is a tmpfs.
+
+        The boot controller guarantees the directory is on a mounted filesystem
+            whenever an update runs. otaclient owns what it puts there: it creates a
+            subdirectory of its own (0700), stages every update under it, and removes
+            anything else under that subdirectory at the start of an update.
+        """

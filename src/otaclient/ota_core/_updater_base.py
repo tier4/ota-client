@@ -34,7 +34,7 @@ from otaclient._status_monitor import (
     SetUpdateMetaReport,
     StatusReport,
 )
-from otaclient._types import MultipleECUStatusFlags, UpdatePhase
+from otaclient._types import MultipleECUStatusFlags, UpdatePhase, VersionDetail
 from otaclient._utils import SharedOTAClientMetricsReader, wait_and_log
 from otaclient.boot_control.protocol import BootControllerProtocol
 from otaclient.configs.cfg import cfg, proxy_info
@@ -181,6 +181,47 @@ class OTAUpdateInitializer:
 
         # ------ setup downloader ------ #
         self._downloader_pool = downloader_pool
+
+    def _report_phase(self, phase: UpdatePhase) -> int:
+        """Report that the update enters <phase>; returns the timestamp reported."""
+        _now = int(time.time())
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAUpdatePhaseChangeReport(
+                    new_update_phase=phase, trigger_timestamp=_now
+                ),
+                session_id=self.session_id,
+            )
+        )
+        return _now
+
+    @property
+    def _version_detail(self) -> VersionDetail | None:
+        """The release the request named, when it named one in full."""
+        if self.release_name and self.release_id and self.image_id:
+            return VersionDetail(
+                release_name=self.release_name,
+                release_id=self.release_id,
+                image_id=self.image_id,
+            )
+        return None
+
+    def _create_ota_image_v1_helpers(
+        self, *, ca_store: CAStoreMap
+    ) -> tuple[OTAImageHelper, DownloadHelperForOTAImageV1]:
+        """The metadata helper and the download helper of a version 1 OTA image,
+        for this update's session, URL base and downloader pool."""
+        _download_helper = DownloadHelperForOTAImageV1(
+            downloader_pool=self._downloader_pool,
+            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
+            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
+        )
+        _ota_image_helper = OTAImageHelper(
+            session_dir=self._session_workdir,
+            base_url=self.url_base,
+            ca_store=ca_store,
+        )
+        return _ota_image_helper, _download_helper
 
     def _finalize_update_and_reboot(
         self, boot_controller: BootControllerProtocol
@@ -341,15 +382,8 @@ class OTAImageV1SupportMixin(OTAUpdateInitializer):
             )
         )
 
-        self._download_helper = DownloadHelperForOTAImageV1(
-            downloader_pool=self._downloader_pool,
-            max_concurrent=cfg.MAX_CONCURRENT_DOWNLOAD_TASKS,
-            download_inactive_timeout=cfg.DOWNLOAD_INACTIVE_TIMEOUT,
-        )
-        self._ota_image_helper = OTAImageHelper(
-            session_dir=self._session_workdir,
-            base_url=self.url_base,
-            ca_store=ca_store,
+        self._ota_image_helper, self._download_helper = (
+            self._create_ota_image_v1_helpers(ca_store=ca_store)
         )
 
     def _download_delta_resources(self, delta_digests: ResourcesDigestWithSize) -> None:

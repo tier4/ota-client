@@ -14,7 +14,12 @@
 
 
 from .configs import BootloaderType
-from .protocol import BootControllerProtocol
+from .protocol import (
+    BootControllerProtocol,
+    PartitionInstallerProtocol,
+    PartitionInstallError,
+    PartitionLayoutBootControllerProtocol,
+)
 from .selecter import detect_bootloader, get_boot_controller
 
 __all__ = (
@@ -22,4 +27,7 @@ __all__ = (
     "detect_bootloader",
     "BootloaderType",
     "BootControllerProtocol",
+    "PartitionInstallError",
+    "PartitionInstallerProtocol",
+    "PartitionLayoutBootControllerProtocol",
 )
