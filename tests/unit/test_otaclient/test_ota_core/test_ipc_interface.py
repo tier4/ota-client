@@ -179,6 +179,59 @@ class TestOTAClient:
             )
         ]
 
+    def test_aborted_status_reported_briefly_on_startup(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """ABORTED loaded at startup is reported for ABORTED_STATUS_REPORT_DURATION,
+        then INITIALIZED is reported so that a main ECU running otaclient < v3.14.0
+        can parse this ECU's status again."""
+        # a normal startup does not open the ABORTED report window
+        assert self.ota_client._aborted_status_report_deadline is None
+
+        _, status_report_queue = ota_status_collector
+        _boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
+        _boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
+        _boot_controller.load_version_detail.return_value = None
+        _boot_controller.get_booted_ota_status.return_value = OTAStatus.ABORTED
+        _boot_controller.get_booted_failure_info.return_value = None
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
+            return_value=lambda: _boot_controller,
+        )
+        _put_spy = mocker.spy(status_report_queue, "put_nowait")
+
+        ota_client = OTAClient(
+            ecu_status_flags=mocker.MagicMock(),
+            status_report_queue=status_report_queue,
+            client_update_control_flags=mocker.MagicMock(),
+            shm_metrics_reader=mocker.MagicMock(),
+        )
+        assert ota_client.live_ota_status == OTAStatus.ABORTED
+        _deadline = ota_client._aborted_status_report_deadline
+        assert _deadline is not None
+
+        # within the report window ABORTED stays
+        ota_client._expire_aborted_status_report(_deadline - 1)
+        assert ota_client.live_ota_status == OTAStatus.ABORTED
+        assert ota_client._aborted_status_report_deadline == _deadline
+
+        # after the report window INITIALIZED is reported
+        ota_client._expire_aborted_status_report(_deadline)
+        assert ota_client.live_ota_status == OTAStatus.INITIALIZED
+        assert ota_client._aborted_status_report_deadline is None
+
+        _status_change_reports = [
+            _call.args[0].payload
+            for _call in _put_spy.call_args_list
+            if isinstance(_call.args[0].payload, OTAStatusChangeReport)
+        ]
+        assert _status_change_reports == [
+            OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTED),
+            OTAStatusChangeReport(new_ota_status=OTAStatus.INITIALIZED),
+        ]
+
     def test_update_upper_otaproxy_unreachable(self, mocker: pytest_mock.MockerFixture):
         mocker.patch.object(type(self.ota_client._metrics), "publish")
         mocker.patch.object(self.ota_client, "_exit_from_dynamic_client")

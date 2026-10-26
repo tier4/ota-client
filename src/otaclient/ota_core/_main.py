@@ -96,6 +96,14 @@ HOLD_REQ_HANDLING_ON_ACK_REQUEST = 16  # seconds
 HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST = 4  # seconds
 WAIT_FOR_OTAPROXY_ONLINE = 3 * 60  # 3mins
 WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
+# NOTE(20261026): how long the ABORTED status loaded at startup is reported before
+#                 it is replaced by INITIALIZED. The upper layer needs to observe
+#                 ABORTED once to finish the abort, while a main ECU running
+#                 otaclient < v3.14.0 cannot parse ABORTED at all and drops this ECU
+#                 from its status API response for as long as ABORTED is reported.
+#                 edge-core waits at most 300s for otaclient to come back after the
+#                 abort, so the same duration covers every case it is still waiting.
+ABORTED_STATUS_REPORT_DURATION = 5 * 60  # seconds
 
 
 class OTAClient:
@@ -122,6 +130,8 @@ class OTAClient:
         atexit.register(shm_metrics_reader.atexit)
 
         self._live_ota_status = OTAStatus.INITIALIZED
+        # when the ABORTED status loaded at startup should be replaced by INITIALIZED
+        self._aborted_status_report_deadline: Optional[float] = None
         self.started = False
 
         self._runtime_dir = _runtime_dir = Path(cfg.RUN_DIR)
@@ -210,6 +220,14 @@ class OTAClient:
         # load and report booted OTA status
         _boot_ctrl_loaded_ota_status = self.boot_controller.get_booted_ota_status()
         self._live_ota_status = _boot_ctrl_loaded_ota_status
+        if _boot_ctrl_loaded_ota_status == OTAStatus.ABORTED:
+            self._aborted_status_report_deadline = (
+                time.time() + ABORTED_STATUS_REPORT_DURATION
+            )
+            logger.info(
+                "previous OTA was aborted, report ABORTED for "
+                f"{ABORTED_STATUS_REPORT_DURATION}s before reporting INITIALIZED"
+            )
         self.current_version = self.boot_controller.load_version()
         self.current_version_detail = self.boot_controller.load_version_detail()
 
@@ -307,6 +325,35 @@ class OTAClient:
         time.sleep(WAIT_BEFORE_DYNAMIC_CLIENT_EXIT)
         logger.info("exit from dynamic client...")
         self._client_update_control_flags.request_shutdown_event.set()
+
+    def _expire_aborted_status_report(self, now: float) -> None:
+        """Replace the ABORTED status loaded at startup with INITIALIZED once
+        ABORTED_STATUS_REPORT_DURATION has passed.
+
+        NOTE: only called from the request dispatching loop, which is also the
+            only place that starts an OTA, so the live status cannot be overwritten
+            while an OTA is running.
+        """
+        _deadline = self._aborted_status_report_deadline
+        if _deadline is None or now < _deadline:
+            return
+
+        self._aborted_status_report_deadline = None
+        if self._live_ota_status != OTAStatus.ABORTED:
+            return
+
+        logger.info(
+            f"ABORTED has been reported for {ABORTED_STATUS_REPORT_DURATION}s, "
+            "report INITIALIZED from now on"
+        )
+        self._live_ota_status = OTAStatus.INITIALIZED
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(
+                    new_ota_status=OTAStatus.INITIALIZED,
+                ),
+            )
+        )
 
     # API
 
@@ -588,6 +635,7 @@ class OTAClient:
         _allow_request_after = 0
         while True:
             _now = int(time.time())
+            self._expire_aborted_status_report(_now)
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:
@@ -636,6 +684,8 @@ class OTAClient:
                     )
                 )
                 _allow_request_after = _now + HOLD_REQ_HANDLING_ON_ACK_REQUEST
+                # the OTA takes over the live status from here
+                self._aborted_status_report_deadline = None
 
             elif isinstance(request, ClientUpdateRequestV2):
                 _client_update_thread = threading.Thread(
@@ -655,6 +705,8 @@ class OTAClient:
                 _allow_request_after = (
                     _now + HOLD_REQ_HANDLING_ON_ACK_CLIENT_UPDATE_REQUEST
                 )
+                # the client update takes over the live status from here
+                self._aborted_status_report_deadline = None
 
             else:
                 _err_msg = f"request is invalid: {request=}, {self._live_ota_status=}"
