@@ -26,9 +26,11 @@ from multidict import CIMultiDict, CIMultiDictProxy
 from ota_proxy import config as cfg
 from ota_proxy._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
 from ota_proxy.cache_index import CacheIndex
+from ota_proxy.cache_streaming import CacheTracker
 from ota_proxy.db import CacheMeta
 from ota_proxy.ota_cache import OTACache
 from ota_proxy.utils import url_based_hash
+from otaclient_common.downloader import DEFAULT_READ_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +247,56 @@ class TestOTACacheDNSTTL:
             try:
                 mock_connector.assert_called_once_with(
                     ttl_dns_cache=cfg.AIOHTTP_DNS_CACHE_TTL
+                )
+            finally:
+                await cache.close()
+
+
+#
+# ------------ Tests: OTACache socket read timeout ------------ #
+#
+
+BLACKOUT_SILENCE = 28  # seconds
+"""The silence a link blackout of ~15s leaves on a TCP stream.
+
+TCP retransmission backs off during the blackout: the first retransmission after the
+    link comes back is ~25-28s after the last data (measured with tc netem, RTT 60ms).
+"""
+
+
+class TestOTACacheSocketReadTimeout:
+    def test_otaproxy_gives_up_on_a_stalled_remote_before_its_client_does(self):
+        """otaproxy ends its response on a stalled remote before the client times out."""
+        assert DEFAULT_READ_TIMEOUT - cfg.AIOHTTP_SOCKET_READ_TIMEOUT >= 2, (
+            "otaproxy must give up on the remote before the client gives up on otaproxy"
+        )
+
+    def test_otaproxy_rides_through_a_short_link_blackout(self):
+        assert cfg.AIOHTTP_SOCKET_READ_TIMEOUT > BLACKOUT_SILENCE, (
+            "a link blackout of ~15s must not cut the responses in flight"
+        )
+
+    def test_subscribers_wait_as_long_as_the_provider(self):
+        """A subscriber of an ongoing caching doesn't cut what the provider rides through."""
+        assert (
+            cfg.AIOHTTP_SOCKET_READ_TIMEOUT
+            <= CacheTracker.SUBSCRIBER_WAIT_TIMEOUT
+            < DEFAULT_READ_TIMEOUT
+        ), "a subscriber must wait as long as the provider, and less than the client"
+
+    async def test_ota_cache_start_applies_socket_read_timeout(self):
+        cache = OTACache(
+            cache_enabled=False,
+            init_cache=False,
+            shm_metrics_writer=None,
+        )
+        with patch.object(
+            aiohttp, "ClientTimeout", wraps=aiohttp.ClientTimeout
+        ) as mock_timeout:
+            await cache.start()
+            try:
+                mock_timeout.assert_called_once_with(
+                    total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
                 )
             finally:
                 await cache.close()

@@ -27,6 +27,7 @@ import asyncio
 import logging
 import random
 import threading
+import time
 from pathlib import Path
 from queue import SimpleQueue
 from typing import AsyncGenerator, Coroutine, Optional
@@ -313,7 +314,8 @@ class TestSubscriberWaitForProvider:
 
     async def test_timeout_raises_provider_not_ready(self, tmp_path: Path, mocker):
         tracker = _make_tracker(tmp_path)
-        # patch backoff to be near-zero so it times out fast
+        # patch the wait to be short so it times out fast
+        mocker.patch.object(CacheTracker, "SUBSCRIBER_WAIT_TIMEOUT", 0.05)
         mocker.patch("ota_proxy.cache_streaming.get_backoff", return_value=0.001)
         with pytest.raises(CacheProviderNotReady):
             await tracker.subscriber_wait_for_provider()
@@ -408,6 +410,68 @@ class TestSubscriberStreamCacheInThread:
         loop.close()
         # writer failed, subscriber returns early
         assert len(chunks) == 0
+
+    @staticmethod
+    def _provider_writes_with_a_gap(tracker: CacheTracker, gap: float, finish: bool):
+        """Write a chunk, stay silent for <gap> seconds, then write another one."""
+
+        def _write(data: bytes) -> None:
+            with open(tracker.fpath, "ab") as f:
+                f.write(data)
+            tracker._bytes_written += len(data)
+
+        def _provider() -> None:
+            _write(b"hello ")
+            time.sleep(gap)
+            _write(b"world")
+            if finish:
+                tracker._tracker_events.set_writer_finished()
+
+        Path(tracker.fpath).touch()
+        tracker._tracker_events.set_writer_started()
+        _thread = threading.Thread(target=_provider, daemon=True)
+        _thread.start()
+        return _thread
+
+    def test_rides_through_a_silence_shorter_than_the_wait(
+        self, tmp_path: Path, mocker
+    ):
+        """The provider stalls (e.g., a link blackout) but recovers in time."""
+        mocker.patch.object(CacheTracker, "SUBSCRIBER_WAIT_TIMEOUT", 2)
+        mocker.patch("ota_proxy.cache_streaming.get_backoff", return_value=0.01)
+        tracker = _make_tracker(tmp_path)
+        provider = self._provider_writes_with_a_gap(tracker, gap=0.5, finish=True)
+
+        loop = asyncio.new_event_loop()
+        que: asyncio.Queue = loop.run_until_complete(self._make_queue())
+        tracker._acall_soon = loop.call_soon_threadsafe
+        tracker.subscriber_stream_cache_in_thread(
+            que, interrupt_thread_worker=threading.Event(), read_chunk_size=64
+        )
+        provider.join()
+
+        chunks = loop.run_until_complete(self._drain_queue(que))
+        loop.close()
+        assert b"".join(chunks) == b"hello world"
+
+    def test_gives_up_on_a_silence_longer_than_the_wait(self, tmp_path: Path, mocker):
+        mocker.patch.object(CacheTracker, "SUBSCRIBER_WAIT_TIMEOUT", 0.2)
+        mocker.patch("ota_proxy.cache_streaming.get_backoff", return_value=0.01)
+        tracker = _make_tracker(tmp_path)
+        provider = self._provider_writes_with_a_gap(tracker, gap=2, finish=False)
+
+        loop = asyncio.new_event_loop()
+        que: asyncio.Queue = loop.run_until_complete(self._make_queue())
+        tracker._acall_soon = loop.call_soon_threadsafe
+        tracker.subscriber_stream_cache_in_thread(
+            que, interrupt_thread_worker=threading.Event(), read_chunk_size=64
+        )
+
+        chunks = loop.run_until_complete(self._drain_queue(que))
+        loop.close()
+        # the response is cut after the data written before the silence
+        assert b"".join(chunks) == b"hello "
+        provider.join()
 
     def test_file_open_error_sends_failed_sentinel(self, tmp_path: Path):
         tracker = _make_tracker(tmp_path)
