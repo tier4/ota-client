@@ -102,7 +102,9 @@ WAIT_BEFORE_DYNAMIC_CLIENT_EXIT = 6  # seconds
 #                 otaclient < v3.14.0 cannot parse ABORTED at all and drops this ECU
 #                 from its status API response for as long as ABORTED is reported.
 #                 edge-core waits at most 300s for otaclient to come back after the
-#                 abort, so the same duration covers every case it is still waiting.
+#                 abort (WebAutoAutowareAdapter edge-core domain/ota/ota_client.py,
+#                 OtaClient.OTA_CLIENT_RPC_MAX_RETRY_DURATION), so the same duration
+#                 covers every case it is still waiting.
 ABORTED_STATUS_REPORT_DURATION = 5 * 60  # seconds
 
 
@@ -222,7 +224,7 @@ class OTAClient:
         self._live_ota_status = _boot_ctrl_loaded_ota_status
         if _boot_ctrl_loaded_ota_status == OTAStatus.ABORTED:
             self._aborted_status_report_deadline = (
-                time.time() + ABORTED_STATUS_REPORT_DURATION
+                time.monotonic() + ABORTED_STATUS_REPORT_DURATION
             )
             logger.info(
                 "previous OTA was aborted, report ABORTED for "
@@ -331,8 +333,9 @@ class OTAClient:
         ABORTED_STATUS_REPORT_DURATION has passed.
 
         NOTE: only called from the request dispatching loop, which is also the
-            only place that starts an OTA, so the live status cannot be overwritten
-            while an OTA is running.
+            only place that starts an OTA, and which clears
+            _aborted_status_report_deadline when it accepts an update or a client
+            update, so the live status of a running OTA is never overwritten here.
         """
         _deadline = self._aborted_status_report_deadline
         if _deadline is None or now < _deadline:
@@ -635,7 +638,7 @@ class OTAClient:
         _allow_request_after = 0
         while True:
             _now = int(time.time())
-            self._expire_aborted_status_report(_now)
+            self._expire_aborted_status_report(time.monotonic())
             try:
                 request = req_queue.get(timeout=OP_CHECK_INTERVAL)
             except Empty:

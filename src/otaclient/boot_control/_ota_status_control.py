@@ -117,7 +117,9 @@ class OTAStatusFilesControl:
         #                 from its status API response, and the upper layer then
         #                 refuses any OTA as this ECU is "not responding".
         #                 The upper layer only needs to observe ABORTED once to finish
-        #                 the abort, so ABORTED is reported for this startup only, and
+        #                 the abort, so ABORTED is loaded as the booted status for this
+        #                 startup only (ota_core further limits how long it is reported,
+        #                 see ABORTED_STATUS_REPORT_DURATION in ota_core/_main.py), and
         #                 INITIALIZED, which every otaclient version understands, is
         #                 persisted for the following startups.
         if _loaded_ota_status == OTAStatus.ABORTED:
