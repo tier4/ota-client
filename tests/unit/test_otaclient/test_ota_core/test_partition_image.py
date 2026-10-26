@@ -85,6 +85,7 @@ from otaclient.ota_core._partition_image import (
     STAGING_SUBDIR,
     OTAUpdaterForPartitionImage,
     PartitionImageUpdater,
+    _ensure_the_staging_root_is_ours,
 )
 from otaclient_common.downloader import Downloader, DownloaderPool, DownloadResult
 
@@ -1274,6 +1275,31 @@ class TestFinalize:
 
         assert not _staging.exists()
         assert _updater._boot_controller.rebooted is True  # type: ignore[attr-defined]
+
+
+class TestStagingRoot:
+    """The staging root is pruned and written as root, so it has to be ours."""
+
+    def test_a_private_directory_of_ours_is_accepted(self, tmp_path: Path):
+        _root = tmp_path / "staging"
+        _root.mkdir(mode=0o700)
+        _ensure_the_staging_root_is_ours(_root)
+
+    def test_a_symlink_placed_there_first_is_refused(self, tmp_path: Path):
+        """A non-root user who can create the parent (a sticky /var/tmp, say) could
+        point the root at /opt/data and have the prune remove what is there."""
+        (tmp_path / "elsewhere").mkdir()
+        _root = tmp_path / "staging"
+        _root.symlink_to(tmp_path / "elsewhere")
+        with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="symlink"):
+            _ensure_the_staging_root_is_ours(_root)
+
+    def test_a_directory_others_can_write_is_refused(self, tmp_path: Path):
+        _root = tmp_path / "staging"
+        _root.mkdir()
+        _root.chmod(0o777)
+        with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="not a private"):
+            _ensure_the_staging_root_is_ours(_root)
 
 
 class TestStaging:

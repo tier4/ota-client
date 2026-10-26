@@ -88,6 +88,16 @@ class TestOTAClient:
         self.boot_controller.get_booted_ota_status = mocker.MagicMock(
             return_value=OTAStatus.SUCCESS
         )
+        # NOTE: the instance OTAClient builds from it is spec'd like the real
+        #       controllers: on Python < 3.12 a runtime_checkable Protocol is checked
+        #       with hasattr, which an unspec'd MagicMock answers for any name, and
+        #       would make every test run on a partition layout.
+        _instance = mocker.MagicMock(spec=BootControllerProtocol)
+        _instance.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
+        _instance.get_booted_ota_status = mocker.MagicMock(
+            return_value=OTAStatus.SUCCESS
+        )
+        self.boot_controller.return_value = _instance
 
         mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForLegacyOTAImage",
@@ -170,6 +180,47 @@ class TestOTAClient:
         assert _kwargs["installer"] is _boot_controller.partition_installer
         assert _kwargs["staging_dir"] == Path("/opt/data/otaclient/staging")
         assert _kwargs["boot_controller"] is _boot_controller
+
+    def test_update_with_a_legacy_image_on_a_partition_layout_is_refused(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        """A legacy image is applied file by file into a mounted standby slot, which
+        a partition-based layout does not have: refused as an invalid image before
+        any status record is written, not as an 'unspecific error' half-way."""
+
+        class _PartitionLayoutBootController(
+            BootControllerProtocol, PartitionLayoutBootControllerProtocol, Protocol
+        ): ...
+
+        _boot_controller = mocker.MagicMock(spec=_PartitionLayoutBootController)
+        self.ota_client.boot_controller = _boot_controller
+        self.ota_client.ca_chains_store = mocker.MagicMock()
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=False
+        )
+        _legacy_updater_cls = mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForLegacyOTAImage"
+        )
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_update_with_a_legacy_image_on_a_partition_layout",
+            )
+        )
+
+        _legacy_updater_cls.assert_not_called()
+        _boot_controller.pre_update.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+        _boot_controller.store_failure_info.assert_called_once()
+        assert (
+            "E422"
+            in _boot_controller.store_failure_info.call_args.kwargs["failure_reason"]
+        )
 
     def test_update_with_a_v1_image_on_an_ordinary_boot_controller_is_file_based(
         self, mocker: pytest_mock.MockerFixture
