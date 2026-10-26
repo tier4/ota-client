@@ -22,7 +22,7 @@ backports-zstd==1.6.0 ; python_full_version < '3.14' and platform_python_impleme
     # via aiohttp
 brotli==1.2.0 ; platform_python_implementation == 'CPython' and sys_platform != 'android' and sys_platform != 'ios'
     # via aiohttp
-brotlicffi==1.2.0.1 ; platform_python_implementation != 'CPython'
+brotlicffi==1.2.1.0 ; platform_python_implementation != 'CPython'
     # via aiohttp
 certifi==2026.10.19
     # via requests
