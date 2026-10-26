@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import hashlib
 import itertools
-import logging
 import os
 import threading
 from collections import Counter
@@ -39,6 +38,7 @@ from pytest_mock import MockerFixture
 
 from otaclient.ota_core._download_resources import (
     DownloadHelperForOTAImageV1,
+    SliceDownloadResult,
     _SlicesGroup,
     _SliceToDownload,
 )
@@ -76,6 +76,7 @@ COMPRESSED_PLAIN = _entry(5, b"compressed-plain", CompressFilter(6, "zst"))
 COMPRESSED_PLAIN_BLOB = _entry(6, b"compressed-plain-blob")
 BROKEN_SLICED = _entry(7, b"broken-sliced", SliceFilter(slices=[10, 99]))
 BROKEN_COMPRESSED = _entry(8, b"broken-compressed", CompressFilter(98, "zst"))
+REPEATING = _entry(9, b"repeating", SliceFilter(slices=[10, 11, 10]))
 RESOURCE_TABLE = _FakeResourceTable(
     PLAIN,
     SLICE_A,
@@ -87,6 +88,7 @@ RESOURCE_TABLE = _FakeResourceTable(
     COMPRESSED_PLAIN_BLOB,
     BROKEN_SLICED,
     BROKEN_COMPRESSED,
+    REPEATING,
 )
 
 
@@ -133,6 +135,15 @@ class TestSlicesToDownload:
                 ],
                 id="compressed_then_sliced",
             ),
+            pytest.param(
+                REPEATING.digest,
+                # a slice repeating in the resource is downloaded once
+                [
+                    (SLICE_A.digest, f"{SLICE_A.digest.hex()}_{REPEATING.resource_id}"),
+                    (SLICE_B.digest, f"{SLICE_B.digest.hex()}_{REPEATING.resource_id}"),
+                ],
+                id="a_slice_repeats",
+            ),
         ),
     )
     def test_slices_to_download(self, digest: bytes, expected, tmp_path: Path):
@@ -177,18 +188,27 @@ class TestSlicesGroup:
 
         group.slice_tried(Path("a"))
         group.slice_tried(Path("a"))
-        assert not group.all_tried and ready.empty()
+        assert group.tried(Path("a")) and not group.tried(Path("b"))
+        assert ready.empty()
 
         group.slice_tried(Path("b"))
-        assert group.all_tried and ready.get_nowait() == b"resource"
+        assert group.tried(Path("b")) and ready.get_nowait() == b"resource"
 
 
 class TestIterDownloadTasks:
-    def _iter(self, helper: DownloadHelperForOTAImageV1, digests, tmp_path: Path):
+    def _iter(
+        self,
+        helper: DownloadHelperForOTAImageV1,
+        digests,
+        tmp_path: Path,
+        stop: threading.Event | None = None,
+        resource_table=RESOURCE_TABLE,
+    ):
         return helper._iter_download_tasks(
             digests,
-            rst_orm_pool=RESOURCE_TABLE,  # type: ignore[arg-type]
+            rst_orm_pool=resource_table,
             download_tmp_dir=tmp_path,
+            stop=stop or threading.Event(),
         )
 
     def test_a_sliced_resource_follows_once_its_slices_have_been_tried(
@@ -215,36 +235,61 @@ class TestIterDownloadTasks:
         slices = [next(tasks), next(tasks)]
         assert next(tasks) == PLAIN.digest
 
-        _timer = threading.Timer(
-            0.2, lambda: [_s.group.slice_tried(_s.save_dst) for _s in slices]
-        )
+        slices_tried = threading.Event()
+
+        def _slices_end():
+            slices_tried.set()
+            for _s in slices:
+                _s.group.slice_tried(_s.save_dst)
+
+        _timer = threading.Timer(0.5, _slices_end)
         _timer.start()
         try:
             assert next(tasks) == SLICED.digest
+            # not before every slice of it has been tried
+            assert slices_tried.is_set()
             assert list(tasks) == []
         finally:
             _timer.join(timeout=5)
         assert not _timer.is_alive()
 
-    def test_the_wait_is_bounded_and_leaves_the_slices_to_the_resource(
+    def test_the_wait_ends_when_dispatching_stops(
         self,
         helper: DownloadHelperForOTAImageV1,
         tmp_path: Path,
         no_shuffle,
         mocker: MockerFixture,
-        caplog: pytest.LogCaptureFixture,
     ):
-        mocker.patch.object(DownloadHelperForOTAImageV1, "SLICES_WAIT_TIMEOUT", 0.1)
-        tasks = self._iter(helper, [SLICED.digest], tmp_path)
-        slice_a = next(tasks)
-        next(tasks)
+        """E.g., the pool's watchdog shut it down, dropping the queued slice tasks."""
+        mocker.patch.object(
+            DownloadHelperForOTAImageV1, "SLICES_WAIT_POLL_INTERVAL", 0.05
+        )
+        stop = threading.Event()
+        tasks = self._iter(helper, [SLICED.digest], tmp_path, stop=stop)
+        next(tasks), next(tasks)  # the slices, never run
 
-        with caplog.at_level(logging.WARNING):
-            assert list(tasks) == [SLICED.digest]
+        _timer = threading.Timer(0.2, stop.set)
+        _timer.start()
+        try:
+            assert list(tasks) == []
+        finally:
+            _timer.join(timeout=5)
 
-        assert "still wait for their slices" in caplog.text
-        # a retry of its slices is left to PrepareResourceHelper from now on
-        assert isinstance(slice_a, _SliceToDownload) and slice_a.group.all_tried
+    def test_a_failed_slices_lookup_leaves_the_resource_to_prepare_resource_helper(
+        self,
+        helper: DownloadHelperForOTAImageV1,
+        tmp_path: Path,
+        no_shuffle,
+        mocker: MockerFixture,
+    ):
+        broken_table = mocker.MagicMock()
+        broken_table.orm_select_entry.side_effect = OSError("database disk image")
+
+        tasks = self._iter(
+            helper, [SLICED.digest, PLAIN.digest], tmp_path, resource_table=broken_table
+        )
+
+        assert list(tasks) == [SLICED.digest, PLAIN.digest]
 
     def test_a_resource_whose_slices_are_all_there_is_dispatched_as_it_is(
         self, helper: DownloadHelperForOTAImageV1, tmp_path: Path, no_shuffle
@@ -297,10 +342,8 @@ class TestDownloadSliceAtThread:
         assert _kwargs["digest"] == b"slice-a".hex()
         assert _slice.save_dst.read_bytes() == b"slice"
         assert list(tmp_path.iterdir()) == [_slice.save_dst], "no tmp file left"
-        assert res == DownloadResult(
-            retry_count=1, traffic_on_wire=5, resource_slice=True
-        )
-        assert _slice.group.all_tried
+        assert res == SliceDownloadResult(retry_count=1, traffic_on_wire=5)
+        assert _slice.group.tried(_slice.save_dst)
 
     def test_a_failed_download_leaves_nothing_and_counts_the_slice_tried(
         self, helper: DownloadHelperForOTAImageV1, worker_downloader, tmp_path: Path
@@ -316,22 +359,23 @@ class TestDownloadSliceAtThread:
             self._run(helper, _slice)
 
         assert list(tmp_path.iterdir()) == []
+        assert _slice.group.tried(_slice.save_dst)
         # the other slice is still to be tried
-        assert not _slice.group.all_tried
+        assert not _slice.group.tried(tmp_path / "another-slice")
 
-    def test_a_retry_once_every_slice_was_tried_is_left_to_the_resource(
+    def test_a_retry_of_a_failed_slice_is_left_to_the_resource(
         self, helper: DownloadHelperForOTAImageV1, worker_downloader, tmp_path: Path
     ):
+        """Even while other slices of the resource are still to be tried."""
         worker_downloader.download.side_effect = ValueError("broken stream")
-        _slice = self._slice(tmp_path)
+        _slice = self._slice(tmp_path, tmp_path / "another-slice")
         with pytest.raises(ValueError):
             self._run(helper, _slice)
-        assert _slice.group.all_tried
 
         res = self._run(helper, _slice)  # what the executor's retry runs
 
         assert worker_downloader.download.call_count == 1
-        assert res == DownloadResult(resource_slice=True)
+        assert res == SliceDownloadResult()
 
 
 def test_slices_are_not_counted_as_downloaded_files(mocker: MockerFixture):
@@ -345,8 +389,8 @@ def test_slices_are_not_counted_as_downloaded_files(mocker: MockerFixture):
         iter(
             [
                 _done(DownloadResult(download_size=100, traffic_on_wire=10)),
-                _done(DownloadResult(traffic_on_wire=40, resource_slice=True)),
-                _done(DownloadResult(traffic_on_wire=40, resource_slice=True)),
+                _done(SliceDownloadResult(traffic_on_wire=40)),
+                _done(SliceDownloadResult(traffic_on_wire=40)),
                 _done(DownloadResult(download_size=200, traffic_on_wire=1)),
             ]
         ),
@@ -372,6 +416,8 @@ class _BlobStorage:
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
         self.requests: Counter[str] = Counter()
+        self.fail_first: set[str] = set()
+        """The blobs whose first request fails."""
         self._lock = threading.Lock()
 
     def add(self, data: bytes) -> bytes:
@@ -383,6 +429,8 @@ class _BlobStorage:
         _name = url.rsplit("/", 1)[-1]
         with self._lock:
             self.requests[_name] += 1
+            if _name in self.fail_first and self.requests[_name] == 1:
+                raise ValueError("broken stream")
         _data = self.blobs[_name]
         assert digest == hashlib.sha256(_data).hexdigest()
         Path(dst).write_bytes(_data)
@@ -449,6 +497,9 @@ def image(tmp_path: Path):
         },
         sliced=_sliced,
         a_slice_of_sliced=(_chunks[0], chunks[0]),
+        compressed=_compressed,
+        compressed_blob=(_blob, blob),
+        compressed_blob_slices=_blob_slices,
     )
 
 
@@ -482,14 +533,22 @@ class TestDownloadResources:
             return report_que
 
         return SimpleNamespace(
-            run=_run, resource_dir=resource_dir, download_tmp_dir=download_tmp_dir
+            run=_run,
+            helper=helper,
+            resource_dir=resource_dir,
+            download_tmp_dir=download_tmp_dir,
         )
 
     def test_every_blob_is_downloaded_once_and_every_resource_is_prepared(
-        self, image, run
+        self, image, run, mocker: MockerFixture
     ):
+        slice_tasks = mocker.spy(run.helper, "_download_slice_at_thread")
+
         report_que = run.run()
 
+        # the 3 slices of the sliced resource and the 2 of the compressed blob are
+        #   downloaded as tasks of their own, not by PrepareResourceHelper
+        assert slice_tasks.call_count == 5
         assert image.storage.requests == Counter(dict.fromkeys(image.storage.blobs, 1))
         for _digest, _data in image.resources.items():
             assert (run.resource_dir / _digest.hex()).read_bytes() == _data
@@ -512,3 +571,40 @@ class TestDownloadResources:
         assert (
             run.resource_dir / _sliced_digest.hex()
         ).read_bytes() == image.resources[_sliced_digest]
+
+    def test_a_slice_whose_download_failed_is_downloaded_by_the_resource(
+        self, image, run
+    ):
+        _slice_entry, _ = image.a_slice_of_sliced
+        _failed = _slice_entry.digest.hex()
+        image.storage.fail_first.add(_failed)
+
+        report_que = run.run()
+
+        # once by its slice task (failed), once by PrepareResourceHelper
+        assert image.storage.requests[_failed] == 2
+        assert all(
+            _count == 1
+            for _name, _count in image.storage.requests.items()
+            if _name != _failed
+        )
+        for _digest, _data in image.resources.items():
+            assert (run.resource_dir / _digest.hex()).read_bytes() == _data
+        reports = [report_que.get_nowait().payload for _ in range(report_que.qsize())]
+        assert sum(_r.processed_file_num for _r in reports) == len(image.resources)
+        assert sum(_r.errors for _r in reports) >= 1
+
+    def test_a_compressed_blob_an_interrupted_ota_joined_is_used_as_it_is(
+        self, image, run
+    ):
+        _blob_entry, _blob = image.compressed_blob
+        (run.download_tmp_dir / _blob_entry.digest.hex()).write_bytes(_blob)
+
+        run.run()
+
+        for _slice in image.compressed_blob_slices:
+            assert image.storage.requests[_slice.digest.hex()] == 0
+        _digest = image.compressed.digest
+        assert (run.resource_dir / _digest.hex()).read_bytes() == image.resources[
+            _digest
+        ]

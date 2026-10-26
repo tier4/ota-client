@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from queue import Empty, SimpleQueue
-from typing import Generator, Iterable, Union
+from typing import Generator, Iterable
 from urllib.parse import urljoin
 
 from ota_image_libs._resource_filter import CompressFilter, SliceFilter
@@ -204,9 +204,9 @@ class DownloadHelperForLegacyOTAImage(_BaseDownloadHelper):
 class _SlicesGroup:
     """The slices of one sliced resource, downloaded as tasks of their own.
 
-    Once every slice has been tried, the resource is ready to be prepared: its slices are
-        in the download dir, and PrepareResourceHelper downloads itself the ones whose
-        download failed.
+    Each slice is tried once. Once every slice has been tried, the resource is ready to
+        be prepared: its slices are in the download dir, and PrepareResourceHelper
+        downloads itself the ones whose download failed.
     """
 
     def __init__(
@@ -217,16 +217,12 @@ class _SlicesGroup:
         self._ready = ready
         self._lock = threading.Lock()
 
-    @property
-    def all_tried(self) -> bool:
+    def tried(self, save_dst: Path) -> bool:
         with self._lock:
-            return not self._not_tried
+            return save_dst not in self._not_tried
 
     def slice_tried(self, save_dst: Path) -> None:
-        """Called each time the download of a slice ends, succeeded or not.
-
-        A slice counts once: its retry ending does not stand for another slice.
-        """
+        """Called when the download of a slice ends, succeeded or not."""
         with self._lock:
             if save_dst not in self._not_tried:
                 return
@@ -235,10 +231,10 @@ class _SlicesGroup:
                 return
         self._ready.put_nowait(self.resource)
 
-    def hand_over(self) -> None:
-        """Leave the slices not tried yet to PrepareResourceHelper."""
-        with self._lock:
-            self._not_tried.clear()
+
+@dataclass
+class SliceDownloadResult(DownloadResult):
+    """The download of one slice of a resource, not a resource of its own."""
 
 
 @dataclass(frozen=True)
@@ -251,13 +247,8 @@ class _SliceToDownload:
 class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
     RESOURCE_TABLE_DB_CONN = 3
 
-    SLICES_WAIT_TIMEOUT = 60 * 60  # seconds
-    """How long the dispatcher waits for the slices still in flight at the end.
-
-    A safety net only: every slice task reports when its download ends, succeeded or
-        not, so as long as the pool runs, this waits for downloads in flight, however
-        slow the link is. It is the dispatcher that waits, not a downloading thread.
-    """
+    SLICES_WAIT_POLL_INTERVAL = 1  # seconds
+    """How often the dispatcher, waiting at the end for slices in flight, checks for stop."""
 
     @staticmethod
     def _slices_to_download(
@@ -269,9 +260,14 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             is sliced directly, or its compressed blob is. The save_dst is where
             PrepareResourceHelper._prepare_sliced_resources keeps the slices of the sliced
             entry, using one already there with the expected digest instead of downloading
-            it again. A slice, or a compressed blob already joined from its slices, that an
-            interrupted OTA left there was checked by ResumeOTADownloadHelper at the start
-            of this one.
+            it again; a compressed blob already joined from its slices is kept as
+            <download_tmp_dir>/<blob digest> by _prepare_compressed_resources. A slice, or
+            a joined blob, that an interrupted OTA left there was checked by
+            ResumeOTADownloadHelper at the start of this one.
+
+        NOTE: this follows the internals of ota-image-libs (the filters of an entry, and
+            where PrepareResourceHelper keeps the blobs it prepares a resource from); an API
+            there giving the slices to prefetch for a digest would be cleaner.
         """
         _entry = rst_orm_pool.orm_select_entry(digest=_digest)
         if _entry is not None and isinstance(_entry.filter_applied, CompressFilter):
@@ -286,15 +282,18 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         if _entry is None or not isinstance(_entry.filter_applied, SliceFilter):
             return []
 
-        _slices = []
+        _slices: dict[Path, bytes] = {}
         for _slice_rsid in _entry.filter_applied.list_resource_id():
             _slice = rst_orm_pool.orm_select_entry(resource_id=_slice_rsid)
             if _slice is None:
                 return []  # let PrepareResourceHelper report the broken image
             _save_dst = download_tmp_dir / f"{_slice.digest.hex()}_{_entry.resource_id}"
-            if not _save_dst.is_file():
-                _slices.append((_slice.digest, _save_dst))
-        return _slices
+            # NOTE: a slice repeats in a resource with repeating contents (e.g., zeros)
+            if _save_dst not in _slices and not _save_dst.is_file():
+                _slices[_save_dst] = _slice.digest
+        return [
+            (_slice_digest, _save_dst) for _save_dst, _slice_digest in _slices.items()
+        ]
 
     def _iter_download_tasks(
         self,
@@ -302,7 +301,8 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         *,
         rst_orm_pool: ResourceTableORMPool,
         download_tmp_dir: Path,
-    ) -> Generator[Union[bytes, _SliceToDownload]]:
+        stop: threading.Event,
+    ) -> Generator[bytes | _SliceToDownload]:
         """Resources in shuffled order, with the slices of a sliced resource as tasks.
 
         A sliced resource is a large file, preparing it downloads its slices one after
@@ -311,17 +311,31 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             of their own instead, spreading over all the downloading threads, and the
             resource itself, left with joining its slices, as soon as all of them have
             been tried. The ones still waiting for slices in flight once everything else
-            is dispatched are waited for here, in the dispatcher.
+            is dispatched are waited for here, in the dispatcher, until <stop> is set.
+
+        NOTE: a stalled download is the pool's watchdog's business: the pool is shut down,
+            its queued tasks dropped without being run, and the caller sets <stop>.
         """
         _ready: SimpleQueue[bytes] = SimpleQueue()
         _waiting: dict[bytes, _SlicesGroup] = {}
+        _sliced_count, _slices_count = 0, 0
         for _digest in self._iter_digests_with_shuffle(resources_to_download):
-            if _slices := self._slices_to_download(
-                _digest, rst_orm_pool, download_tmp_dir
-            ):
+            try:
+                _slices = self._slices_to_download(
+                    _digest, rst_orm_pool, download_tmp_dir
+                )
+            except Exception as e:  # leave it to PrepareResourceHelper
+                logger.warning(
+                    f"failed to look up the slices of {_digest.hex()}: {e!r}"
+                )
+                _slices = []
+
+            if _slices:
                 _group = _waiting[_digest] = _SlicesGroup(
                     _digest, (_save_dst for _, _save_dst in _slices), _ready
                 )
+                _sliced_count += 1
+                _slices_count += len(_slices)
                 for _slice_digest, _save_dst in _slices:
                     yield _SliceToDownload(_slice_digest, _save_dst, _group)
             else:
@@ -333,32 +347,33 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
                     del _waiting[_ready_digest]
                     yield _ready_digest
 
+        if _sliced_count:
+            logger.info(
+                f"dispatched {_slices_count} slices of {_sliced_count} sliced resources "
+                f"as download tasks, {len(_waiting)} of them wait for slices in flight"
+            )
         while _waiting:
             try:
-                _ready_digest = _ready.get(timeout=self.SLICES_WAIT_TIMEOUT)
+                _ready_digest = _ready.get(timeout=self.SLICES_WAIT_POLL_INTERVAL)
             except Empty:
-                logger.warning(
-                    f"{len(_waiting)} sliced resources still wait for their slices "
-                    f"after {self.SLICES_WAIT_TIMEOUT}s, dispatch them anyway"
-                )
-                for _ready_digest, _group in _waiting.items():
-                    _group.hand_over()
-                    yield _ready_digest
-                return
+                if stop.is_set():
+                    return
+                continue
             del _waiting[_ready_digest]
             yield _ready_digest
 
     def _download_slice_at_thread(
         self, _slice: _SliceToDownload, *, _base_url: str
     ) -> DownloadResult:
-        # NOTE: once every slice of the resource has been tried, the resource is being
-        #   prepared, and PrepareResourceHelper downloads a slice that failed itself.
-        if _slice.group.all_tried:
-            return DownloadResult(resource_slice=True)
+        # NOTE: a slice is tried once, a retry of a failed one does nothing: once every
+        #   slice of the resource has been tried, the resource is prepared, and
+        #   PrepareResourceHelper downloads the failed one itself.
+        if _slice.group.tried(_slice.save_dst):
+            return SliceDownloadResult()
 
         downloader = self._downloader_mapper[threading.get_native_id()]
-        # NOTE: a name of its own for each attempt, as two resources can share a sliced
-        #   blob; the prefix makes ResumeOTADownloadHelper clean up one left behind.
+        # NOTE: a name of its own for each attempt; the prefix makes
+        #   ResumeOTADownloadHelper clean up one left behind.
         _tmp_dst = _slice.save_dst.parent / tmp_fname(_slice.save_dst.name)
         try:
             _this_res = downloader.download(
@@ -370,15 +385,14 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
         finally:
             _tmp_dst.unlink(missing_ok=True)
             _slice.group.slice_tried(_slice.save_dst)
-        return DownloadResult(
+        return SliceDownloadResult(
             retry_count=_this_res.retry_count,
             traffic_on_wire=_this_res.traffic_on_wire,
-            resource_slice=True,
         )
 
     def _download_task_at_thread(
         self,
-        _task: Union[bytes, _SliceToDownload],
+        _task: bytes | _SliceToDownload,
         *,
         _rst_helper: PrepareResourceHelper,
         _base_url: str,
@@ -438,20 +452,25 @@ class DownloadHelperForOTAImageV1(_BaseDownloadHelper):
             download_tmp_dir=download_tmp_dir,
         )
 
+        _stop_dispatching = threading.Event()
         with (
             self._downloader_pool_with_retry("download_ota_resources") as _mapper,
             _rst_orm_pool,
         ):
-            for _fut in _mapper.ensure_tasks(
-                partial(
-                    self._download_task_at_thread,
-                    _rst_helper=_rst_helper,
-                    _base_url=_base_url,
-                ),
-                self._iter_download_tasks(
-                    resources_to_download,
-                    rst_orm_pool=_rst_orm_pool,
-                    download_tmp_dir=download_tmp_dir,
-                ),
-            ):
-                yield _fut
+            try:
+                for _fut in _mapper.ensure_tasks(
+                    partial(
+                        self._download_task_at_thread,
+                        _rst_helper=_rst_helper,
+                        _base_url=_base_url,
+                    ),
+                    self._iter_download_tasks(
+                        resources_to_download,
+                        rst_orm_pool=_rst_orm_pool,
+                        download_tmp_dir=download_tmp_dir,
+                        stop=_stop_dispatching,
+                    ),
+                ):
+                    yield _fut
+            finally:
+                _stop_dispatching.set()
