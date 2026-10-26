@@ -133,8 +133,13 @@ class CacheTracker:
             finish the caching.
     """
 
-    SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY = 16  # max wait: ~9s
-    SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY = 16  # max wait: ~9s
+    SUBSCRIBER_WAIT_TIMEOUT = cfg.AIOHTTP_SOCKET_READ_TIMEOUT  # seconds
+    """How long a subscriber waits for the provider to start, or for its next data chunk.
+
+    As long as the provider waits for the remote: a provider that gives up fails the tracker,
+        which ends the subscriber's wait right away, so a subscriber doesn't cut a response
+        that the provider rides through (e.g., a short link blackout).
+    """
     SUBSCRIBER_WAIT_BACKOFF_FACTOR = 0.01
     SUBSCRIBER_WAIT_BACKOFF_MAX = 1
     FNAME_PART_SEPARATOR = "_"
@@ -301,10 +306,10 @@ class CacheTracker:
             CacheProviderNotReady if timeout waiting cache provider.
         """
         tracker_events = self._tracker_events
-        _wait_count = 0
+        _wait_count, _deadline = 0, time.monotonic() + self.SUBSCRIBER_WAIT_TIMEOUT
         try:
             while not tracker_events.writer_started:
-                if _wait_count > self.SUBSCRIBER_WAIT_PROVIDER_READY_MAX_RETRY:
+                if time.monotonic() > _deadline:
                     _err_msg = "timeout waiting provider starts caching, abort"
                     burst_suppressed_logger.warning(_err_msg)
                     raise CacheProviderNotReady
@@ -341,6 +346,7 @@ class CacheTracker:
         """
         tracker_events = self._tracker_events
         wait_data_count, bytes_read = 0, 0
+        _deadline = time.monotonic() + self.SUBSCRIBER_WAIT_TIMEOUT
         try:
             with open(self.fpath, "rb") as f:
                 fd = f.fileno()
@@ -358,13 +364,12 @@ class CacheTracker:
 
                         if data := f.read(read_chunk_size):
                             wait_data_count = 0
+                            _deadline = time.monotonic() + self.SUBSCRIBER_WAIT_TIMEOUT
                             bytes_read += len(data)
                             self._acall_soon(output_que.put_nowait, data)
                         # no data chunk is read, wait with backoff for the next
                         #   data chunk written by the provider.
-                        elif (
-                            wait_data_count <= self.SUBSCRIBER_WAIT_NEXT_CHUNK_MAX_RETRY
-                        ):
+                        elif time.monotonic() <= _deadline:
                             time.sleep(
                                 get_backoff(
                                     wait_data_count,

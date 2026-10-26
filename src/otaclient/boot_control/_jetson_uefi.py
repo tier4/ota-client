@@ -58,8 +58,11 @@ from ._jetson_common import (
     detect_rootfs_bsp_version,
     get_nvbootctrl_conf_tnspec,
     get_partition_devpath,
-    preserve_ota_config_files_to_standby,
     update_standby_slot_extlinux_cfg,
+)
+from ._ota_config_files import (
+    OTAConfigFiles,
+    preserve_ota_dir_and_install_config_files,
 )
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import jetson_uefi_cfg as boot_cfg
@@ -1000,7 +1003,9 @@ class JetsonUEFIBootControl(BootControllerBase):
         logger.error(f"{fw_bsp_ver} != {_bsp_ver}")
         return False, (_bsp_ver, fw_bsp_ver)
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: OTAConfigFiles
+    ) -> None:
         """Jetson UEFI-specific post-update operations."""
         # ------ update extlinux.conf ------ #
         with ota_errors.raise_as_ota_error(
@@ -1020,14 +1025,11 @@ class JetsonUEFIBootControl(BootControllerBase):
                 standby_slot_partuuid=self._uefi_control.standby_rootfs_dev_partuuid,
             )
 
-        # ------ preserve /boot/ota folder to standby rootfs ------ #
-        preserve_ota_config_files_to_standby(
-            active_slot_ota_dirpath=self._mp_control.active_slot_mount_point
-            / "boot"
-            / "ota",
-            standby_slot_ota_dirpath=self._mp_control.standby_slot_mount_point
-            / "boot"
-            / "ota",
+        # ------ preserve /boot/ota folder to standby rootfs, and install the OTA config files ------ #
+        preserve_ota_dir_and_install_config_files(
+            active_slot_mp=self._mp_control.active_slot_mount_point,
+            standby_slot_mp=self._mp_control.standby_slot_mount_point,
+            ota_config_files=ota_config_files,
         )
 
         # ------ firmware update & switch boot to standby ------ #

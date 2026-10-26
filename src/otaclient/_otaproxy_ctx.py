@@ -112,6 +112,10 @@ def otaproxy_process(
         #                 For now, hardcoded to disable OTA cache on the child ECU.
         #                 To be noticed that, otaproxy OTA cache on main ECU is still needed for streaming
         #                   the same requests from multiple child ECUs to reduce duplicate downloads.
+        # NOTE(20261023): otaclient now installs proxy_info.yaml from the OTA image at OTA, unless it is
+        #                   listed in the persist files. Jetson/RPi ECUs updated by older otaclient, and
+        #                   ECUs listing it in the persist files, still keep their old proxy_info.yaml,
+        #                   so keep it hardcoded until they carry the intended one.
         enable_cache=proxy_info.enable_local_ota_proxy_cache
         and proxy_info.upper_ota_proxy is None,
         enable_https=proxy_info.gateway_otaproxy,

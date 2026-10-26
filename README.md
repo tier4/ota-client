@@ -40,6 +40,13 @@ Sample configuration files are available in the [`samples/`](samples/) directory
 - `proxy_info.yaml` - Proxy settings
 - `otaclient.service` - systemd service file
 
+`ecu_info.yaml` and `proxy_info.yaml` are installed at `/boot/ota/`. At each OTA, the copies in the OTA image's `/boot/ota/` replace them:
+
+- A file listed in the OTA image's persist files, by itself or by a parent folder, keeps its current content.
+- A file not shipped in the OTA image, or not valid, keeps its current content.
+- When the OTA image's `ecu_info.yaml` has a different `ecu_id`, neither file is replaced, as the OTA image is not for this ECU.
+- Changes made on the ECU are overwritten, so change the files in the OTA image instead.
+
 ## Protobuf Package
 
 OTAClient uses protobuf for its API interface. To use OTAClient API in your Python project:

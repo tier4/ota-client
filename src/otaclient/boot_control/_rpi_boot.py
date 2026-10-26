@@ -34,6 +34,10 @@ from otaclient_common._typing import StrOrPath
 from otaclient_common.linux import subprocess_run_wrapper
 
 from ._base import BootControllerBase
+from ._ota_config_files import (
+    OTAConfigFiles,
+    preserve_ota_dir_and_install_config_files,
+)
 from ._ota_status_control import OTAStatusFilesControl
 from .configs import rpi_boot_cfg as boot_cfg
 
@@ -491,9 +495,15 @@ class RPIBootController(BootControllerBase):
             fslabel=self._rpiboot_control.standby_slot,
         )
 
-    def _post_update_platform_specific(self, *, update_version: str) -> None:
+    def _post_update_platform_specific(
+        self, *, update_version: str, ota_config_files: OTAConfigFiles
+    ) -> None:
         """RPI-specific post-update operations."""
-        self._mp_control.preserve_ota_folder_to_standby()
+        preserve_ota_dir_and_install_config_files(
+            active_slot_mp=self._mp_control.active_slot_mount_point,
+            standby_slot_mp=self._mp_control.standby_slot_mount_point,
+            ota_config_files=ota_config_files,
+        )
         with ota_errors.raise_as_ota_error(
             ota_errors.BootControlBootConfigUpdateFailed,
             "failed to update fstab for standby slot",

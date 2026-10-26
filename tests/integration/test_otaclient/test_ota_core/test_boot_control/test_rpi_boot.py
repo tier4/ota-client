@@ -35,6 +35,7 @@ from pytest_mock import MockerFixture
 
 from otaclient._types import OTAStatus
 from otaclient.boot_control import _rpi_boot
+from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.boot_control._rpi_boot import (
     CMDLINE_TXT,
     CONFIG_TXT,
@@ -121,7 +122,7 @@ def _setup_slot_a_active(
     (ota_status_dir / "slot_in_use").write_text(slot_in_use)
     (ota_status_dir / "version").write_text(version)
 
-    # /boot/ota directory exists on active slot for preserve_ota_folder_to_standby
+    # /boot/ota directory exists on active slot for preserve_ota_dir_and_install_config_files
     (slot_a_mp / "boot" / "ota").mkdir(parents=True, exist_ok=True)
 
     # /boot/ kernel and initrd symlinks targeted by post-update flash-kernel mock
@@ -155,7 +156,7 @@ def _setup_slot_b_post_switch(
     # ensure /etc/ exists on slot_b so write_str_to_file_atomic for fstab works
     (slot_b_mp / "etc").mkdir(parents=True, exist_ok=True)
 
-    # /boot/ota dir on slot_b for preserve_ota_folder_to_standby destination
+    # /boot/ota dir on slot_b for preserve_ota_dir_and_install_config_files destination
     (slot_b_mp / "boot" / "ota").mkdir(parents=True, exist_ok=True)
     return ota_status_dir
 
@@ -398,7 +399,7 @@ def _build_controller_with_mocked_mounts(
 
     Mirrors the grub integration test pattern: only methods that perform real
     syscalls (prepare_standby_dev / mount_standby / mount_active / umount_all)
-    are mocked; in-process methods like preserve_ota_folder_to_standby keep
+    are mocked; in-process steps like preserve_ota_dir_and_install_config_files keep
     running on the tmp_path filesystem.
     """
     controller = RPIBootController()
@@ -632,12 +633,14 @@ class TestRPIBootControllerPostUpdate:
         """
         _setup_slot_a_active(slot_a_mp)
 
-        # standby rootfs prepared with /etc and /boot/ota
+        # standby rootfs prepared with /etc and the OTA image's /boot/ota
         (slot_b_mp / "etc").mkdir(parents=True, exist_ok=True)
         (slot_b_mp / "boot" / "ota").mkdir(parents=True, exist_ok=True)
+        (slot_b_mp / "boot" / "ota" / "ecu_info.yaml").write_text("image ecu")
+        (slot_b_mp / "boot" / "ota" / "image_only_file").write_text("image")
 
-        # simulate per-slot ota config files copied during the OTA into /boot/ota
-        # on the active slot — preserve_ota_folder_to_standby will copy them over
+        # the active slot's /boot/ota, preserve_ota_dir_and_install_config_files
+        # makes the standby's one identical to it
         (slot_a_mp / "boot" / "ota" / "proxy_info.yaml").write_text("proxy")
         (slot_a_mp / "boot" / "ota" / "ecu_info.yaml").write_text("ecu")
 
@@ -661,16 +664,21 @@ class TestRPIBootControllerPostUpdate:
             slot_a_mp, slot_b_mp, mocker
         )
 
-        controller.post_update(update_version=UPDATE_VERSION)
+        controller.post_update(
+            update_version=UPDATE_VERSION,
+            ota_config_files=OTAConfigFiles(proxy_info="new proxy"),
+        )
 
         # --- OTA status files on standby slot ---
         assert (slot_b_ota_status_dir / "status").read_text() == OTAStatus.UPDATING
         assert (slot_b_ota_status_dir / "slot_in_use").read_text() == SLOT_B
         assert (slot_b_ota_status_dir / "version").read_text() == UPDATE_VERSION
 
-        # --- preserve_ota_folder_to_standby copied /boot/ota across ---
-        assert (slot_b_mp / "boot" / "ota" / "proxy_info.yaml").read_text() == "proxy"
-        assert (slot_b_mp / "boot" / "ota" / "ecu_info.yaml").read_text() == "ecu"
+        # --- /boot/ota preserved from the active slot, with the OTA config files
+        #     loaded from the OTA image installed over it ---
+        assert {
+            _f.name: _f.read_text() for _f in (slot_b_mp / "boot" / "ota").iterdir()
+        } == {"ecu_info.yaml": "ecu", "proxy_info.yaml": "new proxy"}
 
         # --- standby fstab written with the standby slot's fslabel ---
         fstab_content = (slot_b_mp / "etc" / "fstab").read_text()

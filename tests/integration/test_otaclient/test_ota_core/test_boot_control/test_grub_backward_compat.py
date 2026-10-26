@@ -391,11 +391,6 @@ class TestPostUpdateLegacyWipe:
         self._setup_standby_for_post_update(
             mnt_dir, rootfs_dir, kernel_ver=GRUB_KERNEL_VERSION
         )
-        ota_dir = mnt_dir / "standby" / "boot" / "ota"
-        ota_dir.mkdir(parents=True, exist_ok=True)
-        (ota_dir / "proxy_info.yaml").write_text("new-proxy-config")
-        (ota_dir / "ecu_info.yaml").write_text("new-ecu-config")
-
         controller = GrubBootController()
         controller._mp_control.prepare_standby_dev = mocker.MagicMock()
         controller._mp_control.mount_standby = mocker.MagicMock()
@@ -539,11 +534,6 @@ class TestGroupABootstrapInputs:
         active_mp = mnt_dir / "active"
         (active_mp / "etc").mkdir(parents=True, exist_ok=True)
         (active_mp / "etc" / "fstab").write_text(GRUB_SAMPLE_FSTAB)
-        ota_dir = standby_mp / "boot" / "ota"
-        ota_dir.mkdir(parents=True, exist_ok=True)
-        (ota_dir / "proxy_info.yaml").write_text("new-proxy-config")
-        (ota_dir / "ecu_info.yaml").write_text("new-ecu-config")
-
         controller = GrubBootController()
         controller._mp_control.prepare_standby_dev = mocker.MagicMock()
         controller._mp_control.mount_standby = mocker.MagicMock()
@@ -614,11 +604,6 @@ class TestMigrateThenOTAFullCycle:
         active_mp = mnt_dir / "active"
         (active_mp / "etc").mkdir(parents=True, exist_ok=True)
         (active_mp / "etc" / "fstab").write_text(GRUB_SAMPLE_FSTAB)
-        ota_dir = standby_mp / "boot" / "ota"
-        ota_dir.mkdir(parents=True, exist_ok=True)
-        (ota_dir / "proxy_info.yaml").write_text("new-proxy-config")
-        (ota_dir / "ecu_info.yaml").write_text("new-ecu-config")
-
         controller._mp_control.prepare_standby_dev = mocker.MagicMock()
         controller._mp_control.mount_standby = mocker.MagicMock()
         controller._mp_control.mount_active = mocker.MagicMock()
