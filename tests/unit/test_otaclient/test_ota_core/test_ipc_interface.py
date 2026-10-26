@@ -15,7 +15,8 @@
 
 from __future__ import annotations
 
-from queue import Queue
+import time
+from queue import Empty, Queue
 
 import pytest
 import pytest_mock
@@ -26,13 +27,23 @@ from otaclient._status_monitor import (
     OTAStatusChangeReport,
     StatusReport,
 )
-from otaclient._types import FailureType, OTAStatus, UpdateRequestV2
+from otaclient._types import (
+    ClientUpdateRequestV2,
+    FailureType,
+    IPCResEnum,
+    OTAStatus,
+    UpdateRequestV2,
+)
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import OTAClient, OTAClientUpdater, OTAUpdaterForLegacyOTAImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
 OTA_CORE_COMMON_MODULE = ota_core._common.__name__
+
+
+class _StopMainLoop(Exception):
+    """Raised from a mocked request queue to leave OTAClient.main()."""
 
 
 class TestOTAClient:
@@ -178,6 +189,133 @@ class TestOTAClient:
                 failure_reason="E504: stalled",
             )
         ]
+
+    def _make_ota_client_booted_with(
+        self,
+        booted_ota_status: OTAStatus,
+        status_report_queue: Queue[StatusReport],
+        mocker: pytest_mock.MockerFixture,
+    ) -> OTAClient:
+        _boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
+        _boot_controller.load_version.return_value = self.CURRENT_FIRMWARE_VERSION
+        _boot_controller.load_version_detail.return_value = None
+        _boot_controller.get_booted_ota_status.return_value = booted_ota_status
+        _boot_controller.get_booted_failure_info.return_value = None
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.get_boot_controller",
+            return_value=lambda: _boot_controller,
+        )
+        return OTAClient(
+            ecu_status_flags=mocker.MagicMock(),
+            status_report_queue=status_report_queue,
+            client_update_control_flags=mocker.MagicMock(),
+            shm_metrics_reader=mocker.MagicMock(),
+        )
+
+    def test_aborted_status_reported_briefly_on_startup(
+        self,
+        ota_status_collector: tuple[OTAClientStatusCollector, Queue[StatusReport]],
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """ABORTED loaded at startup is reported for ABORTED_STATUS_REPORT_DURATION,
+        then INITIALIZED is reported so that a main ECU running otaclient < v3.14.0
+        can parse this ECU's status again."""
+        _, status_report_queue = ota_status_collector
+
+        # a startup with any other status does not open the ABORTED report window
+        _normal = self._make_ota_client_booted_with(
+            OTAStatus.SUCCESS, status_report_queue, mocker
+        )
+        assert _normal.live_ota_status == OTAStatus.SUCCESS
+        assert _normal._aborted_status_report_deadline is None
+
+        _put_spy = mocker.spy(status_report_queue, "put_nowait")
+        ota_client = self._make_ota_client_booted_with(
+            OTAStatus.ABORTED, status_report_queue, mocker
+        )
+        assert ota_client.live_ota_status == OTAStatus.ABORTED
+        _deadline = ota_client._aborted_status_report_deadline
+        assert _deadline is not None
+
+        # within the report window ABORTED stays
+        ota_client._expire_aborted_status_report(_deadline - 1)
+        assert ota_client.live_ota_status == OTAStatus.ABORTED
+        assert ota_client._aborted_status_report_deadline == _deadline
+
+        # after the report window INITIALIZED is reported
+        ota_client._expire_aborted_status_report(_deadline)
+        assert ota_client.live_ota_status == OTAStatus.INITIALIZED
+        assert ota_client._aborted_status_report_deadline is None
+
+        # an expired window never overwrites a live status other than ABORTED
+        ota_client._aborted_status_report_deadline = _deadline
+        ota_client._live_ota_status = OTAStatus.UPDATING
+        ota_client._expire_aborted_status_report(_deadline)
+        assert ota_client.live_ota_status == OTAStatus.UPDATING
+        assert ota_client._aborted_status_report_deadline is None
+
+        _status_change_reports = [
+            _call.args[0].payload
+            for _call in _put_spy.call_args_list
+            if isinstance(_call.args[0].payload, OTAStatusChangeReport)
+        ]
+        assert _status_change_reports == [
+            OTAStatusChangeReport(new_ota_status=OTAStatus.ABORTED),
+            OTAStatusChangeReport(new_ota_status=OTAStatus.INITIALIZED),
+        ]
+
+    def test_main_loop_expires_aborted_status_report(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        """The request dispatching loop replaces ABORTED with INITIALIZED once the
+        report window has passed, also when no request arrives."""
+        self.ota_client._live_ota_status = OTAStatus.ABORTED
+        self.ota_client._aborted_status_report_deadline = time.monotonic() - 1
+        req_queue = mocker.MagicMock()
+        req_queue.get.side_effect = [Empty(), _StopMainLoop()]
+
+        with pytest.raises(_StopMainLoop):
+            self.ota_client.main(req_queue=req_queue, resp_queue=mocker.MagicMock())
+
+        assert self.ota_client.live_ota_status == OTAStatus.INITIALIZED
+        assert self.ota_client._aborted_status_report_deadline is None
+
+    @pytest.mark.parametrize(
+        "request_cls, handler_name",
+        [
+            (UpdateRequestV2, "update"),
+            (ClientUpdateRequestV2, "client_update"),
+        ],
+    )
+    def test_main_loop_closes_aborted_status_report_window_on_request(
+        self,
+        request_cls: type,
+        handler_name: str,
+        mocker: pytest_mock.MockerFixture,
+    ):
+        """Accepting an update or a client update closes the ABORTED report window,
+        so the loop never overwrites the status of the OTA that follows."""
+        mocker.patch.object(self.ota_client, handler_name)
+        self.ota_client._live_ota_status = OTAStatus.ABORTED
+        self.ota_client._aborted_status_report_deadline = time.monotonic() + 300
+        req_queue = mocker.MagicMock()
+        req_queue.get.side_effect = [
+            request_cls(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id=f"test_window_closed_on_{handler_name}",
+            ),
+            _StopMainLoop(),
+        ]
+        resp_queue = mocker.MagicMock()
+
+        with pytest.raises(_StopMainLoop):
+            self.ota_client.main(req_queue=req_queue, resp_queue=resp_queue)
+
+        assert resp_queue.put_nowait.call_args.args[0].res == IPCResEnum.ACCEPT
+        assert self.ota_client._aborted_status_report_deadline is None
 
     def test_update_upper_otaproxy_unreachable(self, mocker: pytest_mock.MockerFixture):
         mocker.patch.object(type(self.ota_client._metrics), "publish")

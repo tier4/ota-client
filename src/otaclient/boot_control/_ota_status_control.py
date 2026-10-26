@@ -112,6 +112,21 @@ class OTAStatusFilesControl:
 
         logger.info(f"status loaded from file: {_loaded_ota_status.name}")
 
+        # NOTE(20261026): ABORTED is only known by otaclient >= v3.14.0. A main ECU
+        #                 running an older otaclient cannot parse it, drops this ECU
+        #                 from its status API response, and the upper layer then
+        #                 refuses any OTA as this ECU is "not responding".
+        #                 The upper layer only needs to observe ABORTED once to finish
+        #                 the abort, so ABORTED is loaded as the booted status for this
+        #                 startup only (ota_core further limits how long it is reported,
+        #                 see ABORTED_STATUS_REPORT_DURATION in ota_core/_main.py), and
+        #                 INITIALIZED, which every otaclient version understands, is
+        #                 persisted for the following startups.
+        if _loaded_ota_status == OTAStatus.ABORTED:
+            self._ota_status = OTAStatus.ABORTED
+            self._store_current_status(OTAStatus.INITIALIZED)
+            return
+
         # status except UPDATING and ROLLBACKING(like SUCCESS/FAILURE/ROLLBACK_FAILURE)
         # are remained as it
         if _loaded_ota_status not in [OTAStatus.UPDATING, OTAStatus.ROLLBACKING]:

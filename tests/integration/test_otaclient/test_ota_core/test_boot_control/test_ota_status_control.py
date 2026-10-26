@@ -304,6 +304,25 @@ class TestOTAStatusFilesControl:
         # The status file should be set to ABORTED
         assert read_str_from_file(self.slot_a_status_file) == OTAStatus.ABORTED
 
+    def test_aborted_status_reported_once_then_initialized(self):
+        """ABORTED is reported at the first startup after the abort only. INITIALIZED
+        is persisted so that the following startups, and otaclient < v3.14.0 which
+        does not know ABORTED, read a status they understand."""
+        # ------ setup ------ #
+        write_str_to_file_atomic(self.slot_a_slot_in_use_file, self.slot_a)
+        self._make_status_control().on_abort()
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.ABORTED
+
+        # ------ execution & assertion ------ #
+        # first startup after the abort
+        restarted = self._make_status_control()
+        assert restarted.booted_ota_status == OTAStatus.ABORTED
+        assert read_str_from_file(self.slot_a_status_file) == OTAStatus.INITIALIZED
+
+        # following startups
+        restarted_again = self._make_status_control()
+        assert restarted_again.booted_ota_status == OTAStatus.INITIALIZED
+
     def test_on_failure(self):
         """Test that on_failure writes FAILURE status to current and standby slots."""
         # ------ setup ------ #
