@@ -15,12 +15,19 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+from ota_image_libs.v1.resource_table.utils import ResourceDownloadInfo
 
 from otaclient.ota_core._download_resources import (
+    PARTIAL_SUFFIX,
+    RESUMABLE_BLOB_MIN_SIZE,
+    DownloadHelperForOTAImageV1,
     _BaseDownloadHelper,
+    _PartialDownloads,
     download_resumable,
 )
 from otaclient_common.download_info import DownloadInfo
@@ -29,6 +36,8 @@ from otaclient_common.downloader import DownloadResult, HashVerificationError
 BASE_URL = "http://ota.example/data/"
 DIGEST = "ab" * 32
 SIZE = 1000
+LARGE = RESUMABLE_BLOB_MIN_SIZE
+SMALL = RESUMABLE_BLOB_MIN_SIZE - 1
 
 
 class FakeDownloader:
@@ -159,3 +168,106 @@ class TestDownloadOne:
 
         (_call,) = _downloader.calls
         assert _call["resume_from"] == 0 and _call["dst"] == _dst
+
+
+#
+# ------ OTA image v1: which blobs go through a .part ------ #
+#
+
+
+class TestPartialDownloads:
+    def test_a_large_blob_goes_through_a_part_named_by_its_digest(self, tmp_path: Path):
+        _digest = b"\x0a" * 32
+        with _PartialDownloads(tmp_path).use(_digest, LARGE) as _part:
+            assert _part == tmp_path / f"{_digest.hex()}{PARTIAL_SUFFIX}"
+
+    def test_a_small_blob_is_downloaded_whole(self, tmp_path: Path):
+        with _PartialDownloads(tmp_path).use(b"\x0a" * 32, SMALL) as _part:
+            assert _part is None
+
+    def test_a_part_is_written_by_one_thread_at_a_time(self, tmp_path: Path):
+        """A slice two sliced resources share can be needed by both at once."""
+        _partials, _digest = _PartialDownloads(tmp_path), b"\x0a" * 32
+        with _partials.use(_digest, LARGE) as _first:
+            with _partials.use(_digest, LARGE) as _second:
+                assert _first is not None and _second is None
+        with _partials.use(_digest, LARGE) as _again:
+            assert _again == _first, "it is free again once the first is done"
+
+
+def info(tmp_path: Path, size: int, *, digest: bytes = b"\x0a" * 32, **kwargs):
+    return ResourceDownloadInfo(
+        digest=digest, size=size, save_dst=tmp_path / "save_dst", **kwargs
+    )
+
+
+class TestWhichBlobsAreResumed:
+    @pytest.fixture
+    def helper_and_downloader(self):
+        _helper = DownloadHelperForOTAImageV1(
+            downloader_pool=MagicMock(instance_num=1),
+            max_concurrent=1,
+            download_inactive_timeout=60,
+        )
+        _downloader = FakeDownloader()
+        _helper._downloader_mapper[threading.get_native_id()] = _downloader  # type: ignore[assignment]
+        return _helper, _downloader
+
+    def _download(self, helper, tmp_path: Path, _info: ResourceDownloadInfo):
+        _rst_helper = MagicMock()
+        _rst_helper.prepare_resource_at_thread.return_value = (
+            MagicMock(size=_info.size),
+            iter([_info]),
+        )
+        return helper._download_single_resource_at_thread(
+            b"\x0b" * 32,
+            _rst_helper=_rst_helper,
+            _base_url=BASE_URL,
+            _partials=_PartialDownloads(tmp_path),
+        )
+
+    def test_a_large_uncompressed_blob_is_resumable(
+        self, tmp_path: Path, helper_and_downloader
+    ):
+        _helper, _downloader = helper_and_downloader
+        _info = info(tmp_path, LARGE)
+        _part = tmp_path / f"{_info.digest.hex()}{PARTIAL_SUFFIX}"
+        _part.write_bytes(b"x" * 10)
+
+        self._download(_helper, tmp_path, _info)
+
+        (_call,) = _downloader.calls
+        assert _call["dst"] == _part and _call["resume_from"] == 10
+        assert _info.save_dst.stat().st_size == LARGE and not _part.exists()
+
+    def test_a_small_blob_is_downloaded_to_where_it_goes(
+        self, tmp_path: Path, helper_and_downloader
+    ):
+        _helper, _downloader = helper_and_downloader
+        _info = info(tmp_path, SMALL)
+
+        self._download(_helper, tmp_path, _info)
+
+        (_call,) = _downloader.calls
+        assert _call["dst"] == _info.save_dst and _call["resume_from"] == 0
+
+    def test_a_compressed_blob_is_decompressed_as_it_arrives(
+        self, tmp_path: Path, helper_and_downloader
+    ):
+        """There is no offset in a decompressed stream to continue from, and its cache
+        key at an otaproxy stays the one it has always been."""
+        _helper, _downloader = helper_and_downloader
+        _info = info(
+            tmp_path,
+            LARGE,
+            compression_alg="zstd",
+            compressed_origin_digest=b"\x0c" * 32,
+            compressed_origin_size=LARGE * 2,
+        )
+
+        self._download(_helper, tmp_path, _info)
+
+        (_call,) = _downloader.calls
+        assert _call["dst"] == _info.save_dst and _call["resume_from"] == 0
+        assert _call["compression_alg"] == "zstd"
+        assert _call["digest"] == (b"\x0c" * 32).hex()

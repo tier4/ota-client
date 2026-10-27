@@ -37,8 +37,11 @@ from ota_image_libs.v1.resource_table.schema import ResourceTableManifest
 from pytest_mock import MockerFixture
 
 from otaclient.ota_core._download_resources import (
+    PARTIAL_SUFFIX,
+    RESUMABLE_BLOB_MIN_SIZE,
     DownloadHelperForOTAImageV1,
     SliceDownloadResult,
+    _PartialDownloads,
     _SlicesGroup,
     _SliceToDownload,
 )
@@ -152,7 +155,7 @@ class TestSlicesToDownload:
             RESOURCE_TABLE,  # type: ignore[arg-type]
             tmp_path,
         )
-        assert res == [(_d, tmp_path / _name) for _d, _name in expected]
+        assert res == [(_d, 1, tmp_path / _name) for _d, _name in expected]
 
     def test_a_slice_an_interrupted_ota_left_is_not_downloaded_again(
         self, tmp_path: Path
@@ -166,7 +169,11 @@ class TestSlicesToDownload:
         )
 
         assert res == [
-            (SLICE_B.digest, tmp_path / f"{SLICE_B.digest.hex()}_{SLICED.resource_id}")
+            (
+                SLICE_B.digest,
+                1,
+                tmp_path / f"{SLICE_B.digest.hex()}_{SLICED.resource_id}",
+            )
         ]
 
     def test_a_compressed_blob_already_joined_needs_no_slice(self, tmp_path: Path):
@@ -308,10 +315,10 @@ class TestDownloadSliceAtThread:
         return downloader
 
     @staticmethod
-    def _slice(tmp_path: Path, *other_slices: Path) -> _SliceToDownload:
+    def _slice(tmp_path: Path, *other_slices: Path, size: int = 1) -> _SliceToDownload:
         save_dst = tmp_path / f"{b'slice-a'.hex()}_{SLICED.resource_id}"
         group = _SlicesGroup(SLICED.digest, [save_dst, *other_slices], SimpleQueue())
-        return _SliceToDownload(b"slice-a", save_dst, group)
+        return _SliceToDownload(b"slice-a", size, save_dst, group)
 
     @staticmethod
     def _run(helper: DownloadHelperForOTAImageV1, _slice: _SliceToDownload):
@@ -319,6 +326,7 @@ class TestDownloadSliceAtThread:
             _slice,
             _rst_helper=None,  # type: ignore[arg-type]
             _base_url=BASE_URL,
+            _partials=_PartialDownloads(_slice.save_dst.parent),
         )
 
     def test_a_slice_lands_through_a_tmp_file_where_prepare_resource_helper_looks(
@@ -377,6 +385,49 @@ class TestDownloadSliceAtThread:
         assert worker_downloader.download.call_count == 1
         assert res == SliceDownloadResult()
 
+    def test_a_large_slice_goes_through_a_part_the_resource_can_continue(
+        self, helper: DownloadHelperForOTAImageV1, worker_downloader, tmp_path: Path
+    ):
+        """What a dropped link leaves is picked up by the resource's own download of
+        the slice (PrepareResourceHelper), not downloaded again from the start."""
+        _slice = self._slice(tmp_path, size=RESUMABLE_BLOB_MIN_SIZE)
+        _part = tmp_path / f"{b'slice-a'.hex()}{PARTIAL_SUFFIX}"
+
+        def _download(*, dst: Path, resume_from: int, **_) -> DownloadResult:
+            assert dst == _part and resume_from == 0
+            dst.write_bytes(b"half a slice")
+            raise ValueError("broken stream")
+
+        worker_downloader.download.side_effect = _download
+
+        with pytest.raises(ValueError, match="broken stream"):
+            self._run(helper, _slice)
+
+        assert list(tmp_path.iterdir()) == [_part], "left for the resource to continue"
+        assert _slice.group.tried(_slice.save_dst)
+
+    def test_a_large_slice_lands_where_prepare_resource_helper_looks(
+        self, helper: DownloadHelperForOTAImageV1, worker_downloader, tmp_path: Path
+    ):
+        _slice = self._slice(tmp_path, size=RESUMABLE_BLOB_MIN_SIZE)
+        _part = tmp_path / f"{b'slice-a'.hex()}{PARTIAL_SUFFIX}"
+        _part.write_bytes(b"half ")
+
+        def _download(*, dst: Path, resume_from: int, **_) -> DownloadResult:
+            assert dst == _part and resume_from == 5
+            with open(dst, "r+b") as _f:
+                _f.seek(resume_from)
+                _f.write(b"a slice")
+            return DownloadResult(traffic_on_wire=7)
+
+        worker_downloader.download.side_effect = _download
+
+        res = self._run(helper, _slice)
+
+        assert _slice.save_dst.read_bytes() == b"half a slice"
+        assert list(tmp_path.iterdir()) == [_slice.save_dst], "no part or tmp left"
+        assert res == SliceDownloadResult(traffic_on_wire=7)
+
 
 def test_slices_are_not_counted_as_downloaded_files(mocker: MockerFixture):
     def _done(res: DownloadResult) -> Future:
@@ -411,11 +462,17 @@ def test_slices_are_not_counted_as_downloaded_files(mocker: MockerFixture):
 
 
 class _BlobStorage:
-    """The blobs of an OTA image, downloaded by digest; counts the requests."""
+    """The blobs of an OTA image, downloaded by digest; counts the requests.
+
+    A ranged request (`resume_from`) is honoured as a server supporting it does: the
+    blob goes on from there. The first request of a blob in `fail_first` is cut after
+    half of it arrived, as a dropped link does.
+    """
 
     def __init__(self) -> None:
         self.blobs: dict[str, bytes] = {}
         self.requests: Counter[str] = Counter()
+        self.resumed_from: dict[str, list[int]] = {}
         self.fail_first: set[str] = set()
         """The blobs whose first request fails."""
         self._lock = threading.Lock()
@@ -425,16 +482,23 @@ class _BlobStorage:
         self.blobs[_digest.hex()] = data
         return _digest
 
-    def download(self, url, dst, *, digest=None, **_) -> DownloadResult:
+    def download(self, url, dst, *, digest=None, resume_from=0, **_) -> DownloadResult:
         _name = url.rsplit("/", 1)[-1]
-        with self._lock:
-            self.requests[_name] += 1
-            if _name in self.fail_first and self.requests[_name] == 1:
-                raise ValueError("broken stream")
         _data = self.blobs[_name]
         assert digest == hashlib.sha256(_data).hexdigest()
-        Path(dst).write_bytes(_data)
-        return DownloadResult(download_size=len(_data), traffic_on_wire=len(_data))
+        with self._lock:
+            self.requests[_name] += 1
+            self.resumed_from.setdefault(_name, []).append(resume_from)
+            _cut = _name in self.fail_first and self.requests[_name] == 1
+        _rest = _data[resume_from:]
+        if _cut:
+            _rest = _rest[: len(_rest) // 2]
+        with open(dst, "r+b" if resume_from else "wb") as _f:
+            _f.seek(resume_from)
+            _f.write(_rest)
+        if _cut:
+            raise ValueError("broken stream")
+        return DownloadResult(download_size=len(_rest), traffic_on_wire=len(_rest))
 
 
 @pytest.fixture
@@ -455,13 +519,27 @@ def image(tmp_path: Path):
     plain = os.urandom(100)
     _plain = _add(storage.add(plain), len(plain))
 
-    chunks = [os.urandom(64) for _ in range(3)]
+    # large enough to be continued where a dropped link left it
+    large = os.urandom(RESUMABLE_BLOB_MIN_SIZE + 1)
+    _large = _add(storage.add(large), len(large))
+
+    chunks = [os.urandom(RESUMABLE_BLOB_MIN_SIZE) for _ in range(3)]
     _chunks = [_add(storage.add(_c), len(_c)) for _c in chunks]
     sliced = b"".join(chunks)
     _sliced = _add(
         hashlib.sha256(sliced).digest(),
         len(sliced),
         SliceFilter(slices=[_c.resource_id for _c in _chunks]),
+    )
+    # a second sliced resource that shares its first slice with the one above: the
+    #   slice is needed twice, by two tasks that may run at the same time
+    own_chunk = os.urandom(RESUMABLE_BLOB_MIN_SIZE)
+    _own_chunk = _add(storage.add(own_chunk), len(own_chunk))
+    sharing = chunks[0] + own_chunk
+    _sharing = _add(
+        hashlib.sha256(sharing).digest(),
+        len(sharing),
+        SliceFilter(slices=[_chunks[0].resource_id, _own_chunk.resource_id]),
     )
 
     origin = b"a compressible line\n" * 200
@@ -492,11 +570,17 @@ def image(tmp_path: Path):
         db_helper=db_helper,
         resources={
             _plain.digest: plain,
+            _large.digest: large,
             _sliced.digest: sliced,
+            _sharing.digest: sharing,
             _compressed.digest: origin,
         },
+        large=_large,
+        sharing=_sharing,
+        shared_slice=(_chunks[0], chunks[0]),
         sliced=_sliced,
-        a_slice_of_sliced=(_chunks[0], chunks[0]),
+        # a slice of the sliced resource that no other resource shares
+        a_slice_of_sliced=(_chunks[1], chunks[1]),
         compressed=_compressed,
         compressed_blob=(_blob, blob),
         compressed_blob_slices=_blob_slices,
@@ -546,10 +630,17 @@ class TestDownloadResources:
 
         report_que = run.run()
 
-        # the 3 slices of the sliced resource and the 2 of the compressed blob are
-        #   downloaded as tasks of their own, not by PrepareResourceHelper
-        assert slice_tasks.call_count == 5
-        assert image.storage.requests == Counter(dict.fromkeys(image.storage.blobs, 1))
+        # the 3 slices of the sliced resource, the 2 of the resource sharing one of
+        #   them and the 2 of the compressed blob are downloaded as tasks of their
+        #   own, not by PrepareResourceHelper
+        assert slice_tasks.call_count == 7
+        _shared, _ = image.shared_slice
+        _expected = Counter(dict.fromkeys(image.storage.blobs, 1))
+        # the shared slice is downloaded once, or twice when its two tasks overlap
+        #   (the second one cannot continue the first one's .part and takes it whole)
+        _expected[_shared.digest.hex()] = image.storage.requests[_shared.digest.hex()]
+        assert image.storage.requests[_shared.digest.hex()] in (1, 2)
+        assert image.storage.requests == _expected
         for _digest, _data in image.resources.items():
             assert (run.resource_dir / _digest.hex()).read_bytes() == _data
         assert list(run.download_tmp_dir.iterdir()) == []
@@ -581,18 +672,50 @@ class TestDownloadResources:
 
         report_que = run.run()
 
-        # once by its slice task (failed), once by PrepareResourceHelper
+        # once by its slice task (cut short), once by PrepareResourceHelper, which
+        #   continued what the slice task left
         assert image.storage.requests[_failed] == 2
+        assert image.storage.resumed_from[_failed] == [0, RESUMABLE_BLOB_MIN_SIZE // 2]
+        _shared, _ = image.shared_slice  # once, or twice when its two tasks overlap
         assert all(
             _count == 1
             for _name, _count in image.storage.requests.items()
-            if _name != _failed
+            if _name not in (_failed, _shared.digest.hex())
         )
         for _digest, _data in image.resources.items():
             assert (run.resource_dir / _digest.hex()).read_bytes() == _data
         reports = [report_que.get_nowait().payload for _ in range(report_que.qsize())]
         assert sum(_r.processed_file_num for _r in reports) == len(image.resources)
         assert sum(_r.errors for _r in reports) >= 1
+
+    def test_a_slice_two_resources_share_lands_in_both(self, image, run):
+        """Cut once, the slice is continued or fetched whole by whichever of its two
+        tasks or resources comes to it next; both resources come out right."""
+        _shared, _ = image.shared_slice
+        image.storage.fail_first.add(_shared.digest.hex())
+
+        run.run()
+
+        for _digest in (image.sliced.digest, image.sharing.digest):
+            assert (run.resource_dir / _digest.hex()).read_bytes() == image.resources[
+                _digest
+            ]
+        assert list(run.download_tmp_dir.iterdir()) == []
+
+    def test_a_large_blob_cut_short_is_continued_by_the_retry(self, image, run):
+        """The retry of the resource task asks for the rest of the blob only."""
+        _large = image.large.digest.hex()
+        image.storage.fail_first.add(_large)
+
+        run.run()
+
+        assert image.storage.requests[_large] == 2
+        _half = (RESUMABLE_BLOB_MIN_SIZE + 1) // 2
+        assert image.storage.resumed_from[_large] == [0, _half]
+        assert (run.resource_dir / _large).read_bytes() == image.resources[
+            image.large.digest
+        ]
+        assert list(run.download_tmp_dir.iterdir()) == []
 
     def test_a_compressed_blob_an_interrupted_ota_joined_is_used_as_it_is(
         self, image, run
