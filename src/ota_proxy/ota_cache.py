@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import os.path as os_path
+import re
 import shutil
 import stat
 import sys
@@ -38,7 +39,12 @@ from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common._typing import StrOrPath
 from otaclient_common.common import get_backoff
 
-from ._consts import HEADER_CONTENT_ENCODING, HEADER_OTA_FILE_CACHE_CONTROL
+from ._consts import (
+    HEADER_CONTENT_ENCODING,
+    HEADER_CONTENT_RANGE,
+    HEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_RANGE,
+)
 from .cache_control_header import (
     OTAFileCacheControl,
     export_kwargs_as_header_string,
@@ -102,6 +108,17 @@ def create_cachemeta_for_request(
         url="",
         content_encoding=resp_headers_from_upper.get(HEADER_CONTENT_ENCODING),
     )
+
+
+def _range_start(range_header: str) -> int | None:
+    """The offset of a `bytes=<start>-` range, what a client continuing an interrupted
+    download asks for; None for any other form of range, which is left to the remote."""
+    _match = re.fullmatch(r"\s*bytes=(\d+)-\s*", range_header)
+    return int(_match.group(1)) if _match else None
+
+
+def _content_range(start: int, size: int) -> str:
+    return f"bytes {start}-{size - 1}/{size}"
 
 
 class OTACache:
@@ -495,6 +512,144 @@ class OTACache:
             )
             return read_file(cache_file), _header
 
+    async def _retrieve_range_by_cache(
+        self, *, raw_url: str, cache_policy: OTAFileCacheControl, range_header: str
+    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str]] | None:
+        """The rest of a file from <start>, from a whole cached copy of it.
+
+        The sources are tried in the order a whole file is: the external device cache,
+        the local cache, the NFS cache. Each answers only from a copy it holds whole;
+        what it answers is the file from <start> with a content-range (a 206 to the
+        client), or, when the copy is kept compressed and the offset cannot be found
+        in it, the whole copy as it is (a 200, which the client reads as "start
+        again" -- from here, not from the remote).
+        """
+        _start = _range_start(range_header)
+        if _start is None:
+            return None
+        if self._external_cache_data_dir and (
+            _res := await self._retrieve_range_by_external_cache(
+                cache_policy, self._external_cache_data_dir, start=_start
+            )
+        ):
+            self._metrics_data.cache_external_hits += 1
+            return _res
+        if _res := await self._retrieve_range_by_cache_lookup(
+            raw_url=raw_url, cache_policy=cache_policy, start=_start
+        ):
+            self._metrics_data.cache_local_hits += 1
+            return _res
+        if self._external_nfs_cache_data_dir and (
+            _res := await self._retrieve_range_by_external_cache(
+                cache_policy, self._external_nfs_cache_data_dir, start=_start
+            )
+        ):
+            self._metrics_data.cache_external_nfs_hits += 1
+            return _res
+        return None
+
+    async def _retrieve_range_by_cache_lookup(
+        self, *, raw_url: str, cache_policy: OTAFileCacheControl, start: int
+    ) -> tuple[AsyncGenerator[bytes] | bytes, CIMultiDict[str]] | None:
+        """The rest of a file from <start>, from the local cache.
+
+        Only an entry whose file is on disk at the size the index recorded is a whole
+        copy; anything else (a file a crash left short, a start at or past its end) is
+        left to the remote. A whole-file lookup does not verify the size and relies on
+        the client's retry_caching; a range is built on by the client, so here it is
+        checked.
+
+        Raises:
+            ReaderPoolBusy if exceeding max pending read tasks.
+        """
+        if not self._cache_enabled or cache_policy.no_cache:
+            return None
+        cache_identifier = sys.intern(
+            cache_policy.file_sha256 or url_based_hash(raw_url)
+        )
+        index_entry = self._cache_index.lookup_entry(cache_identifier)
+        if not index_entry or index_entry.cache_size == 0:
+            return None
+        cache_file = os_path.join(self._base_dir, cache_identifier)
+        try:
+            _st = os.lstat(cache_file)
+        except FileNotFoundError:
+            return None
+        _size = _st.st_size
+        if (
+            not stat.S_ISREG(_st.st_mode)
+            or _size != index_entry.cache_size
+            or not 0 <= start < _size
+        ):
+            return None
+
+        _headers = CIMultiDict(index_entry.headers)
+        _headers[HEADER_CONTENT_RANGE] = _content_range(start, _size)
+        if _size <= self._chunk_size:
+            _whole = await self._read_pool.read_file_once(cache_file)
+            return _whole[start:], _headers
+        return (
+            await self._read_pool.stream_read_file(cache_file, offset=start),
+            _headers,
+        )
+
+    async def _retrieve_range_by_external_cache(
+        self,
+        client_cache_policy: OTAFileCacheControl,
+        cache_data_dir: anyio.Path,
+        *,
+        start: int,
+    ) -> tuple[AsyncGenerator[bytes], CIMultiDict[str]] | None:
+        """The rest of a file from <start>, from an external (device or NFS) cache.
+
+        A copy kept as it is answers from <start> with a content-range. A copy kept
+        compressed (`.zst`) is answered whole, compressed, as a whole-file request is:
+        the offset the client holds is into the decompressed bytes, and finding it
+        would mean decompressing the copy first. The client reads the 200 as "start
+        again", which it does from this cache rather than from the remote.
+        """
+        if (
+            client_cache_policy.no_cache
+            or client_cache_policy.retry_caching
+            or not client_cache_policy.file_sha256
+        ):
+            return None
+        cache_identifier = client_cache_policy.file_sha256
+        cache_file = cache_data_dir / cache_identifier
+        cache_file_zst = anyio.Path(
+            cache_file.with_suffix(f".{cfg.EXTERNAL_CACHE_STORAGE_COMPRESS_ALG}")
+        )
+        if await cache_file_zst.is_file():
+            return await self._retrieve_file_by_external_cache(
+                client_cache_policy, cache_data_dir
+            )
+        try:
+            _st = await cache_file.stat()
+        except FileNotFoundError:
+            return None
+        if not stat.S_ISREG(_st.st_mode) or not 0 <= start < _st.st_size:
+            return None
+        _header = CIMultiDict()
+        _header[HEADER_OTA_FILE_CACHE_CONTROL] = export_kwargs_as_header_string(
+            file_sha256=cache_identifier
+        )
+        _header[HEADER_CONTENT_RANGE] = _content_range(start, _st.st_size)
+        return read_file(cache_file, offset=start), _header
+
+    def _drop_cache_entry_reported_corrupted(self, cache_identifier: str) -> None:
+        """Forget a cached file a client reported as corrupted (retry_caching), unless
+        a provider is caching it anew right now: that provider's file is the fresh one,
+        and it did this cleanup itself (see _retrieve_file_by_new_caching)."""
+        if not self._cache_enabled or self._on_going_caching.get_tracker(
+            cache_identifier
+        ):
+            return
+        self._cache_index.remove_entry(cache_identifier)
+        try:
+            os.unlink(os.path.join(self._base_dir, cache_identifier))
+        except Exception:
+            pass
+
     async def _retrieve_file_by_new_caching(
         self,
         *,
@@ -621,6 +776,30 @@ class OTACache:
         # when there is no upper_proxy, do not passthrough the OTA_FILE_CACHE_CONTROL header.
         if not self._upper_proxy:
             headers_from_client.pop(HEADER_OTA_FILE_CACHE_CONTROL, None)
+
+        # NOTE: the cache only keeps whole files. A ranged request, a client continuing an
+        #   interrupted download, is answered from a whole cached copy when one of the
+        #   cache sources holds it (the rest of the file from the local copy, as a 206);
+        #   otherwise it goes to the remote as it is and its answer is not cached: a 206
+        #   with content-range, or a 200 if the remote ignored the range, goes back to
+        #   the client, which tells the two apart. A client that found the cached file
+        #   short asks for the rest with retry_caching as well: no cache is consulted,
+        #   and the entry it reports is dropped here, as a provider would drop it before
+        #   caching the file anew, so that the next client caches it whole.
+        if HEADER_RANGE in headers_from_client:
+            if cache_policy.retry_caching:
+                self._drop_cache_entry_reported_corrupted(
+                    cache_policy.file_sha256 or url_based_hash(raw_url)
+                )
+            elif _res := await self._retrieve_range_by_cache(
+                raw_url=raw_url,
+                cache_policy=cache_policy,
+                range_header=headers_from_client[HEADER_RANGE],
+            ):
+                return _res
+            return await self._retrieve_file_by_downloading(
+                raw_url, headers=headers_from_client
+            )
 
         # a fastpath when cache is not enabled or client requires so
         if not self._cache_enabled or cache_policy.no_cache:

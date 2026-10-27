@@ -228,33 +228,52 @@ def vendor_written(name: str) -> PartitionEntry:
 
 class FakeServer:
     """What `Downloader.download` is replaced with: serves a directory as the OTA
-    image's URL base, records every request, and can fail them."""
+    image's URL base, records every request, and can fail them.
+
+    A ranged request (`resume_from`) is honoured as a server that supports it does:
+    the file goes on from there. With `drops`, the link drops that many times, each
+    time after `per_drop` bytes of the attempt arrived.
+    """
 
     def __init__(
         self, served: Path | None = None, fail_with: Exception | None = None
     ) -> None:
         self.calls: list[tuple[str, Path]] = []
+        self.resumed_from: list[int] = []
+        self.drops, self.per_drop = 0, 10
         self._served = served
         self._fail_with = fail_with
 
-    def download(self, _downloader, *, url, dst, size=None, **_) -> DownloadResult:
+    def download(
+        self, _downloader, *, url, dst, size=None, resume_from=0, **_
+    ) -> DownloadResult:
         dst = Path(dst)
         dst.parent.mkdir(parents=True, exist_ok=True)
         self.calls.append((url, dst))
+        self.resumed_from.append(resume_from)
         if self._fail_with is not None:
             raise self._fail_with
         if self._served is not None:
             _src = self._served / url.split("/image/", 1)[1]
             if not _src.is_file():
                 raise FileNotFoundError(f"404: {url}")
-            dst.write_bytes(_src.read_bytes())
+            _data = _src.read_bytes()
         elif size == len(DELTA_BYTES):
-            dst.write_bytes(DELTA_BYTES)
+            _data = DELTA_BYTES
         else:
-            dst.write_bytes(b"\0" * (size or 1))
-        return DownloadResult(
-            download_size=dst.stat().st_size, traffic_on_wire=dst.stat().st_size
-        )
+            _data = b"\0" * (size or 1)
+
+        _rest = _data[resume_from:]
+        _dropped = self.drops > 0
+        if _dropped:
+            self.drops -= 1
+            _rest = _rest[: self.per_drop]
+        with open(dst, "r+b" if resume_from else "wb") as _f:
+            _f.seek(resume_from)
+            _f.write(_rest)
+        if _dropped:
+            raise ConnectionError("link dropped")
+        return DownloadResult(download_size=len(_rest), traffic_on_wire=len(_rest))
 
 
 def http_error(status: int) -> HTTPError:
@@ -716,11 +735,13 @@ class TestDownloadAndApply:
         assert len(_server.calls) == 1
         assert _dst.read_bytes() == DELTA_BYTES
 
-    def test_a_half_downloaded_blob_is_downloaded_again(
+    def test_a_half_downloaded_blob_is_continued_from_where_it_stopped(
         self, tmp_path: Path, pool, server
     ):
-        """What an interrupted download left is not a blob: it is fetched again from
-        the start into the same place, and only the whole, verified file carries the
+        """A rootfs image is gigabytes and a link that drops at 90% should not cost
+        all of it. What is on disk is offered to the downloader as a byte count; the
+        digest is still computed over the whole file, so the resumed part is trusted
+        no further than a fresh one, and only the whole, verified file carries the
         digest as its name."""
         _server = server()
         _updater = make_updater(tmp_path)
@@ -728,14 +749,52 @@ class TestDownloadAndApply:
         _plan = _updater.plan()
         _part = tmp_path / "image" / RESOURCE_DIR / f"{DELTA_DIGEST}.part"
         _part.parent.mkdir(parents=True)
-        _part.write_bytes(b"x" * 50)
+        _part.write_bytes(DELTA_BYTES[:50])
 
         download(_updater, _plan, pool=pool)
 
-        assert [_dst for _, _dst in _server.calls] == [_part]
+        assert [_dst for _, _dst in _server.calls] == [_part], (
+            "the bytes go on arriving in the same file"
+        )
+        assert _server.resumed_from == [50]
         _blob = tmp_path / "image" / RESOURCE_DIR / DELTA_DIGEST
         assert _blob.read_bytes() == DELTA_BYTES
         assert not _part.exists()
+
+    def test_a_part_longer_than_the_blob_is_not_a_prefix_of_it(
+        self, tmp_path: Path, pool, server
+    ):
+        _server = server()
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _part = tmp_path / "image" / RESOURCE_DIR / f"{DELTA_DIGEST}.part"
+        _part.parent.mkdir(parents=True)
+        _part.write_bytes(b"x" * (len(DELTA_BYTES) + 1))
+
+        download(_updater, _plan, pool=pool)
+
+        assert _server.resumed_from == [0]
+        _blob = tmp_path / "image" / RESOURCE_DIR / DELTA_DIGEST
+        assert _blob.read_bytes() == DELTA_BYTES
+
+    def test_a_link_that_drops_and_comes_back_is_continued_in_the_same_update(
+        self, tmp_path: Path, pool, server
+    ):
+        """Outdoors a link drops every few minutes. The helper retries the download,
+        and each attempt goes on from what the one before left, so the update
+        finishes instead of paying for the blob again at every drop."""
+        _server = server()
+        _server.drops, _server.per_drop = 3, 10
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+
+        download(_updater, _updater.plan(), pool=pool)
+
+        assert _server.resumed_from == [0, 10, 20, 30]
+        _blob = tmp_path / "image" / RESOURCE_DIR / DELTA_DIGEST
+        assert _blob.read_bytes() == DELTA_BYTES
+        assert not _blob.with_name(_blob.name + ".part").exists()
 
     def test_a_download_the_server_refuses_keeps_the_helpers_error_code(
         self, tmp_path: Path, pool, server
@@ -804,6 +863,46 @@ class TestDownloadAndApply:
         )
 
         download(_updater, _plan, pool=pool)  # room for the boot files, which is enough
+
+    def test_what_an_interrupted_download_left_counts_toward_the_room(
+        self, tmp_path: Path, pool, server, monkeypatch
+    ):
+        """It is continued, not downloaded again, so only the rest of it needs room."""
+        server()
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _part = tmp_path / "image" / RESOURCE_DIR / f"{DELTA_DIGEST}.part"
+        _part.parent.mkdir(parents=True)
+        _part.write_bytes(DELTA_BYTES[:60])
+        monkeypatch.setattr(
+            _mod.shutil,
+            "disk_usage",
+            lambda _p: SimpleNamespace(free=len(DELTA_BYTES) - 60),
+        )
+
+        download(_updater, _plan, pool=pool)  # room for the rest, which is enough
+
+    def test_a_part_no_shorter_than_the_blob_does_not_count_toward_the_room(
+        self, tmp_path: Path, pool, server, monkeypatch
+    ):
+        """It is not a prefix of the blob: it is downloaded again from the start, and
+        all of it needs room."""
+        server()
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _part = tmp_path / "image" / RESOURCE_DIR / f"{DELTA_DIGEST}.part"
+        _part.parent.mkdir(parents=True)
+        _part.write_bytes(b"x" * len(DELTA_BYTES))
+        monkeypatch.setattr(
+            _mod.shutil,
+            "disk_usage",
+            lambda _p: SimpleNamespace(free=len(DELTA_BYTES) - 1),
+        )
+
+        with pytest.raises(ota_errors.StandbySlotInsufficientSpace):
+            download(_updater, _plan, pool=pool)
 
     def test_apply_hands_the_unpacked_image_to_the_installer(self, tmp_path: Path):
         _installer = FakeInstaller()

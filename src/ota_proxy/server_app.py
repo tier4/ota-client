@@ -26,14 +26,18 @@ from otaclient_common._logging import get_burst_suppressed_logger
 from ._consts import (
     BHEADER_AUTHORIZATION,
     BHEADER_CONTENT_ENCODING,
+    BHEADER_CONTENT_RANGE,
     BHEADER_CONTENT_TYPE,
     BHEADER_COOKIE,
     BHEADER_OTA_FILE_CACHE_CONTROL,
+    BHEADER_RANGE,
     HEADER_AUTHORIZATION,
     HEADER_CONTENT_ENCODING,
+    HEADER_CONTENT_RANGE,
     HEADER_CONTENT_TYPE,
     HEADER_COOKIE,
     HEADER_OTA_FILE_CACHE_CONTROL,
+    HEADER_RANGE,
     METHOD_GET,
     REQ_TYPE_HTTP,
     REQ_TYPE_LIFESPAN,
@@ -59,7 +63,7 @@ def parse_raw_headers(raw_headers: list[tuple[bytes, bytes]]) -> CIMultiDict[str
 
     Uvicorn sends headers from client's request to application as list of encoded bytes tuple.
     Uvicorn will process the headers name into lower case.
-    Currently we only need authorization, cookie and ota-file-cache-control header.
+    Currently we only need authorization, cookie, ota-file-cache-control and range header.
 
     Returns:
         An inst of header dict.
@@ -79,6 +83,8 @@ def parse_raw_headers(raw_headers: list[tuple[bytes, bytes]]) -> CIMultiDict[str
             headers[HEADER_OTA_FILE_CACHE_CONTROL] = bvalue.decode(
                 "utf-8", "surrogateescape"
             )
+        elif bname == BHEADER_RANGE:
+            headers[HEADER_RANGE] = bvalue.strip().decode("utf-8", "surrogateescape")
     return headers
 
 
@@ -92,6 +98,7 @@ def encode_headers(
     1. content-encoding
     2. content-type
     3. ota-file-cache-control header
+    4. content-range, only a remote's answer to a ranged request has it
     """
     bytes_headers: list[tuple[bytes, bytes]] = []
     if _encoding := headers.get(HEADER_CONTENT_ENCODING):
@@ -102,6 +109,8 @@ def encode_headers(
         bytes_headers.append(
             (BHEADER_OTA_FILE_CACHE_CONTROL, _cache_control.encode("utf-8"))
         )
+    if _content_range := headers.get(HEADER_CONTENT_RANGE):
+        bytes_headers.append((BHEADER_CONTENT_RANGE, _content_range.encode("utf-8")))
     return bytes_headers
 
 
@@ -313,9 +322,14 @@ class App:
             return
 
         fp, headers_to_client = retrieved_ota_cache
-        await self._init_response(
-            HTTPStatus.OK, encode_headers(headers_to_client), send
+        # Only the remote's answer to a ranged request carries content-range, and that
+        #   answer is a 206 (one that ignored the range is a plain 200 without it).
+        _status = (
+            HTTPStatus.PARTIAL_CONTENT
+            if HEADER_CONTENT_RANGE in headers_to_client
+            else HTTPStatus.OK
         )
+        await self._init_response(_status, encode_headers(headers_to_client), send)
         try:
             if isinstance(fp, bytes):
                 await self._send_chunk_one(fp, send)

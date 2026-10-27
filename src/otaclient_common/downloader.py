@@ -26,6 +26,7 @@ import time
 from abc import abstractmethod
 from dataclasses import dataclass
 from functools import wraps
+from http import HTTPStatus
 from typing import (
     IO,
     Any,
@@ -57,6 +58,8 @@ burst_suppressed_logger = get_burst_suppressed_logger(
 
 
 CACHE_CONTROL_HEADER = OTAFileCacheControl.HEADER_LOWERCASE
+HEADER_RANGE = "Range"
+HEADER_CONTENT_RANGE = "Content-Range"
 DEFAULT_CHUNK_SIZE = 1024**2  # 1MiB
 DEFAULT_CONNECTION_TIMEOUT = 16  # seconds
 DEFAULT_READ_TIMEOUT = 32  # seconds
@@ -66,6 +69,7 @@ DEFAULT_READ_TIMEOUT = 32  # seconds
 class DownloadResult:
     retry_count: int = 0
     download_size: int = 0
+    """The file as it is on disk, a resumed part included."""
     traffic_on_wire: int = 0
 
 
@@ -240,6 +244,22 @@ def check_cache_policy_in_resp(
     return digest, compression_alg
 
 
+def resumable_bytes(path: StrOrPath, size: int) -> int:
+    """How much of a file of <size> bytes an interrupted download left at <path>, for a
+    ranged request to continue from.
+
+    That is its length when it can be a prefix of the file as far as a length tells:
+    more than nothing and less than the file. Anything else (nothing, the whole file,
+    more than the file, no file) is 0: download it from the start. Whether the bytes
+    are the file's is what the digest, computed over the whole file, proves.
+    """
+    try:
+        _have = os.stat(path).st_size
+    except OSError:
+        return 0
+    return _have if 0 < _have < size else 0
+
+
 def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
     """A decorator to the download API that translate internal exceptions to
     downloader exception.
@@ -256,9 +276,29 @@ def retry_on_digest_mismatch(func: Callable[P, T]) -> Callable[P, T]:
             # try ONCE with headers included OTA cache control retry_caching directory,
             # if still failed, let the outer retry mechanism does its job.
             burst_suppressed_logger.warning(f"trigger cache retry due to: {e!r}")
-            return func(*args, **inject_cache_retry_directory(kwargs))
+            kwargs = inject_cache_retry_directory(kwargs)
+            # A download cut short (an otaproxy ends the response when the remote stalls)
+            #   is continued; bytes that hashed wrong are not built on.
+            if isinstance(e, PartialDownload):
+                kwargs["resume_from"] = _resumable_part(args, kwargs)
+            elif kwargs.get("resume_from"):
+                kwargs["resume_from"] = 0
+            return func(*args, **kwargs)
 
     return _wrapper
+
+
+def _resumable_part(args: tuple[Any, ...], kwargs: dict[str, Any]) -> int:
+    """Bytes a cut-short `Downloader.download` left at <dst> that its retry can continue.
+
+    They are a prefix of the file unless the caller has the file decompressed as it
+    arrives, as a range is over the bytes on the wire.
+    """
+    _dst = kwargs.get("dst", args[2] if len(args) > 2 else None)
+    _size = kwargs.get("size")
+    if not _dst or not _size or kwargs.get("compression_alg"):
+        return 0
+    return resumable_bytes(_dst, _size)
 
 
 DEFAULT_CONNECTION_POOL_SIZE = 20
@@ -366,6 +406,7 @@ class Downloader:
         digest: str | None = None,
         headers: dict[str, str] | None = None,
         compression_alg: str | None = None,
+        resume_from: int = 0,
         timeout: tuple[int, int] | None = (
             DEFAULT_CONNECTION_TIMEOUT,
             DEFAULT_READ_TIMEOUT,
@@ -381,6 +422,10 @@ class Downloader:
             headers (dict[str, str] | None, optional): Extra headers to use for request. Defaults to None.
             compression_alg (str | None, optional): The expected compression alg for the file. Defaults to None.
                 NOTE: don't confuse with the HTTP compression.
+            resume_from (int, optional): Bytes of <dst> already downloaded, to be continued with a
+                ranged request instead of fetched again. Defaults to 0, which downloads the whole file.
+                NOTE: the caller has to know those bytes are this file's; <digest> is what proves it,
+                      and it is computed over the whole file, the existing part included.
             timeout (tuple[int, int] | None): A tuple of sock connection timeout and read timeout. Defaults to
                 (DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT).
 
@@ -409,56 +454,97 @@ class Downloader:
         else:
             prepared_headers = headers
 
+        # A decompressed stream has no byte offset a Range request could name: the range
+        # would be over the compressed bytes and the offset is in the file after them.
+        if resume_from and compression_alg:
+            burst_suppressed_logger.warning(
+                f"cannot resume a compressed download ({compression_alg}) of {prepared_url}; "
+                "fetching it whole"
+            )
+            resume_from = 0
+
         # cspell:ignore digestobj
         digestobj = self.hash_func()
+        if resume_from:
+            # The digest is over the whole file, so the part already on disk is read
+            # back and hashed -- before the request is made: a connection that sits
+            # unread while gigabytes are hashed is one the sender may give up on, and
+            # a download cut for that would be hashed again and cut again. The read is
+            # local and sequential, and it is done again on every resumption; the
+            # alternative is fetching those bytes over the wire again, which is the
+            # whole point of not doing this.
+            with open(dst, "rb") as part_fp:
+                _hash_existing(
+                    part_fp, digestobj, resume_from, self.chunk_size, what=dst
+                )
+            prepared_headers = CIDict(prepared_headers or {})
+            prepared_headers[HEADER_RANGE] = f"bytes={resume_from}-"
+
         err_count, downloaded_file_size, traffic_on_wire = 0, 0, 0
 
-        with (
-            self._session.get(
-                prepared_url, stream=True, headers=prepared_headers, timeout=timeout
-            ) as resp,
-            open(dst, "wb") as dst_fp,
-        ):
-            dst_fd = dst_fp.fileno()
-            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+        with self._session.get(
+            prepared_url, stream=True, headers=prepared_headers, timeout=timeout
+        ) as resp:
             resp.raise_for_status()
+            # Asking is not getting: a plain 200 means the range was not honoured and the
+            # body is the whole file — which a server that ignores Range does, and so
+            # does an otaproxy that does not pass ranged requests through. Appending that
+            # to what is already here would make a file of the right length and the wrong
+            # contents, so the only safe reading of a 200 is "start again".
+            resumed = resume_from > 0 and _range_honoured(resp, resume_from)
+            if resume_from and not resumed:
+                burst_suppressed_logger.info(
+                    f"{prepared_url} answered {resp.status_code} to a ranged request; "
+                    "downloading it from the start"
+                )
+                digestobj = self.hash_func()  # the part hashed above is not used
 
-            digest, compression_alg = check_cache_policy_in_resp(
-                url,
-                compression_alg=compression_alg,
-                digest=digest,
-                resp_headers=resp.headers,
-            )
+            with open(dst, "r+b" if resumed else "wb") as dst_fp:
+                dst_fd = dst_fp.fileno()
+                os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_NOREUSE)
+                if resumed:
+                    dst_fp.seek(resume_from)
+                    dst_fp.truncate()
 
-            raw_resp: HTTPResponse = resp.raw
-            if _retries := raw_resp.retries:
-                err_count = len(_retries.history)
+                digest, compression_alg = check_cache_policy_in_resp(
+                    url,
+                    compression_alg=compression_alg,
+                    digest=digest,
+                    resp_headers=resp.headers,
+                )
 
-            if decompressor := self._get_decompressor(compression_alg):
-                # NOTE: raw_resp(HTTPResponse) here is configured to be an IO[bytes]
-                for _chunk in decompressor.iter_chunk(raw_resp):  # type: ignore
-                    digestobj.update(_chunk)
-                    dst_fp.write(_chunk)
-                    downloaded_file_size += len(_chunk)
+                raw_resp: HTTPResponse = resp.raw
+                if _retries := raw_resp.retries:
+                    err_count = len(_retries.history)
 
-                    new_traffic_on_wire = raw_resp.tell()
-                    self._downloaded_bytes += new_traffic_on_wire - traffic_on_wire
-                    traffic_on_wire = new_traffic_on_wire
-            else:  # no compression is configured
-                for _chunk in resp.iter_content(chunk_size=self.chunk_size):
-                    digestobj.update(_chunk)
-                    dst_fp.write(_chunk)
-                    downloaded_file_size += len(_chunk)
+                if decompressor := self._get_decompressor(compression_alg):
+                    # NOTE: raw_resp(HTTPResponse) here is configured to be an IO[bytes]
+                    for _chunk in decompressor.iter_chunk(raw_resp):  # type: ignore
+                        digestobj.update(_chunk)
+                        dst_fp.write(_chunk)
+                        downloaded_file_size += len(_chunk)
 
-                    _read_size = len(_chunk)
-                    self._downloaded_bytes += _read_size
-                    traffic_on_wire += _read_size
+                        new_traffic_on_wire = raw_resp.tell()
+                        self._downloaded_bytes += new_traffic_on_wire - traffic_on_wire
+                        traffic_on_wire = new_traffic_on_wire
+                else:  # no compression is configured
+                    for _chunk in resp.iter_content(chunk_size=self.chunk_size):
+                        digestobj.update(_chunk)
+                        dst_fp.write(_chunk)
+                        downloaded_file_size += len(_chunk)
 
-            os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                        _read_size = len(_chunk)
+                        self._downloaded_bytes += _read_size
+                        traffic_on_wire += _read_size
 
-        if size and size != downloaded_file_size:
+                os.posix_fadvise(dst_fd, 0, 0, os.POSIX_FADV_DONTNEED)
+
+        # What is on disk now, which is what <size> and <digest> describe: a resumed
+        # download fetched the rest of it, not the file.
+        file_size = downloaded_file_size + (resume_from if resumed else 0)
+        if size and size != file_size:
             _err_msg = (
-                f"detect partial downloading: {size=} != {downloaded_file_size=} for "
+                f"detect partial downloading: {size=} != {file_size=} for "
                 f"{prepared_url}, saving to {dst}"
             )
             raise PartialDownload(_err_msg)
@@ -467,7 +553,48 @@ class Downloader:
             _err_msg = f"hash verification failed: {digest=} != {calc_digest=} for {prepared_url}"
             raise HashVerificationError(_err_msg)
 
-        return DownloadResult(err_count, downloaded_file_size, traffic_on_wire)
+        return DownloadResult(err_count, file_size, traffic_on_wire)
+
+
+def _range_honoured(resp: requests.Response, resume_from: int) -> bool:
+    """Whether this response really is the rest of the file, from where we asked.
+
+    Anything but 206 is the whole file (or an error the caller has already raised on),
+    and a 206 that starts somewhere else is not the continuation we asked for. Both are
+    answered by downloading the file again, which costs what we tried to save and is
+    the only answer that cannot corrupt the result.
+    """
+    if resp.status_code != HTTPStatus.PARTIAL_CONTENT:
+        return False
+    _content_range = resp.headers.get(HEADER_CONTENT_RANGE, "")
+    # "bytes <start>-<end>/<total>", the only unit HTTP defines for this
+    try:
+        _unit, _, _spec = _content_range.partition(" ")
+        _start = int(_spec.split("-", 1)[0])
+    except ValueError:
+        return False
+    return _unit.lower() == "bytes" and _start == resume_from
+
+
+def _hash_existing(
+    fp: IO[bytes],
+    digestobj: hashlib._Hash,
+    up_to: int,
+    chunk_size: int,
+    *,
+    what: StrOrPath = "",
+) -> None:
+    """Feed the first <up_to> bytes of an open file into <digestobj>."""
+    fp.seek(0)
+    _remaining = up_to
+    while _remaining > 0:
+        _chunk = fp.read(min(chunk_size, _remaining))
+        if not _chunk:
+            raise PartialDownload(
+                f"the file to resume ({what}) is shorter than the {up_to} bytes reported"
+            )
+        digestobj.update(_chunk)
+        _remaining -= len(_chunk)
 
 
 class DownloadPoolWatchdogFuncContext(TypedDict):

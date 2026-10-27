@@ -581,11 +581,14 @@ class CacheReaderPool:
         output_que: asyncio.Queue[bytes | None | Any],
         *,
         interrupt_thread_worker: threading.Event,
+        offset: int = 0,
     ) -> None:
         try:
             with open(fpath, "rb") as f:
                 fd = f.fileno()
                 os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+                if offset:
+                    f.seek(offset)
                 try:
                     while not interrupt_thread_worker.is_set() and (
                         data := f.read(self.read_chunk_size)
@@ -625,9 +628,9 @@ class CacheReaderPool:
             del que, self, interrupt_thread_worker
 
     async def stream_read_file(
-        self, fpath: StrOrPath | anyio.Path
+        self, fpath: StrOrPath | anyio.Path, *, offset: int = 0
     ) -> AsyncGenerator[bytes]:
-        """For larger cache file, streaming reading the file.
+        """For larger cache file, streaming reading the file, from <offset> on.
 
         Raises:
             ReaderPoolBusy if exceeding max pending read tasks.
@@ -639,6 +642,7 @@ class CacheReaderPool:
             fpath,
             que,
             interrupt_thread_worker=interrupt_thread_worker,
+            offset=offset,
         )
         return self._stream_from_que(que, interrupt_thread_worker)
 

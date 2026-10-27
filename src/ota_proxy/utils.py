@@ -37,12 +37,14 @@ else:
 
 
 async def read_file(
-    fpath: PathLike, chunk_size: int = cfg.LOCAL_READ_SIZE
+    fpath: PathLike, chunk_size: int = cfg.LOCAL_READ_SIZE, *, offset: int = 0
 ) -> AsyncGenerator[bytes]:
-    """Open and read a file asynchronously."""
+    """Open and read a file asynchronously, from <offset> on."""
     async with await open_file(fpath, "rb") as f:
         fd = f.wrapped.fileno()
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_SEQUENTIAL)
+        if offset:
+            await f.seek(offset)
         while data := await f.read(chunk_size):
             yield data
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
