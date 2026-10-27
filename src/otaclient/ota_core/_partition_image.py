@@ -88,6 +88,7 @@ from otaclient.boot_control.protocol import (
 )
 from otaclient.configs.cfg import ecu_info
 from otaclient.ota_core._common import download_exception_handler
+from otaclient.ota_core._download_resources import PARTIAL_SUFFIX
 from otaclient.ota_core._update_libs import (
     metadata_download_err_handler,
     raise_on_download_resources_failed,
@@ -95,6 +96,7 @@ from otaclient.ota_core._update_libs import (
 from otaclient_common import human_readable_size
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
+from otaclient_common.downloader import resumable_bytes
 
 from ._abort_handler import AbortHandler
 from ._updater_base import OTAUpdateInitializer, OTAUpdateInterfaceArgs
@@ -133,9 +135,6 @@ STAGING_SUBDIR = "staged"
 """otaclient's own subdirectory of the staging directory the boot controller
 provides: everything under it is otaclient's to create and remove, whatever else the
 boot controller keeps beside it."""
-
-PARTIAL_SUFFIX = ".part"
-"""What an unfinished download is called until its digest checks out."""
 
 
 @dataclass(frozen=True)
@@ -234,8 +233,13 @@ class PartitionImageUpdater:
 
         Bytes arrive in `<digest>.part` and become `<digest>` once the helper has
         downloaded the whole file and it hashed to the digest (the downloader checks
-        both before returning, and the helper retries until it does); a partial
-        file an interrupted attempt left is downloaded again from the start.
+        both before returning, and the helper retries until it does). What an
+        interrupted attempt left in `<digest>.part` -- the attempt before, or an
+        earlier update of the same version, whose staging is kept -- is continued
+        with a ranged request rather than downloaded again: a rootfs image is
+        gigabytes, and a link that drops at 90% should not cost all of it. The
+        digest is still computed over the whole file, so the resumed part is trusted
+        no further than a fresh one.
 
         Returns:
             Whether the blob was downloaded (False: reused).
@@ -253,6 +257,7 @@ class PartitionImageUpdater:
                     dst=_part,
                     original_size=descriptor.size,
                     digest=_digest,
+                    resume=True,
                 )
             ]
             condition.wait()
@@ -472,14 +477,18 @@ class PartitionImageUpdater:
         delta is most of the payload, and a device with no room should be reported as
         one. A blob of the right size is taken as there; one that then turns out not
         to hash to its digest is downloaded again, and the disk filling meanwhile is
-        reported by the download itself."""
+        reported by the download itself. What an interrupted download left in
+        `<digest>.part` is continued, so only the rest of that blob needs room."""
         self.image_dir.mkdir(exist_ok=True, parents=True)
         _free = shutil.disk_usage(self.image_dir).free
         _have = 0
         for _b in plan.blobs:
             _dst = self._blob_dir / _b.digest_hex
+            _part = _dst.with_name(_dst.name + PARTIAL_SUFFIX)
             if _dst.is_file() and _dst.stat().st_size == _b.size:
                 _have += _b.size
+            else:
+                _have += resumable_bytes(_part, _b.size)
         _needed = plan.total_size - _have
         if _needed > _free:
             raise ota_errors.StandbySlotInsufficientSpace(

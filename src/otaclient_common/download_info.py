@@ -27,3 +27,8 @@ class DownloadInfo:
     digest_alg: Optional[str] = None
     digest: Optional[str] = None
     compression_alg: Optional[str] = None
+    resume: bool = False
+    """Continue what an interrupted download left at <dst> with a ranged request,
+    instead of fetching the file again from the start. Needs <digest> and
+    <original_size>, and not for a file decompressed as it arrives (there is no byte
+    offset in a decompressed stream to continue from)."""

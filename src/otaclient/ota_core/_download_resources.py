@@ -37,13 +37,16 @@ from ota_image_libs.v1.resource_table.db import (
 from ota_image_libs.v1.resource_table.utils import PrepareResourceHelper
 
 from ota_metadata.legacy2.metadata import ResourceMeta
-from otaclient_common import EMPTY_FILE_SHA256_BYTE
+from otaclient_common import EMPTY_FILE_SHA256_BYTE, human_readable_size
+from otaclient_common._logging import get_burst_suppressed_logger
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import (
     Downloader,
     DownloaderPool,
     DownloadPoolWatchdogFuncContext,
     DownloadResult,
+    HashVerificationError,
+    resumable_bytes,
 )
 from otaclient_common.retry_task_map import (
     TasksEnsureFailed,
@@ -51,8 +54,44 @@ from otaclient_common.retry_task_map import (
 )
 
 logger = logging.getLogger(__name__)
+burst_suppressed_logger = get_burst_suppressed_logger(
+    f"{__name__}.burst_suppressed_logger"
+)
 
 DEFAULT_SHUFFLE_BATCH_SIZE = 256
+
+PARTIAL_SUFFIX = ".part"
+"""What an unfinished download is called until its digest checks out: the file a
+`DownloadInfo.resume` download or `download_resumable` continues."""
+
+
+def download_resumable(
+    downloader: Downloader, *, url: str, part: Path, digest: str, size: int
+) -> DownloadResult:
+    """Download a blob through <part>, continuing what an interrupted download left there.
+
+    What is in <part> is continued with a ranged request when it is shorter than the blob
+        (a prefix of it as far as its length tells; the digest, computed over the whole
+        file, is what proves it). Bytes that hashed wrong are removed: they are not this
+        blob, not even in part, and a retry must not build on them. On any other failure
+        <part> is left as it is, for the retry to continue.
+    """
+    _have = resumable_bytes(part, size)
+    if _have:
+        burst_suppressed_logger.info(
+            f"continuing {part.name}: {human_readable_size(_have)} of "
+            f"{human_readable_size(size)} is here"
+        )
+    else:  # nothing to continue, or more than the blob has: not a prefix of it
+        part.unlink(missing_ok=True)
+
+    try:
+        return downloader.download(
+            url=url, dst=part, digest=digest, size=size, resume_from=_have
+        )
+    except HashVerificationError:
+        part.unlink(missing_ok=True)
+        raise
 
 
 class _BaseDownloadHelper:
@@ -107,6 +146,15 @@ class _BaseDownloadHelper:
     def _download_one(
         downloader: Downloader, _download_info: DownloadInfo
     ) -> DownloadResult:
+        if _download_info.resume:
+            assert _download_info.digest and _download_info.original_size
+            return download_resumable(
+                downloader,
+                url=_download_info.url,
+                part=_download_info.dst,
+                digest=_download_info.digest,
+                size=_download_info.original_size,
+            )
         return downloader.download(
             url=_download_info.url,
             dst=_download_info.dst,
