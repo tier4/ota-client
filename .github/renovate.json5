@@ -46,6 +46,14 @@
       "security",
       "dependencies"
     ],
+    // The default "update-lockfile" strategy only touches uv.lock when the
+    // fixed version already satisfies the range in pyproject.toml. Renovate
+    // rebuilds such lockfile-only branches from scratch on every run, so the
+    // requirements.txt commit pushed by the sync_lockfile workflow gets
+    // force-pushed away and the two bots loop forever (#870, #998, #1082).
+    // "bump" raises the lower bound in pyproject.toml instead, which takes the
+    // normal update path that leaves the sync_lockfile commit alone.
+    "rangeStrategy": "bump",
     "gitIgnoredAuthors": [
       "github-actions[bot]+sync-lockfile",
       "github-actions[bot]+sync-lockfile@users.noreply.github.com"
