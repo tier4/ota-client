@@ -293,6 +293,16 @@ class PartitionImageUpdater:
 
         _manifest_descriptor = image_index.find_partition_image(self._image_id)
         if _manifest_descriptor is None:
+            # The two payload kinds share the index and are told apart by their
+            # descriptor's artifactType (spec/image_index.md): an ECU whose slots are
+            # written as images cannot apply a file-based payload, and the refusal
+            # names the mismatch, as ota_metadata/v1.py does for the opposite case.
+            if image_index.find_image(self._image_id) is not None:
+                raise ota_errors.OTAImageInvalid(
+                    f"the payload for {self._image_id} is file-based, which this ECU, "
+                    "whose slots are written as partition images, does not apply",
+                    module=__name__,
+                )
             raise ota_errors.OTAImageInvalid(
                 f"the OTA image carries no partition-based payload for {self._image_id}",
                 module=__name__,
