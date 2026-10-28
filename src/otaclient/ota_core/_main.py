@@ -75,6 +75,7 @@ from otaclient.ota_core._updater import (
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
 from otaclient_common import _env
+from otaclient_common._shm import RWBusy
 from otaclient_common.cmdhelper import (
     detect_storage_device_type,
     ensure_mount,
@@ -563,6 +564,10 @@ class OTAClient:
                 if self._shm_metrics_reader:
                     _shm_metrics = self._shm_metrics_reader.sync_msg()
                     self._metrics.shm_merge(_shm_metrics)
+            except RWBusy as e:
+                # only the local ota_proxy's cache writes these metrics, so there is
+                # nothing to merge when it is disabled or has not written yet
+                logger.info(f"no ota_proxy metrics to merge: {e!r}")
             except Exception as e:
                 logger.warning(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
