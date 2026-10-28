@@ -54,7 +54,7 @@ urls.Source = "https://github.com/tier4/ota-client"
 [dependency-groups]
 dev = [
   "coverage>=7,<8",
-  "hatch>1,<2",
+  "hatch>=1.16.5,<2",
   "pre-commit>=3,<5",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.23.8,<1.4",

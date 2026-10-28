@@ -56,6 +56,9 @@ jobs:
 
       - name: set environment variables
         id: set_env
+        # NOTE: explicit bash enables pipefail, so a failed `hatch version`
+        #       fails this step instead of leaving the version empty.
+        shell: bash
         run: |
           # Remove everything after '+' to clean Git metadata
           OTACLIENT_VERSION=$(uv run --locked hatch version | cut -d'+' -f1)
