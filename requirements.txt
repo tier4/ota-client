@@ -58,7 +58,7 @@ idna==3.18
     #   anyio
     #   requests
     #   yarl
-msgpack==1.2.1
+msgpack==1.2.4
     # via
     #   ota-image-libs
     #   otaclient
