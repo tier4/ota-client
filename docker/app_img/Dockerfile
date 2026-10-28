@@ -16,11 +16,11 @@ ARG PYINSTALLER_VER=6.16.0
 COPY --from=uv /uv /uvx /bin/
 
 WORKDIR /build
+# NOTE: git (for hatch-vcs) is already in the python bullseye image, and
+#       bullseye is EOL with its security pool removed from deb.debian.org,
+#       so don't apt-get anything here.
 RUN --mount=type=bind,source=.,target=/build,rw \
     set -eux; \
-    apt-get update -qq; \
-    apt-get install -y -qq --no-install-recommends \
-        git python3 python3-setuptools; \
     uv run --with=pyinstaller==${PYINSTALLER_VER} --locked --no-managed-python --python=3.13 \
         pyinstaller -D -s --name otaclient src/otaclient/__main__.py; \
     cp -R /build/dist /dist
