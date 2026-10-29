@@ -37,6 +37,13 @@ class Config:
     MAX_PENDING_WRITE = 384
     MAX_PENDING_READ = 512
 
+    # NOTE: a cache writer keeps its thread until the provider has received the whole file,
+    #       so slow downloads can hold all the write threads. A writer that is still waiting
+    #       for a thread after this long is dropped, and its file is not cached
+    #       (see CacheWriterPool). Shorter than CacheTracker.SUBSCRIBER_WAIT_TIMEOUT, so that
+    #       the subscribers waiting on it are released before they give up by themselves.
+    CACHE_WRITER_START_TIMEOUT = 10  # seconds
+
     # ------ storage quota ------ #
     DISK_USE_LIMIT_SOFT_P = 75  # in p%
     DISK_USE_LIMIT_HARD_P = 80  # in p%

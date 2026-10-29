@@ -433,15 +433,28 @@ class CacheWriterPool:
         *,
         max_workers: int = cfg.CACHE_WRITE_WORKERS_NUM,
         max_pending: int = cfg.MAX_PENDING_WRITE,
+        writer_start_timeout: float = cfg.CACHE_WRITER_START_TIMEOUT,
     ) -> None:
         self._pool = ThreadPoolExecutor(
             max_workers=max_workers, thread_name_prefix="cache_writer"
         )
         self._se = asyncio.Semaphore(max_pending)
+        self._writer_start_timeout = writer_start_timeout
         self._acall_soon = asyncio.get_event_loop().call_soon_threadsafe
 
     def _release_se_cb(self, _):
         self._acall_soon(self._se.release)
+
+    def _drop_writer_not_started(
+        self, fut: Future, tracker_event: CacheTrackerEvents
+    ) -> None:
+        # Future.cancel only succeeds while the writer is still waiting for a thread
+        if fut.cancel():
+            burst_suppressed_logger.warning(
+                f"cache writer got no thread in {self._writer_start_timeout}s "
+                "(all write threads busy), dropping caching"
+            )
+            tracker_event.set_writer_failed()
 
     async def _write_dispatcher(
         self,
@@ -458,8 +471,19 @@ class CacheWriterPool:
                 tracker_event.set_writer_failed()
             else:
                 await self._se.acquire()
-                self._pool.submit(fn, *args, **kwargs).add_done_callback(
-                    self._release_se_cb
+                _fut = self._pool.submit(fn, *args, **kwargs)
+                _fut.add_done_callback(self._release_se_cb)
+                # NOTE: a writer waiting for a thread has not started caching: its subscribers
+                #   can only wait (and get 503 when they give up), and what the provider tees
+                #   to it piles up in memory. As a writer keeps its thread until the provider
+                #   has received the whole file, that wait can be as long as the slowest
+                #   ongoing downloads. Drop the caching then, so that the subscribers'
+                #   next requests fetch the file by themselves.
+                asyncio.get_running_loop().call_later(
+                    self._writer_start_timeout,
+                    self._drop_writer_not_started,
+                    _fut,
+                    tracker_event,
                 )
         finally:
             del self, fn, args, kwargs

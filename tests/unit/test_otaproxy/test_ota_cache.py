@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import random
+import threading
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,8 +38,13 @@ from ota_proxy._consts import (
 )
 from ota_proxy.cache_control_header import export_kwargs_as_header_string
 from ota_proxy.cache_index import CacheIndex
-from ota_proxy.cache_streaming import CacheTracker
+from ota_proxy.cache_streaming import (
+    CacheTracker,
+    CacheTrackerEvents,
+    CacheWriterPool,
+)
 from ota_proxy.db import CacheMeta
+from ota_proxy.errors import CacheProviderNotReady
 from ota_proxy.ota_cache import OTACache, _range_start
 from ota_proxy.utils import url_based_hash
 from otaclient_common.downloader import DEFAULT_READ_TIMEOUT
@@ -308,6 +316,89 @@ class TestOTACacheSocketReadTimeout:
                     total=None, sock_read=cfg.AIOHTTP_SOCKET_READ_TIMEOUT
                 )
             finally:
+                await cache.close()
+
+
+#
+# ------------ Tests: a provider whose cache writer gets no thread ------------ #
+#
+
+
+class TestOTACacheWriterGetsNoThread:
+    """A cache writer keeps its thread until its provider has received the whole file, so
+    slow downloads can hold all the write threads. The writer of a new provider then waits
+    in the queue, and its subscribers cannot start until a thread frees up."""
+
+    def test_subscribers_are_released_before_they_give_up(self):
+        assert cfg.CACHE_WRITER_START_TIMEOUT < CacheTracker.SUBSCRIBER_WAIT_TIMEOUT, (
+            "a writer that gets no thread must be dropped before its subscribers give up"
+        )
+
+    async def test_the_subscriber_fetches_the_file_by_itself(
+        self, tmp_path_factory: pytest.TempPathFactory
+    ):
+        """The subscriber is answered 503 as soon as the writer is dropped, not after
+        the slow downloads holding the threads finish, and its next request downloads
+        the file from the remote as a provider."""
+        cache = OTACache(
+            cache_enabled=True,
+            init_cache=False,
+            base_dir=tmp_path_factory.mktemp("ota-cache") / "local_cache",
+        )
+        _url, _sha = "http://example.com/blob", "c" * 64
+        _chunk, _chunks_num = b"x" * 1024, 20
+
+        def _request() -> CIMultiDict[str]:
+            return CIMultiDict({HEADER_OTA_FILE_CACHE_CONTROL: f"file_sha256={_sha}"})
+
+        async def _slow_remote():
+            for _ in range(_chunks_num):
+                yield _chunk
+                await asyncio.sleep(0.02)
+
+        ongoing_writer_done = threading.Event()
+        with (
+            patch(
+                "ota_proxy.ota_cache.shutil.disk_usage",
+                return_value=MagicMock(total=100, used=10, free=90),
+            ),
+            patch.object(
+                cache, "_retrieve_file_by_downloading", new_callable=AsyncMock
+            ) as mock_remote,
+        ):
+            mock_remote.side_effect = lambda *_, **__: (
+                _slow_remote(),
+                CIMultiDictProxy(CIMultiDict()),
+            )
+            await cache.start()
+            try:
+                assert await asyncio.to_thread(
+                    cache._storage_below_hard_limit_event.wait, 5
+                )
+                await cache._cache_write_pool.close()
+                cache._cache_write_pool = CacheWriterPool(
+                    max_workers=1, writer_start_timeout=0.2
+                )
+                # the only write thread is held by an ongoing slow download
+                await cache._cache_write_pool._write_dispatcher(
+                    CacheTrackerEvents(), ongoing_writer_done.wait
+                )
+
+                provider_body, _ = await cache.retrieve_file(_url, _request())
+                provider = asyncio.create_task(_collect(provider_body))
+                await asyncio.sleep(0.1)  # the provider's writer is queued by now
+
+                _t0 = time.monotonic()
+                with pytest.raises(CacheProviderNotReady):
+                    await cache.retrieve_file(_url, _request())
+                assert time.monotonic() - _t0 < CacheTracker.SUBSCRIBER_WAIT_TIMEOUT / 2
+
+                retry_body, _ = await cache.retrieve_file(_url, _request())
+                assert mock_remote.call_count == 2, "the retry must go to the remote"
+                assert await _collect(retry_body) == _chunk * _chunks_num
+                assert await provider == _chunk * _chunks_num
+            finally:
+                ongoing_writer_done.set()
                 await cache.close()
 
 

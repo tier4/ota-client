@@ -583,6 +583,50 @@ class TestCacheWriterPool:
         assert called.is_set()
         assert not ev.writer_failed
 
+    async def test_write_dispatcher_drops_a_writer_that_gets_no_thread_in_time(self):
+        """With the write threads held by ongoing writers, a new writer waits in the queue.
+        It is dropped: it never runs, and its tracker fails so that its subscribers stop
+        waiting for it."""
+        pool = CacheWriterPool(max_workers=1, max_pending=4, writer_start_timeout=0.1)
+        ongoing_writer_done = threading.Event()
+        dropped_writer_ran = threading.Event()
+        try:
+            await pool._write_dispatcher(CacheTrackerEvents(), ongoing_writer_done.wait)
+            ev = CacheTrackerEvents()
+            await pool._write_dispatcher(ev, dropped_writer_ran.set)
+
+            await asyncio.sleep(0.3)
+            assert ev.writer_failed
+
+            ongoing_writer_done.set()
+            await asyncio.sleep(0.2)
+            assert not dropped_writer_ran.is_set()
+            assert pool._se._value == 4, "the dropped writer must release its slot"
+        finally:
+            ongoing_writer_done.set()
+            await pool.close()
+
+    async def test_write_dispatcher_keeps_a_writer_that_started_in_time(self):
+        """A writer that got a thread in time keeps caching, however long it takes."""
+        pool = CacheWriterPool(max_workers=1, max_pending=4, writer_start_timeout=0.1)
+        ev = CacheTrackerEvents()
+        writer_started, provider_done = threading.Event(), threading.Event()
+
+        def long_writer():
+            ev.set_writer_started()
+            writer_started.set()
+            provider_done.wait()
+
+        try:
+            await pool._write_dispatcher(ev, long_writer)
+            assert await asyncio.to_thread(writer_started.wait, 5)
+
+            await asyncio.sleep(0.3)
+            assert not ev.writer_failed
+        finally:
+            provider_done.set()
+            await pool.close()
+
     async def test_stream_writing_cache_empty_fd_stop_iteration(
         self, tmp_path: Path, mocker
     ):
