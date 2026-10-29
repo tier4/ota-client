@@ -850,6 +850,10 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
                     payload=SetUpdateMetaReport(
                         total_download_files_num=len(_plan.blobs),
                         total_download_files_size=_plan.total_size,
+                        # A partition image has no files to count, so its progress
+                        # is told by size: what the processed size ends at, the
+                        # blobs downloaded and then the bytes the installer writes.
+                        image_size_uncompressed=_plan.total_size + _total_write,
                         metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
                     ),
                     session_id=self.session_id,

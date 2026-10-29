@@ -1193,6 +1193,15 @@ class TestExecute:
             and _r.operation is UpdateProgressReport.Type.APPLY_DELTA
         )
         assert _written == 1534529536 + 512
+        # no files to count: the total size is what the processed size ends at,
+        # the download and then the write
+        assert _meta.image_file_entries == 0
+        assert _meta.image_size_uncompressed == sum(
+            _r.processed_file_size
+            for _r in _reports
+            if isinstance(_r, UpdateProgressReport)
+        )
+        assert _meta.image_size_uncompressed == 2 * (1534529536 + 512)
 
     def test_a_payload_the_installer_refuses_is_a_failed_update(
         self, tmp_path: Path, pool, server, index_verified_from
