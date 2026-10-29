@@ -48,6 +48,14 @@ LAYOUT = SlotLayout(
     standby_dev="/dev/sda4",
     platform="grub",
 )
+LAYOUT_ON_B = SlotLayout(
+    active_slot="rootfs_b",
+    standby_slot="rootfs_a",
+    active_dev="/dev/sda4",
+    standby_dev="/dev/sda3",
+    platform="grub",
+)
+"""The same device, booted into the other slot."""
 
 
 class FakeDPI:
@@ -226,8 +234,10 @@ class TestSwitchingBoot:
         assert _ctrl.get_booted_ota_status() == OTAStatus.FAILURE
         _info = _ctrl.get_booted_failure_info()
         assert _info is not None, "reported with its reason, not a bare FAILURE"
+        assert _info[0] == FailureType.UNRECOVERABLE, "still running the slot on trial"
         assert _info[1].startswith("E557")
         assert "the health check did not pass" in _info[1]
+        assert staged_in_boot(tmp_path).exists(), "kept for the boot that follows"
 
     def test_a_rolled_back_boot_still_lets_the_dpi_close_its_record(
         self, tmp_path: Path, this_boot
@@ -251,9 +261,84 @@ class TestSwitchingBoot:
         assert _dpi.calls == ["layout", "resume"]
         assert _ctrl.get_booted_ota_status() == OTAStatus.FAILURE
         _info = _ctrl.get_booted_failure_info()
-        assert _info is not None and _info[1].startswith("E557")
+        assert _info is not None
+        # back on the release committed before the update: nothing to repair
+        assert _info[0] == FailureType.RECOVERABLE
+        assert _info[1].startswith("E560")
         assert "fhs-fail.service" in _info[1]
         assert not staged_in_boot(tmp_path).exists()
+
+    def test_a_trial_refused_on_its_own_boot_is_reported_from_the_slot_it_returns_to(
+        self, tmp_path: Path, this_boot
+    ):
+        """A health check that runs into its deadline does so while otaclient on the
+        trial boot waits in `resume`: the DPI refuses the commit there, leaves the
+        reason in its record and reboots, and the platform boots the old slot. That
+        boot still lets the DPI close the record, and reports the rollback with the
+        reason the trial boot left -- not a bare FAILURE, and not a failed switch."""
+        _staging = make_controller(tmp_path)
+        _staging.pre_update(standby_as_ref=False, erase_standby=True)
+        _staging.post_update("3.0.0")
+
+        this_boot("boot-2")  # the trial boot of rootfs_b
+        _on_trial = FakeDPI(
+            layout=LAYOUT_ON_B,
+            resume_error="health check did not pass on rootfs_b: "
+            "failed: autoware.service",
+        )
+        _trial = make_controller(tmp_path, _on_trial)
+        assert _on_trial.calls == ["layout", "resume"]
+        assert _trial.get_booted_ota_status() == OTAStatus.FAILURE
+        assert staged_in_boot(tmp_path).read_text() == "boot-1"
+
+        this_boot("boot-3")  # the platform's reboot back into rootfs_a
+        _on_return = FakeDPI(
+            resume_error="staged 3.0.0 on rootfs_b but booted rootfs_a; the update "
+            "did not take: health check on rootfs_b: failed: autoware.service"
+        )
+        _returned = make_controller(tmp_path, _on_return)
+
+        assert _on_return.calls == ["layout", "resume"]
+        assert _returned.get_booted_ota_status() == OTAStatus.FAILURE
+        _info = _returned.get_booted_failure_info()
+        assert _info is not None
+        assert _info[0] == FailureType.RECOVERABLE
+        assert _info[1].startswith("E560")
+        assert "autoware.service" in _info[1]
+        assert not staged_in_boot(tmp_path).exists()
+
+    def test_a_refused_slot_the_ecu_stays_on_is_asked_once_more_and_kept_failed(
+        self, tmp_path: Path, this_boot
+    ):
+        """Where the platform does not take the ECU back (the DPI committed the slot
+        and then could not promote a data image, say), the next boot is on the same
+        slot: the DPI has nothing left to conclude, the mark goes, and the failed
+        switch stays what is reported."""
+        _staging = make_controller(tmp_path)
+        _staging.pre_update(standby_as_ref=False, erase_standby=True)
+        _staging.post_update("3.0.0")
+        this_boot("boot-2")
+        make_controller(
+            tmp_path,
+            FakeDPI(
+                layout=LAYOUT_ON_B,
+                resume_error="3.0.0 is committed on rootfs_b, but ml_package "
+                "did not mount",
+            ),
+        )
+
+        this_boot("boot-3")  # still rootfs_b
+        _dpi = FakeDPI(layout=LAYOUT_ON_B)
+        _ctrl = make_controller(tmp_path, _dpi)
+
+        assert _dpi.calls == ["layout", "resume"]
+        assert not staged_in_boot(tmp_path).exists()
+        assert _ctrl.get_booted_ota_status() == OTAStatus.FAILURE
+        _info = _ctrl.get_booted_failure_info()
+        assert _info is not None
+        assert _info[0] == FailureType.UNRECOVERABLE
+        assert _info[1].startswith("E557")
+        assert "ml_package did not mount" in _info[1]
 
     def test_a_restart_before_the_reboot_does_not_ask_the_dpi_to_conclude(
         self, tmp_path: Path, this_boot
