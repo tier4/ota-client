@@ -232,7 +232,8 @@ class FakeServer:
 
     A ranged request (`resume_from`) is honoured as a server that supports it does:
     the file goes on from there. With `drops`, the link drops that many times, each
-    time after `per_drop` bytes of the attempt arrived.
+    time after `per_drop` bytes of the attempt arrived. What arrives is counted on
+    the downloader as the real one counts it, as traffic on the wire.
     """
 
     def __init__(
@@ -271,6 +272,7 @@ class FakeServer:
         with open(dst, "r+b" if resume_from else "wb") as _f:
             _f.seek(resume_from)
             _f.write(_rest)
+        _downloader._downloaded_bytes += len(_rest)
         if _dropped:
             raise ConnectionError("link dropped")
         return DownloadResult(download_size=len(_rest), traffic_on_wire=len(_rest))
@@ -430,10 +432,22 @@ def read_metadata(updater: PartitionImageUpdater, served: Path, *, pool):
     return updater.image_config
 
 
-def download(updater: PartitionImageUpdater, plan, *, pool, on_blob_done=None):
+def download(
+    updater: PartitionImageUpdater,
+    plan,
+    *,
+    pool,
+    on_blob_start=None,
+    on_blob_done=None,
+):
     _condition = threading.Condition()
     drive(
-        updater.download_payload(plan, condition=_condition, on_blob_done=on_blob_done),
+        updater.download_payload(
+            plan,
+            condition=_condition,
+            on_blob_start=on_blob_start,
+            on_blob_done=on_blob_done,
+        ),
         pool=pool,
         condition=_condition,
     )
@@ -705,17 +719,23 @@ class TestDownloadAndApply:
         _dst = tmp_path / "image" / RESOURCE_DIR / DELTA_DIGEST
         _dst.parent.mkdir(parents=True)
         _dst.write_bytes(DELTA_BYTES)  # the bytes that hash to the digest
-        _done: list[tuple[str, bool]] = []
+        _seen: list[tuple[str, str, bool | None]] = []
 
         download(
             _updater,
             _plan,
             pool=pool,
-            on_blob_done=lambda _b, _downloaded: _done.append((_b.what, _downloaded)),
+            on_blob_start=lambda _b: _seen.append(("start", _b.what, None)),
+            on_blob_done=lambda _b, _downloaded: _seen.append(
+                ("done", _b.what, _downloaded)
+            ),
         )
 
         assert _server.calls == []
-        assert _done == [("the rootfs delta", False)]
+        assert _seen == [
+            ("start", "the rootfs delta", None),
+            ("done", "the rootfs delta", False),
+        ]
 
     def test_a_blob_of_the_right_length_but_the_wrong_bytes_is_downloaded_again(
         self, tmp_path: Path, pool, server
@@ -1123,10 +1143,16 @@ class TestExecute:
             if isinstance(_r, UpdateProgressReport)
             and _r.operation is UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY
         ]
-        assert [(_r.processed_file_size, _r.downloaded_bytes) for _r in _downloads] == [
-            (1534529536, 1534529536),
-            (512, 512),
+        # every blob ends as one file of its size, whatever was reported while it
+        # downloaded; the traffic is what came over the wire (the served bytes)
+        assert [
+            _r.processed_file_num for _r in _downloads if _r.processed_file_num
+        ] == [
+            1,
+            1,
         ]
+        assert sum(_r.processed_file_size for _r in _downloads) == 1534529536 + 512
+        assert sum(_r.downloaded_bytes for _r in _downloads) == 4096 + 512
         _written = sum(
             _r.processed_file_size
             for _r in _reports
@@ -1289,6 +1315,138 @@ class TestExecute:
         [_only] = list(_root.iterdir())
         assert _only.parent == _root and (_only / "image" / INDEX_JWT_FNAME).is_file()
         assert (tmp_path / "served").is_dir()  # nothing beside the staging was touched
+
+
+class FakeTraffic:
+    """The downloader pool's byte counter, moved by the test."""
+
+    def __init__(self, start: int = 0) -> None:
+        self.bytes = start
+
+    def __call__(self) -> int:
+        return self.bytes
+
+
+def planned(size: int, what: str = "the rootfs image") -> _mod.PlannedBlob:
+    return _mod.PlannedBlob(descriptor=blob("f" * 64, size=size), what=what)
+
+
+def sizes_and_traffic(
+    reports: list[UpdateProgressReport],
+) -> list[tuple[int, int, int]]:
+    return [
+        (_r.processed_file_num, _r.processed_file_size, _r.downloaded_bytes)
+        for _r in reports
+    ]
+
+
+class TestDownloadProgress:
+    """A blob of gigabytes is reported while it downloads, not only once whole."""
+
+    def test_a_blob_is_reported_as_it_arrives_and_counted_once_in_place(self):
+        _traffic = FakeTraffic(start=100)  # the metadata, reported with the plan
+        _reports: list[UpdateProgressReport] = []
+        _progress = _mod.BlobDownloadProgress(traffic=_traffic, report=_reports.append)
+        _blob = planned(1000)
+
+        _progress.blob_started(_blob)
+        _traffic.bytes = 400
+        _progress.tick()
+        _progress.tick()  # nothing arrived since: nothing to report
+        _traffic.bytes = 900
+        _progress.tick()
+        _progress.blob_done(_blob, True)
+
+        assert sizes_and_traffic(_reports) == [
+            (0, 300, 300),
+            (0, 500, 500),
+            (1, 200, 0),  # the rest of the blob, as one file
+        ]
+
+    def test_progress_through_a_blob_never_passes_its_size(self):
+        """A retried range comes over the wire twice: traffic, not more blob."""
+        _traffic = FakeTraffic()
+        _reports: list[UpdateProgressReport] = []
+        _progress = _mod.BlobDownloadProgress(traffic=_traffic, report=_reports.append)
+        _blob = planned(1000)
+
+        _progress.blob_started(_blob)
+        _traffic.bytes = 1500
+        _progress.tick()
+        _progress.blob_done(_blob, True)
+
+        assert sizes_and_traffic(_reports) == [(0, 1000, 1500), (1, 0, 0)]
+
+    def test_a_blob_an_earlier_attempt_left_is_counted_whole_without_traffic(self):
+        _reports: list[UpdateProgressReport] = []
+        _progress = _mod.BlobDownloadProgress(
+            traffic=FakeTraffic(start=100), report=_reports.append
+        )
+        _blob = planned(1000)
+
+        _progress.blob_started(_blob)
+        _progress.blob_done(_blob, False)
+
+        assert sizes_and_traffic(_reports) == [(1, 1000, 0)]
+
+    def test_each_blob_starts_from_nothing(self):
+        _traffic = FakeTraffic()
+        _reports: list[UpdateProgressReport] = []
+        _progress = _mod.BlobDownloadProgress(traffic=_traffic, report=_reports.append)
+        _first, _second = planned(1000), planned(10, what="the boot files")
+
+        _progress.blob_started(_first)
+        _traffic.bytes = 1000
+        _progress.blob_done(_first, True)
+        _progress.blob_started(_second)
+        _traffic.bytes = 1004
+        _progress.tick()
+        _progress.blob_done(_second, True)
+
+        assert sizes_and_traffic(_reports) == [
+            (1, 1000, 1000),
+            (0, 4, 4),
+            (1, 6, 0),
+        ]
+
+    def test_it_reports_on_its_own_while_the_block_runs_and_stops_after(self):
+        _traffic = FakeTraffic()
+        _reported = threading.Event()
+        _reports: list[UpdateProgressReport] = []
+
+        def _report(_r: UpdateProgressReport) -> None:
+            _reports.append(_r)
+            _reported.set()
+
+        _progress = _mod.BlobDownloadProgress(
+            traffic=_traffic, report=_report, interval=0.01
+        )
+        _progress.blob_started(planned(1000))
+        with _progress.reporting():
+            _traffic.bytes = 10
+            assert _reported.wait(5), "reported without being asked"
+        _traffic.bytes = 20
+        threading.Event().wait(0.05)
+
+        assert sizes_and_traffic(_reports) == [(0, 10, 10)]
+
+    def test_a_report_that_fails_does_not_stop_the_download(self, caplog):
+        _calls = threading.Event()
+
+        def _report(_r: UpdateProgressReport) -> None:
+            _calls.set()
+            raise RuntimeError("the status queue is gone")
+
+        _traffic = FakeTraffic()
+        _progress = _mod.BlobDownloadProgress(
+            traffic=_traffic, report=_report, interval=0.01
+        )
+        _progress.blob_started(planned(1000))
+        with _progress.reporting():
+            _traffic.bytes = 10
+            assert _calls.wait(5)
+
+        assert "failed to report the download progress" in caplog.text
 
 
 class TestWriteProgress:
