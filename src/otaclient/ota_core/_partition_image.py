@@ -167,8 +167,9 @@ class DownloadPlan:
         return sum(_b.size for _b in self.blobs)
 
 
-OnBlobStart = Callable[[PlannedBlob], None]
-"""Called as each planned blob is taken up, before it is looked for or downloaded."""
+OnBlobStart = Callable[[PlannedBlob, int], None]
+"""Called as each planned blob is taken up, before it is looked for or downloaded:
+the blob, and how many of its bytes an interrupted attempt left to be continued."""
 
 OnBlobDone = Callable[[PlannedBlob, bool], None]
 """Called as each planned blob is in place: the blob, and whether it was downloaded
@@ -229,6 +230,12 @@ class PartitionImageUpdater:
         )
         _dst.unlink(missing_ok=True)
         return False
+
+    def _bytes_to_continue(self, descriptor: OCIDescriptor) -> int:
+        """What an interrupted download of this blob left that `_fetch_blob` would
+        continue rather than download again."""
+        _part = self._blob_dir / (descriptor.digest.digest_hex + PARTIAL_SUFFIX)
+        return resumable_bytes(_part, descriptor.size)
 
     def _fetch_blob(
         self, descriptor: OCIDescriptor, *, what: str, condition: threading.Condition
@@ -468,7 +475,7 @@ class PartitionImageUpdater:
         self._check_there_is_room_for(plan)
         for _blob in plan.blobs:
             if on_blob_start is not None:
-                on_blob_start(_blob)
+                on_blob_start(_blob, self._bytes_to_continue(_blob.descriptor))
             _downloaded = yield from self._fetch_blob(
                 _blob.descriptor, what=_blob.what, condition=condition
             )
@@ -544,9 +551,10 @@ class BlobDownloadProgress:
     then jumps to the end. The downloader pool counts the bytes on the wire as they
     arrive, so while a blob downloads, what arrived since the last report is
     reported every `interval` seconds, as traffic and as progress through the blob
-    (never past the blob's size). Once the blob is in place, the rest of its size
-    is reported with it as one file, so the totals end where they always did: every
-    blob's size, and every byte that came over the wire.
+    (never past the blob's size). What an interrupted attempt left, and the download
+    continues, is progress from the start, without traffic. Once the blob is in
+    place, the rest of its size is reported with it as one file, so the totals end
+    where they always did: every blob's size, and every byte that came over the wire.
     """
 
     def __init__(
@@ -570,9 +578,17 @@ class BlobDownloadProgress:
         self._traffic_reported += _new
         return _new
 
-    def blob_started(self, blob: PlannedBlob) -> None:
+    def blob_started(self, blob: PlannedBlob, already_here: int = 0) -> None:
         with self._lock:
-            self._blob_size, self._blob_reported = blob.size, 0
+            self._blob_size = blob.size
+            self._blob_reported = min(max(0, already_here), blob.size)
+            if self._blob_reported:
+                self._report(
+                    UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                        processed_file_size=self._blob_reported,
+                    )
+                )
 
     def tick(self) -> None:
         """Report what arrived since the last report, if anything did."""

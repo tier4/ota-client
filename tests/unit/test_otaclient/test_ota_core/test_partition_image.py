@@ -725,7 +725,7 @@ class TestDownloadAndApply:
             _updater,
             _plan,
             pool=pool,
-            on_blob_start=lambda _b: _seen.append(("start", _b.what, None)),
+            on_blob_start=lambda _b, _here: _seen.append(("start", _b.what, None)),
             on_blob_done=lambda _b, _downloaded: _seen.append(
                 ("done", _b.what, _downloaded)
             ),
@@ -754,6 +754,39 @@ class TestDownloadAndApply:
 
         assert len(_server.calls) == 1
         assert _dst.read_bytes() == DELTA_BYTES
+
+    def test_what_an_interrupted_attempt_left_is_told_before_the_blob_is_fetched(
+        self, tmp_path: Path, pool, server
+    ):
+        """The part is continued, so the progress starts from it; a part that is
+        not a prefix (as long as the blob or longer) is not."""
+        server()
+        _updater = make_updater(tmp_path)
+        _updater.image_config = config(rootfs(delta=delta_against(ON_DEVICE)))
+        _plan = _updater.plan()
+        _blobs = tmp_path / "image" / RESOURCE_DIR
+        _blobs.mkdir(parents=True)
+        (_blobs / (DELTA_DIGEST + ".part")).write_bytes(DELTA_BYTES[:40])
+        _told: list[int] = []
+
+        download(
+            _updater,
+            _plan,
+            pool=pool,
+            on_blob_start=lambda _b, _here: _told.append(_here),
+        )
+        assert _told == [40]
+
+        (_blobs / DELTA_DIGEST).unlink()
+        (_blobs / (DELTA_DIGEST + ".part")).write_bytes(DELTA_BYTES + b"more")
+        _told.clear()
+        download(
+            _updater,
+            _plan,
+            pool=pool,
+            on_blob_start=lambda _b, _here: _told.append(_here),
+        )
+        assert _told == [0]
 
     def test_a_half_downloaded_blob_is_continued_from_where_it_stopped(
         self, tmp_path: Path, pool, server
@@ -1376,6 +1409,26 @@ class TestDownloadProgress:
         _progress.blob_done(_blob, True)
 
         assert sizes_and_traffic(_reports) == [(0, 1000, 1500), (1, 0, 0)]
+
+    def test_what_an_interrupted_attempt_left_is_progress_from_the_start(self):
+        """The download continues it with a ranged request: no traffic for it, and
+        no jump at the end."""
+        _traffic = FakeTraffic()
+        _reports: list[UpdateProgressReport] = []
+        _progress = _mod.BlobDownloadProgress(traffic=_traffic, report=_reports.append)
+        _blob = planned(1000)
+
+        _progress.blob_started(_blob, 700)
+        _traffic.bytes = 250
+        _progress.tick()
+        _traffic.bytes = 300
+        _progress.blob_done(_blob, True)
+
+        assert sizes_and_traffic(_reports) == [
+            (0, 700, 0),
+            (0, 250, 250),
+            (1, 50, 50),
+        ]
 
     def test_a_blob_an_earlier_attempt_left_is_counted_whole_without_traffic(self):
         _reports: list[UpdateProgressReport] = []
