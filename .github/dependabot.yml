@@ -1,0 +1,24 @@
+version: 2
+
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    # requirements.txt is a one-way export of uv.lock (see lock_file_management.yml).
+    # Without this exclusion Dependabot treats it as a manifest and bumps only its
+    # pins, leaving uv.lock (what CI and the release build actually use) untouched.
+    exclude-paths:
+      - "requirements.txt"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      actions-all:
+        patterns: ["*"]
