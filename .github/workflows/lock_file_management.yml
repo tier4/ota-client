@@ -1,19 +1,19 @@
-name: Sync uv.lock on pyproject.toml and exporting requirements.txt.
+name: Sync uv.lock and requirements.txt
+# NOTE: requirements.txt is a one-way export of uv.lock. Change pyproject.toml,
+#   never requirements.txt; Dependabot is told to leave it alone (exclude-paths).
 
-permissions:
-  contents: read
-  packages: read
-  actions: read
+permissions: {}
 
 on:
   pull_request:
     branches:
-      - main
-      - v.*
+      - "main"
+      - "v.*"
     paths:
-      - 'uv.lock'
-      - 'pyproject.toml'
-      - .github/workflows/sync_lockfile.yaml
+      - "pyproject.toml"
+      - "uv.lock"
+      - "requirements.txt"
+      - ".github/workflows/lock_file_management.yml"
   # allow manual dispatch of this workflow
   workflow_dispatch:
 
@@ -21,36 +21,99 @@ jobs:
   sync-lockfile:
     runs-on: ubuntu-latest
     permissions:
+      # Dependabot PRs get a read-only GITHUB_TOKEN unless the workflow asks for more.
       contents: write
-    timeout-minutes: 1
+    timeout-minutes: 5
+    env:
+      # the directories holding a pyproject.toml / uv.lock / requirements.txt set
+      COMPONENTS: "."
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          persist-credentials: false
 
+      # see https://docs.astral.sh/uv/guides/integration/github/#setting-up-python for more details.
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.6"
-      - name: Setup python
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version-file: ".python-version"
-      - name: Sync uv.lock with pyproject.toml
-        run: uv lock
-      - name: Export requirements.txt from uv.lock
-        run: uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.txt
-      - name: Commit change if needed
-        run: |
-          git config --global user.name "github-actions[bot]+sync-lockfile"
-          git config --global user.email "github-actions[bot]+sync-lockfile@users.noreply.github.com"
 
-          if git diff --exit-code uv.lock requirements.txt; then
-            echo "Skip commit as no changes are made"
-          else
-            echo "Commit changes on update ..."
-            git add uv.lock requirements.txt
-            git commit -m "[GHA] Update uv.lock and/or requirements.txt"
-            git push
+      - name: Sync uv.lock and export requirements.txt
+        run: |
+          set -euo pipefail
+          for component in ${COMPONENTS}; do
+            echo "::group::${component}"
+            pushd "${component}" > /dev/null
+            uv lock
+            uv export --frozen --no-dev --no-editable --no-hashes --no-emit-project > requirements.txt
+            popd > /dev/null
+            echo "::endgroup::"
+          done
+
+      # The commit is created through the GitHub GraphQL API (createCommitOnBranch)
+      # instead of `git commit` + `git push`:
+      # - GitHub signs it on the server side, so the organization ruleset "Require
+      #   Signed Commits" accepts it and no signing key has to be stored as a secret.
+      # - It needs only GITHUB_TOKEN. Dependabot PRs get no Actions secrets, so a
+      #   deploy key would be empty there.
+      # The pull_request runs this commit starts wait for approval (action_required);
+      # approve them on the PR so that CI covers the new head.
+      - name: Commit change if needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          # fileChanges.additions: the changed files, base64-encoded. They go through
+          # files rather than shell arguments because uv.lock exceeds the single
+          # argument size limit once encoded.
+          echo '[]' > "${RUNNER_TEMP}/additions.json"
+          for component in ${COMPONENTS}; do
+            for file in uv.lock requirements.txt; do
+              path="${component}/${file}"
+              path="${path#./}"
+              git diff --quiet -- "${path}" && continue
+              base64 -w0 "${path}" > "${RUNNER_TEMP}/contents.b64"
+              jq -c --arg path "${path}" --rawfile contents "${RUNNER_TEMP}/contents.b64" \
+                '. + [{path: $path, contents: $contents}]' \
+                "${RUNNER_TEMP}/additions.json" > "${RUNNER_TEMP}/additions.next.json"
+              mv "${RUNNER_TEMP}/additions.next.json" "${RUNNER_TEMP}/additions.json"
+            done
+          done
+
+          if [ "$(jq length "${RUNNER_TEMP}/additions.json")" -eq 0 ]; then
+            echo "skip commit as there is no change"
+            exit 0
           fi
+          echo "uv.lock and/or requirements.txt are updated, commit change ..."
+          git diff --stat
+
+          jq -n \
+            --arg repo "${REPO}" \
+            --arg branch "${BRANCH}" \
+            --arg head "$(git rev-parse HEAD)" \
+            --slurpfile additions "${RUNNER_TEMP}/additions.json" \
+            '{
+              query: "mutation ($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid url } } }",
+              variables: {
+                input: {
+                  branch: {repositoryNameWithOwner: $repo, branchName: $branch},
+                  expectedHeadOid: $head,
+                  message: {headline: "[GHA] update uv.lock and requirements.txt"},
+                  fileChanges: {additions: $additions[0]}
+                }
+              }
+            }' > "${RUNNER_TEMP}/commit.json"
+
+          gh api graphql --input "${RUNNER_TEMP}/commit.json" \
+            --jq '.data.createCommitOnBranch.commit | "created signed commit \(.oid): \(.url)"'
