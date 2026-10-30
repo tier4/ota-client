@@ -209,6 +209,13 @@ class OTAStatusFilesControl:
         ):
             return res
 
+    @property
+    def slot_in_use(self) -> str:
+        """The slot the last OTA operation expected this ECU to boot, as recorded on
+        the booted slot: the booted slot itself, unless an update switched away from
+        it and the ECU came back."""
+        return self._load_current_slot_in_use() or self.active_slot
+
     # status control
 
     def _store_current_status(self, _status: OTAStatus):

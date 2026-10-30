@@ -158,7 +158,11 @@ class PartitionImageBootController:
                 finalize_switching_boot=self._finalize_switching_boot,
             )
             if self._switch_concluded:
-                self._forget_the_staging_boot()
+                # A trial boot the DPI did not commit keeps the mark: the platform
+                # takes the ECU back to the committed slot, and the boot there is
+                # where the DPI closes its record and says why.
+                if self._not_committed is None:
+                    self._forget_the_staging_boot()
             elif self._a_reboot_followed_the_staging():
                 self._conclude_a_boot_that_did_not_switch()
                 self._forget_the_staging_boot()
@@ -212,7 +216,12 @@ class PartitionImageBootController:
 
         A trial boot that did not come up healthy is rebooted back to the committed
         slot by the platform; from the status files that is not a switching boot, so
-        the DPI is asked once (it is idempotent) to close its record.
+        the DPI is asked once (it is idempotent) to close its record. That holds
+        whether otaclient on the trial boot never got to ask the DPI (a unit that
+        failed at once, rebooted before otaclient started) or asked and was refused
+        (a health check that ran into its deadline while `resume` waited for it): the
+        refusal leaves the record for the slot the platform returns to, and the mark
+        for this boot.
         """
         self._resume()
 
@@ -238,6 +247,12 @@ class PartitionImageBootController:
         status file written with it, and the status control rewrites that file
         while it concludes the boot. A reason otaclient already recorded for this
         FAILURE (an update that failed before its reboot) is kept.
+
+        Which failure it is depends on where the ECU is. Back on the slot the update
+        switched away from, the platform has rolled the trial back: this slot holds
+        the release committed before the update, and the failure is recoverable. On
+        the updated slot itself, the commit was refused while the ECU still runs the
+        slot on trial, which is a failed switch.
         """
         if self._not_committed is None or (
             self._ota_status_control.booted_ota_status
@@ -246,10 +261,12 @@ class PartitionImageBootController:
             return
         if self._ota_status_control.load_booted_failure_info() is not None:
             return
-        _err = ota_errors.BootControlSwitchBootFailed(
-            f"the DPI did not commit the trial boot: {self._not_committed}",
-            module=__name__,
-        )
+        _detail = f"the DPI did not commit the trial boot: {self._not_committed}"
+        _err: ota_errors.OTAError
+        if self._ota_status_control.slot_in_use != self._layout.active_slot:
+            _err = ota_errors.BootControlTrialBootFailed(_detail, module=__name__)
+        else:
+            _err = ota_errors.BootControlSwitchBootFailed(_detail, module=__name__)
         try:
             self._ota_status_control.store_failure_info(
                 failure_type=_err.failure_type,

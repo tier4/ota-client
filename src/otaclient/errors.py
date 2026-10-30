@@ -118,6 +118,7 @@ class OTAErrorCode(int, Enum):
     E_BOOTCONTROL_SWITCH_BOOT_FAILED = 557
     E_BOOTCONTROL_PREROLLBACK_FAILED = 558
     E_BOOTCONTROL_POSTROLLBACK_FAILED = 559
+    E_BOOTCONTROL_TRIAL_BOOT_FAILED = 560
 
     @property
     def category(self) -> FailureCategory:
@@ -319,6 +320,23 @@ class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
         OTAErrorCode.E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED
     )
     failure_description: str = "boot_control BSP version compatibility check failed"
+
+
+class BootControlTrialBootFailed(OTAErrorRecoverable):
+    """The updated slot did not take, and the ECU booted the slot it ran before.
+
+    Recoverable, unlike `BootControlSwitchBootFailed`: a partition-based layout tries
+    the updated slot for one boot only and commits it only once its health check has
+    passed, so the slot the ECU booted holds the release that was committed before
+    the update, and nothing needs repairing. The detail says why the update did not
+    take, as the DPI reported it.
+    """
+
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_BOOTCONTROL_TRIAL_BOOT_FAILED
+    failure_description: str = (
+        "the updated slot did not pass its trial boot, "
+        "the ECU is back on the previous version"
+    )
 
 
 #

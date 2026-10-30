@@ -97,6 +97,7 @@ After otaclient restarts or the ECU reboots, the saved failure is reported again
 | E557 | `E_BOOTCONTROL_SWITCH_BOOT_FAILED` | unrecoverable | Boot controller failed to switch boot to the standby slot. |
 | E558 | `E_BOOTCONTROL_PREROLLBACK_FAILED` | unrecoverable | Boot controller pre-rollback failed. |
 | E559 | `E_BOOTCONTROL_POSTROLLBACK_FAILED` | unrecoverable | Boot controller post-rollback failed. |
+| E560 | `E_BOOTCONTROL_TRIAL_BOOT_FAILED` | recoverable | Partition-based layout only: the updated slot did not pass its trial boot(for example its health check), and the platform booted the previous slot, which holds the release committed before the update. |
 
 ## Legacy error codes
 
