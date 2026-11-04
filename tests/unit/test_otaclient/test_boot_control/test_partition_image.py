@@ -21,6 +21,8 @@ otaclient records -- not the DPI's own behaviour, which is tested where it lives
 from __future__ import annotations
 
 import logging
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,7 @@ from otaclient.boot_control.protocol import (
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.configs import BootloaderType
+from otaclient_common import _io
 
 LAYOUT = SlotLayout(
     active_slot="rootfs_a",
@@ -105,6 +108,25 @@ def staged_in_boot(state_dir: Path) -> Path:
 
 def make_controller(state_dir: Path, dpi: FakeDPI | None = None):
     return PartitionImageBootController(dpi=dpi or FakeDPI(), state_dir=state_dir)
+
+
+@pytest.fixture(autouse=True)
+def tmp_path_is_a_mount_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The state and staging directories are checked from their mount point down,
+    and the real mount point of tmp_path has /tmp, world-writable, on the way: here
+    tmp_path, private to us, stands in for it. What a test makes there is made under
+    the umask otaclient runs under, systemd's."""
+    _real = _io._mount_point_of
+    monkeypatch.setattr(
+        _io,
+        "_mount_point_of",
+        lambda _p: tmp_path if tmp_path in (_p, *_p.parents) else _real(_p),
+    )
+    _old_umask = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(_old_umask)
 
 
 @pytest.fixture
@@ -187,6 +209,103 @@ class TestStartup:
         fail loudly rather than land somewhere else."""
         with pytest.raises(NotImplementedError, match="written as an image"):
             make_controller(tmp_path).get_standby_slot_path()
+
+
+class TestTheStateIsOurs:
+    """otaclient writes its records and prunes its staging as root, on storage the
+    platform mounts; a directory there that another user owns or can write, or a
+    symlink, would let that user point those writes and removals anywhere."""
+
+    def test_this_slots_status_directory_is_made_with_an_explicit_mode(
+        self, tmp_path: Path
+    ):
+        _old_umask = os.umask(0)
+        try:
+            make_controller(tmp_path)
+        finally:
+            os.umask(_old_umask)
+
+        for _dir in (tmp_path / OTA_STATUS_DNAME, status_dir(tmp_path, "rootfs_a")):
+            assert stat.S_IMODE(_dir.stat().st_mode) == 0o755
+        assert not status_dir(tmp_path, "rootfs_b").exists(), "made when staging"
+
+    def test_the_standbys_is_made_the_same_way_when_an_update_is_staged(
+        self, tmp_path: Path, this_boot
+    ):
+        _ctrl = make_controller(tmp_path)
+        _old_umask = os.umask(0)
+        try:
+            _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
+        finally:
+            os.umask(_old_umask)
+
+        assert stat.S_IMODE(status_dir(tmp_path, "rootfs_b").stat().st_mode) == 0o755
+
+    def test_a_state_directory_others_can_write_stops_startup_untouched(
+        self, tmp_path: Path
+    ):
+        """optdata as the platform left it, writable by more than root: refused
+        before anything is made or read there."""
+        _state = tmp_path / "opt-data"
+        _state.mkdir()
+        _state.chmod(0o777)
+
+        with pytest.raises(
+            ota_errors.BootControlStartupFailed, match="not a private directory"
+        ):
+            make_controller(_state)
+        assert list(_state.iterdir()) == []
+
+    @pytest.mark.skipif(os.geteuid() != 0, reason="chown to another user needs root")
+    def test_a_state_directory_another_user_owns_stops_startup(self, tmp_path: Path):
+        _state = tmp_path / "opt-data"
+        _state.mkdir(mode=0o755)
+        os.chown(_state, 1000, 1000)
+
+        with pytest.raises(ota_errors.BootControlStartupFailed, match="owner uid 1000"):
+            make_controller(_state)
+        assert list(_state.iterdir()) == []
+
+    @pytest.mark.parametrize(
+        "planted",
+        [
+            OTA_STATUS_DNAME,
+            f"{OTA_STATUS_DNAME}/rootfs_a",
+            f"{OTA_STATUS_DNAME}/rootfs_b",
+        ],
+    )
+    def test_a_symlink_among_the_status_directories_stops_startup(
+        self, tmp_path: Path, planted: str
+    ):
+        """Followed, the status writes would overwrite whatever it points at."""
+        _state, _elsewhere = tmp_path / "opt-data", tmp_path / "elsewhere"
+        _elsewhere.mkdir()
+        (_state / planted).parent.mkdir(parents=True, exist_ok=True)
+        (_state / planted).symlink_to(_elsewhere)
+
+        with pytest.raises(ota_errors.BootControlStartupFailed, match="is a symlink"):
+            make_controller(_state)
+        assert list(_elsewhere.iterdir()) == []
+
+    def test_a_staging_directory_that_is_a_symlink_stops_startup(self, tmp_path: Path):
+        """Checked as far as it exists; the updater makes the rest, after the same
+        check."""
+        _elsewhere = tmp_path / "elsewhere"
+        _elsewhere.mkdir()
+        (tmp_path / "staging").symlink_to(_elsewhere)
+
+        with pytest.raises(ota_errors.BootControlStartupFailed, match="is a symlink"):
+            PartitionImageBootController(
+                dpi=FakeDPI(), state_dir=tmp_path, staging_dir=tmp_path / "staging"
+            )
+
+    def test_a_staging_directory_not_made_yet_is_left_to_the_updater(
+        self, tmp_path: Path
+    ):
+        PartitionImageBootController(
+            dpi=FakeDPI(), state_dir=tmp_path, staging_dir=tmp_path / "staging"
+        )
+        assert not (tmp_path / "staging").exists()
 
 
 class TestSwitchingBoot:

@@ -11,12 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Integration tests for the otaclient_common._io atomic file primitives."""
+"""Integration tests for the otaclient_common._io atomic file primitives, and the
+check of the directories they are used in."""
 
 from __future__ import annotations
 
 import os
 import random
+import stat
 import string
 import subprocess
 from hashlib import sha256
@@ -24,11 +26,14 @@ from pathlib import Path
 
 import pytest
 
+from otaclient_common import _io
 from otaclient_common._io import (
     TMP_FILE_PREFIX,
     _gen_tmp_fname,
+    _mount_point_of,
     cal_file_digest,
     copyfile_atomic,
+    ensure_private_dir,
     file_sha256,
     remove_file,
     symlink_atomic,
@@ -172,3 +177,107 @@ def test_remove_file(tmp_path: Path):
     assert test_f.is_dir()
     remove_file(test_f)
     assert not test_f.is_dir() and not test_f.exists()
+
+
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(os.lstat(path).st_mode)
+
+
+def test_the_mount_point_is_the_nearest_mounted_ancestor(tmp_path: Path):
+    _path = tmp_path / "not" / "made" / "yet"
+    _top = _mount_point_of(_path)
+    assert os.path.ismount(_top)
+    assert _top in _path.parents
+    assert not any(os.path.ismount(_p) for _p in _path.parents if _top in _p.parents)
+
+
+class TestEnsurePrivateDir:
+    """Every directory from the mount point down to the one asked for has to be
+    root's (or ours), not a symlink, and not writable by group or others."""
+
+    @pytest.fixture
+    def top(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """tmp_path, private to us, stands in for the mount point: the real one has
+        /tmp, world-writable, on the way to it. What a test makes there is made
+        under the umask otaclient runs under, systemd's."""
+        monkeypatch.setattr(_io, "_mount_point_of", lambda _path: tmp_path)
+        _old_umask = os.umask(0o022)
+        try:
+            yield tmp_path
+        finally:
+            os.umask(_old_umask)
+
+    def test_what_is_missing_is_made_with_explicit_modes(self, top: Path):
+        """Not the umask's: whatever it is, nothing made here is writable by others."""
+        _old_umask = os.umask(0)
+        try:
+            _leaf = ensure_private_dir(
+                top / "data" / "otaclient" / "staged", mode=0o700
+            )
+        finally:
+            os.umask(_old_umask)
+
+        assert _leaf == top / "data" / "otaclient" / "staged"
+        assert _mode(_leaf) == 0o700
+        assert _mode(top / "data") == _mode(top / "data" / "otaclient") == 0o755
+
+    def test_a_directory_that_is_ours_already_is_left_as_it_is(self, top: Path):
+        (top / "state").mkdir(mode=0o750)
+        ensure_private_dir(top / "state")
+        assert _mode(top / "state") == 0o750
+
+    @pytest.mark.parametrize("where", ["data", "data/ota-status"])
+    def test_a_symlink_on_the_way_is_refused_and_not_followed(
+        self, top: Path, where: str
+    ):
+        """Pointed at another directory, the writes and removals would land there."""
+        _elsewhere = top / "elsewhere"
+        _elsewhere.mkdir()
+        (top / where).parent.mkdir(parents=True, exist_ok=True)
+        (top / where).symlink_to(_elsewhere)
+
+        with pytest.raises(PermissionError, match="is a symlink"):
+            ensure_private_dir(top / "data" / "ota-status" / "A")
+        assert list(_elsewhere.iterdir()) == []
+
+    def test_a_directory_others_can_write_is_refused_with_nothing_made_below(
+        self, top: Path
+    ):
+        """Its owner aside, anyone could rename what is in it and put their own in
+        its place."""
+        (top / "data").mkdir()
+        (top / "data").chmod(0o777)
+
+        with pytest.raises(PermissionError, match="not a private directory"):
+            ensure_private_dir(top / "data" / "ota-status" / "A")
+        assert not (top / "data" / "ota-status").exists()
+
+    def test_the_mount_point_itself_is_checked(self, top: Path):
+        """The platform mounts it and sets its owner; that is checked, not assumed."""
+        top.chmod(0o775)
+        with pytest.raises(PermissionError, match="not a private directory"):
+            ensure_private_dir(top / "ota-status")
+
+    @pytest.mark.skipif(os.geteuid() != 0, reason="chown to another user needs root")
+    def test_a_directory_another_user_owns_is_refused(self, top: Path):
+        (top / "data").mkdir(mode=0o755)
+        os.chown(top / "data", 1000, 1000)
+
+        with pytest.raises(PermissionError, match="owner uid 1000"):
+            ensure_private_dir(top / "data" / "ota-status")
+        assert not (top / "data" / "ota-status").exists()
+
+    def test_a_file_on_the_way_is_refused(self, top: Path):
+        (top / "data").write_text("")
+        with pytest.raises(PermissionError, match="not a directory"):
+            ensure_private_dir(top / "data" / "ota-status")
+
+    def test_without_create_the_check_stops_where_the_path_does(self, top: Path):
+        (top / "data").mkdir()
+        ensure_private_dir(top / "data" / "otaclient" / "staged", create=False)
+        assert not (top / "data" / "otaclient").exists()
+
+    def test_a_mode_others_could_write_is_not_made(self, top: Path):
+        with pytest.raises(ValueError):
+            ensure_private_dir(top / "data", mode=0o775)
+        assert not (top / "data").exists()
