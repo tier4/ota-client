@@ -52,6 +52,16 @@ LAYOUT = SlotLayout(
     platform="grub",
 )
 
+DRIVEOS_LAYOUT = SlotLayout(
+    active_slot="A",
+    standby_slot="B",
+    active_dev="",
+    standby_dev="/nonexistent/driveos-inactive-chain",
+    platform="driveos",
+)
+"""What the DPI reports on DriveOS: the boot chains as the slots; no device of the
+inactive chain is visible in the guest."""
+
 
 class FakeDPI:
     """Records what otaclient asked of the DPI, and answers as the real one would."""
@@ -185,15 +195,16 @@ class TestStartup:
         assert _ctrl.partition_installer is _dpi
         assert _ctrl.payload_staging_dir == Path(PLATFORMS["grub"].staging_dir)
 
-    def test_the_selecter_knows_both_bootloader_types(self):
-        assert (
-            get_boot_controller(BootloaderType.GRUB_VERITY)
-            is PartitionImageBootController
-        )
-        assert (
-            get_boot_controller(BootloaderType.JETSON_DPI)
-            is PartitionImageBootController
-        )
+    @pytest.mark.parametrize(
+        "bootloader",
+        [
+            BootloaderType.GRUB_VERITY,
+            BootloaderType.JETSON_DPI,
+            BootloaderType.DRIVEOS_DPI,
+        ],
+    )
+    def test_the_selecter_knows_every_dpi_bootloader_type(self, bootloader):
+        assert get_boot_controller(bootloader) is PartitionImageBootController
 
     def test_status_files_live_outside_the_slots(self, tmp_path: Path):
         """The slot they describe is a read-only verity image with nowhere to write,
@@ -767,6 +778,14 @@ class TestWhereTheStateGoes:
         for _platform in PLATFORMS.values():
             assert not _platform.staging_dir.startswith(("/var/tmp", "/tmp"))
 
+    def test_driveos_keeps_both_on_optdata(self):
+        """An update replaces the whole inactive boot chain, /boot with the root
+        filesystem it is in: nothing that must outlive the reboot can be kept there.
+        The vendor's opt-data, at /opt/data, belongs to neither chain."""
+        assert PLATFORMS["driveos"].bootloader == BootloaderType.DRIVEOS_DPI
+        assert PLATFORMS["driveos"].state_dir == "/opt/data"
+        assert PLATFORMS["driveos"].staging_dir == "/opt/data/otaclient"
+
     def test_a_jetson_keeps_its_state_where_that_platform_keeps_it(
         self, tmp_path: Path
     ):
@@ -779,6 +798,68 @@ class TestWhereTheStateGoes:
         assert _ctrl.bootloader_type == BootloaderType.JETSON_DPI
         assert status_dir(_state, "APP").is_dir()
         assert _ctrl.payload_staging_dir == Path(PLATFORMS["l4t"].staging_dir)
+
+    def test_driveos_keeps_its_state_where_that_platform_keeps_it(self, tmp_path: Path):
+        """The chains are the slots; the standby has no device in this guest, so the
+        DPI names one that cannot exist rather than one that could be someone else's."""
+        _state = tmp_path / "opt-data"
+
+        _ctrl = PartitionImageBootController(
+            dpi=FakeDPI(layout=DRIVEOS_LAYOUT), state_dir=_state
+        )
+
+        assert _ctrl.bootloader_type == BootloaderType.DRIVEOS_DPI
+        assert status_dir(_state, "A").is_dir()
+        assert _ctrl.payload_staging_dir == Path(PLATFORMS["driveos"].staging_dir)
+        assert _ctrl.get_standby_slot_dev() == DRIVEOS_LAYOUT.standby_dev
+
+    @pytest.mark.parametrize(
+        "comes_up_on, resume_error, expected",
+        [
+            ("B", None, OTAStatus.SUCCESS),
+            (
+                "A",
+                "3.0.0 was not committed: its boot health check failed",
+                OTAStatus.FAILURE,
+            ),
+        ],
+        ids=["committed-on-the-other-chain", "reset-back-to-the-old-chain"],
+    )
+    def test_a_driveos_round_is_told_by_the_chain_it_comes_up_on(
+        self, tmp_path: Path, this_boot, comes_up_on, resume_error, expected
+    ):
+        """Staged on chain A; the platform resets into B and either commits it or,
+        the boot health check failing, resets back into A. Either way otaclient wakes
+        on the chain the DPI names, finds its records on optdata, and lets the DPI
+        report what the platform concluded."""
+        _state = tmp_path / "opt-data"
+        _ctrl = PartitionImageBootController(
+            dpi=FakeDPI(layout=DRIVEOS_LAYOUT), state_dir=_state
+        )
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
+        _ctrl.post_update("3.0.0")
+
+        this_boot("boot-2")
+        _dpi = FakeDPI(
+            layout=SlotLayout(
+                active_slot=comes_up_on,
+                standby_slot="A" if comes_up_on == "B" else "B",
+                active_dev="",
+                standby_dev="/nonexistent/driveos-inactive-chain",
+                platform="driveos",
+            ),
+            resume_error=resume_error,
+        )
+        _after = PartitionImageBootController(dpi=_dpi, state_dir=_state)
+
+        assert _dpi.calls == ["layout", "resume"]
+        assert _after.get_booted_ota_status() == expected
+        if expected is OTAStatus.SUCCESS:
+            assert _after.load_version() == "3.0.0"
+        else:
+            _info = _after.get_booted_failure_info()
+            assert _info is not None and "boot health check failed" in _info[1]
+        assert not staged_in_boot(_state).exists()
 
     def test_a_platform_with_no_known_place_for_it_is_refused(self):
         """Rather than defaulting to /boot, which on that device may be inside the

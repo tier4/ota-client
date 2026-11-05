@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import threading
@@ -58,24 +59,32 @@ _LOG_LINE_PREFIX = re.compile(
 
 DEFAULT_TIMEOUT = 60
 """Enough for a verb that only reads state. The verbs that wait or write get their
-own, below."""
+own, below.
+
+Where the DPI publishes a limit of its own for a verb, otaclient's timeout for it is
+above that limit, so that a verb that runs out of time ends with the DPI's reason,
+not with otaclient killing it. The DriveOS DPI publishes `layout` 45 s, `install`
+3300 s, `resume` 1500 s and `reboot` 360 s."""
 
 INSTALL_TIMEOUT = 3600
 """A slot write is gigabytes onto storage that may be slow; the DPI reports progress
-throughout, so a stall is visible long before this."""
+throughout, so a stall is visible long before this. On DriveOS the DPI ends an
+install at 3300 s by itself."""
 
 RESUME_TIMEOUT = 1800
 """`resume` on the trial boot blocks until the health check has its verdict: the DPI
 waits for that with its own backstop (`health_timeout`, 900 s unless the image sets
 `ROOTFS_UA_HEALTH_TIMEOUT`), then commits. Cutting it short would leave a healthy
-slot uncommitted, so this is twice the DPI's backstop, not a read timeout."""
+slot uncommitted, so this is twice the DPI's backstop, not a read timeout. On
+DriveOS the platform concludes the trial by itself, minutes after the boot, and the
+DPI reports what it concluded within 1500 s, its published limit for `resume`."""
 
 REBOOT_TIMEOUT = 600
 """`reboot` returns once the reboot is requested: at once on grub and L4T, where it
 is a systemd reboot. On a platform where only a reset of its own boots the armed
 slot, the DPI may wait for that reset before it returns; it bounds that wait itself,
 below this, so that a reset that does not come is reported in the DPI's words
-rather than as a timeout here."""
+rather than as a timeout here. On DriveOS that bound is 360 s."""
 
 SOURCE_DIGEST_MIN_RATE = 32 << 20
 """`source-digest` reads and hashes the committed slot up to the delta's source size,
@@ -144,15 +153,29 @@ class DPIResult:
 class SlotLayout:
     """The slots as the DPI resolved them from the running root.
 
-    Device paths are the DPI's answer, not otaclient's guess: on this layout a slot
-    is a PARTLABEL behind a device-mapper target, so the mapping cannot be derived
-    from the root device alone.
+    Device paths are the DPI's answer, not otaclient's guess: on the grub and L4T
+    layouts a slot is a PARTLABEL behind a device-mapper target, so the mapping cannot
+    be derived from the root device alone. On DriveOS a slot is a boot chain, and the
+    guest is shown no device of the inactive one.
+
+    A layout otaclient cannot use is refused when it is read, never guessed around:
+    every field has to be there, and `standby_dev` has to be an absolute path.
     """
 
     active_slot: str
+    """The slot names are directory names under the state directory, and the trial
+    boot's `active_slot` has to be the `standby_slot` reported before its reboot:
+    that is how the boot is recognised as the switch to the staged slot."""
     standby_slot: str
     active_dev: str
+    """Logged and nothing else; empty where the DPI cannot name it."""
     standby_dev: str
+    """Never opened or written on this layout, but it is what otaclient's generic
+    paths take as the standby device: sized with `lsblk` to choose the download
+    threads, and on a client update unmounted wherever `findmnt` finds it mounted.
+    Where there is no such device (DriveOS) it is an absolute path that does not
+    exist. Never empty or relative, which `from_json` refuses: an empty one becomes
+    `Path(".")`, the working directory, which for a service is `/`."""
     platform: str
     """Which device side the DPI found itself on. It decides where state that must
     outlive the reboot can be kept, which differs per platform and is not derivable
@@ -163,7 +186,7 @@ class SlotLayout:
     def from_json(cls, raw: str) -> SlotLayout:
         try:
             _parsed = json.loads(raw)
-            return cls(
+            _layout = cls(
                 active_slot=_parsed["active_slot"],
                 standby_slot=_parsed["standby_slot"],
                 active_dev=_parsed["active_dev"],
@@ -172,6 +195,14 @@ class SlotLayout:
             )
         except (ValueError, KeyError, TypeError) as e:
             raise DPIError(f"the DPI reported a layout we cannot read: {e!r}") from e
+        if not isinstance(_layout.standby_dev, str) or not os.path.isabs(
+            _layout.standby_dev
+        ):
+            raise DPIError(
+                "the DPI reported a layout whose standby device otaclient cannot use: "
+                f"{_layout.standby_dev!r}, not an absolute path"
+            )
+        return _layout
 
 
 class DPIProtocol(PartitionInstallerProtocol, Protocol):

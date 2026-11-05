@@ -21,8 +21,8 @@ standby slot can be edited:
   is no mount point, no fstab to rewrite and no boot files to copy into it.
 - **The status files live outside the slots**, because a slot has no writable space
   at all: on the shared boot partition (grub) or on the partition the platform
-  installer mounts for persistent state (L4T). One directory per slot keeps the
-  per-slot meaning that `OTAStatusFilesControl` expects.
+  installer mounts for persistent state (L4T, DriveOS). One directory per slot keeps
+  the per-slot meaning that `OTAStatusFilesControl` expects.
 - **The boot switch is armed by the DPI during the write**, not here. The boot files
   carry the verity root hash of the rootfs image they were built with, so the pair
   is written together or not at all; arming afterwards from otaclient would be a
@@ -75,14 +75,18 @@ class _Platform:
     """Where status files that must survive the reboot go: the grub layout has a
     shared boot partition and uses it; a Jetson has no such thing -- its boot chain
     is in flash and both rootfs slots are overwritten -- so the state goes on the
-    optdata partition the platform installer mounts outside both slots."""
+    optdata partition the platform installer mounts outside both slots. DriveOS has
+    none either: an update replaces the whole inactive boot chain, /boot with the
+    root filesystem it is in; so optdata again, the vendor's opt-data partition at
+    /opt/data, which belongs to neither chain."""
     staging_dir: str
-    """Where a payload is staged until the DPI has consumed it. optdata on both
-    sides: outside the slots, gigabytes of room (15 GiB on the Jetson layout, where
-    the DPI's own download and data image directories are too), mounted at
+    """Where a payload is staged until the DPI has consumed it. optdata on every
+    side: outside the slots, gigabytes of room (15 GiB on the Jetson layout, where
+    the DPI's own download and data image directories are too; on DriveOS the DPI
+    stages the vendor package from it on optdata and owns its own copy), mounted at
     /opt/data by the platform, root-owned and not world-writable -- a payload must
     not be staged where another user can place the directory first, nor on the
-    scratch, which is 2 GiB and remade on every update."""
+    scratch, which is remade on every update."""
 
 
 PLATFORMS = {
@@ -93,6 +97,11 @@ PLATFORMS = {
     ),
     "l4t": _Platform(
         bootloader=BootloaderType.JETSON_DPI,
+        state_dir="/opt/data",
+        staging_dir="/opt/data/otaclient",
+    ),
+    "driveos": _Platform(
+        bootloader=BootloaderType.DRIVEOS_DPI,
         state_dir="/opt/data",
         staging_dir="/opt/data/otaclient",
     ),
@@ -119,9 +128,10 @@ class PartitionImageBootController:
     """Boot control for the partition-based layout, driving the DPI.
 
     Implements `BootControllerProtocol` and `PartitionLayoutBootControllerProtocol`.
-    The slot facts come from the DPI rather than from probing here: a slot is a
-    PARTLABEL behind a device-mapper target, and getting that wrong means writing
-    the wrong partition, which is unrecoverable.
+    The slot facts come from the DPI rather than from probing here: on grub and L4T
+    a slot is a PARTLABEL behind a device-mapper target, on DriveOS a boot chain the
+    guest has no device of, and getting that wrong means writing the wrong slot,
+    which is unrecoverable.
     """
 
     def __init__(
@@ -463,7 +473,9 @@ class PartitionImageBootController:
 
         The reboot is the DPI's on every platform, as the arming is: which reboot
         boots the armed slot is the platform's to know, a systemd reboot on grub and
-        L4T. For the same reason nothing falls back to a reboot of otaclient's own
+        L4T, on DriveOS the reset of the platform's own updater, the only one that
+        boots the staged chain. For the same reason nothing falls back to a reboot
+        of otaclient's own
         when the DPI does not reboot. Its reason is kept as this slot's failure
         info, so that the status API reports why the update stopped here, and then
         otaclient exits 1.

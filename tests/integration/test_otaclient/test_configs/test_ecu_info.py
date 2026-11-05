@@ -181,6 +181,24 @@ from otaclient.configs._ecu_info import DEFAULT_ECU_INFO, parse_ecu_info
             ),
             id="grub_verity_with_the_dpi_named",
         ),
+        # DriveOS: no wrapper, the DPI bundle itself
+        pytest.param(
+            (
+                "format_version: 1\n"
+                'ecu_id: "main"\n'
+                'bootloader: "driveos-dpi"\n'
+                'dpi_executable: "/usr/local/lib/rootfs-ua/rootfs-ua-dpi/rootfs-ua-dpi"\n'
+            ),
+            (
+                True,
+                ECUInfo(
+                    ecu_id="main",
+                    bootloader=BootloaderType.DRIVEOS_DPI,
+                    dpi_executable="/usr/local/lib/rootfs-ua/rootfs-ua-dpi/rootfs-ua-dpi",
+                ),
+            ),
+            id="driveos_dpi_with_the_dpi_named",
+        ),
     ],
 )
 def test_ecu_info(

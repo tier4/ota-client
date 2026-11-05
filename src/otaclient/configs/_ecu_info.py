@@ -49,6 +49,10 @@ class BootloaderType(StrEnum):
     jetson-dpi: NVIDIA Jetson on L4T r39 and later on the same contract: the DPI writes
         the rootfs A/B slots and the kernel partitions and arms the trial boot.
         otaclient fetches the payload and drives the DPI; it opens no partition here.
+    driveos-dpi: NVIDIA DRIVE (DriveOS) on the same contract, whose slots are the boot
+        chains A and B, written by the platform's own updater from the vendor package
+        the DPI hands it. otaclient fetches the payload and drives the DPI, as on the
+        other two.
     """
 
     AUTO_DETECT = "auto_detect"
@@ -59,6 +63,7 @@ class BootloaderType(StrEnum):
     RPI_BOOT = "rpi_boot"
     GRUB_VERITY = "grub-verity"
     JETSON_DPI = "jetson-dpi"
+    DRIVEOS_DPI = "driveos-dpi"
 
     @staticmethod
     def deprecation_validator(value: BootloaderType) -> BootloaderType:
@@ -108,8 +113,9 @@ class ECUInfo(BaseFixedConfig):
     available_ecu_ids: List[str] = Field(default_factory=list)
     secondaries: List[ECUContact] = Field(default_factory=list)
     dpi_executable: Optional[str] = None
-    """The DPI, for grub-verity and jetson-dpi: the executable the image build installed
-    (its privileged wrapper), which otaclient drives and never names itself."""
+    """The DPI, for grub-verity, jetson-dpi and driveos-dpi: the executable the image
+    build installed (its privileged wrapper where there is one; on DriveOS the bundle
+    itself), which otaclient drives and never names itself."""
 
     def get_available_ecu_ids(self) -> list[str]:
         """

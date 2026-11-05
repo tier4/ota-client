@@ -318,6 +318,34 @@ class TestReboot:
         assert _seen["timeout"] == _dpi.REBOOT_TIMEOUT > _dpi.DEFAULT_TIMEOUT
 
 
+DRIVEOS_DPI_LIMITS = {"layout": 45, "install": 3300, "resume": 1500, "reboot": 360}
+"""The longest the DriveOS DPI takes for each verb, as it publishes them."""
+
+
+@pytest.mark.parametrize("verb", sorted(DRIVEOS_DPI_LIMITS))
+def test_each_verb_outlasts_the_limit_the_driveos_dpi_publishes(monkeypatch, verb):
+    """A verb that runs out of time ends with the DPI's reason, which it gives at its
+    own limit; otaclient killing it first would leave only "did not finish"."""
+    _seen = {}
+
+    def _fake_run(self, args, *, timeout=DEFAULT_TIMEOUT, **kwargs):
+        _seen["timeout"] = timeout
+        return _dpi.DPIResult(
+            returncode=0, version="3.0.0", output=json.dumps(A_LAYOUT)
+        )
+
+    monkeypatch.setattr(DPIClient, "_run", _fake_run)
+    _client = DPIClient("dpi")
+    if verb == "install":
+        _client.install(
+            package=Path("/staged"), version="3.0.0", ecu_id="main", release_key="dev"
+        )
+    else:
+        getattr(_client, verb)()
+
+    assert _seen["timeout"] > DRIVEOS_DPI_LIMITS[verb]
+
+
 class TestLayout:
     def test_reads_the_slots_the_dpi_resolved(self, tmp_path: Path):
         _dpi = fake_dpi(tmp_path, f"print({json.dumps(json.dumps(A_LAYOUT))})")
@@ -367,6 +395,30 @@ class TestLayout:
         assert _seen == [DEFAULT_TIMEOUT, (64 << 30) // SOURCE_DIGEST_MIN_RATE]
         assert _seen[1] > DEFAULT_TIMEOUT
 
+    def test_reads_the_boot_chains_driveos_reports(self, tmp_path: Path):
+        """On DriveOS the slots are the boot chains, and the guest has no device of
+        the inactive one: the DPI names a path that cannot exist, and the devices it
+        has no answer for are null or empty."""
+        _layout = {
+            "platform": "driveos",
+            "active_slot": "A",
+            "standby_slot": "B",
+            "active_dev": "",
+            "standby_dev": "/nonexistent/driveos-inactive-chain",
+            "standby_scratch_dev": None,
+            "boot_dev": None,
+            "identity_dev": "/dev/vblkdev2",
+            "optdata_dev": "/dev/vblkdev61",
+        }
+        _dpi = fake_dpi(tmp_path, f"print({json.dumps(json.dumps(_layout))})")
+        assert DPIClient(_dpi).layout() == SlotLayout(
+            active_slot="A",
+            standby_slot="B",
+            active_dev="",
+            standby_dev="/nonexistent/driveos-inactive-chain",
+            platform="driveos",
+        )
+
     @pytest.mark.parametrize(
         "answer",
         [
@@ -374,12 +426,25 @@ class TestLayout:
             "[]",
             '{"active_slot": "rootfs_a"}',
             json.dumps({k: v for k, v in A_LAYOUT.items() if k != "platform"}),
+            json.dumps({**A_LAYOUT, "standby_dev": ""}),
+            json.dumps({**A_LAYOUT, "standby_dev": "dev/sda4"}),
+            json.dumps({**A_LAYOUT, "standby_dev": None}),
         ],
-        ids=["text", "a list", "half a layout", "no platform"],
+        ids=[
+            "text",
+            "a list",
+            "half a layout",
+            "no platform",
+            "an empty standby device",
+            "a relative standby device",
+            "a null standby device",
+        ],
     )
     def test_an_unreadable_layout_is_an_error(self, tmp_path: Path, answer: str):
         """Never guess a slot, nor the platform: writing the wrong partition is
-        unrecoverable, and the platform decides where the state goes."""
+        unrecoverable, and the platform decides where the state goes. The standby
+        device is what otaclient's generic paths size and unmount: an empty one
+        would be the working directory, `/` for a service."""
         _dpi = fake_dpi(tmp_path, f"print({answer!r})")
         with pytest.raises(DPIError, match="layout"):
             DPIClient(_dpi).layout()
