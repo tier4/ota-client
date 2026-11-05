@@ -70,6 +70,13 @@ waits for that with its own backstop (`health_timeout`, 900 s unless the image s
 `ROOTFS_UA_HEALTH_TIMEOUT`), then commits. Cutting it short would leave a healthy
 slot uncommitted, so this is twice the DPI's backstop, not a read timeout."""
 
+REBOOT_TIMEOUT = 600
+"""`reboot` returns once the reboot is requested: at once on grub and L4T, where it
+is a systemd reboot. On a platform where only a reset of its own boots the armed
+slot, the DPI may wait for that reset before it returns; it bounds that wait itself,
+below this, so that a reset that does not come is reported in the DPI's words
+rather than as a timeout here."""
+
 SOURCE_DIGEST_MIN_RATE = 32 << 20
 """`source-digest` reads and hashes the committed slot up to the delta's source size,
 gigabytes on eMMC or SATA. Its timeout grows with the size at this assumed rate
@@ -169,11 +176,14 @@ class SlotLayout:
 
 class DPIProtocol(PartitionInstallerProtocol, Protocol):
     """What the partition-image boot control asks of the DPI, on top of being the
-    installer: the slots, the running version, and the conclusion of a trial."""
+    installer: the slots, the running version, the reboot into a trial, and the
+    conclusion of it."""
 
     def layout(self) -> SlotLayout: ...
 
     def get_version(self, *, name: str | None = None) -> str: ...
+
+    def reboot(self) -> None: ...
 
     def resume(self) -> str | None: ...
 
@@ -404,6 +414,21 @@ class DPIClient:
                 "the DPI applied the payload without asking for a reboot; "
                 "the trial boot is taken as for any update"
             )
+
+    def reboot(self) -> None:
+        """Reboot the device the one way its platform allows.
+
+        On grub and L4T that is a systemd reboot. Where only a reset of the
+        platform's own boots the armed slot, the DPI requests that reset and may
+        wait for it (`REBOOT_TIMEOUT`). Returning means the reboot is requested and
+        the shutdown or the reset is to follow; a DPI that cannot get it under way
+        exits non-zero with its reason, raised here as a `DPIError`.
+
+        No delay: otaclient has already waited for its own status to be read
+        (`WAIT_BEFORE_REBOOT`); the DPI's default delay is that same wait, for a
+        caller that has not.
+        """
+        self._run(["reboot", "--delay", "0"], timeout=REBOOT_TIMEOUT)
 
     def resume(self) -> str | None:
         """Conclude an update staged before this boot.

@@ -172,6 +172,22 @@ class TestReboot:
             ["reboot", "0 tryboot"], raise_exception=False, chroot="/mnt/standby"
         )
 
+    def test_wait_for_reboot_requests_nothing_and_exits_at_the_deadline(
+        self, mocker: MockerFixture
+    ):
+        """The wait alone, for a reboot requested some other way (the DPI's): the
+        same deadline and the same exit as after the reboot command."""
+        mock_subprocess = mocker.patch(f"{MODULE}.subprocess_call")
+        mock_time = mocker.patch(f"{MODULE}.time")
+        mock_time.time.side_effect = [0, 0, cmdhelper.WAIT_FOR_REBOOT_TIMEOUT + 1]
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmdhelper.wait_for_reboot()
+
+        mock_subprocess.assert_not_called()
+        assert mock_time.sleep.call_count == 1
+        assert exc_info.value.code == 1
+
     def test_reboot_exits_when_request_failed(self, mocker: MockerFixture):
         """If the reboot cannot even be requested, exit to let the init system
         restart otaclient, which then detects the unfinished switching boot."""

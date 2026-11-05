@@ -414,7 +414,19 @@ def reboot(args: list[str] | None = None, *, chroot: str | None = None) -> NoRet
     except Exception as e:
         logger.exception(f"failed to request reboot: {e!r}, exit now")
         sys.exit(1)
+    wait_for_reboot()
 
+
+def wait_for_reboot() -> NoReturn:
+    """Wait for the init system to terminate this process, once a reboot is requested.
+
+    What `reboot` does after its request, for a caller whose reboot is requested
+    some other way.
+
+    Raises:
+        SystemExit(1) if the system doesn't reboot within <WAIT_FOR_REBOOT_TIMEOUT>
+            seconds.
+    """
     logger.info(
         f"reboot is requested, wait up to {WAIT_FOR_REBOOT_TIMEOUT}s for being terminated ..."
     )

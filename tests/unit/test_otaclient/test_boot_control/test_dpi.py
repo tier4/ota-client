@@ -279,6 +279,45 @@ class TestResume:
         assert _seen["timeout"] == _dpi.RESUME_TIMEOUT >= 2 * 900
 
 
+class TestReboot:
+    def test_asks_for_the_reboot_without_the_dpis_own_delay(self, tmp_path: Path):
+        """otaclient has already waited for its status to be read before it reboots;
+        the DPI's default delay is that same wait, for a caller that has not."""
+        _seen = tmp_path / "seen"
+        _dpi = fake_dpi(tmp_path, f"open({str(_seen)!r}, 'w').write(' '.join(args))")
+
+        DPIClient(_dpi).reboot()
+
+        assert _seen.read_text().split() == ["reboot", "--delay", "0"]
+
+    def test_a_reboot_the_dpi_refuses_raises_with_its_reason(self, tmp_path: Path):
+        """A DPI that cannot get the reboot under way says why; that sentence is what
+        the caller logs and records."""
+        _dpi = fake_dpi(
+            tmp_path,
+            "print('2026-11-04 10:00:00,000 ERROR dpi: 3.0.0 is staged, but the "
+            "platform will not reset into it now', file=sys.stderr)\n"
+            "sys.exit(1)",
+        )
+        with pytest.raises(
+            DPIError, match="failed reboot with exit 1: 3.0.0 is staged"
+        ):
+            DPIClient(_dpi).reboot()
+
+    def test_the_reboot_is_given_time_for_a_reset_the_dpi_waits_for(self, monkeypatch):
+        """Not a read's timeout: a DPI may wait for its platform's reset before it
+        returns, within a bound of its own below this one."""
+        _seen = {}
+
+        def _fake_run(self, args, **kwargs):
+            _seen["timeout"] = kwargs.get("timeout")
+            return _dpi.DPIResult(returncode=0)
+
+        monkeypatch.setattr(DPIClient, "_run", _fake_run)
+        DPIClient("dpi").reboot()
+        assert _seen["timeout"] == _dpi.REBOOT_TIMEOUT > _dpi.DEFAULT_TIMEOUT
+
+
 class TestLayout:
     def test_reads_the_slots_the_dpi_resolved(self, tmp_path: Path):
         _dpi = fake_dpi(tmp_path, f"print({json.dumps(json.dumps(A_LAYOUT))})")

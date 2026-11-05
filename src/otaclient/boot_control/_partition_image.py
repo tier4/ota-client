@@ -26,7 +26,8 @@ standby slot can be edited:
 - **The boot switch is armed by the DPI during the write**, not here. The boot files
   carry the verity root hash of the rootfs image they were built with, so the pair
   is written together or not at all; arming afterwards from otaclient would be a
-  second place that decides what may boot.
+  second place that decides what may boot. The reboot into it is the DPI's too:
+  which reboot boots the armed slot is the platform's to know.
 
 What is left for this controller is the part otaclient owns: the OTA status state
 machine, and turning "we booted into the slot we staged" into a committed update --
@@ -39,6 +40,8 @@ of the device side the DPI reports.
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -426,6 +429,55 @@ class PartitionImageBootController:
             ) from e
 
     def finalizing_update(self, *, chroot: str | None = None) -> NoReturn:
-        """Reboot into the slot the DPI armed for one trial boot."""
-        logger.info("rebooting into the staged slot...")
-        cmdhelper.reboot(chroot=chroot)
+        """Reboot into the slot the DPI armed for one trial boot, through the DPI.
+
+        The reboot is the DPI's on every platform, as the arming is: which reboot
+        boots the armed slot is the platform's to know, a systemd reboot on grub and
+        L4T. For the same reason nothing falls back to a reboot of otaclient's own
+        when the DPI does not reboot. Its reason is kept as this slot's failure
+        info, so that the status API reports why the update stopped here, and then
+        otaclient exits 1.
+
+        The filesystems are synced first: the records post_update just made are
+        renamed into place without a sync of their directory, and a platform's
+        reboot may be a reset with no shutdown to write them back.
+
+        The rest is `cmdhelper.reboot`'s contract: a reboot that cannot be requested
+        is exit 1 now, a requested one is waited out until the shutdown terminates
+        this process, and exit 1 if it does not within `WAIT_FOR_REBOOT_TIMEOUT`.
+        `chroot` is not used: the DPI client runs the DPI in the host's root by
+        itself, by the same rule.
+        """
+        del chroot
+        logger.info("rebooting into the staged slot, through the DPI...")
+        os.sync()
+        logger.warning("system will reboot now!")
+        try:
+            self._dpi.reboot()
+        except DPIError as e:
+            logger.error(f"the DPI did not reboot the device: {e!r}, exit now")
+            self._record_why_the_reboot_did_not_happen(e)
+            sys.exit(1)
+        except Exception as e:
+            logger.exception(f"failed to ask the DPI for the reboot: {e!r}, exit now")
+            self._record_why_the_reboot_did_not_happen(e)
+            sys.exit(1)
+        cmdhelper.wait_for_reboot()
+
+    def _record_why_the_reboot_did_not_happen(self, error: Exception) -> None:
+        """This slot has been at FAILURE since pre_update; its reason goes with it.
+
+        A failure to record it is logged and nothing more: the exit that follows is
+        the contract, and the reason is in the log either way.
+        """
+        _err = ota_errors.BootControlSwitchBootFailed(
+            f"the reboot into the staged slot did not happen: {str(error) or repr(error)}",
+            module=__name__,
+        )
+        try:
+            self._ota_status_control.store_failure_info(
+                failure_type=_err.failure_type,
+                failure_reason=_err.get_failure_reason(),
+            )
+        except Exception as e:
+            logger.warning(f"failed to record why the reboot did not happen: {e!r}")

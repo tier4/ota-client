@@ -61,13 +61,18 @@ class FakeDPI:
         resume_error: str | None = None,
         version: str = "2.9.0",
         version_error: str | None = None,
+        reboot_error: str | Exception | None = None,
+        calls: list[str] | None = None,
     ) -> None:
         self._layout = layout
         self._resume_version = resume_version
         self._resume_error = resume_error
         self._version = version
         self._version_error = version_error
-        self.calls: list[str] = []
+        self._reboot_error = reboot_error
+        self.calls: list[str] = calls if calls is not None else []
+        """What was asked, in order; a list of the test's own records it into the
+        same sequence as what otaclient did to the host meanwhile."""
 
     def layout(self) -> SlotLayout:
         self.calls.append("layout")
@@ -80,6 +85,13 @@ class FakeDPI:
         if self._version_error is not None:
             raise DPIError(self._version_error)
         return self._version
+
+    def reboot(self) -> None:
+        self.calls.append("reboot")
+        if isinstance(self._reboot_error, Exception):
+            raise self._reboot_error
+        if self._reboot_error is not None:
+            raise DPIError(self._reboot_error)
 
     def resume(self) -> str | None:
         self.calls.append("resume")
@@ -455,18 +467,115 @@ class TestUpdateFlow:
         with pytest.raises(ota_errors.BootControlPostUpdateFailed, match="No space"):
             _ctrl.post_update("2.9.0")
 
-    def test_finalizing_reboots_through_the_root_it_is_given(
-        self, tmp_path: Path, monkeypatch
-    ):
-        """A dynamically loaded otaclient reboots the host, not its own app image."""
-        _seen = []
+
+class TestFinalizing:
+    """The reboot into the trial slot is the DPI's, on every platform: which reboot
+    boots the slot it armed is the platform's to know, not otaclient's."""
+
+    @pytest.fixture
+    def host(self, monkeypatch: pytest.MonkeyPatch):
+        """What otaclient does to the host around the DPI's reboot, recorded in order:
+        the sync, its own reboot command (which must not run), and the wait for the
+        shutdown to terminate it. Handed to the FakeDPI as its `calls`, it holds the
+        DPI's verbs too, in the order they came."""
+        _seen: list[str] = []
+        monkeypatch.setattr(_partition_image.os, "sync", lambda: _seen.append("sync"))
+
+        def _own_reboot(**kwargs):
+            _seen.append("cmdhelper.reboot")
+            raise SystemExit(1)
+
+        def _wait_for_reboot():
+            _seen.append("wait")
+            raise SystemExit(1)  # as the real one does when nothing terminates us
+
+        monkeypatch.setattr(_partition_image.cmdhelper, "reboot", _own_reboot)
         monkeypatch.setattr(
-            _partition_image.cmdhelper, "reboot", lambda **kw: _seen.append(kw)
+            _partition_image.cmdhelper, "wait_for_reboot", _wait_for_reboot
         )
+        return _seen
 
-        make_controller(tmp_path).finalizing_update(chroot="/host_root")
+    def test_the_records_are_synced_then_the_dpi_reboots_then_otaclient_waits(
+        self, tmp_path: Path, host
+    ):
+        """As `cmdhelper.reboot` does: the request, then the wait for the shutdown,
+        and exit 1 if it never comes. The sync comes before the request: once the
+        DPI is asked, a reset with no shutdown may follow at any moment."""
+        _ctrl = make_controller(tmp_path, FakeDPI(calls=host))
 
-        assert _seen == [{"chroot": "/host_root"}]
+        with pytest.raises(SystemExit) as _exit:
+            _ctrl.finalizing_update(chroot="/host_root")
+
+        assert host == ["layout", "sync", "reboot", "wait"]
+        assert _exit.value.code == 1
+
+    def test_a_dpi_that_does_not_reboot_is_exit_1_with_its_reason_kept(
+        self, tmp_path: Path, host, this_boot, caplog: pytest.LogCaptureFixture
+    ):
+        """A reboot that cannot be requested is exit 1 now, as in `cmdhelper.reboot`,
+        with no reboot of otaclient's own: it might not boot the armed slot at all.
+        What the DPI said is this slot's failure info, so that the otaclient that
+        starts next, in the same boot, reports it with the FAILURE."""
+        _refusal = "3.0.0 is staged, but the platform will not reset into it now"
+        _ctrl = make_controller(tmp_path, FakeDPI(reboot_error=_refusal, calls=host))
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
+        _ctrl.post_update("3.0.0")
+
+        with caplog.at_level(logging.ERROR, logger=_partition_image.__name__):
+            with pytest.raises(SystemExit) as _exit:
+                _ctrl.finalizing_update()
+
+        assert _exit.value.code == 1
+        assert host == ["layout", "sync", "reboot"], "no reboot of our own, no wait"
+        assert _refusal in caplog.text
+
+        _dpi = FakeDPI()
+        _after = make_controller(tmp_path, _dpi)
+        assert _dpi.calls == ["layout"], "nothing to conclude before the reboot"
+        assert _after.get_booted_ota_status() == OTAStatus.FAILURE
+        _info = _after.get_booted_failure_info()
+        assert _info is not None
+        assert _info[0] == FailureType.UNRECOVERABLE
+        assert _refusal in _info[1]
+
+    def test_a_dpi_that_cannot_be_asked_is_exit_1_with_the_traceback_logged(
+        self, tmp_path: Path, host, this_boot, caplog: pytest.LogCaptureFixture
+    ):
+        """Not the DPI's refusal but otaclient's own failure: its traceback is in
+        the log, and the failure info names it."""
+        _ctrl = make_controller(
+            tmp_path, FakeDPI(reboot_error=RuntimeError("a bug"), calls=host)
+        )
+        _ctrl.pre_update(standby_as_ref=False, erase_standby=True)
+
+        with caplog.at_level(logging.ERROR, logger=_partition_image.__name__):
+            with pytest.raises(SystemExit) as _exit:
+                _ctrl.finalizing_update()
+
+        assert _exit.value.code == 1
+        assert host == ["layout", "sync", "reboot"]
+        assert any(
+            _r.exc_info is not None and "a bug" in _r.getMessage()
+            for _r in caplog.records
+        )
+        _info = make_controller(tmp_path).get_booted_failure_info()
+        assert _info is not None and "a bug" in _info[1]
+
+    def test_a_failure_to_record_the_reason_does_not_change_the_exit(
+        self, tmp_path: Path, host, monkeypatch: pytest.MonkeyPatch
+    ):
+        _ctrl = make_controller(tmp_path, FakeDPI(reboot_error="refused", calls=host))
+
+        def _cannot_write(**kwargs):
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(
+            _ctrl._ota_status_control, "store_failure_info", _cannot_write
+        )
+        with pytest.raises(SystemExit) as _exit:
+            _ctrl.finalizing_update()
+
+        assert _exit.value.code == 1
 
 
 def test_the_version_reported_falls_back_to_the_running_image(tmp_path: Path):
