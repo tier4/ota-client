@@ -51,7 +51,11 @@ from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.configs import BootloaderType
 from otaclient.configs.cfg import cfg
 from otaclient_common import cmdhelper
-from otaclient_common._io import remove_file, write_str_to_file_atomic
+from otaclient_common._io import (
+    ensure_private_dir,
+    remove_file,
+    write_str_to_file_atomic,
+)
 
 from ._dpi import DPIError, DPIProtocol, dpi_from_ecu_info
 from ._ota_status_control import OTAStatusFilesControl
@@ -150,6 +154,7 @@ class PartitionImageBootController:
                 Path(state_dir if state_dir is not None else _platform.state_dir)
                 / OTA_STATUS_DNAME
             )
+            self._check_that_the_state_is_ours()
 
             self._switch_concluded = False
             self._not_committed: str | None = None
@@ -178,6 +183,29 @@ class PartitionImageBootController:
             logger.error(_err_msg)
             raise ota_errors.BootControlStartupFailed(_err_msg, module=__name__) from e
 
+    # ------ where the state is kept ------ #
+
+    def _check_that_the_state_is_ours(self) -> None:
+        """Before anything is made, read or written there.
+
+        otaclient writes its status records as root, and stages and prunes payloads
+        as root. A directory on the way to either that another user owns or can
+        write, or a symlink placed there, would let that user point those writes and
+        removals at any file on the system. Both are on storage the platform mounts
+        (optdata at /opt/data, and the boot partition on grub), and who owns it is
+        the platform's to set; it is checked here, not assumed: from the mount point
+        down, every directory has to be root's, not a symlink, and not writable by
+        group or others, or otaclient does not start.
+
+        This slot's status directory is made here, with an explicit mode. The
+        standby's is checked if it is there, and made the same way when an update
+        is staged. The staging directory is checked as far as it exists; the updater
+        checks it again and makes the rest before it stages anything.
+        """
+        ensure_private_dir(self._status_root / self._layout.active_slot, mode=0o755)
+        ensure_private_dir(self._status_root / self._layout.standby_slot, create=False)
+        ensure_private_dir(self._staging_dir, create=False)
+
     # ------ the boot an update was staged in ------ #
 
     @property
@@ -185,8 +213,10 @@ class PartitionImageBootController:
         return self._status_root / STAGED_IN_BOOT_FNAME
 
     def _remember_the_staging_boot(self) -> None:
-        """Before the DPI is asked to stage anything: which boot it happens in."""
-        self._status_root.mkdir(parents=True, exist_ok=True)
+        """Before the DPI is asked to stage anything: which boot it happens in. The
+        standby's status directory, written next, is made here, checked as this
+        slot's was at the start."""
+        ensure_private_dir(self._status_root / self._layout.standby_slot, mode=0o755)
         write_str_to_file_atomic(self._staged_in_boot_fpath, _current_boot_id())
 
     def _forget_the_staging_boot(self) -> None:

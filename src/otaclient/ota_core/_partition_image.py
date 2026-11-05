@@ -46,9 +46,7 @@ the standby slot is never mounted on this path.
 from __future__ import annotations
 
 import logging
-import os
 import shutil
-import stat
 import threading
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
@@ -94,6 +92,7 @@ from otaclient.ota_core._update_libs import (
     raise_on_download_resources_failed,
 )
 from otaclient_common import human_readable_size
+from otaclient_common._io import ensure_private_dir
 from otaclient_common.common import urljoin_ensure_base
 from otaclient_common.download_info import DownloadInfo
 from otaclient_common.downloader import resumable_bytes
@@ -106,25 +105,18 @@ logger = logging.getLogger(__name__)
 
 def _ensure_the_staging_root_is_ours(root: Path) -> None:
     """The staging root is pruned and written as root: it has to be a directory of
-    our own. A symlink someone placed there first, or a directory another user owns
-    or can write, would turn the prune into a removal of whatever it points at."""
-    _st = os.lstat(root)
-    if stat.S_ISLNK(_st.st_mode):
+    our own, on a path no one else can change. A symlink someone placed there first,
+    or a directory another user owns or can write -- the root itself or any
+    directory above it, from its mount point down -- would turn the prune into a
+    removal of whatever they point it at. Checked before anything is made there;
+    what is missing is made after the part above it passed, the root itself 0700."""
+    try:
+        ensure_private_dir(root, mode=0o700)
+    except OSError as e:
         raise ota_errors.ApplyOTAUpdateFailed(
-            f"the staging root {root} is a symlink; refusing to stage there",
+            f"the staging root {root} is not ours to stage in, refusing: {e}",
             module=__name__,
-        )
-    if (
-        not stat.S_ISDIR(_st.st_mode)
-        or _st.st_uid != os.geteuid()
-        or _st.st_mode & 0o022
-    ):
-        raise ota_errors.ApplyOTAUpdateFailed(
-            f"the staging root {root} is not a private directory of ours "
-            f"(mode {stat.S_IMODE(_st.st_mode):o}, uid {_st.st_uid}); refusing to "
-            "stage there",
-            module=__name__,
-        )
+        ) from e
 
 
 def _digest_of(path: Path) -> str:
@@ -706,7 +698,6 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
         )
         _session_staging = self._session_staging_dir()
         try:
-            self._staging_root.mkdir(exist_ok=True, parents=True, mode=0o700)
             _ensure_the_staging_root_is_ours(self._staging_root)
             self._prune_staging(keep=_session_staging)
             _session_staging.mkdir(exist_ok=True, mode=0o700)

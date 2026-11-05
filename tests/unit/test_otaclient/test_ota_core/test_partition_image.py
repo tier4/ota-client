@@ -27,7 +27,9 @@ the retry pool's own behaviour is tested with it.
 from __future__ import annotations
 
 import errno
+import os
 import shutil
+import stat
 import threading
 from contextlib import contextmanager
 from hashlib import sha256
@@ -88,6 +90,7 @@ from otaclient.ota_core._partition_image import (
     PartitionImageUpdater,
     _ensure_the_staging_root_is_ours,
 )
+from otaclient_common import _io
 from otaclient_common.downloader import Downloader, DownloaderPool, DownloadResult
 
 PARTITION_BLOB_MEDIA = PARTITION_IMAGE_BLOB
@@ -324,6 +327,25 @@ def http_error(status: int) -> HTTPError:
     _response = Response()
     _response.status_code = status
     return HTTPError(f"{status} for the test", response=_response)
+
+
+@pytest.fixture(autouse=True)
+def tmp_path_is_a_mount_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The staging root is checked from its mount point down, and the real mount
+    point of tmp_path has /tmp, world-writable, on the way: here tmp_path, private
+    to us, stands in for it. What a test makes there is made under the umask
+    otaclient runs under, systemd's."""
+    _real = _io._mount_point_of
+    monkeypatch.setattr(
+        _io,
+        "_mount_point_of",
+        lambda _p: tmp_path if tmp_path in (_p, *_p.parents) else _real(_p),
+    )
+    _old_umask = os.umask(0o022)
+    try:
+        yield
+    finally:
+        os.umask(_old_umask)
 
 
 @pytest.fixture
@@ -1489,6 +1511,44 @@ class TestStagingRoot:
         _root.chmod(0o777)
         with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="not a private"):
             _ensure_the_staging_root_is_ours(_root)
+
+    def test_what_is_missing_is_made_the_root_private(self, tmp_path: Path):
+        _root = tmp_path / "opt-data" / "otaclient" / "staged"
+        _ensure_the_staging_root_is_ours(_root)
+        assert stat.S_IMODE(_root.stat().st_mode) == 0o700
+        assert stat.S_IMODE(_root.parent.stat().st_mode) == 0o755
+
+    def test_a_parent_others_can_write_is_refused_with_nothing_made(
+        self, tmp_path: Path
+    ):
+        """The root private to us is not enough: whoever can write the directory
+        above it can rename it away and put their own, or a symlink, in its place
+        between the check and the prune."""
+        _optdata = tmp_path / "opt-data"
+        _optdata.mkdir()
+        _optdata.chmod(0o777)
+        _root = _optdata / "otaclient" / "staged"
+
+        with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="not a private"):
+            _ensure_the_staging_root_is_ours(_root)
+        assert list(_optdata.iterdir()) == []
+
+    def test_a_parent_that_is_a_symlink_is_refused(self, tmp_path: Path):
+        (tmp_path / "elsewhere").mkdir()
+        (tmp_path / "otaclient").symlink_to(tmp_path / "elsewhere")
+
+        with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="symlink"):
+            _ensure_the_staging_root_is_ours(tmp_path / "otaclient" / "staged")
+        assert list((tmp_path / "elsewhere").iterdir()) == []
+
+    @pytest.mark.skipif(os.geteuid() != 0, reason="chown to another user needs root")
+    def test_a_parent_another_user_owns_is_refused(self, tmp_path: Path):
+        _optdata = tmp_path / "opt-data"
+        _optdata.mkdir(mode=0o755)
+        os.chown(_optdata, 1000, 1000)
+
+        with pytest.raises(ota_errors.ApplyOTAUpdateFailed, match="owner uid 1000"):
+            _ensure_the_staging_root_is_ours(_optdata / "otaclient" / "staged")
 
 
 class TestStaging:

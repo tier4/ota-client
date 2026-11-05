@@ -19,6 +19,7 @@ import hashlib
 import io
 import os
 import shutil
+import stat
 import sys
 from functools import partial
 from pathlib import Path
@@ -209,3 +210,72 @@ def remove_file(_fpath: StrOrPath, *, ignore_error: bool = True) -> None:
     except Exception:
         if not ignore_error:
             raise
+
+
+def _mount_point_of(path: Path) -> Path:
+    """The mount point of the filesystem <path> is on, or would be on once made: its
+    nearest ancestor, itself included, that is a mount point."""
+    while not os.path.ismount(path) and path != path.parent:
+        path = path.parent
+    return path
+
+
+def ensure_private_dir(
+    path: StrOrPath, *, mode: int = 0o755, create: bool = True
+) -> Path:
+    """Make sure <path> is a directory that only root and this process's user can
+    change, on a path that only they can change either.
+
+    For a process that writes and removes things under <path> as root: a symlink on
+    the way, or a directory another user owns or can write to, would let that user
+    point those writes and removals at any file. So every component from the mount
+    point <path> is on down to <path> itself is lstat'ed, and each has to be a
+    directory (a symlink is refused, never followed), owned by root or by the
+    effective uid, and not writable by group or others. What is above the mount
+    point does not matter: a mount point cannot be renamed or replaced but by root.
+
+    What is missing is created as it is reached, after everything above it passed:
+    <path> itself with <mode>, a directory on the way to it with 0o755, neither
+    group- or world-writable whatever the umask. With <create> False the check stops
+    at the first component that does not exist, and nothing is created.
+
+    Returns:
+        <path>, made absolute.
+
+    Raises:
+        PermissionError: a component is a symlink, not a directory, or not private
+            in the sense above. Nothing below it is looked at or created.
+        ValueError: <mode> is group- or world-writable.
+    """
+    if mode & 0o022:
+        raise ValueError(f"mode {mode:o} would make {path} group- or world-writable")
+    _path = Path(os.path.abspath(path))
+    _top = _mount_point_of(_path)
+    _euid = os.geteuid()
+
+    _components = [_top]
+    for _part in _path.relative_to(_top).parts:
+        _components.append(_components[-1] / _part)
+
+    for _dir in _components:
+        try:
+            _st = os.lstat(_dir)
+        except FileNotFoundError:
+            if not create:
+                break
+            try:
+                os.mkdir(_dir, mode if _dir == _path else 0o755)
+            except FileExistsError:
+                pass  # made meanwhile, by whoever could: checked as it is
+            _st = os.lstat(_dir)
+        if stat.S_ISLNK(_st.st_mode):
+            raise PermissionError(f"{_dir} is a symlink")
+        if not stat.S_ISDIR(_st.st_mode):
+            raise PermissionError(f"{_dir} is not a directory")
+        if _st.st_uid not in (0, _euid) or _st.st_mode & 0o022:
+            raise PermissionError(
+                f"{_dir} is not a private directory (owner uid {_st.st_uid}, mode "
+                f"{stat.S_IMODE(_st.st_mode):o}): it has to be root's or ours, and "
+                "not writable by group or others"
+            )
+    return _path
