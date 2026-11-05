@@ -478,7 +478,12 @@ class PartitionImageUpdater:
         one. A blob of the right size is taken as there; one that then turns out not
         to hash to its digest is downloaded again, and the disk filling meanwhile is
         reported by the download itself. What an interrupted download left in
-        `<digest>.part` is continued, so only the rest of that blob needs room."""
+        `<digest>.part` is continued, so only the rest of that blob needs room.
+
+        For a vendor package the room checked is the package's only, as published.
+        Unpacking it, and any copy staged from it, are the installer's: the DPI does
+        both on persistent storage it manages, and keeps a free-space floor of its
+        own there, so it refuses an install that would not fit and says why."""
         self.image_dir.mkdir(exist_ok=True, parents=True)
         _free = shutil.disk_usage(self.image_dir).free
         _have = 0
@@ -677,13 +682,19 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
     def _bytes_to_write(config: PartitionImageConfig) -> int:
         """What the installer ends up writing: every partition image and data image,
         at the size it decodes to (a compressed blob carries that in its
-        annotations); the boot files tar is unpacked as it is."""
+        annotations); the boot files tar is unpacked as it is. A vendor package
+        names no partition image of its own -- what it writes is the platform's
+        updater's to know -- so it counts as the package, decoded: the measure the
+        installer's percent is turned into bytes by, which would otherwise be zero
+        and the whole write unreported."""
         _total = 0
         for _p in config.partitions:
             if _p.action is PartitionAction.write and _p.image is not None:
                 _total += getattr(_p.image, "image_size", _p.image.size)
         for _d in config.data_images:
             _total += _d.image.image_size
+        if config.package is not None:
+            _total += config.package.image_size
         return _total
 
     # ------ the update ------ #

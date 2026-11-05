@@ -62,6 +62,7 @@ from ota_image_libs.v1.partition_image.schema import (
     PartitionImageConfig,
     PartitionImageManifest,
     VendorPackageDescriptor,
+    VendorPackageZstdDescriptor,
 )
 from pytest_mock import MockerFixture
 from requests import HTTPError, Response
@@ -97,6 +98,7 @@ BOOT_FILES_MEDIA = (
 VENDOR_PACKAGE_MEDIA = (
     "application/vnd.tier4.ota.partition-based-ota-image.vendor-package.v1"
 )
+VENDOR_PACKAGE_ZSTD_MEDIA = VENDOR_PACKAGE_MEDIA + "+zstd"
 FIRMWARE_PACKAGE_MEDIA = (
     "application/vnd.tier4.ota.partition-based-ota-image.firmware-package.v1"
 )
@@ -181,6 +183,48 @@ def config(
             mediaType=VENDOR_PACKAGE_MEDIA, digest=f"sha256:{'e' * 64}", size=10
         )
     return PartitionImageConfig(**_kwargs)
+
+
+DUPKG_BYTES = b"a dupkg tar, zstd-compressed, as ota-image-builder published it"
+DUPKG_DIGEST = sha256(DUPKG_BYTES).hexdigest()
+DUPKG_DECODED_SIZE = 7 << 30
+
+
+def dupkg_payload() -> PartitionImageConfig:
+    """A vendor-package payload, as `prepare-partition-image --vendor-package` makes
+    it: one opaque package the platform's own updater applies, which writes the
+    partitions marked `performed_by: package`; identity and optdata kept."""
+    return PartitionImageConfig(
+        architecture="arm64",
+        image_version="2.9.0",
+        delivery=DeliveryMode.vendor_package,
+        partitions=[
+            vendor_written("rootfs"),
+            vendor_written("boot"),
+            PartitionEntry(
+                name="scratch", action=PartitionAction.mkfs, performed_by="package"
+            ),
+            PartitionEntry(name="identity", action=PartitionAction.keep),
+            PartitionEntry(name="optdata", action=PartitionAction.keep),
+        ],
+        package=VendorPackageZstdDescriptor(
+            mediaType=VENDOR_PACKAGE_ZSTD_MEDIA,
+            digest=f"sha256:{DUPKG_DIGEST}",
+            size=len(DUPKG_BYTES),
+            annotations={
+                "vnd.tier4.ota.partition-image.uncompressed.digest": f"sha256:{'7' * 64}",
+                "vnd.tier4.ota.partition-image.uncompressed.size": DUPKG_DECODED_SIZE,
+                "vnd.tier4.ota.partition-image.vendor-package.format": (
+                    "nvidia-drive-update.dupkg.v1"
+                ),
+            },
+        ),
+        labels={
+            "vnd.tier4.image.base-image": "driveos:7.0.5.0",
+            "vnd.tier4.ota.image.blobs-count": 1,
+            "vnd.tier4.ota.image.blobs-size": len(DUPKG_BYTES),
+        },
+    )
 
 
 def data_image(
@@ -332,6 +376,7 @@ class FakeInstaller:
         self._install_error = install_error
         self.installed: dict | None = None
         self.blobs_seen: list[str] = []
+        self.blob_bytes: dict[str, bytes] = {}
         self.asked: list[tuple[int, str | None]] = []
         self.data_on_device: dict[str, str] = {}
         self.progress: tuple[int, ...] = (0, 50, 100)
@@ -351,6 +396,9 @@ class FakeInstaller:
         self.blobs_seen = sorted(
             p.name for p in (Path(package) / RESOURCE_DIR).iterdir()
         )
+        self.blob_bytes = {
+            p.name: p.read_bytes() for p in (Path(package) / RESOURCE_DIR).iterdir()
+        }
         if on_progress is not None:
             for _percent in self.progress:
                 on_progress(_percent)
@@ -1134,6 +1182,48 @@ class TestExecute:
             and _r.operation is UpdateProgressReport.Type.APPLY_DELTA
         )
         assert _written == 1534529536 + 512
+
+    def test_a_vendor_package_reaches_the_installer_as_it_was_published(
+        self, tmp_path: Path, pool, server, index_verified_from, no_wait_before_reboot
+    ):
+        """One opaque package that the platform's updater applies. It is staged as
+        the blob it is -- compressed, under its digest, beside the index the
+        installer verifies it by -- and nothing of it is decoded, unpacked or written
+        here; the install's percent is reported against its decoded size."""
+        _served_dir = tmp_path / "served"
+        (_served_dir / RESOURCE_DIR).mkdir(parents=True)
+        (_served_dir / RESOURCE_DIR / DUPKG_DIGEST).write_bytes(DUPKG_BYTES)
+        _served, (_manifest, _config_digest) = serve_an_image(
+            _served_dir, dupkg_payload()
+        )
+        server(_served)
+        index_verified_from(_served)
+        _installer = FakeInstaller()
+        _updater = make_full_updater(tmp_path, pool=pool, installer=_installer)
+
+        _updater.execute()
+
+        assert _installer.installed is not None
+        assert _installer.installed["package"] == staged_dir(tmp_path) / "image"
+        assert _installer.installed["version"] == "2.9.0"
+        assert _installer.blobs_seen == sorted(
+            [DUPKG_DIGEST, _manifest, _config_digest]
+        )
+        assert _installer.blob_bytes[DUPKG_DIGEST] == DUPKG_BYTES, "unchanged"
+        _boot_controller: FakeBootController = _updater._boot_controller  # type: ignore[assignment]
+        assert _boot_controller.rebooted is True
+
+        _reports = reports(_updater)
+        _meta = [_r for _r in _reports if isinstance(_r, SetUpdateMetaReport)][-1]
+        assert _meta.total_download_files_num == 1
+        assert _meta.total_download_files_size == len(DUPKG_BYTES)
+        _written = sum(
+            _r.processed_file_size
+            for _r in _reports
+            if isinstance(_r, UpdateProgressReport)
+            and _r.operation is UpdateProgressReport.Type.APPLY_DELTA
+        )
+        assert _written == DUPKG_DECODED_SIZE
 
     def test_a_payload_the_installer_refuses_is_a_failed_update(
         self, tmp_path: Path, pool, server, index_verified_from
