@@ -49,6 +49,7 @@ import logging
 import shutil
 import threading
 from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -158,6 +159,10 @@ class DownloadPlan:
         return sum(_b.size for _b in self.blobs)
 
 
+OnBlobStart = Callable[[PlannedBlob, int], None]
+"""Called as each planned blob is taken up, before it is looked for or downloaded:
+the blob, and how many of its bytes an interrupted attempt left to be continued."""
+
 OnBlobDone = Callable[[PlannedBlob, bool], None]
 """Called as each planned blob is in place: the blob, and whether it was downloaded
 (False: it was there from an earlier attempt and hashed to its digest)."""
@@ -217,6 +222,12 @@ class PartitionImageUpdater:
         )
         _dst.unlink(missing_ok=True)
         return False
+
+    def _bytes_to_continue(self, descriptor: OCIDescriptor) -> int:
+        """What an interrupted download of this blob left that `_fetch_blob` would
+        continue rather than download again."""
+        _part = self._blob_dir / (descriptor.digest.digest_hex + PARTIAL_SUFFIX)
+        return resumable_bytes(_part, descriptor.size)
 
     def _fetch_blob(
         self, descriptor: OCIDescriptor, *, what: str, condition: threading.Condition
@@ -449,11 +460,14 @@ class PartitionImageUpdater:
         plan: DownloadPlan,
         *,
         condition: threading.Condition,
+        on_blob_start: OnBlobStart | None = None,
         on_blob_done: OnBlobDone | None = None,
     ) -> Generator[list[DownloadInfo], None, None]:
         """Yield the downloads of the planned blobs, one at a time, in plan order."""
         self._check_there_is_room_for(plan)
         for _blob in plan.blobs:
+            if on_blob_start is not None:
+                on_blob_start(_blob, self._bytes_to_continue(_blob.descriptor))
             _downloaded = yield from self._fetch_blob(
                 _blob.descriptor, what=_blob.what, condition=condition
             )
@@ -522,6 +536,111 @@ class PartitionImageUpdater:
 #
 
 
+DOWNLOAD_PROGRESS_INTERVAL = 1
+"""Seconds between two progress reports of a blob that is still downloading."""
+
+
+class BlobDownloadProgress:
+    """Reports the download of a blob while it runs, not only once it is whole.
+
+    A partition image is one blob, and gigabytes of it: reported only once whole,
+    the download progress stands still for the minutes a rootfs image takes and
+    then jumps to the end. The downloader pool counts the bytes on the wire as they
+    arrive, so while a blob downloads, what arrived since the last report is
+    reported every `interval` seconds, as traffic and as progress through the blob
+    (never past the blob's size). What an interrupted attempt left, and the download
+    continues, is progress from the start, without traffic. Once the blob is in
+    place, the rest of its size is reported with it as one file, so the totals end
+    where they always did: every blob's size, and every byte that came over the wire.
+    """
+
+    def __init__(
+        self,
+        *,
+        traffic: Callable[[], int],
+        report: Callable[[UpdateProgressReport], None],
+        interval: float = DOWNLOAD_PROGRESS_INTERVAL,
+    ) -> None:
+        self._traffic = traffic
+        self._report = report
+        self._interval = interval
+        self._lock = threading.Lock()
+        # the traffic so far is the metadata's, already reported with the plan
+        self._traffic_reported = traffic()
+        self._blob_size = 0
+        self._blob_reported = 0
+
+    def _new_traffic(self) -> int:
+        _new = max(0, self._traffic() - self._traffic_reported)
+        self._traffic_reported += _new
+        return _new
+
+    def blob_started(self, blob: PlannedBlob, already_here: int = 0) -> None:
+        with self._lock:
+            self._blob_size = blob.size
+            self._blob_reported = min(max(0, already_here), blob.size)
+            if self._blob_reported:
+                self._report(
+                    UpdateProgressReport(
+                        operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                        processed_file_size=self._blob_reported,
+                    )
+                )
+
+    def tick(self) -> None:
+        """Report what arrived since the last report, if anything did."""
+        with self._lock:
+            _new = self._new_traffic()
+            if not _new:
+                return
+            _through = min(_new, self._blob_size - self._blob_reported)
+            self._blob_reported += _through
+            self._report(
+                UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                    processed_file_size=_through,
+                    downloaded_bytes=_new,
+                )
+            )
+
+    def blob_done(self, blob: PlannedBlob, downloaded: bool) -> None:
+        """One planned blob is in place: counted as a file either way, with the rest
+        of its size and of the traffic (none for a blob an earlier attempt left)."""
+        del downloaded  # the traffic says it
+        with self._lock:
+            self._report(
+                UpdateProgressReport(
+                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
+                    processed_file_num=1,
+                    processed_file_size=blob.size - self._blob_reported,
+                    downloaded_bytes=self._new_traffic(),
+                )
+            )
+            self._blob_size = self._blob_reported = 0
+
+    @contextmanager
+    def reporting(self) -> Generator[None]:
+        """Report every `interval` seconds while the downloads in the block run."""
+        _stop = threading.Event()
+
+        def _loop() -> None:
+            while not _stop.wait(self._interval):
+                try:
+                    self.tick()
+                except Exception as e:  # never worth failing the update for
+                    logger.warning(f"failed to report the download progress: {e!r}")
+
+        _thread = threading.Thread(
+            target=_loop, name="partition_download_progress", daemon=True
+        )
+        _thread.start()
+        try:
+            yield
+        finally:
+            _stop.set()
+            _thread.join()
+
+
 class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
     """An OTA update that writes partition images, from otaclient's side.
 
@@ -560,19 +679,9 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
 
     # ------ reporting ------ #
 
-    def _on_blob_done(self, blob: PlannedBlob, downloaded: bool) -> None:
-        """One planned blob is in place: counted as a file either way, as traffic
-        only when it was downloaded."""
+    def _report_progress(self, report: UpdateProgressReport) -> None:
         self._status_report_queue.put_nowait(
-            StatusReport(
-                payload=UpdateProgressReport(
-                    operation=UpdateProgressReport.Type.DOWNLOAD_REMOTE_COPY,
-                    processed_file_num=1,
-                    processed_file_size=blob.size,
-                    downloaded_bytes=blob.size if downloaded else 0,
-                ),
-                session_id=self.session_id,
-            )
+            StatusReport(payload=report, session_id=self.session_id)
         )
 
     def _on_write_progress(self, percent: int, *, total_bytes: int) -> None:
@@ -743,6 +852,10 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
                     payload=SetUpdateMetaReport(
                         total_download_files_num=len(_plan.blobs),
                         total_download_files_size=_plan.total_size,
+                        # A partition image has no files to count, so its progress
+                        # is told by size: what the processed size ends at, the
+                        # blobs downloaded and then the bytes the installer writes.
+                        image_size_uncompressed=_plan.total_size + _total_write,
                         metadata_downloaded_bytes=self._downloader_pool.total_downloaded_bytes,
                     ),
                     session_id=self.session_id,
@@ -754,14 +867,22 @@ class OTAUpdaterForPartitionImage(OTAUpdateInitializer):
             # ------ downloading ------ #
             _now = self._report_phase(UpdatePhase.DOWNLOADING_OTA_FILES)
             self._metrics.download_start_timestamp = _now
+            _progress = BlobDownloadProgress(
+                traffic=lambda: self._downloader_pool.total_downloaded_bytes,
+                report=self._report_progress,
+            )
             try:
-                for _fut in self._download_helper.download_meta_files(
-                    _updater.download_payload(
-                        _plan, condition=_condition, on_blob_done=self._on_blob_done
-                    ),
-                    condition=_condition,
-                ):
-                    download_exception_handler(_fut)
+                with _progress.reporting():
+                    for _fut in self._download_helper.download_meta_files(
+                        _updater.download_payload(
+                            _plan,
+                            condition=_condition,
+                            on_blob_start=_progress.blob_started,
+                            on_blob_done=_progress.blob_done,
+                        ),
+                        condition=_condition,
+                    ):
+                        download_exception_handler(_fut)
             except Exception as e:
                 raise_on_download_resources_failed(e)
 
