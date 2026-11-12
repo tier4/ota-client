@@ -11,11 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""The image ID the running image carries, as the version detail of last resort."""
+"""The image ID the running image carries is the one reported; otaclient's record
+only adds its release."""
 
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -24,8 +26,9 @@ from pytest_mock import MockerFixture
 from otaclient._types import VersionDetail
 from otaclient.boot_control import _image_version_file
 from otaclient.boot_control._image_version_file import (
-    load_active_slot_version_detail,
+    MAX_VERSION_FILE_SIZE,
     load_image_version_detail,
+    resolve_active_slot_version_detail,
 )
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
 from otaclient_common import _env
@@ -55,7 +58,14 @@ VERSION_FILE = {
         "spec_name": "custom-v2-std2-amd64-xl",
     },
     "image_id": IMAGE_ID,
-    "ml_packages": [],
+    "ml_packages": [
+        {
+            "digest": "sha256:" + "3" * 64,
+            "name": "a_model",
+            "release_id": "7e6d5c4b-3a29-4180-9f7e-6d5c4b3a2918",
+            "release_name": "a_model_v1.2.0",
+        },
+    ],
     "schema_version": 1,
     "source": {
         "commit": "1" * 40,
@@ -68,17 +78,31 @@ VERSION_FILE = {
 }
 
 
-def write_version_file(root: Path, content: str) -> Path:
-    _fpath = root / "usr/share/ota/version.json"
+def version_file_path(root: Path) -> Path:
+    return root / "usr/share/ota/version.json"
+
+
+def write_version_file(root: Path, content: str | bytes | dict) -> Path:
+    """As Web.Auto writes it: `JSON.stringify(file, null, 2)` and a newline."""
+    _fpath = version_file_path(root)
     _fpath.parent.mkdir(parents=True, exist_ok=True)
-    _fpath.write_text(content)
+    if isinstance(content, dict):
+        content = json.dumps(content, indent=2) + "\n"
+    if isinstance(content, str):
+        content = content.encode()
+    _fpath.write_bytes(content)
     return _fpath
+
+
+def with_image_id(image_id: object) -> dict:
+    return {**VERSION_FILE, "image_id": image_id}
 
 
 class TestTheImagesVersionFile:
     def test_the_image_id_is_taken_and_nothing_else(self, tmp_path: Path):
-        """The release is named after the build, so the image has none to give."""
-        write_version_file(tmp_path, json.dumps(VERSION_FILE))
+        """The release is named after the build, so the image has none to give; the
+        releases of the ML packages it carries are theirs, not the image's."""
+        write_version_file(tmp_path, VERSION_FILE)
 
         assert load_image_version_detail(root=tmp_path) == VersionDetail(
             release_name="", release_id="", image_id=IMAGE_ID
@@ -92,26 +116,90 @@ class TestTheImagesVersionFile:
         (
             pytest.param("{not json", id="not_json"),
             pytest.param("[]", id="not_an_object"),
-            pytest.param(json.dumps({"schema_version": 1}), id="no_image_id"),
-            pytest.param(json.dumps({"image_id": ""}), id="empty_image_id"),
-            pytest.param(json.dumps({"image_id": 1}), id="image_id_not_a_string"),
+            pytest.param({"schema_version": 1}, id="no_image_id"),
+            pytest.param(with_image_id(""), id="empty_image_id"),
+            pytest.param(with_image_id(1), id="image_id_not_a_string"),
+            pytest.param(with_image_id("a\nb"), id="image_id_with_a_newline"),
+            pytest.param(with_image_id('a"b'), id="image_id_with_a_quote"),
+            pytest.param(with_image_id("a" * 257), id="image_id_too_long"),
         ),
     )
-    def test_a_file_that_names_no_image_id_gives_no_detail(
-        self, tmp_path: Path, content: str
+    def test_a_file_that_names_no_valid_image_id_gives_no_detail(
+        self, tmp_path: Path, content: str | dict
     ):
+        """The image ID goes into the uploaded JSON logs and the status API as it is."""
         write_version_file(tmp_path, content)
 
         assert load_image_version_detail(root=tmp_path) is None
+
+    @pytest.mark.parametrize(
+        "schema_version",
+        (
+            pytest.param(2, id="a_later_one"),
+            pytest.param(None, id="none"),
+            pytest.param("1", id="not_a_number"),
+        ),
+    )
+    def test_a_file_of_another_schema_version_gives_no_detail(
+        self, tmp_path: Path, schema_version: object
+    ):
+        """What a later schema means by image_id is not this otaclient's to guess."""
+        write_version_file(tmp_path, {**VERSION_FILE, "schema_version": schema_version})
+
+        assert load_image_version_detail(root=tmp_path) is None
+
+    def test_a_file_too_large_is_not_read(self, tmp_path: Path):
+        _padding = "x" * MAX_VERSION_FILE_SIZE
+        write_version_file(tmp_path, {**VERSION_FILE, "padding": _padding})
+
+        assert load_image_version_detail(root=tmp_path) is None
+
+    def test_a_symlink_is_not_followed(self, tmp_path: Path):
+        """In an app image an absolute link would resolve in the app image's root."""
+        _real = write_version_file(tmp_path / "elsewhere", VERSION_FILE)
+        _link = version_file_path(tmp_path)
+        _link.parent.mkdir(parents=True)
+        _link.symlink_to(_real)
+
+        assert load_image_version_detail(root=tmp_path) is None
+
+    def test_what_is_not_a_regular_file_is_not_read(self, tmp_path: Path):
+        version_file_path(tmp_path).mkdir(parents=True)
+
+        assert load_image_version_detail(root=tmp_path) is None
+
+    def test_a_file_that_cannot_be_read_is_not_logged_whole(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ):
+        """A UnicodeDecodeError's repr carries every byte it was given."""
+        write_version_file(tmp_path, b'{"project_id": "not-for-the-log", "x": "\xff"}')
+
+        with caplog.at_level(logging.WARNING, logger=_image_version_file.__name__):
+            assert load_image_version_detail(root=tmp_path) is None
+        assert "UnicodeDecodeError" in caplog.text
+        assert "not-for-the-log" not in caplog.text
 
     def test_an_app_image_reads_the_hosts_file(
         self, tmp_path: Path, mocker: MockerFixture
     ):
         """An app image's own /usr is not the host's: the file is read through the
         host's root."""
-        write_version_file(tmp_path, json.dumps(VERSION_FILE))
+        write_version_file(tmp_path, VERSION_FILE)
         mocker.patch.object(
             _env, "get_dynamic_client_chroot_path", return_value=str(tmp_path)
+        )
+
+        _detail = load_image_version_detail()
+        assert _detail is not None and _detail.image_id == IMAGE_ID
+
+    def test_otaclient_on_the_host_reads_the_file_from_the_root(
+        self, tmp_path: Path, mocker: MockerFixture
+    ):
+        """Not an app image: the file is read where the constant says, from /."""
+        _fpath = write_version_file(tmp_path, VERSION_FILE)
+        mocker.patch.object(_env, "get_dynamic_client_chroot_path", return_value=None)
+        mocker.patch.object(
+            _image_version_file.cfg, "IMAGE_VERSION_FILE_FPATH", str(_fpath)
         )
 
         _detail = load_image_version_detail()
@@ -126,7 +214,6 @@ class TestTheRunningSlotsDetail:
     def status_control(self, mocker: MockerFixture):
         _ctrl = mocker.MagicMock(spec=OTAStatusFilesControl)
         _ctrl.load_active_slot_version_detail.return_value = None
-        _ctrl.load_active_slot_version.return_value = ""
         return _ctrl
 
     @pytest.fixture
@@ -145,7 +232,7 @@ class TestTheRunningSlotsDetail:
         )
         status_control.load_active_slot_version_detail.return_value = _recorded
 
-        assert load_active_slot_version_detail(status_control) == _recorded
+        assert resolve_active_slot_version_detail(status_control) == _recorded
 
     def test_a_record_of_another_image_loses_its_release(
         self, status_control, from_image
@@ -156,41 +243,34 @@ class TestTheRunningSlotsDetail:
             release_name="v4.5.3", release_id="rid", image_id="another-image"
         )
 
-        assert load_active_slot_version_detail(status_control) == VersionDetail(
+        assert resolve_active_slot_version_detail(status_control) == VersionDetail(
             image_id=IMAGE_ID
         )
 
-    @pytest.mark.parametrize(
-        "recorded_version",
-        (
-            pytest.param("", id="nothing_recorded"),
-            pytest.param("v4.5.3", id="a_version_without_a_detail"),
-        ),
-    )
     def test_a_slot_with_no_detail_recorded_reports_the_images_id(
-        self, status_control, from_image, recorded_version: str
+        self, status_control, from_image
     ):
         """A device the factory installer wrote, or one updated by a request that
-        named no release."""
-        status_control.load_active_slot_version.return_value = recorded_version
-
-        assert load_active_slot_version_detail(status_control) == VersionDetail(
+        named no release (the version alone recorded; with real files in
+        test_partition_image)."""
+        assert resolve_active_slot_version_detail(status_control) == VersionDetail(
             image_id=IMAGE_ID
         )
 
     def test_an_image_without_the_file_reports_the_record(
         self, status_control, from_image
     ):
-        """An image built before the file was written: the record is all there is."""
+        """An image built before the file was written, or with one that is not read:
+        the record is all there is."""
         from_image.return_value = None
         _recorded = VersionDetail(
             release_name="v4.5.3", release_id="rid", image_id="the-requested-image"
         )
         status_control.load_active_slot_version_detail.return_value = _recorded
 
-        assert load_active_slot_version_detail(status_control) == _recorded
+        assert resolve_active_slot_version_detail(status_control) == _recorded
 
     def test_nothing_anywhere_is_none(self, status_control, from_image):
         from_image.return_value = None
 
-        assert load_active_slot_version_detail(status_control) is None
+        assert resolve_active_slot_version_detail(status_control) is None

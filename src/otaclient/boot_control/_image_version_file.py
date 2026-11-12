@@ -22,12 +22,19 @@ says what was requested.
 The release name and ID are given when the image is released, after the build, so no
 image carries them. They come from otaclient's record, and only while that record is
 about the image that runs.
+
+Only schema version 1 is read: the schema is Web.Auto's, and an otaclient older than
+the image cannot know what a later version means by `image_id`. Any other version, like
+a file that names no valid image ID, leaves the record to answer, as before the file.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import stat
 from pathlib import Path
 
 from otaclient._types import VersionDetail
@@ -39,10 +46,35 @@ from ._ota_status_control import OTAStatusFilesControl
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_VERSION = 1
+MAX_VERSION_FILE_SIZE = 1024**2
+"""Generous: a real one is about 10 KiB, most of it one commit per git repository."""
+IMAGE_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,256}")
+"""What an image ID is let through as: it goes into the uploaded logs and the status
+API as it is, so nothing that would need escaping there."""
+
+
+def _read_version_file(fpath: Path) -> bytes:
+    """The file's bytes, if it is a regular file of a sane size.
+
+    Not through a symlink: the writer never puts one there, and in an app image an
+    absolute one would resolve in the app image's root, not the host's. Opened without
+    blocking, so that a FIFO there cannot hold otaclient's startup.
+    """
+    _fd = os.open(fpath, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    with open(_fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            raise ValueError("not a regular file")
+        _data = f.read(MAX_VERSION_FILE_SIZE + 1)
+    if len(_data) > MAX_VERSION_FILE_SIZE:
+        raise ValueError(f"larger than {MAX_VERSION_FILE_SIZE} bytes")
+    return _data
+
 
 def load_image_version_detail(*, root: StrOrPath | None = None) -> VersionDetail | None:
     """The image ID the image at `root` names in its version file, as a version detail
-    without a release; None when the image has no version file or it names no image ID.
+    without a release; None when the image has no version file, one of another schema
+    version, or one that names no valid image ID.
 
     `root` defaults to the running image: the host's root, also when otaclient runs as
     an app image, whose own /usr is not the host's.
@@ -51,21 +83,30 @@ def load_image_version_detail(*, root: StrOrPath | None = None) -> VersionDetail
         root = _env.get_dynamic_client_chroot_path() or cfg.CANONICAL_ROOT
     _fpath = Path(replace_root(cfg.IMAGE_VERSION_FILE_FPATH, cfg.CANONICAL_ROOT, root))
     try:
-        _image_id = json.loads(_fpath.read_text())["image_id"]
+        _doc = json.loads(_read_version_file(_fpath))
     except FileNotFoundError:
         logger.info(f"the image carries no version file at {_fpath}")
         return None
     except Exception as e:
-        logger.warning(f"cannot read the image ID from {_fpath}: {e!r}")
+        # the type and message only: a repr may carry the whole file
+        logger.warning(f"cannot read {_fpath}: {type(e).__name__}: {e}")
         return None
 
-    if not isinstance(_image_id, str) or not _image_id:
-        logger.warning(f"{_fpath} names no image ID: {_image_id!r}")
+    _schema = _doc.get("schema_version") if isinstance(_doc, dict) else None
+    if _schema != SCHEMA_VERSION:
+        logger.warning(
+            f"{_fpath} is not a version file of schema {SCHEMA_VERSION}: "
+            f"schema_version={_schema!r:.32}"
+        )
+        return None
+    _image_id = _doc.get("image_id")
+    if not isinstance(_image_id, str) or not IMAGE_ID_RE.fullmatch(_image_id):
+        logger.warning(f"{_fpath} names no valid image ID: {_image_id!r:.80}")
         return None
     return VersionDetail(image_id=_image_id)
 
 
-def load_active_slot_version_detail(
+def resolve_active_slot_version_detail(
     ota_status_control: OTAStatusFilesControl,
 ) -> VersionDetail | None:
     """The version detail of the running slot, its image ID from the running image.
@@ -74,7 +115,12 @@ def load_active_slot_version_detail(
       recorded when the record names the same image, else with no release. A record
       of another image (the slot was written by someone else since, or is not the one
       otaclient installed into) would pin the release to an image that does not run.
-    - It has none (an image built before the file was written): otaclient's record.
+    - It has none, or one that is not read (see the module): otaclient's record.
+
+    The version (`firmware_version`) is not resolved here and stays the recorded one,
+    as the file carries none. A record of another image therefore still shows its
+    version there, and the upper layer, which takes a missing release name from that
+    version, keeps showing it; the image ID is what tells the two apart.
     """
     _recorded = ota_status_control.load_active_slot_version_detail()
     _from_image = load_image_version_detail()

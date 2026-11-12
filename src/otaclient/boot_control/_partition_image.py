@@ -58,7 +58,7 @@ from otaclient_common._io import (
 )
 
 from ._dpi import DPIError, DPIProtocol, dpi_from_ecu_info
-from ._image_version_file import load_active_slot_version_detail
+from ._image_version_file import resolve_active_slot_version_detail
 from ._ota_status_control import OTAStatusFilesControl
 
 if TYPE_CHECKING:
@@ -367,7 +367,7 @@ class PartitionImageBootController:
     def load_version_detail(self) -> VersionDetail | None:
         """The image ID from the running image's version file, the release from the
         slot's record."""
-        return load_active_slot_version_detail(self._ota_status_control)
+        return resolve_active_slot_version_detail(self._ota_status_control)
 
     def load_standby_slot_version(self) -> str:
         return self._ota_status_control.load_standby_slot_version()
