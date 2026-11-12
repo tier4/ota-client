@@ -102,6 +102,8 @@ class Consts:
     OTACLIENT_INSTALLATION_RELEASE = "/opt/ota/otaclient_release"
     CERT_DPATH = "/opt/ota/client/certs"
     IMAGE_META_DPATH = "/opt/ota/image-meta"
+    # the version file Web.Auto writes into the rootfs of the OTA images it builds
+    IMAGE_VERSION_FILE_FPATH = "/usr/share/ota/version.json"
 
     BOOT_DPATH = "/boot"
     EFI_DPATH = "/boot/efi"

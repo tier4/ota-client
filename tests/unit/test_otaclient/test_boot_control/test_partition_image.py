@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from otaclient import errors as ota_errors
-from otaclient._types import FailureType, OTAStatus
+from otaclient._types import FailureType, OTAStatus, VersionDetail
 from otaclient.boot_control import _partition_image, get_boot_controller
 from otaclient.boot_control._dpi import DPIError, SlotLayout
 from otaclient.boot_control._partition_image import (
@@ -42,6 +42,7 @@ from otaclient.boot_control.protocol import (
     PartitionLayoutBootControllerProtocol,
 )
 from otaclient.configs import BootloaderType
+from otaclient_common import _env as otaclient_env
 from otaclient_common import _io
 
 LAYOUT = SlotLayout(
@@ -744,6 +745,102 @@ def test_a_version_the_dpi_cannot_read_is_left_unknown(tmp_path: Path):
 
     assert _ctrl.load_active_slot_image_version() == ""
     assert _ctrl.load_version() == ""
+
+
+class TestTheVersionDetailReported:
+    """The image ID is the one in the version file the image build wrote into the
+    running image; the release is the one recorded for the slot, while the record is
+    about that image."""
+
+    @pytest.fixture
+    def running_image(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        _root = tmp_path / "running_image"
+        _fpath = _root / "usr/share/ota/version.json"
+        _fpath.parent.mkdir(parents=True)
+        _fpath.write_text('{"schema_version": 1, "image_id": "image-of-the-build"}')
+        monkeypatch.setattr(
+            otaclient_env, "get_dynamic_client_chroot_path", lambda: str(_root)
+        )
+        return _root
+
+    @staticmethod
+    def record(state_dir: Path, *, version: str, detail: str | None = None) -> None:
+        _dir = status_dir(state_dir, "rootfs_a")
+        _dir.mkdir(parents=True)
+        (_dir / "version").write_text(version)
+        if detail is not None:
+            (_dir / "version_detail").write_text(detail)
+
+    def test_a_device_with_nothing_recorded_reports_the_images_id(
+        self, tmp_path: Path, running_image: Path
+    ):
+        _ctrl = make_controller(tmp_path)
+
+        assert _ctrl.load_version_detail() == VersionDetail(
+            image_id="image-of-the-build"
+        )
+
+    def test_a_record_of_the_running_image_keeps_its_release(
+        self, tmp_path: Path, running_image: Path
+    ):
+        self.record(
+            tmp_path,
+            version="3.0.0",
+            detail='{"release_name": "3.0.0", "release_id": "rid", '
+            '"image_id": "image-of-the-build"}',
+        )
+        _ctrl = make_controller(tmp_path)
+
+        assert _ctrl.load_version_detail() == VersionDetail(
+            release_name="3.0.0", release_id="rid", image_id="image-of-the-build"
+        )
+
+    def test_a_record_of_another_image_loses_its_release(
+        self, tmp_path: Path, running_image: Path
+    ):
+        """The slot was rewritten since otaclient recorded 3.0.0 for it."""
+        self.record(
+            tmp_path,
+            version="3.0.0",
+            detail='{"release_name": "3.0.0", "release_id": "rid", '
+            '"image_id": "another-image"}',
+        )
+        _ctrl = make_controller(tmp_path)
+
+        assert _ctrl.load_version_detail() == VersionDetail(
+            image_id="image-of-the-build"
+        )
+
+    def test_a_recorded_version_alone_reports_the_images_id(
+        self, tmp_path: Path, running_image: Path
+    ):
+        """An update whose request named no release."""
+        self.record(tmp_path, version="3.0.0")
+        _ctrl = make_controller(tmp_path)
+
+        assert _ctrl.load_version_detail() == VersionDetail(
+            image_id="image-of-the-build"
+        )
+
+    def test_an_image_without_the_file_reports_the_record(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(
+            otaclient_env,
+            "get_dynamic_client_chroot_path",
+            lambda: str(tmp_path / "no_version_file"),
+        )
+        self.record(
+            tmp_path,
+            version="3.0.0",
+            detail='{"release_name": "3.0.0", "release_id": "rid", '
+            '"image_id": "requested"}',
+        )
+        _ctrl = make_controller(tmp_path)
+
+        assert _ctrl.load_version_detail() == VersionDetail(
+            release_name="3.0.0", release_id="rid", image_id="requested"
+        )
 
 
 class TestWhereTheStateGoes:
