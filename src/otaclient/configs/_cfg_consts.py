@@ -104,6 +104,11 @@ class Consts:
     IMAGE_META_DPATH = "/opt/ota/image-meta"
     # the version file Web.Auto writes into the rootfs of the OTA images it builds
     IMAGE_VERSION_FILE_FPATH = "/usr/share/ota/version.json"
+    # the base payload's manifest and config, kept in image-meta by a full OTA
+    IMAGE_META_MANIFEST_FNAME = "image_manifest.json"
+    IMAGE_META_CONFIG_FNAME = "image_config.json"
+    # parameter sets laid over the running base (spec: ota-image-libs parameter_set.md)
+    PARAMETER_SET_DPATH = "/opt/ota/parameter-set"
 
     BOOT_DPATH = "/boot"
     EFI_DPATH = "/boot/efi"
@@ -124,6 +129,10 @@ class Consts:
     OTA_FAILURE_INFO_FNAME = "failure_info"
 
     DEFAULT_VERSION_STR = ""
+
+    # a parameter set: what it may unpack to, and how long a slot's `apply` may take
+    PARAMETER_SET_MAX_SIZE = 512 * 1024**2
+    PARAMETER_SET_APPLY_TIMEOUT = 300
 
     OTA_API_SERVER_PORT = 50051
     OTAPROXY_LISTEN_PORT = 8082

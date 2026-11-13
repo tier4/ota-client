@@ -45,6 +45,7 @@ from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.ota_core import _download_bsp_version_file
+from otaclient.parameter_set import ParameterSetStore
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -259,6 +260,12 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             dirs_exist_ok=True,
         )
 
+        # keep the base payload's manifest and config (an OTA image v1's), against
+        #   which a parameter set made for this base is checked
+        for _fname in (cfg.IMAGE_META_MANIFEST_FNAME, cfg.IMAGE_META_CONFIG_FNAME):
+            if (_src := self._session_workdir / _fname).is_file():
+                shutil.copyfile(_src, self._image_meta_dir_on_standby / _fname)
+
         # prepare base file_table to the base OTA meta store for next OTA
         self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)
         for entry in self._ota_meta_store_on_standby.iterdir():
@@ -326,6 +333,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             )
 
         self._preserve_ota_image_meta_at_post_update()
+        # the new slot starts with its base's defaults: a parameter set applied here
+        #   stays behind, and the history of what was applied goes along
+        ParameterSetStore().carry_history_to(
+            self._standby_slot_mp, reason=f"full OTA to {self.update_version}"
+        )
         # NOTE(20250823): secure the resource dir and metadata dir
         os.chmod(self._resource_dir_on_standby, 0o700)
         os.chmod(self._ota_meta_store_on_standby, 0o700)

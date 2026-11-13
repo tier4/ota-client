@@ -36,7 +36,10 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
     load_ca_store,
 )
-from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
+from ota_metadata.utils.detect_ota_image_ver import (
+    check_if_ota_image_v1,
+    has_parameter_set_for,
+)
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -56,6 +59,7 @@ from otaclient._types import (
     MultipleECUStatusFlags,
     OTAStatus,
     UpdateRequestV2,
+    VersionDetail,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
@@ -63,17 +67,20 @@ from otaclient._utils import (
     get_traceback,
 )
 from otaclient.boot_control import get_boot_controller
+from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
+from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
 from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
+from otaclient.parameter_set import ParameterSetStore, load_running_base
 from otaclient_common import _env
 from otaclient_common._shm import RWBusy
 from otaclient_common.cmdhelper import (
@@ -233,6 +240,10 @@ class OTAClient:
                 "previous OTA was aborted, report ABORTED for "
                 f"{ABORTED_STATUS_REPORT_DURATION}s before reporting INITIALIZED"
             )
+        # a parameter set was mounted at boot by its fstab entries: it is checked
+        #   here, and dropped (the slot reports its base again) if it does not hold
+        if isinstance(self.boot_controller, BootControllerBase):
+            _check_parameter_set_at_startup(self.boot_controller)
         self.current_version = self.boot_controller.load_version()
         self.current_version_detail = self.boot_controller.load_version_detail()
 
@@ -380,6 +391,34 @@ class OTAClient:
         """Submit a status report to the status report queue."""
         self._status_report_queue.put_nowait(report)
 
+    def _on_parameter_set_applied(
+        self, request: UpdateRequestV2, *, session_id: str
+    ) -> None:
+        """A parameter set is in place without a reboot: the update ends here, at
+        SUCCESS, and the slot now reports the set's release."""
+        self.current_version = self.boot_controller.load_version()
+        self.current_version_detail = self.boot_controller.load_version_detail()
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetOTAClientMetaReport(
+                    firmware_version=self.current_version,
+                    version_detail=self.current_version_detail,
+                ),
+            )
+        )
+        self._metrics.current_firmware_version = self.current_version
+        self._live_ota_status = OTAStatus.SUCCESS
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(new_ota_status=OTAStatus.SUCCESS),
+                session_id=session_id,
+            )
+        )
+        logger.info(
+            f"parameter set of release {request.release_name or request.version} "
+            "is in place"
+        )
+
     def update(self, request: UpdateRequestV2) -> None:
         """
         NOTE that update API will not raise any exceptions. The failure information
@@ -457,7 +496,29 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                if isinstance(
+                if has_parameter_set_for(
+                    url_base, image_id, downloader_pool=download_pool
+                ):
+                    # a parameter image: the payload is laid over the running base,
+                    #   the standby slot is not touched and there is no reboot
+                    if not isinstance(self.boot_controller, BootControllerBase):
+                        raise ota_errors.OTAImageInvalid(
+                            "the payload is a parameter set, which this layout does "
+                            "not take",
+                            module=__name__,
+                        )
+                    _updater = OTAUpdaterForParameterSet(
+                        ca_store=self.ca_store,
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        **_common_args,
+                    )
+                    _reboot = _updater.execute()
+                    self._on_parameter_set_applied(request, session_id=new_session_id)
+                    if _reboot:
+                        _updater.reboot_for_apply()
+                elif isinstance(
                     self.boot_controller, PartitionLayoutBootControllerProtocol
                 ):
                     # The slots of this layout are read-only dm-verity images, written
@@ -802,3 +863,22 @@ def ota_core_process(
         req_queue=op_queue,
         resp_queue=resp_queue,
     )
+
+
+def _check_parameter_set_at_startup(boot_controller: BootControllerBase) -> None:
+    """Check the applied parameter set, if any; a dropped one gives the slot its
+    base's version records back. Never raises: otaclient starts either way."""
+    try:
+        ParameterSetStore().check_at_startup(
+            load_running_base(Path(cfg.IMAGE_META_DPATH)),
+            restore_base_version=lambda _r: boot_controller.restore_recorded_version(
+                version=_r.base_version,
+                version_detail=(
+                    VersionDetail(**_r.base_version_detail)
+                    if _r.base_version_detail
+                    else None
+                ),
+            ),
+        )
+    except Exception as e:
+        logger.warning(f"failed to check the parameter set: {e!r}")

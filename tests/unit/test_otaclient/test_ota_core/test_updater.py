@@ -168,3 +168,46 @@ class TestPostUpdateOTAConfigFiles:
             version_detail=None,
             ota_config_files=OTAConfigFiles(proxy_info=self.NEW_PROXY_INFO),
         )
+
+
+class TestImageMetaForParameterSets:
+    def test_a_full_ota_keeps_the_base_payloads_manifest_and_config(
+        self, tmp_path: Path
+    ):
+        """A parameter set made for this base is checked against them later."""
+        _session = tmp_path / "session"
+        _session.mkdir()
+        (_session / "image_manifest.json").write_bytes(b'{"manifest": 1}')
+        (_session / "image_config.json").write_bytes(b'{"config": 1}')
+        _meta_store = tmp_path / "standby/.ota-meta"
+        _meta_store.mkdir(parents=True)
+        (_meta_store / "file_table.sqlite3").write_bytes(b"ft")
+        _ns = SimpleNamespace(
+            _session_workdir=_session,
+            _ota_meta_store_on_standby=_meta_store,
+            _ota_meta_store_base_on_standby=_meta_store / "base",
+            _image_meta_dir_on_standby=tmp_path / "standby/opt/ota/image-meta",
+        )
+
+        _updater.OTAUpdaterBase._preserve_ota_image_meta_at_post_update(_ns)  # type: ignore[arg-type]
+
+        _image_meta = tmp_path / "standby/opt/ota/image-meta"
+        assert (_image_meta / "image_manifest.json").read_bytes() == b'{"manifest": 1}'
+        assert (_image_meta / "image_config.json").read_bytes() == b'{"config": 1}'
+        assert (_image_meta / "file_table.sqlite3").exists()
+
+    def test_a_legacy_image_keeps_none(self, tmp_path: Path):
+        _session = tmp_path / "session"
+        _session.mkdir()
+        _meta_store = tmp_path / "standby/.ota-meta"
+        _meta_store.mkdir(parents=True)
+        _ns = SimpleNamespace(
+            _session_workdir=_session,
+            _ota_meta_store_on_standby=_meta_store,
+            _ota_meta_store_base_on_standby=_meta_store / "base",
+            _image_meta_dir_on_standby=tmp_path / "standby/opt/ota/image-meta",
+        )
+        _updater.OTAUpdaterBase._preserve_ota_image_meta_at_post_update(_ns)  # type: ignore[arg-type]
+        assert not (
+            tmp_path / "standby/opt/ota/image-meta/image_manifest.json"
+        ).exists()

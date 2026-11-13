@@ -19,13 +19,18 @@ client. The HTTP layer is mocked, so this stays in the `unit/` tier.
 
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 
 import pytest
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from pytest_mock import MockerFixture
 
 from ota_metadata.utils import detect_ota_image_ver
-from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
+from ota_metadata.utils.detect_ota_image_ver import (
+    check_if_ota_image_v1,
+    has_parameter_set_for,
+)
 from otaclient_common.downloader import DownloaderPool
 
 MODULE = detect_ota_image_ver.__name__
@@ -103,3 +108,85 @@ def test_check_if_ota_image_v1_retries_then_gives_up(
     )
     assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES
     pool.release_instance.assert_called_once()
+
+
+#
+# ------ a parameter set as the ECU's payload ------ #
+#
+
+THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
+
+
+def _index_text(artifact_type: str | None) -> str:
+    _entry = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:" + "5" * 64,
+        "size": 900,
+        "annotations": {
+            "vnd.tier4.pilot-auto.platform.ecu": "autoware",
+            "vnd.tier4.ota.release-key": "dev",
+        },
+    }
+    if artifact_type:
+        _entry["artifactType"] = artifact_type
+    return json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [_entry],
+            "annotations": {"vnd.tier4.ota.ota-image-builder.version": "t"},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "artifact_type, ecu, expected",
+    (
+        pytest.param(
+            "application/vnd.tier4.ota.parameter-set.v1", THIS_ECU, True, id="set"
+        ),
+        pytest.param(None, THIS_ECU, False, id="file_based"),
+        pytest.param(
+            "application/vnd.tier4.ota.parameter-set.v1",
+            ImageIdentifier("perception", OTAReleaseKey.dev),
+            False,
+            id="another_ecus_set",
+        ),
+    ),
+)
+def test_has_parameter_set_for(
+    artifact_type, ecu, expected, mock_downloader_pool, mocker: MockerFixture
+):
+    """The payload kind of the ECU's entry picks the updater."""
+    pool, downloader = mock_downloader_pool
+    resp = mocker.MagicMock()
+    resp.status_code = HTTPStatus.OK
+    resp.text = _index_text(artifact_type)
+    downloader._session.get.return_value = resp
+
+    assert (
+        has_parameter_set_for("https://example.com/ota", ecu, downloader_pool=pool)
+        is expected
+    )
+    assert (
+        downloader._session.get.call_args.args[0]
+        == "https://example.com/ota/index.json"
+    )
+    pool.release_instance.assert_called_once()
+
+
+def test_has_parameter_set_for_an_unreadable_index_is_false(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    """The updater the image would have gone to anyway reports what is wrong."""
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.time.sleep")
+    resp = mocker.MagicMock()
+    resp.status_code = HTTPStatus.OK
+    resp.text = "{not an index"
+    downloader._session.get.return_value = resp
+
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is False
+    )
