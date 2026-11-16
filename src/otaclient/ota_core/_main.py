@@ -59,7 +59,6 @@ from otaclient._types import (
     MultipleECUStatusFlags,
     OTAStatus,
     UpdateRequestV2,
-    VersionDetail,
 )
 from otaclient._utils import (
     SharedOTAClientMetricsReader,
@@ -871,14 +870,7 @@ def _check_parameter_set_at_startup(boot_controller: BootControllerBase) -> None
     try:
         ParameterSetStore().check_at_startup(
             load_running_base(Path(cfg.IMAGE_META_DPATH)),
-            restore_base_version=lambda _r: boot_controller.restore_recorded_version(
-                version=_r.base_version,
-                version_detail=(
-                    VersionDetail(**_r.base_version_detail)
-                    if _r.base_version_detail
-                    else None
-                ),
-            ),
+            slot_records=boot_controller,
         )
     except Exception as e:
         logger.warning(f"failed to check the parameter set: {e!r}")

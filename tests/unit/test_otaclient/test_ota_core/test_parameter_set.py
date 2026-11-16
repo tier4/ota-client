@@ -40,6 +40,7 @@ from ota_image_libs.v1.parameter_set.schema import (
     FileBasedSubjectDescriptor,
     ParameterLayerDescriptor,
     ParameterSetConfig,
+    ParameterSetFileEntry,
     ParameterSetManifest,
 )
 from ota_image_libs.v1.parameter_set.slots import ParameterSlot, ParameterSlotRef
@@ -54,7 +55,7 @@ from otaclient.boot_control._base import BootControllerBase
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import _parameter_set
 from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
-from otaclient.parameter_set import TREE_DNAME, ParameterSetStore
+from otaclient.parameter_set import TREE_DNAME, ParameterSetStore, load_running_base
 
 PARAMS = ParameterSlot(
     name="individual_params",
@@ -92,7 +93,12 @@ IMAGE_CONFIG = {
 
 
 def parameter_image(
-    root: Path, *, tree: Path | None, base: Sha256Digest = BASE_DIGEST
+    root: Path,
+    *,
+    tree: Path | None,
+    base: Sha256Digest = BASE_DIGEST,
+    files: list | None = None,
+    ecu: str = "autoware",
 ) -> tuple[Path, ImageIndex]:
     """The blobs of a parameter image with one set for THIS_ECU, and its index."""
     _blobs = root / "blobs"
@@ -112,7 +118,7 @@ def parameter_image(
             version="2026.10.29-1",
             slots=_slots,
             diff_ids=[_info.diff_id],
-            files=_info.files,
+            files=_info.files if files is None else files,
         )
     _manifest = ParameterSetManifest(
         config=ParameterSetConfig.Descriptor.export_metafile_to_resource_dir(
@@ -120,7 +126,9 @@ def parameter_image(
         ),
         layers=[_layer],
         subject=FileBasedSubjectDescriptor(size=len(BASE_MANIFEST), digest=base),
-        annotations=ParameterSetManifest.Annotations.model_validate(ANNOTATIONS),
+        annotations=ParameterSetManifest.Annotations.model_validate(
+            {**ANNOTATIONS, PLATFORM_ECU: ecu}
+        ),
     )
     _index = ImageIndex(
         manifests=[],
@@ -128,7 +136,7 @@ def parameter_image(
     )
     _index.add_image(
         ParameterSetManifest.Descriptor.export_metafile_to_resource_dir(
-            _manifest, _blobs, annotations=ANNOTATIONS
+            _manifest, _blobs, annotations={**ANNOTATIONS, PLATFORM_ECU: ecu}
         )
     )
     return _blobs, _index
@@ -170,9 +178,18 @@ class FakeRunner:
 class FakeAbortHandler:
     state = None
 
+    def __init__(self, *, abort_at_final_phase: bool = False) -> None:
+        self._abort = abort_at_final_phase
+        self.final_phase = False
+
     @contextmanager
     def critical_zone(self):
         yield
+
+    def enter_final_phase(self) -> None:
+        if self._abort:
+            raise ota_errors.OTAAbortSignal("abort in progress", module=__name__)
+        self.final_phase = True
 
 
 @pytest.fixture
@@ -226,13 +243,14 @@ def make_updater(
     store,
     image_meta,
     boot_controller,
+    abort_handler: FakeAbortHandler | None = None,
 ) -> OTAUpdaterForParameterSet:
     from otaclient_common.downloader import DownloaderPool
 
     _updater = OTAUpdaterForParameterSet(
         ca_store=CAStoreMap(),
         boot_controller=boot_controller,
-        abort_handler=FakeAbortHandler(),  # type: ignore[arg-type]
+        abort_handler=abort_handler or FakeAbortHandler(),  # type: ignore[arg-type]
         image_identifier=THIS_ECU,
         store=store,
         image_meta_dir=image_meta,
@@ -433,5 +451,132 @@ class TestParameterSetUpdate:
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None
+        assert store._mounter.mounted == {}  # type: ignore[attr-defined]
+        boot_controller.on_parameter_set_applied.assert_not_called()
+
+    def test_a_layer_other_than_its_digest_is_an_invalid_image(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        _manifest = ParameterSetManifest.parse_metafile(
+            (_blobs / _index.manifests[0].digest.digest_hex).read_text()
+        )
+        _layer = _blobs / _manifest.layers[0].digest.digest_hex
+        _layer.write_bytes(_layer.read_bytes()[:-1] + b"\0")
+        with pytest.raises(ota_errors.OTAImageInvalid, match="layer is invalid"):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store.applied_record() is None and not store.staging_dir.exists()
+
+    def test_a_config_whose_files_are_not_the_layers_is_refused(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        _wrong = [
+            ParameterSetFileEntry(
+                path=f"{PARAMS.relpath}/default/vehicle.param.yaml",
+                size=1,
+                digest=Sha256Digest("0" * 64),
+            )
+        ]
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n"), files=_wrong
+        )
+        with pytest.raises(ota_errors.OTAImageInvalid, match="other files"):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store.applied_record() is None
+
+    def test_a_config_without_files_is_applied_and_holds_at_the_next_start(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        """`files` is optional: what is checked later is what was unpacked."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n"), files=[]
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            image_meta=image_meta,
+            boot_controller=boot_controller,
+        ).execute()
+        _record = store.applied_record()
+        assert (
+            store.check_at_startup(
+                load_running_base(image_meta), slot_records=boot_controller
+            )
+            == _record
+        )
+
+    def test_an_index_without_this_ecus_set_is_an_invalid_image(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=None, ecu="perception"
+        )
+        with pytest.raises(ota_errors.OTAImageInvalid, match="no parameter set"):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+
+    def test_a_release_that_cannot_be_recorded_puts_the_slot_back(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        boot_controller.on_parameter_set_applied.side_effect = OSError("disk full")
+        with pytest.raises(ota_errors.PostUpdateFailed):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store.applied_record() is None
+        assert store._mounter.mounted == {}  # type: ignore[attr-defined]
+        assert not store.previous_dir.exists()
+
+    def test_an_abort_before_the_switch_leaves_the_slot_alone(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        """From the switch on, an abort is refused; one already in progress stops the
+        update before it."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        with pytest.raises(ota_errors.OTAAbortSignal):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+                abort_handler=FakeAbortHandler(abort_at_final_phase=True),
+            ).execute()
+        assert store.applied_record() is None and not store.staging_dir.exists()
         assert store._mounter.mounted == {}  # type: ignore[attr-defined]
         boot_controller.on_parameter_set_applied.assert_not_called()

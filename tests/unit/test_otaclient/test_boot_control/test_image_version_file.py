@@ -98,6 +98,14 @@ def with_image_id(image_id: object) -> dict:
     return {**VERSION_FILE, "image_id": image_id}
 
 
+@pytest.fixture(autouse=True)
+def no_parameter_set_applied(mocker: MockerFixture):
+    """The store is the running slot's /opt: never read here unless a test says so."""
+    _store = mocker.MagicMock()
+    _store.applied_record.return_value = None
+    mocker.patch.object(_image_version_file, "ParameterSetStore", return_value=_store)
+
+
 class TestTheImagesVersionFile:
     def test_the_image_id_is_taken_and_nothing_else(self, tmp_path: Path):
         """The release is named after the build, so the image has none to give; the

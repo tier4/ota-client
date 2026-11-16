@@ -139,6 +139,14 @@ def _index_text(artifact_type: str | None) -> str:
     )
 
 
+def _index_response(mocker, status=HTTPStatus.OK, body: bytes = b""):
+    resp = mocker.MagicMock()
+    resp.status_code = status
+    resp.__enter__.return_value = resp
+    resp.raw.read.return_value = body
+    return resp
+
+
 @pytest.mark.parametrize(
     "artifact_type, ecu, expected",
     (
@@ -159,10 +167,9 @@ def test_has_parameter_set_for(
 ):
     """The payload kind of the ECU's entry picks the updater."""
     pool, downloader = mock_downloader_pool
-    resp = mocker.MagicMock()
-    resp.status_code = HTTPStatus.OK
-    resp.text = _index_text(artifact_type)
-    downloader._session.get.return_value = resp
+    downloader._session.get.return_value = _index_response(
+        mocker, body=_index_text(artifact_type).encode()
+    )
 
     assert (
         has_parameter_set_for("https://example.com/ota", ecu, downloader_pool=pool)
@@ -175,17 +182,55 @@ def test_has_parameter_set_for(
     pool.release_instance.assert_called_once()
 
 
-def test_has_parameter_set_for_an_unreadable_index_is_false(
-    mock_downloader_pool, mocker: MockerFixture
+@pytest.mark.parametrize(
+    "response",
+    (
+        pytest.param({"status": HTTPStatus.NOT_FOUND}, id="404"),
+        pytest.param({"status": HTTPStatus.FORBIDDEN}, id="403"),
+        pytest.param({"body": b"{not an index"}, id="not_an_index"),
+    ),
+)
+def test_has_parameter_set_for_gives_up_at_once_on_what_will_not_pass(
+    response, mock_downloader_pool, mocker: MockerFixture
 ):
     """The updater the image would have gone to anyway reports what is wrong."""
     pool, downloader = mock_downloader_pool
-    mocker.patch(f"{MODULE}.time.sleep")
-    resp = mocker.MagicMock()
-    resp.status_code = HTTPStatus.OK
-    resp.text = "{not an index"
-    downloader._session.get.return_value = resp
+    _sleep = mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.return_value = _index_response(mocker, **response)
 
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is False
+    )
+    assert downloader._session.get.call_count == 1
+    _sleep.assert_not_called()
+
+
+def test_has_parameter_set_for_retries_what_may_pass(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.side_effect = [
+        _index_response(mocker, status=HTTPStatus.SERVICE_UNAVAILABLE),
+        ConnectionError("the link dropped"),
+        _index_response(
+            mocker,
+            body=_index_text("application/vnd.tier4.ota.parameter-set.v1").encode(),
+        ),
+    ]
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is True
+    )
+
+
+def test_has_parameter_set_for_does_not_read_more_than_an_index(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.INDEX_MAX_SIZE", 8)
+    downloader._session.get.return_value = _index_response(mocker, body=b"x" * 9)
     assert (
         has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is False

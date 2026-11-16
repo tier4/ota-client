@@ -34,6 +34,7 @@ from otaclient.configs.cfg import cfg as otaclient_cfg
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import OTAUpdaterForLegacyOTAImage, OTAUpdaterForOTAImageV1
 from otaclient.ota_core._common import create_downloader_pool
+from otaclient.parameter_set import load_running_base
 from tests.conftest import (
     CERTS_DIR,
     CERTS_OTA_IMAGE_V1_DIR,
@@ -185,3 +186,12 @@ class TestOTAUpdater:
         self._boot_control.pre_update.assert_called_once()
         self._boot_control.post_update.assert_called_once()
         self._process_persists_mock.assert_called_once()
+
+        # the new slot keeps its base payload's manifest: a parameter set made for this
+        #   image names that manifest's digest as its subject
+        _index = _updater._ota_image_helper.image_index
+        assert _index is not None
+        _payload = _index.find_image(ImageIdentifier("autoware", OTAReleaseKey.dev))
+        assert _payload is not None
+        _kept = load_running_base(_updater._image_meta_dir_on_standby)
+        assert _kept is not None and _kept.manifest_digest == _payload.digest

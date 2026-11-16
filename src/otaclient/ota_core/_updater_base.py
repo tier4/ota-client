@@ -223,6 +223,28 @@ class OTAUpdateInitializer:
         )
         return _ota_image_helper, _download_helper
 
+    def _wait_for_sub_ecus_and_publish_metrics(self) -> None:
+        """What comes before any reboot an update ends with: the sub ECUs, which this
+        ECU may be the proxy of, are waited for, and the metrics published."""
+        if proxy_info.enable_local_ota_proxy:
+            wait_and_log(
+                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+                check_for=False,
+                message="permit reboot flag",
+                log_func=logger.info,
+            )
+
+        self._metrics.reboot_start_timestamp = int(time.time())
+
+        # publish the metrics before rebooting
+        try:
+            if self._shm_metrics_reader:
+                _shm_metrics = self._shm_metrics_reader.sync_msg()
+                self._metrics.shm_merge(_shm_metrics)
+        except Exception as e:
+            logger.warning(f"failed to merge metrics: {e!r}")
+        self._metrics.publish()
+
     def _finalize_update_and_reboot(
         self, boot_controller: BootControllerProtocol
     ) -> None:
@@ -242,24 +264,7 @@ class OTAUpdateInitializer:
             )
         )
         self._metrics.finalizing_update_start_timestamp = _current_finalizing_time
-        if proxy_info.enable_local_ota_proxy:
-            wait_and_log(
-                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
-                check_for=False,
-                message="permit reboot flag",
-                log_func=logger.info,
-            )
-
-        self._metrics.reboot_start_timestamp = int(time.time())
-
-        # publish the metrics before rebooting
-        try:
-            if self._shm_metrics_reader:
-                _shm_metrics = self._shm_metrics_reader.sync_msg()
-                self._metrics.shm_merge(_shm_metrics)
-        except Exception as e:
-            logger.warning(f"failed to merge metrics: {e!r}")
-        self._metrics.publish()
+        self._wait_for_sub_ecus_and_publish_metrics()
 
         logger.info(f"device will reboot in {WAIT_BEFORE_REBOOT} seconds!")
         time.sleep(WAIT_BEFORE_REBOOT)

@@ -37,6 +37,7 @@ from otaclient._types import (
     UpdateRequestV2,
 )
 from otaclient.boot_control import BootControllerProtocol
+from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
 from otaclient.errors import OTAErrorRecoverable
 from otaclient.ota_core import (
@@ -45,6 +46,7 @@ from otaclient.ota_core import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
+from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
 from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 
 OTA_CORE_MAIN_MODULE = ota_core._main.__name__
@@ -154,6 +156,9 @@ class TestOTAClient:
         self.ota_client.boot_controller = _boot_controller
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=False
+        )
         _file_based_updater = mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1"
         )
@@ -222,6 +227,94 @@ class TestOTAClient:
             in _boot_controller.store_failure_info.call_args.kwargs["failure_reason"]
         )
 
+    @pytest.mark.parametrize("reboot", (False, True))
+    def test_a_parameter_set_is_laid_over_the_base_and_ends_at_success(
+        self, mocker: pytest_mock.MockerFixture, reboot: bool
+    ):
+        """No standby slot and no reboot: SUCCESS in the same session, reported with
+        the slot's new version; a reboot only when a slot's apply asks, after that."""
+        _boot_controller = mocker.MagicMock(spec=BootControllerBase)
+        _boot_controller.load_version.return_value = self.UPDATE_FIRMWARE_VERSION
+        self.ota_client.boot_controller = _boot_controller
+        self.ota_client.ca_store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
+        _order = mocker.MagicMock()
+        _updater = mocker.MagicMock(spec=OTAUpdaterForParameterSet)
+        _updater.execute.return_value = reboot
+        _order.attach_mock(_updater.reboot_for_apply, "reboot_for_apply")
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet", return_value=_updater
+        )
+        _file_based = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1")
+        _report = mocker.patch.object(
+            self.ota_client._status_report_queue,
+            "put_nowait",
+            side_effect=lambda _r: _order.report(type(_r.payload).__name__),
+        )
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_a_parameter_set",
+            )
+        )
+
+        _updater.execute.assert_called_once()
+        _file_based.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
+        assert self.ota_client.current_version == self.UPDATE_FIRMWARE_VERSION
+        _calls = [(_c[0], _c[1]) for _c in _order.mock_calls]
+        assert ("report", ("OTAStatusChangeReport",)) in _calls
+        assert _report.called
+        if reboot:
+            _success = max(
+                _i
+                for _i, _c in enumerate(_calls)
+                if _c == ("report", ("OTAStatusChangeReport",))
+            )
+            assert _calls.index(("reboot_for_apply", ())) > _success, (
+                "the reboot comes after SUCCESS is reported"
+            )
+        else:
+            _updater.reboot_for_apply.assert_not_called()
+
+    def test_a_parameter_set_on_a_partition_layout_is_refused(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        class _PartitionLayoutBootController(
+            BootControllerProtocol, PartitionLayoutBootControllerProtocol, Protocol
+        ): ...
+
+        _boot_controller = mocker.MagicMock(spec=_PartitionLayoutBootController)
+        self.ota_client.boot_controller = _boot_controller
+        self.ota_client.ca_store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=True)
+        _updater_cls = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForParameterSet")
+        mocker.patch.object(type(self.ota_client._metrics), "publish")
+
+        self.ota_client.update(
+            request=UpdateRequestV2(
+                version=self.UPDATE_FIRMWARE_VERSION,
+                url_base=self.OTA_IMAGE_URL,
+                cookies_json=self.UPDATE_COOKIES_JSON,
+                request_id="test-request-id",
+                session_id="test_a_parameter_set_on_a_partition_layout",
+            )
+        )
+
+        _updater_cls.assert_not_called()
+        assert self.ota_client.live_ota_status == OTAStatus.FAILURE
+        assert (
+            "E422"
+            in _boot_controller.store_failure_info.call_args.kwargs["failure_reason"]
+        )
+
     def test_update_with_a_v1_image_on_an_ordinary_boot_controller_is_file_based(
         self, mocker: pytest_mock.MockerFixture
     ):
@@ -233,6 +326,9 @@ class TestOTAClient:
         self.ota_client.boot_controller = mocker.MagicMock(spec=BootControllerProtocol)
         self.ota_client.ca_store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.check_if_ota_image_v1", return_value=True)
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.has_parameter_set_for", return_value=False
+        )
         _file_based_updater = mocker.MagicMock(spec=OTAUpdaterForOTAImageV1)
         _file_based_updater_cls = mocker.patch(
             f"{OTA_CORE_MAIN_MODULE}.OTAUpdaterForOTAImageV1",
@@ -567,3 +663,31 @@ class TestOTAClient:
 
         self.ota_client_updater.execute.assert_called_once()
         assert self.ota_client.live_ota_status == OTAStatus.SUCCESS
+
+
+class TestParameterSetAtStartup:
+    def test_a_dropped_set_gives_the_slot_its_base_records_back(
+        self, tmp_path: Path, mocker: pytest_mock.MockerFixture
+    ):
+        """The boot controller is the slot's records; the base's come back typed."""
+        _store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        _base = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_running_base")
+        _boot_controller = mocker.MagicMock(spec=BootControllerBase)
+
+        ota_core._main._check_parameter_set_at_startup(_boot_controller)
+
+        _store.check_at_startup.assert_called_once_with(
+            _base.return_value, slot_records=_boot_controller
+        )
+
+    def test_a_failing_check_does_not_stop_otaclient(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        _store = mocker.MagicMock()
+        _store.check_at_startup.side_effect = OSError("cannot read")
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_running_base", side_effect=OSError)
+        ota_core._main._check_parameter_set_at_startup(
+            mocker.MagicMock(spec=BootControllerBase)
+        )

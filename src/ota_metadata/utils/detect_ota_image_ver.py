@@ -17,6 +17,8 @@ OTA_IMAGE_V1_HINT = "oci-layout"
 DOWNLOAD_TIMEOUT = 2  # hint file only takes 31bytes
 RETRY_TIMES = 12
 RETRY_INTERVAL = 1  # second
+INDEX_DOWNLOAD_TIMEOUT = 16
+INDEX_MAX_SIZE = 16 * 1024**2
 
 
 def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> bool:
@@ -54,9 +56,6 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
         downloader_pool.release_instance()
 
 
-INDEX_DOWNLOAD_TIMEOUT = 16
-
-
 def has_parameter_set_for(
     base_url: str, image_id: ImageIdentifier, *, downloader_pool: DownloaderPool
 ) -> bool:
@@ -66,24 +65,48 @@ def has_parameter_set_for(
     NOTE: the index is not verified here: this only picks the updater, and the
         parameter set updater verifies it, as every v1 updater does, before it
         believes anything in it. Any failure here is a False, leaving the image to
-        the updater it would have gone to anyway.
+        the updater it would have gone to anyway, which reports it. Only a failure
+        that may pass (the link, a 5xx) is retried; an index larger than
+        INDEX_MAX_SIZE is not read.
     """
     _downloader = downloader_pool.get_instance()
     try:
         _index_url = f"{base_url.rstrip('/')}/{IMAGE_INDEX_FNAME}"
         if _downloader._force_http:
             _index_url = urlsplit(_index_url)._replace(scheme="http").geturl()
+        _last = ""
         for _ in range(RETRY_TIMES):
             try:
-                resp = _downloader._session.get(
-                    _index_url, timeout=INDEX_DOWNLOAD_TIMEOUT
-                )
-                if resp.status_code == HTTPStatus.OK:
-                    _index = ImageIndex.parse_metafile(resp.text)
-                    return _index.find_parameter_set(image_id) is not None
+                with _downloader._session.get(
+                    _index_url, timeout=INDEX_DOWNLOAD_TIMEOUT, stream=True
+                ) as resp:
+                    if resp.status_code == HTTPStatus.OK:
+                        _raw = resp.raw.read(INDEX_MAX_SIZE + 1, decode_content=True)
+                        if len(_raw) > INDEX_MAX_SIZE:
+                            logger.warning(f"{_index_url} is larger than an index")
+                            return False
+                        return (
+                            ImageIndex.parse_metafile(_raw.decode()).find_parameter_set(
+                                image_id
+                            )
+                            is not None
+                        )
+                    if resp.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
+                        logger.warning(
+                            f"{_index_url}: HTTP {resp.status_code}, not a parameter set"
+                        )
+                        return False
+                    _last = f"HTTP {resp.status_code}"
+            except (ValueError, UnicodeDecodeError) as e:
+                logger.warning(f"{_index_url} is not an index this client reads: {e!r}")
+                return False
             except Exception as e:
-                logger.debug(f"failed to read the index for its payload kind: {e!r}")
+                _last = repr(e)
             time.sleep(RETRY_INTERVAL)
+        logger.warning(
+            f"could not read {_index_url} to tell its payload kind ({_last}): "
+            "taking it for a base payload"
+        )
         return False
     except Exception as e:
         logger.warning(f"unexpected failure when reading the payload kind: {e}")
