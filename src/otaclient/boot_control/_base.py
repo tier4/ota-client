@@ -23,6 +23,7 @@ from typing import NoReturn
 from otaclient import errors as ota_errors
 from otaclient._types import FailureType, OTAStatus, VersionDetail
 
+from ._image_version_file import resolve_active_slot_version_detail
 from ._ota_config_files import OTAConfigFiles
 from ._ota_status_control import OTAStatusFilesControl
 from ._slot_mnt_helper import SlotMountHelper
@@ -70,8 +71,9 @@ class BootControllerBase(ABC):
         return self._ota_status_control.load_active_slot_version()
 
     def load_version_detail(self) -> VersionDetail | None:
-        """Read the version detail from the current slot."""
-        return self._ota_status_control.load_active_slot_version_detail()
+        """Read the version detail of the current slot: the image ID from the running
+        image's version file, the release from the slot's record."""
+        return resolve_active_slot_version_detail(self._ota_status_control)
 
     def load_standby_slot_version(self) -> str:
         """Read the version info from the standby slot."""

@@ -23,6 +23,7 @@ from pytest_mock import MockerFixture
 
 from otaclient import errors as ota_errors
 from otaclient._types import OTAStatus, VersionDetail
+from otaclient.boot_control import _image_version_file
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._ota_config_files import OTAConfigFiles
 from otaclient.boot_control._ota_status_control import OTAStatusFilesControl
@@ -69,6 +70,10 @@ def _make_concrete_boot_controller_cls(mocker: MockerFixture):
 class TestBootControllerBase:
     @pytest.fixture
     def controller(self, mocker: MockerFixture):
+        # an image with no version file, unless a test gives it one
+        mocker.patch.object(
+            _image_version_file, "load_image_version_detail", return_value=None
+        )
         return _make_concrete_boot_controller_cls(mocker)()
 
     def test_common_properties(self, controller, mocker: MockerFixture):
@@ -95,6 +100,21 @@ class TestBootControllerBase:
 
         assert controller.get_booted_ota_status() == OTAStatus.SUCCESS
         assert controller.bootloader_type == "mock_bootloader"
+
+    def test_the_image_id_is_the_running_images(
+        self, controller, mocker: MockerFixture
+    ):
+        """The image ID comes from the running image's version file; a release
+        recorded for another image is not reported with it."""
+        _from_image = VersionDetail(image_id="image-of-the-build")
+        mocker.patch.object(
+            _image_version_file, "load_image_version_detail", return_value=_from_image
+        )
+        controller._ota_status_control.load_active_slot_version_detail.return_value = (
+            VersionDetail(release_name="r1", release_id="rid1", image_id="img1")
+        )
+
+        assert controller.load_version_detail() == _from_image
 
     def test_on_operation_failure(self, controller):
         controller.on_operation_failure()
