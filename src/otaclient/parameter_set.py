@@ -36,6 +36,12 @@ A switch is two-phase: the new set is put in place with the old one kept as
 (`commit`). A `previous/` found at startup is a switch that did not finish, and is
 rolled back.
 
+What the ECU runs changes by an update only. Unpacked files found other than the
+set's at startup are kept as they are and recorded (`tree_mismatch`); the next update
+of the set puts its files in place again and applies every slot. A set is dropped
+only when it cannot be told what it is (its record is unreadable), when it was not
+applied on the running base, or when a slot cannot be mounted.
+
 A full OTA writes a new slot from an image: its fstab is the image's, so the entries
 do not follow and the new base runs with its slots' defaults. Only the history is
 carried over, with a line saying the set was left behind.
@@ -443,6 +449,24 @@ class ParameterSetStore:
                 _changed.append(_n or _o)  # type: ignore[arg-type]
         return _changed
 
+    def _slots_to_apply(
+        self,
+        old: AppliedRecord | None,
+        old_dir: Path,
+        new: AppliedRecord,
+        new_files: list[ParameterSetFileEntry],
+    ) -> list[ParameterSlot]:
+        """The slots whose contents change from the set in `old_dir` to `new`: by
+        their file lists, unless the files in `old_dir` are not its set's own, when
+        every slot of either changes."""
+        if old is not None and (_why := self.check_tree(old, old_dir)) is not None:
+            logger.warning(
+                f"the files of {old.describe()} are not the set's ({_why}): "
+                "every slot is applied"
+            )
+            return list({_s.name: _s for _s in [*old.slots, *new.slots]}.values())
+        return self.changed_slots(old, self._read_files(old_dir), new, new_files)
+
     def switch(self, *, base_slots: list[ParameterSlot]) -> bool:
         """Put the staged set in place of the applied one, keeping that one as
         `previous/` until `commit`, and run the `apply` of every slot whose contents
@@ -455,11 +479,8 @@ class ParameterSetStore:
         _new = self._read_record(self.staging_dir)
         assert _new is not None, "stage() first"
         _old = self.applied_record()
-        _changed = self.changed_slots(
-            _old,
-            self._read_files(self.applied_dir),
-            _new,
-            self._read_files(self.staging_dir),
+        _changed = self._slots_to_apply(
+            _old, self.applied_dir, _new, self._read_files(self.staging_dir)
         )
         shutil.rmtree(self.previous_dir, ignore_errors=True)
         _renamed = False
@@ -508,11 +529,8 @@ class ParameterSetStore:
             _new = self.applied_record()
             _old = self._read_record(self.previous_dir)
             _changed = (
-                self.changed_slots(
-                    _old,
-                    self._read_files(self.previous_dir),
-                    _new,
-                    self._read_files(self.applied_dir),
+                self._slots_to_apply(
+                    _old, self.previous_dir, _new, self._read_files(self.applied_dir)
                 )
                 if _new is not None
                 else list(_old.slots if _old else [])
@@ -535,14 +553,18 @@ class ParameterSetStore:
 
     # ------ the applied set, verified ------ #
 
-    def check_tree(self, record: AppliedRecord) -> str | None:
-        """Why the unpacked files are not what otaclient unpacked and checked, or
-        None: every file of its list, with its size and digest, and nothing else."""
+    def check_tree(
+        self, record: AppliedRecord, set_dir: Path | None = None
+    ) -> str | None:
+        """Why the unpacked files of the set in `set_dir` (the applied one by default)
+        are not what otaclient unpacked and checked, or None: every file of its list,
+        with its size and digest, and nothing else."""
+        set_dir = set_dir or self.applied_dir
         try:
-            _expected = {_f.path: _f for _f in self._read_files(self.applied_dir)}
+            _expected = {_f.path: _f for _f in self._read_files(set_dir)}
         except Exception as e:
             return f"the list of the set's files is unreadable: {e!r}"
-        _tree = self.applied_dir / TREE_DNAME
+        _tree = set_dir / TREE_DNAME
         _found: set[str] = set()
         for _slot in record.slots:
             _slot_dir = _tree / _slot.relpath
@@ -568,12 +590,15 @@ class ParameterSetStore:
     def check_at_startup(
         self, base: RunningBase | None, *, slot_records: SlotRecords
     ) -> AppliedRecord | None:
-        """At otaclient's start: the applied set, if it still holds; else it is
-        dropped, the slots get the base's defaults and the slot reports the base.
+        """At otaclient's start: the applied set, kept as the last update left it.
 
         The fstab entries mounted the set at boot, before anything read it; this is
         where it is checked, and where that is recorded. A switch that did not finish
-        (`previous/` still there) is rolled back first.
+        (`previous/` still there) is rolled back first. Files other than the set's are
+        kept and recorded: what the ECU runs changes by an update only. The set is
+        dropped (the slots get the base's defaults, the slot reports the base) only
+        when its record is unreadable, when it was not applied on the running base,
+        or when a slot cannot be mounted.
         """
         _base_slots = base.slots if base else []
         if self.previous_dir.exists():
@@ -599,9 +624,11 @@ class ParameterSetStore:
             # not this slot's set (copied in with the slot): its records are not of it
             self._drop(None, _base_slots, "the set was not applied on the running base")
             return None
-        if (_why := self.check_tree(_record)) is not None:
-            self._drop(_record, _base_slots, _why, slot_records=slot_records)
-            return None
+        if (_mismatch := self.check_tree(_record)) is not None:
+            logger.error(
+                f"the files of {_record.describe()} are not the set's ({_mismatch}): "
+                "kept as they are until the next update of the set"
+            )
 
         _unmounted = [
             _s for _s in _record.slots if not self._mounter.is_mounted(_s.path)
@@ -634,13 +661,28 @@ class ParameterSetStore:
             )
             self._reboot_required(_reboot, "remounted")
 
-        if read_str_from_file(self.root / LAST_RUNNING_FNAME, _default="") != (
-            _boot := _boot_id()
-        ):
-            # once per boot: an otaclient restarting in a loop adds no lines
-            self.record_event("running", boot_id=_boot, **_record.evidence())
-            write_str_to_file_atomic(self.root / LAST_RUNNING_FNAME, _boot)
+        self._record_running(_record, _mismatch)
         return _record
+
+    def _record_running(self, record: AppliedRecord, mismatch: str | None) -> None:
+        """`running` once per boot, `tree_mismatch` once per boot and finding: an
+        otaclient restarting in a loop adds no lines."""
+        _boot = _boot_id()
+        _seen = read_str_from_file(self.root / LAST_RUNNING_FNAME, _default="")
+        # one line: what is compared with what the file gives back
+        _now = _boot if mismatch is None else " ".join([_boot, *mismatch.split()])
+        if _seen == _now:
+            return
+        if _seen.split(" ", 1)[0] != _boot:
+            self.record_event("running", boot_id=_boot, **record.evidence())
+        if mismatch is not None:
+            self.record_event(
+                "tree_mismatch",
+                reason=mismatch,
+                boot_id=_boot,
+                set=record.set_manifest_digest,
+            )
+        write_str_to_file_atomic(self.root / LAST_RUNNING_FNAME, _now)
 
     def _reboot_required(self, required: bool, after: str) -> None:
         if required:

@@ -400,33 +400,94 @@ class TestAtStartup:
         store.check_at_startup(self.base(), slot_records=_records)
         assert events(store).count("running") == 2
 
-    def test_a_changed_file_drops_the_set_and_the_slot_reports_the_base(
-        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
+    def test_a_changed_file_is_kept_as_it_is_and_recorded(
+        self,
+        store: ParameterSetStore,
+        mounter: FakeMounter,
+        runner: FakeRunner,
+        boot,
     ):
+        """What the ECU runs changes by an update only: the set stays, mounted and
+        reported, with the finding in the history."""
         _record = apply_set(store, PARAMS, base_slots=[PARAMS])
-        (
+        runner.ran.clear()
+        _f = (
             store.applied_dir
             / TREE_DNAME
             / PARAMS.relpath
             / "default"
             / "vehicle.param.yaml"
-        ).write_text("tampered\n")
+        )
+        _f.write_text("tampered\n")
         _records = self.records_of(_record)
 
-        assert store.check_at_startup(self.base(), slot_records=_records) is None
-        assert (_records.version, _records.detail) == ("1.0.0", BASE_DETAIL)
-        assert mounter.mounted == {}
-        assert fstab_block(store) == []
-        assert store.applied_record() is None
-        assert runner.ran[-1] == PARAMS.apply
-        _event = history(store)[-1]
-        assert _event["event"] == "dropped" and "differs" in _event["reason"]
+        assert store.check_at_startup(self.base(), slot_records=_records) == _record
+        assert _records.version == _record.firmware_version
+        assert _records.detail and _records.detail.image_id == _record.image_id
+        assert PARAMS.path in mounter.mounted and len(fstab_block(store)) == 1
+        assert _f.read_text() == "tampered\n", "not put back either"
+        assert runner.ran == []
+        _events = history(store)
+        assert [_e["event"] for _e in _events[-2:]] == ["running", "tree_mismatch"]
+        assert "differs" in _events[-1]["reason"]
 
-    def test_a_slot_that_records_another_release_keeps_it_on_a_drop(
-        self, store: ParameterSetStore
+        store.check_at_startup(self.base(), slot_records=_records)
+        assert events(store).count("tree_mismatch") == 1, "a restart adds no line"
+        boot("boot-2")
+        store.check_at_startup(self.base(), slot_records=_records)
+        assert events(store)[-2:] == ["running", "tree_mismatch"]
+        assert events(store).count("tree_mismatch") == 2
+
+    def test_a_changed_set_that_did_not_mount_at_boot_is_mounted_as_it_is(
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
         _record = apply_set(store, PARAMS, base_slots=[PARAMS])
         (store.applied_dir / TREE_DNAME / PARAMS.relpath / "extra").write_text("x")
+        mounter.mounted.clear()
+        runner.ran.clear()
+        assert (
+            store.check_at_startup(self.base(), slot_records=self.records_of(_record))
+            == _record
+        )
+        assert PARAMS.path in mounter.mounted
+        assert runner.ran == [PARAMS.apply]
+
+    def test_the_next_update_of_a_changed_set_puts_its_files_back_and_applies(
+        self, store: ParameterSetStore, runner: FakeRunner
+    ):
+        """The same set again: by the file lists nothing changes, but the files in
+        place are not those, so every slot is put in place and applied."""
+        _record = apply_set(store, PARAMS, base_slots=[PARAMS])
+        _f = (
+            store.applied_dir
+            / TREE_DNAME
+            / PARAMS.relpath
+            / "default"
+            / "vehicle.param.yaml"
+        )
+        _f.write_text("tampered\n")
+        runner.ran.clear()
+
+        apply_set(store, PARAMS, base_slots=[PARAMS])
+
+        assert runner.ran == [PARAMS.apply]
+        assert _f.read_text() == "individual_params: v1\n"
+        assert store.check_tree(_record) is None
+
+    def test_the_same_set_again_is_not_applied_when_its_files_hold(
+        self, store: ParameterSetStore, runner: FakeRunner
+    ):
+        apply_set(store, PARAMS, base_slots=[PARAMS])
+        runner.ran.clear()
+        apply_set(store, PARAMS, base_slots=[PARAMS])
+        assert runner.ran == []
+
+    def test_a_slot_that_records_another_release_keeps_it_on_a_drop(
+        self, store: ParameterSetStore, mounter: FakeMounter
+    ):
+        apply_set(store, PARAMS, base_slots=[PARAMS])
+        del mounter.mounted[PARAMS.path]
+        mounter.fail_mount = True
         _records = FakeSlotRecords("9.9.9", VersionDetail(image_id="another"))
         assert store.check_at_startup(self.base(), slot_records=_records) is None
         assert _records.version == "9.9.9"
@@ -471,10 +532,11 @@ class TestAtStartup:
         assert events(store)[-3:] == ["rolled_back", "recovered", "running"]
 
     def test_a_drop_whose_apply_fails_is_recorded_as_such(
-        self, store: ParameterSetStore, runner: FakeRunner
+        self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
     ):
         _record = apply_set(store, PARAMS, base_slots=[PARAMS])
-        (store.applied_dir / TREE_DNAME / PARAMS.relpath / "extra").write_text("x")
+        del mounter.mounted[PARAMS.path]
+        mounter.fail_mount = True
         runner.fail_times = 1
         _records = self.records_of(_record)
         store.check_at_startup(self.base(), slot_records=_records)
