@@ -311,7 +311,7 @@ class TestOTAClient:
         _updater_cls.assert_not_called()
         assert self.ota_client.live_ota_status == OTAStatus.FAILURE
         assert (
-            "E422"
+            "E463"
             in _boot_controller.store_failure_info.call_args.kwargs["failure_reason"]
         )
 

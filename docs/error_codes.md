@@ -62,6 +62,7 @@ After otaclient restarts or the ECU reboots, the saved failure is reported again
 | E460 | `E_METADATAJWT_CERT_VERIFICATION_FAILED` | unrecoverable | Certificate verification for the OTA image metadata failed. |
 | E461 | `E_METADATAJWT_INVALID` | unrecoverable | metadata.jwt is verified but its content is invalid. |
 | E462 | `E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED` | recoverable | OTA image's BSP version doesn't match the ECU's firmware BSP version. |
+| E463 | `E_PARAMETER_SET_NOT_APPLICABLE` | recoverable | The parameter set is not for the image this ECU runs: made for another base, the running base's manifest was not kept, or the ECU's layout takes no parameter set. Nothing is changed. |
 | E470 | `E_CLIENT_UPDATE_SAME_VERSIONS` | recoverable | Client update skipped as the versions are the same. |
 | E499 | `E_OTA_ABORTED` | recoverable | OTA aborted by the abort request. |
 
@@ -87,6 +88,8 @@ After otaclient restarts or the ECU reboots, the saved failure is reported again
 | E541 | `E_UPDATEDELTA_GENERATION_FAILED` | unrecoverable | Failed to calculate the update delta. |
 | E542 | `E_APPLY_OTAUPDATE_FAILED` | unrecoverable | Failed to apply update to the standby slot, also the fallback for other unexpected failures inside the update flow. |
 | E543 | `E_POSTUPDATE_FAILED` | unrecoverable | otaclient side post-update failed(persist files, OTA image metadata preserving), boot control is not included. |
+| E544 | `E_PARAMETER_SET_APPLY_FAILED` | recoverable | A parameter set could not be put in place(unpacking, mounting, a slot's `apply`, recording its release), and the ECU was put back to what it had before the update: the parameter set before(or none) and the release it reported. |
+| E545 | `E_PARAMETER_SET_RESTORE_FAILED` | unrecoverable | As `E544`, but what the ECU had before the update could not be put back either. |
 | E550 | `E_BOOTCONTROL_STARTUP_ERR` | unrecoverable | Boot controller failed to start up. |
 | E551 | `E_BOOTCONTROL_PREUPDATE_FAILED` | unrecoverable | Boot controller pre-update failed(not covered by `E552`/`E553`). |
 | E552 | `E_BOOTCONTROL_STANDBY_SLOT_PREPARE_FAILED` | unrecoverable | Boot controller failed to prepare(format) the standby slot device. |

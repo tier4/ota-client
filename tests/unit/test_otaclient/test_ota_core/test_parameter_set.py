@@ -50,7 +50,12 @@ from pytest_mock import MockerFixture
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import OTAUpdatePhaseChangeReport
-from otaclient._types import MultipleECUStatusFlags, UpdatePhase, VersionDetail
+from otaclient._types import (
+    FailureType,
+    MultipleECUStatusFlags,
+    UpdatePhase,
+    VersionDetail,
+)
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import _parameter_set
@@ -405,7 +410,9 @@ class TestParameterSetUpdate:
             tree=set_tree(tmp_path / "tree", "x\n"),
             base=Sha256Digest("0" * 64),
         )
-        with pytest.raises(ota_errors.OTAImageInvalid, match="does not fit"):
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="does not fit"
+        ) as _e:
             make_updater(
                 tmp_path,
                 blobs=_blobs,
@@ -414,6 +421,8 @@ class TestParameterSetUpdate:
                 image_meta=image_meta,
                 boot_controller=boot_controller,
             ).execute()
+        assert _e.value.get_failure_reason().startswith("E463: ")
+        assert _e.value.failure_type == FailureType.RECOVERABLE
         assert store.applied_record() is None
         boot_controller.on_parameter_set_applied.assert_not_called()
         assert "update_failed" in store.history_file.read_text()
@@ -424,7 +433,9 @@ class TestParameterSetUpdate:
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
-        with pytest.raises(ota_errors.OTAImageInvalid, match="full OTA comes first"):
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="full OTA comes first"
+        ):
             make_updater(
                 tmp_path,
                 blobs=_blobs,
@@ -441,7 +452,7 @@ class TestParameterSetUpdate:
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
         store._runner.fail_times = 1  # type: ignore[attr-defined]
-        with pytest.raises(ota_errors.ApplyOTAUpdateFailed):
+        with pytest.raises(ota_errors.ParameterSetApplyFailed) as _e:
             make_updater(
                 tmp_path,
                 blobs=_blobs,
@@ -450,9 +461,51 @@ class TestParameterSetUpdate:
                 image_meta=image_meta,
                 boot_controller=boot_controller,
             ).execute()
+        assert _e.value.get_failure_reason().startswith("E544: ")
+        assert _e.value.failure_type == FailureType.RECOVERABLE, "it can be retried"
         assert store.applied_record() is None
         assert store._mounter.mounted == {}  # type: ignore[attr-defined]
         boot_controller.on_parameter_set_applied.assert_not_called()
+
+    def test_a_failed_apply_that_cannot_be_undone_is_unrecoverable(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        """The base's defaults do not apply either: what the slot runs is not known."""
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        store._runner.fail_times = 2  # type: ignore[attr-defined]
+        with pytest.raises(ota_errors.ParameterSetRestoreFailed) as _e:
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert _e.value.get_failure_reason().startswith("E545: ")
+        assert _e.value.failure_type == FailureType.UNRECOVERABLE
+        assert "roll_back_failed" in store.history_file.read_text()
+
+    def test_a_failure_before_the_switch_changes_nothing(
+        self, tmp_path: Path, store, image_meta, boot_controller, mocker: MockerFixture
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        mocker.patch.object(store, "stage", side_effect=OSError("no space left"))
+        with pytest.raises(ota_errors.ParameterSetApplyFailed, match="nothing changed"):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store.applied_record() is None and not store.staging_dir.exists()
+        boot_controller.restore_recorded_version.assert_not_called()
 
     def test_a_layer_other_than_its_digest_is_an_invalid_image(
         self, tmp_path: Path, store, image_meta, boot_controller
@@ -546,7 +599,7 @@ class TestParameterSetUpdate:
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
         boot_controller.on_parameter_set_applied.side_effect = OSError("disk full")
-        with pytest.raises(ota_errors.PostUpdateFailed):
+        with pytest.raises(ota_errors.ParameterSetApplyFailed, match="recorded"):
             make_updater(
                 tmp_path,
                 blobs=_blobs,
@@ -558,6 +611,33 @@ class TestParameterSetUpdate:
         assert store.applied_record() is None
         assert store._mounter.mounted == {}  # type: ignore[attr-defined]
         assert not store.previous_dir.exists()
+        # the slot reports the release it had before the update again
+        boot_controller.restore_recorded_version.assert_called_once_with(
+            version="1.0.0",
+            version_detail=VersionDetail(
+                release_name="base", release_id="b", image_id="base-image"
+            ),
+        )
+
+    def test_records_that_cannot_be_put_back_are_unrecoverable(
+        self, tmp_path: Path, store, image_meta, boot_controller
+    ):
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        boot_controller.on_parameter_set_applied.side_effect = OSError("disk full")
+        boot_controller.restore_recorded_version.side_effect = OSError("disk full")
+        with pytest.raises(ota_errors.ParameterSetRestoreFailed):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                image_meta=image_meta,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store.applied_record() is None, "the slots are back all the same"
+        assert "records_not_restored" in store.history_file.read_text()
 
     def test_an_abort_before_the_switch_leaves_the_slot_alone(
         self, tmp_path: Path, store, image_meta, boot_controller

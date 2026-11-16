@@ -275,9 +275,10 @@ class TestSwitch:
         runner.fail_times = 1
 
         stage(store, PARAMS, content="v2")
-        with pytest.raises(ParameterSetFailed):
+        with pytest.raises(ParameterSetFailed) as _e:
             store.switch(base_slots=[PARAMS])
 
+        assert _e.value.restored
         assert store.applied_record() == _old
         assert not store.previous_dir.exists()
         _f = (
@@ -301,8 +302,9 @@ class TestSwitch:
     ):
         mounter.fail_mount = True
         stage(store, PARAMS)
-        with pytest.raises(ParameterSetFailed):
+        with pytest.raises(ParameterSetFailed) as _e:
             store.switch(base_slots=[PARAMS])
+        assert _e.value.restored
         assert store.applied_record() is None
         assert fstab_block(store) == []
         assert mounter.mounted == {}
@@ -314,12 +316,26 @@ class TestSwitch:
         _old = apply_set(store, PARAMS, base_slots=[PARAMS])
         mounter.fail_umount = True
         stage(store, PARAMS, content="v2")
-        with pytest.raises(ParameterSetFailed):
+        with pytest.raises(ParameterSetFailed) as _e:
             store.switch(base_slots=[PARAMS])
 
+        assert _e.value.restored
         assert store.applied_record() == _old
         assert PARAMS.path in mounter.mounted
         assert len(fstab_block(store)) == 1
+
+    def test_a_set_that_cannot_be_put_back_says_so(
+        self, store: ParameterSetStore, runner: FakeRunner
+    ):
+        """The new set's apply fails, then the old set's: the slot runs neither as
+        it should."""
+        apply_set(store, PARAMS, base_slots=[PARAMS])
+        runner.fail_times = 2
+        stage(store, PARAMS, content="v2")
+        with pytest.raises(ParameterSetFailed) as _e:
+            store.switch(base_slots=[PARAMS])
+        assert not _e.value.restored
+        assert events(store)[-1] == "roll_back_failed"
 
     def test_the_old_set_comes_back_when_the_release_cannot_be_recorded(
         self, store: ParameterSetStore, mounter: FakeMounter, runner: FakeRunner
@@ -330,7 +346,7 @@ class TestSwitch:
         store.switch(base_slots=[PARAMS])
         assert store.previous_dir.exists(), "kept until the release is recorded"
 
-        store.roll_back(base_slots=[PARAMS], cause=OSError("disk full"))
+        assert store.roll_back(base_slots=[PARAMS], cause=OSError("disk full"))
 
         assert store.applied_record() == _old
         assert runner.ran[-1] == PARAMS.apply

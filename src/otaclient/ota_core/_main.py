@@ -501,7 +501,7 @@ class OTAClient:
                     # a parameter image: the payload is laid over the running base,
                     #   the standby slot is not touched and there is no reboot
                     if not isinstance(self.boot_controller, BootControllerBase):
-                        raise ota_errors.OTAImageInvalid(
+                        raise ota_errors.ParameterSetNotApplicable(
                             "the payload is a parameter set, which this layout does "
                             "not take",
                             module=__name__,

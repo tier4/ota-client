@@ -78,6 +78,7 @@ class OTAErrorCode(int, Enum):
     E_METADATAJWT_CERT_VERIFICATION_FAILED = 460
     E_METADATAJWT_INVALID = 461
     E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED = 462
+    E_PARAMETER_SET_NOT_APPLICABLE = 463
     # client update
     E_CLIENT_UPDATE_SAME_VERSIONS = 470
     # aborted by the requester(client closed request)
@@ -107,6 +108,8 @@ class OTAErrorCode(int, Enum):
     E_UPDATEDELTA_GENERATION_FAILED = 541
     E_APPLY_OTAUPDATE_FAILED = 542
     E_POSTUPDATE_FAILED = 543
+    E_PARAMETER_SET_APPLY_FAILED = 544
+    E_PARAMETER_SET_RESTORE_FAILED = 545
     # boot control
     E_BOOTCONTROL_STARTUP_ERR = 550
     E_BOOTCONTROL_PREUPDATE_FAILED = 551
@@ -321,6 +324,26 @@ class BootControlBSPVersionCompatibilityFailed(OTAErrorRecoverable):
     failure_description: str = "boot_control BSP version compatibility check failed"
 
 
+class ParameterSetNotApplicable(OTAErrorRecoverable):
+    """A parameter set made for another base, or for an ECU whose layout or running
+    base takes none: the image is fine, it is not for this ECU as it runs."""
+
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_NOT_APPLICABLE
+    failure_description: str = (
+        "the parameter set does not apply to the image this ECU runs"
+    )
+
+
+class ParameterSetApplyFailed(OTAErrorRecoverable):
+    """A parameter set could not be put in place, and the ECU was left with what it
+    had before the update: the parameter set (or none) and the release it reports."""
+
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_APPLY_FAILED
+    failure_description: str = (
+        "failed to apply the parameter set, the ECU keeps what it had before the update"
+    )
+
+
 #
 # ------ unrecoverable error ------
 #
@@ -445,6 +468,14 @@ class PostUpdateFailed(OTAErrorUnrecoverable):
 
     failure_errcode: OTAErrorCode = OTAErrorCode.E_POSTUPDATE_FAILED
     failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to finish post-update process(persist files, OTA image metadata) on standby slot"
+
+
+class ParameterSetRestoreFailed(OTAErrorUnrecoverable):
+    """A parameter set could not be put in place, and what the ECU had before the
+    update could not be put back either: its slots or its records may be neither."""
+
+    failure_errcode: OTAErrorCode = OTAErrorCode.E_PARAMETER_SET_RESTORE_FAILED
+    failure_description: str = f"{_UNRECOVERABLE_DEFAULT_DESC}: failed to apply the parameter set and to put back what the ECU had before the update"
 
 
 #

@@ -42,7 +42,7 @@ from typing_extensions import Unpack
 from ota_metadata.errors import ImageMetadataInvalid
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient import errors as ota_errors
-from otaclient._types import UpdatePhase
+from otaclient._types import UpdatePhase, VersionDetail
 from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._image_version_file import load_image_version_detail
 from otaclient.configs.cfg import cfg
@@ -174,7 +174,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         assert self.manifest is not None and self.config is not None
         _base = load_running_base(self._image_meta_dir)
         if _base is None:
-            raise ota_errors.OTAImageInvalid(
+            raise ota_errors.ParameterSetNotApplicable(
                 "the running base was installed without its manifest kept, so no "
                 "parameter set can be checked against it: a full OTA comes first",
                 module=__name__,
@@ -187,7 +187,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 base_slots=_base.slots,
             )
         except ValueError as e:
-            raise ota_errors.OTAImageInvalid(
+            raise ota_errors.ParameterSetNotApplicable(
                 f"the parameter set does not fit the running base: {e}",
                 module=__name__,
             ) from e
@@ -254,6 +254,25 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             session_id=self.session_id,
         )
 
+    @staticmethod
+    def _apply_failed(detail: str, *, restored: bool) -> ota_errors.OTAError:
+        """Back to what the ECU had before the update: it can be retried; else what
+        the ECU runs with is not known."""
+        if restored:
+            return ota_errors.ParameterSetApplyFailed(detail, module=__name__)
+        return ota_errors.ParameterSetRestoreFailed(detail, module=__name__)
+
+    def _restore_version(self, version: tuple[str, VersionDetail | None]) -> bool:
+        try:
+            self._boot_controller.restore_recorded_version(
+                version=version[0], version_detail=version[1]
+            )
+            return True
+        except Exception as e:
+            logger.error(f"failed to put the slot's records back: {e!r}")
+            self._store.record_event("records_not_restored", error=repr(e))
+            return False
+
     def execute(self) -> bool:
         """Lay the set in place. Returns True when a slot's `apply` asks for a reboot,
         which the caller does once the status is reported."""
@@ -302,24 +321,30 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 shutil.copyfile(self._session_workdir / _f, _staging / _f)
             self._store.stage(self._record(_filled), _info.files)
 
+            # what the slot reports now: put back if the new release is not recorded
+            _version_before = self._boot_controller.load_recorded_version()
+
             # from the switch on, the slot changes: no abort, as at a reboot
             self._abort_handler.enter_final_phase()
-            _reboot = self._store.switch(base_slots=_base.slots)
+            try:
+                _reboot = self._store.switch(base_slots=_base.slots)
+            except ParameterSetFailed as e:
+                raise self._apply_failed(str(e), restored=e.restored) from e
 
             # ------ post update ------ #
             _now = self._report_phase(UpdatePhase.PROCESSING_POSTUPDATE)
             self._metrics.post_update_start_timestamp = _now
             try:
-                with ota_errors.raise_as_ota_error(
-                    ota_errors.PostUpdateFailed, "post-update failed", module=__name__
-                ):
-                    self._boot_controller.on_parameter_set_applied(
-                        version=self.update_version, version_detail=self._version_detail
-                    )
-            except ota_errors.OTAError as e:
-                # the slot still records the release before: so does the store
-                self._store.roll_back(base_slots=_base.slots, cause=e)
-                raise
+                self._boot_controller.on_parameter_set_applied(
+                    version=self.update_version, version_detail=self._version_detail
+                )
+            except Exception as e:
+                logger.error(f"failed to record the release: {e!r}; rolling back")
+                _restored = self._store.roll_back(base_slots=_base.slots, cause=e)
+                _restored = self._restore_version(_version_before) and _restored
+                raise self._apply_failed(
+                    f"the release could not be recorded: {e!r}", restored=_restored
+                ) from e
             self._store.commit()
             return _reboot
 
@@ -327,14 +352,12 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             logger.info("parameter set update aborted")
             raise
         except Exception as e:
+            # an error not raised above came before the switch: nothing changed
             _err = (
                 e
                 if isinstance(e, ota_errors.OTAError)
-                else ota_errors.ApplyOTAUpdateFailed(
-                    str(e)
-                    if isinstance(e, ParameterSetFailed)
-                    else f"unspecific error, update failed: {e!r}",
-                    module=__name__,
+                else ota_errors.ParameterSetApplyFailed(
+                    f"unspecific error, nothing changed: {e!r}", module=__name__
                 )
             )
             self._store.record_event(

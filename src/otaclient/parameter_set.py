@@ -92,7 +92,13 @@ _FILES = TypeAdapter(list[ParameterSetFileEntry])
 
 
 class ParameterSetFailed(Exception):
-    """A set could not be put in place; the slot is back where it was."""
+    """A set could not be put in place. `restored` tells whether the slots are back
+    where they were (the set before, or the base's defaults), or could not be put
+    back either."""
+
+    def __init__(self, msg: str, *, restored: bool) -> None:
+        super().__init__(msg)
+        self.restored = restored
 
 
 def _now() -> str:
@@ -443,8 +449,8 @@ class ParameterSetStore:
         change.
 
         On failure the applied set is put back, its `apply`s run again, and
-        ParameterSetFailed raised. Returns True when a changed slot's `apply` is
-        `reboot`.
+        ParameterSetFailed raised, saying whether that worked. Returns True when a
+        changed slot's `apply` is `reboot`.
         """
         _new = self._read_record(self.staging_dir)
         assert _new is not None, "stage() first"
@@ -469,20 +475,24 @@ class ParameterSetStore:
                 f"failed to put the parameter set in place: {e!r}; rolling back"
             )
             if _renamed:
-                self.roll_back(base_slots=base_slots, cause=e)
+                _restored = self.roll_back(base_slots=base_slots, cause=e)
             else:
                 # nothing was moved: the applied set is still the old one, only its
                 #   mounts may be gone
-                self._remount(_old, cause=e)
-            raise ParameterSetFailed(f"the set was not put in place: {e!r}") from e
+                _restored = self._remount(_old, cause=e)
+            raise ParameterSetFailed(
+                f"the set was not put in place: {e!r}", restored=_restored
+            ) from e
 
-    def _remount(self, record: AppliedRecord | None, *, cause: Exception) -> None:
+    def _remount(self, record: AppliedRecord | None, *, cause: Exception) -> bool:
         try:
             self._mount(record)
             self.record_event("rolled_back", cause=repr(cause), remounted=True)
+            return True
         except Exception as e:
             logger.error(f"failed to mount the applied set again: {e!r}")
             self.record_event("roll_back_failed", cause=repr(cause), error=repr(e))
+            return False
 
     def commit(self) -> None:
         """The slot records the new set's release: the one before is gone for good."""
@@ -490,10 +500,10 @@ class ParameterSetStore:
         if (_record := self.applied_record()) is not None:
             self.record_event("applied", **_record.evidence())
 
-    def roll_back(self, *, base_slots: list[ParameterSlot], cause: Exception) -> None:
+    def roll_back(self, *, base_slots: list[ParameterSlot], cause: Exception) -> bool:
         """Put `previous/` (or no set, when there was none) back in place of the
-        applied set, and run the `apply` of the slots that change back. Never raises;
-        a failure is recorded."""
+        applied set, and run the `apply` of the slots that change back. Never raises:
+        returns whether the slots are back, a failure is recorded."""
         try:
             _new = self.applied_record()
             _old = self._read_record(self.previous_dir)
@@ -517,9 +527,11 @@ class ParameterSetStore:
                 cause=repr(cause),
                 set=_old.set_manifest_digest if _old else None,
             )
+            return True
         except Exception as e:
             logger.error(f"failed to roll the parameter set back: {e!r}")
             self.record_event("roll_back_failed", cause=repr(cause), error=repr(e))
+            return False
 
     # ------ the applied set, verified ------ #
 
