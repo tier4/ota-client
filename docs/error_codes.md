@@ -62,7 +62,7 @@ After otaclient restarts or the ECU reboots, the saved failure is reported again
 | E460 | `E_METADATAJWT_CERT_VERIFICATION_FAILED` | unrecoverable | Certificate verification for the OTA image metadata failed. |
 | E461 | `E_METADATAJWT_INVALID` | unrecoverable | metadata.jwt is verified but its content is invalid. |
 | E462 | `E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED` | recoverable | OTA image's BSP version doesn't match the ECU's firmware BSP version. |
-| E463 | `E_PARAMETER_SET_NOT_APPLICABLE` | recoverable | The parameter set is not for the image this ECU runs: made for another base, the running base's manifest was not kept, or the ECU's layout takes no parameter set. Nothing is changed. |
+| E463 | `E_PARAMETER_SET_NOT_APPLICABLE` | recoverable | The parameter set does not fit the image this ECU runs: a slot directory or `apply` it names is missing there, something else is mounted at a slot, or the ECU's layout takes no parameter set. Nothing is changed. |
 | E470 | `E_CLIENT_UPDATE_SAME_VERSIONS` | recoverable | Client update skipped as the versions are the same. |
 | E499 | `E_OTA_ABORTED` | recoverable | OTA aborted by the abort request. |
 

@@ -29,7 +29,6 @@ from typing_extensions import Unpack
 
 from ota_metadata.file_table.utils import save_fstable
 from ota_metadata.utils.cert_store import CAChainStore, CAStoreMap
-from ota_metadata.v1 import IMAGE_CONFIG_SAVE_FNAME, IMAGE_MANIFEST_SAVE_FNAME
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAUpdatePhaseChangeReport,
@@ -260,13 +259,6 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             self._image_meta_dir_on_standby,
             dirs_exist_ok=True,
         )
-
-        # keep the base payload's manifest and config (an OTA image v1's), against
-        #   which a parameter set made for this base is checked
-        #   (under the names the session saved them with, read back under the same)
-        for _fname in (IMAGE_MANIFEST_SAVE_FNAME, IMAGE_CONFIG_SAVE_FNAME):
-            if (_src := self._session_workdir / _fname).is_file():
-                shutil.copyfile(_src, self._image_meta_dir_on_standby / _fname)
 
         # prepare base file_table to the base OTA meta store for next OTA
         self._ota_meta_store_base_on_standby.mkdir(exist_ok=True, parents=True)

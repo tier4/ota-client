@@ -34,9 +34,8 @@ from ota_image_libs.v1.parameter_set.layer import (
 from ota_image_libs.v1.parameter_set.schema import (
     ParameterSetConfig,
     ParameterSetManifest,
-    check_against_base,
 )
-from ota_image_libs.v1.parameter_set.slots import ParameterSlot
+from ota_image_libs.v1.parameter_set.slots import check_slots_in_tree
 from typing_extensions import Unpack
 
 from ota_metadata.errors import ImageMetadataInvalid
@@ -64,8 +63,6 @@ from otaclient.parameter_set import (
     AppliedRecord,
     ParameterSetFailed,
     ParameterSetStore,
-    RunningBase,
-    load_running_base,
 )
 from otaclient_common import _env, cmdhelper
 from otaclient_common.download_info import DownloadInfo
@@ -85,6 +82,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
 
     An abort is taken until the set is about to be switched to (the staging is
     discarded); from there on it is refused, as at the reboot of any other update.
+
+    The set names no base: it is laid over whatever image the ECU runs, as long as
+    that image has the set's slot directories and applies. Which images a set suits
+    is decided where the release is evaluated.
     """
 
     def __init__(
@@ -95,7 +96,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         store: ParameterSetStore | None = None,
-        image_meta_dir: Path | None = None,
+        host_root: Path | None = None,
         **kwargs: Unpack[OTAUpdateInterfaceArgs],
     ) -> None:
         super().__init__(**kwargs)
@@ -103,14 +104,16 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         self._abort_handler = abort_handler
         self._image_id = image_identifier
         self._store = store or ParameterSetStore()
-        self._image_meta_dir = image_meta_dir or Path(cfg.IMAGE_META_DPATH)
+        # where the running image's files are seen: what a slot's `apply` runs in
+        self._host_root = host_root or Path(
+            _env.get_dynamic_client_chroot_path() or cfg.CANONICAL_ROOT
+        )
         self._ota_image_helper, self._download_helper = (
             self._create_ota_image_v1_helpers(ca_store=ca_store)
         )
         self.manifest: ParameterSetManifest | None = None
         self.config: ParameterSetConfig | None = None
         self._set_digest: Sha256Digest | None = None
-        self._base_digest = ""
 
     def _download(self, batches: Generator[list[DownloadInfo]], cond) -> None:
         for _fut in self._download_helper.download_meta_files(batches, condition=cond):
@@ -168,30 +171,26 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             ]
             cond.wait()
 
-    def _check_against_the_running_base(
-        self,
-    ) -> tuple[RunningBase, list[ParameterSlot]]:
-        assert self.manifest is not None and self.config is not None
-        _base = load_running_base(self._image_meta_dir)
-        if _base is None:
-            raise ota_errors.ParameterSetNotApplicable(
-                "the running base was installed without its manifest kept, so no "
-                "parameter set can be checked against it: a full OTA comes first",
-                module=__name__,
-            )
+    def _check_fits_the_running_base(self) -> None:
+        """The running image has each slot's directory and each `apply`, and nothing
+        but otaclient's own set is mounted on a slot: a set the image has no room
+        for is refused before anything changes."""
+        assert self.config is not None
         try:
-            _filled = check_against_base(
-                self.manifest,
-                self.config,
-                base_manifest_digest=_base.manifest_digest,
-                base_slots=_base.slots,
-            )
+            check_slots_in_tree(self._host_root, self.config.slots)
         except ValueError as e:
             raise ota_errors.ParameterSetNotApplicable(
-                f"the parameter set does not fit the running base: {e}",
+                f"the running image has no room for the parameter set: {e}",
                 module=__name__,
             ) from e
-        return _base, _filled
+        _applied = self._store.applied_record()
+        _ours = {_s.path for _s in _applied.slots} if _applied else set()
+        for _slot in self.config.slots:
+            if _slot.path not in _ours and self._store.is_mounted(_slot.path):
+                raise ota_errors.ParameterSetNotApplicable(
+                    f"slot {_slot.name!r}: something else is mounted at {_slot.path}",
+                    module=__name__,
+                )
 
     def _unpack(self, staging: Path, layer_f: Path) -> ParameterLayerInfo:
         """Unpack and check the layer into the staging; the files the config lists,
@@ -224,7 +223,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             )
         return _info
 
-    def _record(self, filled: list[ParameterSlot]) -> AppliedRecord:
+    def _record(self) -> AppliedRecord:
         """What the set is, and what it is applied on: the base's own records are
         carried from the set before, or taken from the slot for the first set."""
         assert self.manifest is not None and self.config is not None
@@ -241,8 +240,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             set_manifest_digest=str(self._set_digest),
             set_name=self.config.name,
             set_version=self.config.version,
-            slots=filled,
-            base_manifest_digest=self._base_digest,
+            slots=self.config.slots,
             base_image_id=_from_image.image_id if _from_image else "",
             firmware_version=self.update_version,
             release_name=self.release_name,
@@ -294,11 +292,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 )
                 self._download(self._metadata(_cond), _cond)
             assert self.manifest is not None and self.config is not None
-            _base, _filled = self._check_against_the_running_base()
-            self._base_digest = str(_base.manifest_digest)
+            self._check_fits_the_running_base()
             logger.info(
                 f"parameter set {self.config.name} {self.config.version}: slots "
-                f"{[_s.name for _s in _filled]} over base {_base.manifest_digest}"
+                f"{[_s.name for _s in self.config.slots]}"
             )
 
             # ------ downloading ------ #
@@ -319,7 +316,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             _info = self._unpack(_staging, _layer_f)
             for _f in (MANIFEST_FNAME, CONFIG_FNAME):
                 shutil.copyfile(self._session_workdir / _f, _staging / _f)
-            self._store.stage(self._record(_filled), _info.files)
+            self._store.stage(self._record(), _info.files)
 
             # what the slot reports now: put back if the new release is not recorded
             _version_before = self._boot_controller.load_recorded_version()
@@ -327,7 +324,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             # from the switch on, the slot changes: no abort, as at a reboot
             self._abort_handler.enter_final_phase()
             try:
-                _reboot = self._store.switch(base_slots=_base.slots)
+                _reboot = self._store.switch()
             except ParameterSetFailed as e:
                 raise self._apply_failed(str(e), restored=e.restored) from e
 
@@ -340,7 +337,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 )
             except Exception as e:
                 logger.error(f"failed to record the release: {e!r}; rolling back")
-                _restored = self._store.roll_back(base_slots=_base.slots, cause=e)
+                _restored = self._store.roll_back(cause=e)
                 _restored = self._restore_version(_version_before) and _restored
                 raise self._apply_failed(
                     f"the release could not be recorded: {e!r}", restored=_restored

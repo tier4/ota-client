@@ -67,6 +67,7 @@ from otaclient._utils import (
 )
 from otaclient.boot_control import get_boot_controller
 from otaclient.boot_control._base import BootControllerBase
+from otaclient.boot_control._image_version_file import load_image_version_detail
 from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
@@ -79,7 +80,7 @@ from otaclient.ota_core._updater import (
     OTAUpdaterForOTAImageV1,
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
-from otaclient.parameter_set import ParameterSetStore, load_running_base
+from otaclient.parameter_set import ParameterSetStore
 from otaclient_common import _env
 from otaclient_common._shm import RWBusy
 from otaclient_common.cmdhelper import (
@@ -868,8 +869,12 @@ def _check_parameter_set_at_startup(boot_controller: BootControllerBase) -> None
     """Check the applied parameter set, if any; a dropped one gives the slot its
     base's version records back. Never raises: otaclient starts either way."""
     try:
-        ParameterSetStore().check_at_startup(
-            load_running_base(Path(cfg.IMAGE_META_DPATH)),
+        _store = ParameterSetStore()
+        if not _store.applied_dir.exists() and not _store.previous_dir.exists():
+            return
+        _running = load_image_version_detail()
+        _store.check_at_startup(
+            _running.image_id if _running else "",
             slot_records=boot_controller,
         )
     except Exception as e:

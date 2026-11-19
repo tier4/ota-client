@@ -13,17 +13,19 @@
 # limitations under the License.
 """Parameter sets laid over the running base (spec: ota-image-libs parameter_set.md).
 
-A parameter set replaces the directories its base declares as parameter slots,
+A parameter set replaces the directories of the running base it names (its slots),
 without a standby slot and without a reboot. Its files are unpacked into the store
 in the running slot, and each slot the set fills is bound read-only over the base's
 directory: now, by a mount, and at every boot, by an entry in /etc/fstab, so that
 the slot holds the set before anything that reads it starts. The base's own files are
-never written, only hidden.
+never written, only hidden. A set names no base: it is applied on whatever base the
+ECU runs, as long as that base has the set's slot directories and applies.
 
 The store, under PARAMETER_SET_DPATH::
 
     applied/        the set this slot runs with
-      record.json   what it is, and what it was applied on (AppliedRecord)
+      record.json   what it is, and what it was applied on (AppliedRecord); read by
+                    others too, see docs/parameter_set.md
       files.json    the files otaclient unpacked and checked, what is checked again
       manifest.json, config.json   the set's own metadata, as downloaded
       tree/<path>   the slots' files, at their paths relative to /
@@ -39,8 +41,9 @@ rolled back.
 What the ECU runs changes by an update only. Unpacked files found other than the
 set's at startup are kept as they are and recorded (`tree_mismatch`); the next update
 of the set puts its files in place again and applies every slot. A set is dropped
-only when it cannot be told what it is (its record is unreadable), when it was not
-applied on the running base, or when a slot cannot be mounted.
+only when it cannot be told what it is (its record is unreadable), when it was
+applied on another image than the running one (by the image's version file), or when
+a slot cannot be mounted.
 
 A full OTA writes a new slot from an image: its fstab is the image's, so the entries
 do not follow and the new base runs with its slots' defaults. Only the history is
@@ -61,12 +64,10 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ota_image_libs.common.oci_spec import Sha256Digest
-from ota_image_libs.v1.image_config.schema import ImageConfig
 from ota_image_libs.v1.parameter_set.schema import ParameterSetFileEntry
 from ota_image_libs.v1.parameter_set.slots import APPLY_REBOOT, ParameterSlot
 from pydantic import BaseModel, TypeAdapter
 
-from ota_metadata.v1 import IMAGE_CONFIG_SAVE_FNAME, IMAGE_MANIFEST_SAVE_FNAME
 from otaclient._types import VersionDetail
 from otaclient.configs.cfg import cfg
 from otaclient_common import _env
@@ -77,6 +78,9 @@ logger = logging.getLogger(__name__)
 
 APPLIED, PREVIOUS, STAGING = "applied", "previous", "staging"
 RECORD_FNAME = "record.json"
+RECORD_SCHEMA_VERSION = 1
+"""The record's fields that others read (docs/parameter_set.md) keep their meaning
+within a schema version."""
 FILES_FNAME = "files.json"
 MANIFEST_FNAME = "manifest.json"
 CONFIG_FNAME = "config.json"
@@ -90,8 +94,9 @@ BOOT_ID_FPATH = "/proc/sys/kernel/random/boot_id"
 
 FSTAB_BEGIN = "# BEGIN otaclient parameter set (managed by otaclient, do not edit)"
 FSTAB_END = "# END otaclient parameter set"
-MOUNT_OPTIONS = "ro,nosuid,nodev,noexec"
-"""A slot holds data: nothing in it is executed with privilege, or at all."""
+MOUNT_OPTIONS = "ro,nosuid,nodev"
+"""A slot may hold executables (a set may carry binaries and launch files), but
+nothing in it runs with privilege it does not have, and it holds no device."""
 FSTAB_OPTIONS = f"bind,{MOUNT_OPTIONS},nofail"
 
 _FILES = TypeAdapter(list[ParameterSetFileEntry])
@@ -116,35 +121,6 @@ def _boot_id() -> str:
 
 
 #
-# ------ the running base ------ #
-#
-
-
-class RunningBase(BaseModel):
-    """The base payload this slot was installed from, as a full OTA kept it."""
-
-    manifest_digest: Sha256Digest
-    slots: list[ParameterSlot]
-
-
-def load_running_base(image_meta_dir: Path) -> RunningBase | None:
-    """The running base's manifest digest and slots, from what a full OTA saved in
-    image-meta (the session's own copies, under the same names); None when it saved
-    nothing (an otaclient before parameter sets, or a legacy OTA image)."""
-    try:
-        _manifest = (image_meta_dir / IMAGE_MANIFEST_SAVE_FNAME).read_bytes()
-        _config = ImageConfig.parse_metafile(
-            (image_meta_dir / IMAGE_CONFIG_SAVE_FNAME).read_text()
-        )
-    except FileNotFoundError:
-        return None
-    return RunningBase(
-        manifest_digest=Sha256Digest(sha256(_manifest).hexdigest()),
-        slots=_config.parameter_slots or [],
-    )
-
-
-#
 # ------ what is applied ------ #
 #
 
@@ -155,17 +131,20 @@ class AppliedRecord(BaseModel):
 
     `set_*` is the set itself. `firmware_version`, `release_*` and `image_id` are the
     release the request named, `image_id` the parameter image's. `base_image_id` is
-    the running image's (its version file) when the set was applied: with `image_id`
-    it says that this release runs on this base. `base_version` and
-    `base_version_detail` are what the slot recorded before any set, so that a
-    dropped set reports the base again.
+    the running image's (its version file) when the set was applied, empty when it
+    has none: with `image_id` it says that this release runs on this base.
+    `base_version` and `base_version_detail` are what the slot recorded before any
+    set, so that a dropped set reports the base again.
+
+    `schema_version`, `image_id`, `set_name`, `set_version`, `base_image_id` and
+    `applied_at` are read by others (docs/parameter_set.md).
     """
 
+    schema_version: int = RECORD_SCHEMA_VERSION
     set_manifest_digest: str
     set_name: str
     set_version: str
     slots: list[ParameterSlot]
-    base_manifest_digest: str
     base_image_id: str = ""
     firmware_version: str = ""
     release_name: str = ""
@@ -183,7 +162,6 @@ class AppliedRecord(BaseModel):
                 "set_manifest_digest",
                 "set_name",
                 "set_version",
-                "base_manifest_digest",
                 "base_image_id",
                 "firmware_version",
                 "release_name",
@@ -262,6 +240,10 @@ def _fstab_escape(path: str) -> str:
     return path.replace("\\", "\\134").replace(" ", "\\040").replace("\t", "\\011")
 
 
+def _fstab_unescape(field: str) -> str:
+    return field.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
+
+
 def _slot_files(
     files: Iterable[ParameterSetFileEntry], slot: ParameterSlot
 ) -> frozenset[tuple[str, int, str]]:
@@ -303,6 +285,9 @@ class ParameterSetStore:
     @property
     def history_file(self) -> Path:
         return self.root / HISTORY_FNAME
+
+    def is_mounted(self, mount_point: str) -> bool:
+        return self._mounter.is_mounted(mount_point)
 
     # ------ records ------ #
 
@@ -370,6 +355,24 @@ class ParameterSetStore:
 
     # ------ fstab ------ #
 
+    def _fstab_mount_points(self) -> list[str]:
+        """The mount points of otaclient's block of /etc/fstab: what it mounts when
+        its record cannot tell."""
+        try:
+            _lines = self.fstab.read_text().splitlines()
+        except FileNotFoundError:
+            return []
+        _points: list[str] = []
+        _inside = False
+        for _l in _lines:
+            if _l.strip() == FSTAB_BEGIN:
+                _inside = True
+            elif _l.strip() == FSTAB_END:
+                _inside = False
+            elif _inside and len(_fields := _l.split()) >= 2:
+                _points.append(_fstab_unescape(_fields[1]))
+        return _points
+
     def _write_fstab(self, record: AppliedRecord | None) -> None:
         """Rewrite otaclient's block of /etc/fstab: one bind entry per slot the
         applied set fills, or no block at all."""
@@ -396,10 +399,15 @@ class ParameterSetStore:
 
     # ------ mounts and applies ------ #
 
-    def _unmount(self, slots: Iterable[ParameterSlot]) -> None:
-        for _slot in slots:
-            while self._mounter.is_mounted(_slot.path):
-                self._mounter.umount(_slot.path)
+    def _unmount(self, mount_points: Iterable[str]) -> None:
+        for _point in dict.fromkeys(mount_points):
+            while self._mounter.is_mounted(_point):
+                self._mounter.umount(_point)
+
+    @staticmethod
+    def _paths(*records: AppliedRecord | None) -> list[str]:
+        """The slots' paths of `records`: what otaclient mounted for them."""
+        return [_s.path for _r in records if _r is not None for _s in _r.slots]
 
     def _mount(self, record: AppliedRecord | None) -> None:
         if record is None:
@@ -467,10 +475,11 @@ class ParameterSetStore:
             return list({_s.name: _s for _s in [*old.slots, *new.slots]}.values())
         return self.changed_slots(old, self._read_files(old_dir), new, new_files)
 
-    def switch(self, *, base_slots: list[ParameterSlot]) -> bool:
+    def switch(self) -> bool:
         """Put the staged set in place of the applied one, keeping that one as
         `previous/` until `commit`, and run the `apply` of every slot whose contents
-        change.
+        change: the new set's `apply` for a slot it fills, the old set's for a slot
+        it takes away.
 
         On failure the applied set is put back, its `apply`s run again, and
         ParameterSetFailed raised, saying whether that worked. Returns True when a
@@ -485,7 +494,9 @@ class ParameterSetStore:
         shutil.rmtree(self.previous_dir, ignore_errors=True)
         _renamed = False
         try:
-            self._unmount(base_slots)
+            # the new set's slots too: a switch that failed before may have left one
+            #   (anything else mounted there was refused before the update began)
+            self._unmount(self._paths(_old, _new))
             if self.applied_dir.exists():
                 os.replace(self.applied_dir, self.previous_dir)
             _renamed = True
@@ -496,7 +507,7 @@ class ParameterSetStore:
                 f"failed to put the parameter set in place: {e!r}; rolling back"
             )
             if _renamed:
-                _restored = self.roll_back(base_slots=base_slots, cause=e)
+                _restored = self.roll_back(cause=e)
             else:
                 # nothing was moved: the applied set is still the old one, only its
                 #   mounts may be gone
@@ -521,7 +532,7 @@ class ParameterSetStore:
         if (_record := self.applied_record()) is not None:
             self.record_event("applied", **_record.evidence())
 
-    def roll_back(self, *, base_slots: list[ParameterSlot], cause: Exception) -> bool:
+    def roll_back(self, *, cause: Exception) -> bool:
         """Put `previous/` (or no set, when there was none) back in place of the
         applied set, and run the `apply` of the slots that change back. Never raises:
         returns whether the slots are back, a failure is recorded."""
@@ -535,7 +546,7 @@ class ParameterSetStore:
                 if _new is not None
                 else list(_old.slots if _old else [])
             )
-            self._unmount(base_slots)
+            self._unmount(self._paths(_new, _old))
             shutil.rmtree(self.applied_dir, ignore_errors=True)
             if self.previous_dir.exists():
                 os.replace(self.previous_dir, self.applied_dir)
@@ -588,41 +599,46 @@ class ParameterSetStore:
         return None
 
     def check_at_startup(
-        self, base: RunningBase | None, *, slot_records: SlotRecords
+        self, running_image_id: str, *, slot_records: SlotRecords
     ) -> AppliedRecord | None:
         """At otaclient's start: the applied set, kept as the last update left it.
+
+        `running_image_id` is the running image's ID from its version file, "" when
+        it has none (or none otaclient reads), as `base_image_id` was recorded.
 
         The fstab entries mounted the set at boot, before anything read it; this is
         where it is checked, and where that is recorded. A switch that did not finish
         (`previous/` still there) is rolled back first. Files other than the set's are
         kept and recorded: what the ECU runs changes by an update only. The set is
         dropped (the slots get the base's defaults, the slot reports the base) only
-        when its record is unreadable, when it was not applied on the running base,
-        or when a slot cannot be mounted.
+        when its record is unreadable, when it was applied on another image than the
+        running one, or when a slot cannot be mounted.
         """
-        _base_slots = base.slots if base else []
         if self.previous_dir.exists():
             logger.warning("a parameter set switch did not finish: rolling it back")
-            self.roll_back(
-                base_slots=_base_slots, cause=RuntimeError("an unfinished switch")
-            )
+            self.roll_back(cause=RuntimeError("an unfinished switch"))
             self.record_event("recovered")
 
         try:
             _record = self._read_record(self.applied_dir)
         except Exception as e:
-            self._drop(None, _base_slots, f"the set's record is unreadable: {e!r}")
+            self._drop(None, f"the set's record is unreadable: {e!r}")
             return None
         if _record is None:
             return None
         logger.info(
-            f"parameter set {_record.describe()} is applied on base "
-            f"{_record.base_manifest_digest}"
+            f"parameter set {_record.describe()} is applied on image "
+            f"{_record.base_image_id or '(no version file)'}"
         )
 
-        if base is None or str(base.manifest_digest) != _record.base_manifest_digest:
+        if running_image_id != _record.base_image_id:
             # not this slot's set (copied in with the slot): its records are not of it
-            self._drop(None, _base_slots, "the set was not applied on the running base")
+            self._drop(
+                None,
+                f"the set was applied on image {_record.base_image_id!r}, the slot "
+                f"runs image {running_image_id!r}",
+                mount_points=self._paths(_record),
+            )
             return None
         if (_mismatch := self.check_tree(_record)) is not None:
             logger.error(
@@ -649,7 +665,6 @@ class ParameterSetStore:
             except Exception as e:
                 self._drop(
                     _record,
-                    _base_slots,
                     f"the set could not be mounted: {e!r}",
                     slot_records=slot_records,
                 )
@@ -696,14 +711,18 @@ class ParameterSetStore:
     def _drop(
         self,
         record: AppliedRecord | None,
-        base_slots: list[ParameterSlot],
         why: str,
         *,
         slot_records: SlotRecords | None = None,
+        mount_points: list[str] | None = None,
     ) -> None:
         """Drop the applied set: the slot reports the base again (when its records
         are still this set's release), the mounts and the fstab entries go, then the
-        unpacked files, then the slots that changed back are applied."""
+        unpacked files, then the slots that changed back are applied.
+
+        Without a `record` to go by (unreadable, or not this slot's), no `apply` is
+        run and the slot's records are left as they are; what is unmounted is
+        `mount_points` and what otaclient's fstab block mounts."""
         _what = record.describe() if record else "the applied set"
         logger.error(f"{_what} does not hold ({why}): dropping it")
         _evidence = record.evidence() if record else {}
@@ -717,7 +736,13 @@ class ParameterSetStore:
                         version=record.base_version,
                         version_detail=record.base_version_detail,
                     )
-            self._unmount(base_slots if record is None else record.slots)
+            self._unmount(
+                [
+                    *self._paths(record),
+                    *(mount_points or []),
+                    *self._fstab_mount_points(),
+                ]
+            )
             self._write_fstab(None)
             shutil.rmtree(self.applied_dir, ignore_errors=True)
             _reboot = self._run_applies(record.slots) if record is not None else False

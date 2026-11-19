@@ -35,6 +35,7 @@ from otaclient._types import (
     IPCResEnum,
     OTAStatus,
     UpdateRequestV2,
+    VersionDetail,
 )
 from otaclient.boot_control import BootControllerProtocol
 from otaclient.boot_control._base import BootControllerBase
@@ -666,20 +667,51 @@ class TestOTAClient:
 
 
 class TestParameterSetAtStartup:
-    def test_a_dropped_set_gives_the_slot_its_base_records_back(
-        self, tmp_path: Path, mocker: pytest_mock.MockerFixture
+    def test_the_set_is_checked_against_the_running_image(
+        self, mocker: pytest_mock.MockerFixture
     ):
         """The boot controller is the slot's records; the base's come back typed."""
         _store = mocker.MagicMock()
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
-        _base = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_running_base")
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail",
+            return_value=VersionDetail(image_id="base-image"),
+        )
         _boot_controller = mocker.MagicMock(spec=BootControllerBase)
 
         ota_core._main._check_parameter_set_at_startup(_boot_controller)
 
         _store.check_at_startup.assert_called_once_with(
-            _base.return_value, slot_records=_boot_controller
+            "base-image", slot_records=_boot_controller
         )
+
+    def test_an_image_without_a_version_file_is_an_empty_id(
+        self, mocker: pytest_mock.MockerFixture
+    ):
+        _store = mocker.MagicMock()
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail", return_value=None
+        )
+        _boot_controller = mocker.MagicMock(spec=BootControllerBase)
+        ota_core._main._check_parameter_set_at_startup(_boot_controller)
+        _store.check_at_startup.assert_called_once_with(
+            "", slot_records=_boot_controller
+        )
+
+    def test_nothing_stored_is_not_checked(
+        self, tmp_path: Path, mocker: pytest_mock.MockerFixture
+    ):
+        _store = mocker.MagicMock()
+        _store.applied_dir = tmp_path / "applied"
+        _store.previous_dir = tmp_path / "previous"
+        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
+        _load = mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail")
+        ota_core._main._check_parameter_set_at_startup(
+            mocker.MagicMock(spec=BootControllerBase)
+        )
+        _load.assert_not_called()
+        _store.check_at_startup.assert_not_called()
 
     def test_a_failing_check_does_not_stop_otaclient(
         self, mocker: pytest_mock.MockerFixture
@@ -687,7 +719,9 @@ class TestParameterSetAtStartup:
         _store = mocker.MagicMock()
         _store.check_at_startup.side_effect = OSError("cannot read")
         mocker.patch(f"{OTA_CORE_MAIN_MODULE}.ParameterSetStore", return_value=_store)
-        mocker.patch(f"{OTA_CORE_MAIN_MODULE}.load_running_base", side_effect=OSError)
+        mocker.patch(
+            f"{OTA_CORE_MAIN_MODULE}.load_image_version_detail", side_effect=OSError
+        )
         ota_core._main._check_parameter_set_at_startup(
             mocker.MagicMock(spec=BootControllerBase)
         )

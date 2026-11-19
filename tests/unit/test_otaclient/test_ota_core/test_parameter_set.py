@@ -16,7 +16,6 @@
 from __future__ import annotations
 
 import io
-import json
 import shutil
 import threading
 from contextlib import contextmanager
@@ -37,13 +36,12 @@ from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseK
 from ota_image_libs.v1.parameter_set.layer import write_parameter_layer
 from ota_image_libs.v1.parameter_set.schema import (
     EmptyDescriptor,
-    FileBasedSubjectDescriptor,
     ParameterLayerDescriptor,
     ParameterSetConfig,
     ParameterSetFileEntry,
     ParameterSetManifest,
 )
-from ota_image_libs.v1.parameter_set.slots import ParameterSlot, ParameterSlotRef
+from ota_image_libs.v1.parameter_set.slots import ParameterSlot
 from ota_image_libs.v1.update_agent_package.schema import EMPTY_JSON
 from pytest_mock import MockerFixture
 
@@ -60,40 +58,18 @@ from otaclient.boot_control._base import BootControllerBase
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import _parameter_set
 from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
-from otaclient.parameter_set import TREE_DNAME, ParameterSetStore, load_running_base
+from otaclient.parameter_set import TREE_DNAME, ParameterSetStore
 
 PARAMS = ParameterSlot(
     name="individual_params",
     path="/opt/autoware/vehicle/vehicle.j6_gen2/individual_params",
-    apply="/opt/autoware/bin/apply-parameter-set",
+    apply="/opt/autoware/vehicle/vehicle.j6_gen2/apply.sh",
 )
-BASE_MANIFEST = b'{"the": "base payload manifest"}'
-BASE_DIGEST = Sha256Digest(sha256(BASE_MANIFEST).hexdigest())
 THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
 ANNOTATIONS = {
     PLATFORM_ECU: "autoware",
     OTA_RELEASE_KEY: "dev",
     PARAMETER_SET_VERSION: "2026.10.29-1",
-}
-IMAGE_CONFIG = {
-    "schemaVersion": 1,
-    "mediaType": "application/vnd.tier4.ota.file-based-ota-image.config.v1+json",
-    "architecture": "x86_64",
-    "file_table": {
-        "mediaType": "application/vnd.tier4.ota.file-based-ota-image.file_table.v1.sqlite3+zstd",
-        "digest": f"sha256:{'2' * 64}",
-        "size": 1,
-    },
-    "labels": {
-        "vnd.tier4.image.base-image": "ubuntu:22.04",
-        "vnd.tier4.ota.image.blobs-count": 1,
-        "vnd.tier4.ota.image.blobs-size": 1,
-        "vnd.tier4.image.rootfs.regular-files-count": 1,
-        "vnd.tier4.image.rootfs.non-regular-files-count": 0,
-        "vnd.tier4.image.rootfs.dirs-count": 1,
-        "vnd.tier4.image.rootfs.unique-files-entries-count": 1,
-        "vnd.tier4.image.rootfs.unique-files-entries-size": 1,
-    },
 }
 
 
@@ -101,7 +77,6 @@ def parameter_image(
     root: Path,
     *,
     tree: Path | None,
-    base: Sha256Digest = BASE_DIGEST,
     files: list | None = None,
     ecu: str = "autoware",
 ) -> tuple[Path, ImageIndex]:
@@ -112,7 +87,7 @@ def parameter_image(
         _layer = EmptyDescriptor.add_contents_to_resource_dir(EMPTY_JSON, _blobs)
         _config = ParameterSetConfig(name="p", version="2026.10.29-1")
     else:
-        _slots = [ParameterSlotRef(name=PARAMS.name, path=PARAMS.path)]
+        _slots = [PARAMS]
         _out = io.BytesIO()
         _info = write_parameter_layer(tree, _slots, _out)
         _layer = ParameterLayerDescriptor.add_contents_to_resource_dir(
@@ -130,7 +105,6 @@ def parameter_image(
             _config, _blobs
         ),
         layers=[_layer],
-        subject=FileBasedSubjectDescriptor(size=len(BASE_MANIFEST), digest=base),
         annotations=ParameterSetManifest.Annotations.model_validate(
             {**ANNOTATIONS, PLATFORM_ECU: ecu}
         ),
@@ -198,15 +172,14 @@ class FakeAbortHandler:
 
 
 @pytest.fixture
-def image_meta(tmp_path: Path) -> Path:
-    """What a full OTA of the base kept: its manifest and config, with the slot."""
-    _dir = tmp_path / "image-meta"
-    _dir.mkdir()
-    (_dir / "image_manifest.json").write_bytes(BASE_MANIFEST)
-    (_dir / "image_config.json").write_text(
-        json.dumps({**IMAGE_CONFIG, "parameter_slots": [PARAMS.model_dump()]})
-    )
-    return _dir
+def host_root(tmp_path: Path) -> Path:
+    """The running image: the slot's directory with its defaults, and the apply."""
+    _root = tmp_path / "host_root"
+    (_root / PARAMS.relpath / "default").mkdir(parents=True)
+    _apply = _root / PARAMS.apply[1:]
+    _apply.write_text("#!/bin/sh\n")
+    _apply.chmod(0o755)
+    return _root
 
 
 @pytest.fixture
@@ -246,7 +219,7 @@ def make_updater(
     blobs: Path,
     index: ImageIndex,
     store,
-    image_meta,
+    host_root,
     boot_controller,
     abort_handler: FakeAbortHandler | None = None,
 ) -> OTAUpdaterForParameterSet:
@@ -258,7 +231,7 @@ def make_updater(
         abort_handler=abort_handler or FakeAbortHandler(),  # type: ignore[arg-type]
         image_identifier=THIS_ECU,
         store=store,
-        image_meta_dir=image_meta,
+        host_root=host_root,
         version="2026.10.29-1",
         raw_url_base="http://example.com/image/",
         session_wd=tmp_path / "session",
@@ -313,7 +286,7 @@ def phases(updater: OTAUpdaterForParameterSet) -> list[UpdatePhase]:
 
 class TestParameterSetUpdate:
     def test_the_set_is_laid_over_the_running_base_and_recorded(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "max_speed: 12\n")
@@ -323,7 +296,7 @@ class TestParameterSetUpdate:
             blobs=_blobs,
             index=_index,
             store=store,
-            image_meta=image_meta,
+            host_root=host_root,
             boot_controller=boot_controller,
         )
 
@@ -331,7 +304,6 @@ class TestParameterSetUpdate:
 
         _record = store.applied_record()
         assert _record is not None
-        assert _record.base_manifest_digest == str(BASE_DIGEST)
         assert _record.image_id == "parameter-image"
         assert _record.base_image_id == "base-image"
         assert _record.base_version == "1.0.0"
@@ -364,7 +336,7 @@ class TestParameterSetUpdate:
         assert not store.staging_dir.exists()
 
     def test_a_second_set_keeps_the_base_records_of_the_first(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         for _n, _content in enumerate(("a: 1\n", "a: 2\n")):
             _blobs, _index = parameter_image(
@@ -375,7 +347,7 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
             boot_controller.load_recorded_version.return_value = ("2026.10.29-1", None)
@@ -384,7 +356,7 @@ class TestParameterSetUpdate:
         assert _record is not None and _record.base_version == "1.0.0"
 
     def test_an_empty_set_records_its_release_and_clears_the_slots(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(tmp_path / "image", tree=None)
         make_updater(
@@ -392,7 +364,7 @@ class TestParameterSetUpdate:
             blobs=_blobs,
             index=_index,
             store=store,
-            image_meta=image_meta,
+            host_root=host_root,
             boot_controller=boot_controller,
         ).execute()
 
@@ -402,23 +374,40 @@ class TestParameterSetUpdate:
         assert store._mounter.mounted == {}  # type: ignore[attr-defined]
         boot_controller.on_parameter_set_applied.assert_called_once()
 
-    def test_a_set_for_another_base_is_refused_before_anything_changes(
-        self, tmp_path: Path, store, image_meta, boot_controller
+    @pytest.mark.parametrize(
+        "spoil, match",
+        (
+            pytest.param(
+                lambda root: shutil.rmtree(root / PARAMS.relpath),
+                "no directory",
+                id="no_slot_directory",
+            ),
+            pytest.param(
+                lambda root: (root / PARAMS.apply[1:]).unlink(),
+                "no apply",
+                id="no_apply",
+            ),
+            pytest.param(
+                lambda root: (root / PARAMS.apply[1:]).chmod(0o644),
+                "not an executable",
+                id="apply_not_executable",
+            ),
+        ),
+    )
+    def test_a_set_the_image_has_no_room_for_is_refused_before_anything_changes(
+        self, tmp_path: Path, store, host_root, boot_controller, spoil, match
     ):
+        spoil(host_root)
         _blobs, _index = parameter_image(
-            tmp_path / "image",
-            tree=set_tree(tmp_path / "tree", "x\n"),
-            base=Sha256Digest("0" * 64),
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
-        with pytest.raises(
-            ota_errors.ParameterSetNotApplicable, match="does not fit"
-        ) as _e:
+        with pytest.raises(ota_errors.ParameterSetNotApplicable, match=match) as _e:
             make_updater(
                 tmp_path,
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert _e.value.get_failure_reason().startswith("E463: ")
@@ -427,26 +416,47 @@ class TestParameterSetUpdate:
         boot_controller.on_parameter_set_applied.assert_not_called()
         assert "update_failed" in store.history_file.read_text()
 
-    def test_a_base_installed_without_its_manifest_kept_takes_no_set(
-        self, tmp_path: Path, store, boot_controller
+    def test_a_slot_something_else_is_mounted_at_is_refused(
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
+        store._mounter.mounted[PARAMS.path] = Path("/elsewhere")  # type: ignore[attr-defined]
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
         )
         with pytest.raises(
-            ota_errors.ParameterSetNotApplicable, match="full OTA comes first"
+            ota_errors.ParameterSetNotApplicable, match="something else is mounted"
         ):
             make_updater(
                 tmp_path,
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=tmp_path / "no-image-meta",
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
+        assert store._mounter.mounted == {PARAMS.path: Path("/elsewhere")}  # type: ignore[attr-defined]
+
+    def test_a_slot_of_the_applied_set_is_its_own_mount(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """The set before is mounted at the slot: that is otaclient's own."""
+        for _n in range(2):
+            _blobs, _index = parameter_image(
+                tmp_path / f"image{_n}",
+                tree=set_tree(tmp_path / f"tree{_n}", f"a: {_n}\n"),
+            )
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        assert store._runner.ran == [PARAMS.apply, PARAMS.apply]  # type: ignore[attr-defined]
 
     def test_a_failed_apply_is_a_failed_update_that_left_the_slot_as_it_was(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -458,7 +468,7 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert _e.value.get_failure_reason().startswith("E544: ")
@@ -468,7 +478,7 @@ class TestParameterSetUpdate:
         boot_controller.on_parameter_set_applied.assert_not_called()
 
     def test_a_failed_apply_that_cannot_be_undone_is_unrecoverable(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         """The base's defaults do not apply either: what the slot runs is not known."""
         _blobs, _index = parameter_image(
@@ -481,7 +491,7 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert _e.value.get_failure_reason().startswith("E545: ")
@@ -489,7 +499,7 @@ class TestParameterSetUpdate:
         assert "roll_back_failed" in store.history_file.read_text()
 
     def test_a_failure_before_the_switch_changes_nothing(
-        self, tmp_path: Path, store, image_meta, boot_controller, mocker: MockerFixture
+        self, tmp_path: Path, store, host_root, boot_controller, mocker: MockerFixture
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -501,14 +511,14 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None and not store.staging_dir.exists()
         boot_controller.restore_recorded_version.assert_not_called()
 
     def test_a_layer_other_than_its_digest_is_an_invalid_image(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -524,13 +534,13 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None and not store.staging_dir.exists()
 
     def test_a_config_whose_files_are_not_the_layers_is_refused(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _wrong = [
             ParameterSetFileEntry(
@@ -548,13 +558,13 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None
 
     def test_a_config_without_files_is_applied_and_holds_at_the_next_start(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         """`files` is optional: what is checked later is what was unpacked."""
         _blobs, _index = parameter_image(
@@ -565,19 +575,17 @@ class TestParameterSetUpdate:
             blobs=_blobs,
             index=_index,
             store=store,
-            image_meta=image_meta,
+            host_root=host_root,
             boot_controller=boot_controller,
         ).execute()
         _record = store.applied_record()
         assert (
-            store.check_at_startup(
-                load_running_base(image_meta), slot_records=boot_controller
-            )
+            store.check_at_startup("base-image", slot_records=boot_controller)
             == _record
         )
 
     def test_an_index_without_this_ecus_set_is_an_invalid_image(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=None, ecu="perception"
@@ -588,12 +596,12 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
 
     def test_a_release_that_cannot_be_recorded_puts_the_slot_back(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -605,7 +613,7 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None
@@ -620,7 +628,7 @@ class TestParameterSetUpdate:
         )
 
     def test_records_that_cannot_be_put_back_are_unrecoverable(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         _blobs, _index = parameter_image(
             tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
@@ -633,14 +641,14 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
             ).execute()
         assert store.applied_record() is None, "the slots are back all the same"
         assert "records_not_restored" in store.history_file.read_text()
 
     def test_an_abort_before_the_switch_leaves_the_slot_alone(
-        self, tmp_path: Path, store, image_meta, boot_controller
+        self, tmp_path: Path, store, host_root, boot_controller
     ):
         """From the switch on, an abort is refused; one already in progress stops the
         update before it."""
@@ -653,7 +661,7 @@ class TestParameterSetUpdate:
                 blobs=_blobs,
                 index=_index,
                 store=store,
-                image_meta=image_meta,
+                host_root=host_root,
                 boot_controller=boot_controller,
                 abort_handler=FakeAbortHandler(abort_at_final_phase=True),
             ).execute()
