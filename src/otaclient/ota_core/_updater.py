@@ -45,6 +45,7 @@ from otaclient.create_standby._common import ResourcesDigestWithSize
 from otaclient.create_standby.update_slot import UpdateStandbySlot
 from otaclient.create_standby.utils import can_use_in_place_mode
 from otaclient.ota_core import _download_bsp_version_file
+from otaclient.parameter_set import ParameterSetStore
 from otaclient_common import (
     _env,
     human_readable_size,
@@ -326,6 +327,11 @@ class OTAUpdaterBase(OTAUpdateInitializer):
             )
 
         self._preserve_ota_image_meta_at_post_update()
+        # the new slot starts with its base's defaults: a parameter set applied here
+        #   stays behind, and the history of what was applied goes along
+        ParameterSetStore().carry_history_to(
+            self._standby_slot_mp, reason=f"full OTA to {self.update_version}"
+        )
         # NOTE(20250823): secure the resource dir and metadata dir
         os.chmod(self._resource_dir_on_standby, 0o700)
         os.chmod(self._ota_meta_store_on_standby, 0o700)

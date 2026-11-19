@@ -238,15 +238,7 @@ class OTAStatusFilesControl:
         )
 
     def _store_standby_version_detail(self, version_detail: VersionDetail):
-        _data = {
-            "release_name": version_detail.release_name,
-            "release_id": version_detail.release_id,
-            "image_id": version_detail.image_id,
-        }
-        write_str_to_file_atomic(
-            self.standby_ota_status_dir / cfg.OTA_VERSION_DETAIL_FNAME,
-            json.dumps(_data),
-        )
+        _store_version_detail(self.standby_ota_status_dir, version_detail)
 
     # helper methods
 
@@ -271,6 +263,28 @@ class OTAStatusFilesControl:
     # public methods
 
     # boot control used methods
+
+    def store_current_version(
+        self, *, version: str, version_detail: Optional[VersionDetail]
+    ) -> None:
+        """Rewrite the current slot's version records in place: what an update that
+        does not switch slots (a parameter set) changes."""
+        write_str_to_file_atomic(
+            self.current_ota_status_dir / cfg.OTA_VERSION_FNAME, version
+        )
+        if version_detail is None:
+            remove_file(self.current_ota_status_dir / cfg.OTA_VERSION_DETAIL_FNAME)
+        else:
+            _store_version_detail(self.current_ota_status_dir, version_detail)
+
+    def on_parameter_set_applied(
+        self, *, version: str, version_detail: Optional[VersionDetail]
+    ) -> None:
+        """A parameter set is in place on the current slot: its release is the slot's,
+        and the slot's status is SUCCESS, with no failure left over."""
+        self.store_current_version(version=version, version_detail=version_detail)
+        self._store_current_status(OTAStatus.SUCCESS)
+        remove_file(self.current_ota_status_dir / cfg.OTA_FAILURE_INFO_FNAME)
 
     def pre_update_current(self):
         """On pre_update stage, set current slot's status to FAILURE
@@ -439,3 +453,14 @@ class OTAStatusFilesControl:
         switch to use live_ota_status by otaclient after otaclient is running.
         """
         return self._ota_status
+
+
+def _store_version_detail(ota_status_dir: Path, version_detail: VersionDetail) -> None:
+    _data = {
+        "release_name": version_detail.release_name,
+        "release_id": version_detail.release_id,
+        "image_id": version_detail.image_id,
+    }
+    write_str_to_file_atomic(
+        ota_status_dir / cfg.OTA_VERSION_DETAIL_FNAME, json.dumps(_data)
+    )

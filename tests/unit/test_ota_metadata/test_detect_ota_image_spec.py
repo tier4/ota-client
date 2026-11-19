@@ -19,13 +19,18 @@ client. The HTTP layer is mocked, so this stays in the `unit/` tier.
 
 from __future__ import annotations
 
+import json
 from http import HTTPStatus
 
 import pytest
+from ota_image_libs.v1.image_manifest.schema import ImageIdentifier, OTAReleaseKey
 from pytest_mock import MockerFixture
 
 from ota_metadata.utils import detect_ota_image_ver
-from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
+from ota_metadata.utils.detect_ota_image_ver import (
+    check_if_ota_image_v1,
+    has_parameter_set_for,
+)
 from otaclient_common.downloader import DownloaderPool
 
 MODULE = detect_ota_image_ver.__name__
@@ -100,6 +105,154 @@ def test_check_if_ota_image_v1_retries_then_gives_up(
 
     assert (
         check_if_ota_image_v1("https://example.com/ota", downloader_pool=pool) is False
+    )
+    assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES
+    pool.release_instance.assert_called_once()
+
+
+#
+# ------ a parameter set as the ECU's payload ------ #
+#
+
+THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
+
+
+def _index_text(artifact_type: str | None) -> str:
+    _entry = {
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "digest": "sha256:" + "5" * 64,
+        "size": 900,
+        "annotations": {
+            "vnd.tier4.pilot-auto.platform.ecu": "autoware",
+            "vnd.tier4.ota.release-key": "dev",
+        },
+    }
+    if artifact_type:
+        _entry["artifactType"] = artifact_type
+    return json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [_entry],
+            "annotations": {"vnd.tier4.ota.ota-image-builder.version": "t"},
+        }
+    )
+
+
+def _index_response(mocker, status=HTTPStatus.OK, body: bytes = b""):
+    resp = mocker.MagicMock()
+    resp.status_code = status
+    resp.__enter__.return_value = resp
+    resp.raw.read.return_value = body
+    return resp
+
+
+@pytest.mark.parametrize(
+    "artifact_type, ecu, expected",
+    (
+        pytest.param(
+            "application/vnd.tier4.ota.parameter-set.v1", THIS_ECU, True, id="set"
+        ),
+        pytest.param(None, THIS_ECU, False, id="file_based"),
+        pytest.param(
+            "application/vnd.tier4.ota.parameter-set.v1",
+            ImageIdentifier("perception", OTAReleaseKey.dev),
+            False,
+            id="another_ecus_set",
+        ),
+    ),
+)
+def test_has_parameter_set_for(
+    artifact_type, ecu, expected, mock_downloader_pool, mocker: MockerFixture
+):
+    """The payload kind of the ECU's entry picks the updater."""
+    pool, downloader = mock_downloader_pool
+    downloader._session.get.return_value = _index_response(
+        mocker, body=_index_text(artifact_type).encode()
+    )
+
+    assert (
+        has_parameter_set_for("https://example.com/ota", ecu, downloader_pool=pool)
+        is expected
+    )
+    assert (
+        downloader._session.get.call_args.args[0]
+        == "https://example.com/ota/index.json"
+    )
+    pool.release_instance.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "response",
+    (
+        pytest.param({"status": HTTPStatus.NOT_FOUND}, id="404"),
+        pytest.param({"status": HTTPStatus.FORBIDDEN}, id="403"),
+        pytest.param({"body": b"{not an index"}, id="not_an_index"),
+    ),
+)
+def test_has_parameter_set_for_gives_up_at_once_on_what_will_not_pass(
+    response, mock_downloader_pool, mocker: MockerFixture
+):
+    """The updater the image would have gone to anyway reports what is wrong."""
+    pool, downloader = mock_downloader_pool
+    _sleep = mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.return_value = _index_response(mocker, **response)
+
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is False
+    )
+    assert downloader._session.get.call_count == 1
+    _sleep.assert_not_called()
+
+
+def test_has_parameter_set_for_retries_what_may_pass(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.side_effect = [
+        _index_response(mocker, status=HTTPStatus.SERVICE_UNAVAILABLE),
+        ConnectionError("the link dropped"),
+        _index_response(
+            mocker,
+            body=_index_text("application/vnd.tier4.ota.parameter-set.v1").encode(),
+        ),
+    ]
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is True
+    )
+
+
+def test_has_parameter_set_for_does_not_read_more_than_an_index(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    """A body past the bound is not taken, even a valid index of a set."""
+    pool, downloader = mock_downloader_pool
+    _body = _index_text("application/vnd.tier4.ota.parameter-set.v1").encode()
+    mocker.patch(f"{MODULE}.INDEX_MAX_SIZE", len(_body) - 1)
+    _resp = _index_response(mocker, body=_body)
+    downloader._session.get.return_value = _resp
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is False
+    )
+    _resp.raw.read.assert_called_once_with(len(_body), decode_content=True)
+
+
+def test_has_parameter_set_for_cannot_tell_once_the_retries_are_spent(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    """The caller reports a failed download instead of guessing the kind."""
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.return_value = _index_response(
+        mocker, status=HTTPStatus.SERVICE_UNAVAILABLE
+    )
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is None
     )
     assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES
     pool.release_instance.assert_called_once()

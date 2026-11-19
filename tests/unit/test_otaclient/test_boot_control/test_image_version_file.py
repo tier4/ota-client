@@ -98,6 +98,14 @@ def with_image_id(image_id: object) -> dict:
     return {**VERSION_FILE, "image_id": image_id}
 
 
+@pytest.fixture(autouse=True)
+def no_parameter_set_applied(mocker: MockerFixture):
+    """The store is the running slot's /opt: never read here unless a test says so."""
+    _store = mocker.MagicMock()
+    _store.applied_record.return_value = None
+    mocker.patch.object(_image_version_file, "ParameterSetStore", return_value=_store)
+
+
 class TestTheImagesVersionFile:
     def test_the_image_id_is_taken_and_nothing_else(self, tmp_path: Path):
         """The release is named after the build, so the image has none to give; the
@@ -274,3 +282,63 @@ class TestTheRunningSlotsDetail:
         from_image.return_value = None
 
         assert resolve_active_slot_version_detail(status_control) is None
+
+
+class TestTheReleaseOfAParameterSet:
+    """A parameter set changes the slots, not the image: its release names the
+    parameter image's ID, which the running image's version file does not."""
+
+    @pytest.fixture
+    def recorded_parameter_release(self, mocker: MockerFixture):
+        _ctrl = mocker.MagicMock(spec=OTAStatusFilesControl)
+        _ctrl.load_active_slot_version_detail.return_value = VersionDetail(
+            release_name="params", release_id="rid", image_id="parameter-image"
+        )
+        mocker.patch.object(
+            _image_version_file,
+            "load_image_version_detail",
+            return_value=VersionDetail(image_id=IMAGE_ID),
+        )
+        return _ctrl
+
+    def applied(self, mocker: MockerFixture, record) -> None:
+        _store = mocker.MagicMock()
+        _store.applied_record.return_value = record
+        mocker.patch.object(
+            _image_version_file, "ParameterSetStore", return_value=_store
+        )
+
+    def test_the_release_of_the_set_applied_over_this_image_is_kept(
+        self, mocker: MockerFixture, recorded_parameter_release
+    ):
+        self.applied(
+            mocker,
+            mocker.MagicMock(image_id="parameter-image", base_image_id=IMAGE_ID),
+        )
+        assert resolve_active_slot_version_detail(
+            recorded_parameter_release
+        ) == VersionDetail(
+            release_name="params", release_id="rid", image_id="parameter-image"
+        )
+
+    @pytest.mark.parametrize(
+        "record",
+        (
+            pytest.param(None, id="no_set_applied"),
+            pytest.param(
+                {"image_id": "parameter-image", "base_image_id": "another-base"},
+                id="applied_over_another_image",
+            ),
+            pytest.param(
+                {"image_id": "another-parameter-image", "base_image_id": IMAGE_ID},
+                id="another_set",
+            ),
+        ),
+    )
+    def test_otherwise_the_record_of_another_image_loses_its_release(
+        self, mocker: MockerFixture, recorded_parameter_release, record
+    ):
+        self.applied(mocker, mocker.MagicMock(**record) if record else None)
+        assert resolve_active_slot_version_detail(
+            recorded_parameter_release
+        ) == VersionDetail(image_id=IMAGE_ID)

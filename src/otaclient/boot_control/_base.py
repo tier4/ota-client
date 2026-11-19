@@ -75,6 +75,31 @@ class BootControllerBase(ABC):
         image's version file, the release from the slot's record."""
         return resolve_active_slot_version_detail(self._ota_status_control)
 
+    def load_recorded_version(self) -> tuple[str, VersionDetail | None]:
+        """The version and version detail the current slot recorded, as recorded."""
+        return (
+            self._ota_status_control.load_active_slot_version(),
+            self._ota_status_control.load_active_slot_version_detail(),
+        )
+
+    def on_parameter_set_applied(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """A parameter set is in place on the current slot (no slot switch): record
+        its release as the slot's, with the status SUCCESS."""
+        self._ota_status_control.on_parameter_set_applied(
+            version=version, version_detail=version_detail
+        )
+
+    def restore_recorded_version(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """Record `version` and `version_detail` as the current slot's again: the
+        base's, when its parameter set is dropped."""
+        self._ota_status_control.store_current_version(
+            version=version, version_detail=version_detail
+        )
+
     def load_standby_slot_version(self) -> str:
         """Read the version info from the standby slot."""
         return self._ota_status_control.load_standby_slot_version()

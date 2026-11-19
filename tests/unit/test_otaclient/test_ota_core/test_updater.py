@@ -83,6 +83,12 @@ class TestPostUpdateOTAConfigFiles:
         mocker.patch(f"{_updater.__name__}.ecu_info", self.ecu_info)
         _resource_dir = tmp_path / "resource_dir"
         _resource_dir.mkdir()
+        # the running slot's parameter set store is not the host's
+        self.parameter_set_store = mocker.MagicMock()
+        mocker.patch(
+            f"{_updater.__name__}.ParameterSetStore",
+            return_value=self.parameter_set_store,
+        )
         return SimpleNamespace(
             _status_report_queue=Queue(),
             session_id="test_session",
@@ -133,6 +139,10 @@ class TestPostUpdateOTAConfigFiles:
             assert list(self.process_persistents.call_args.args[0]) == persist_entries
         updater._boot_controller.post_update.assert_called_once_with(
             "2.0.0", version_detail=None, ota_config_files=expected
+        )
+        # the new slot gets the history of the parameter sets, not the set
+        self.parameter_set_store.carry_history_to.assert_called_once_with(
+            updater._standby_slot_mp, reason="full OTA to 2.0.0"
         )
 
     def test_post_update_ecu_id_mismatched(self, updater):

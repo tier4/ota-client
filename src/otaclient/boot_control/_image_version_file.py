@@ -39,6 +39,7 @@ from pathlib import Path
 
 from otaclient._types import VersionDetail
 from otaclient.configs.cfg import cfg
+from otaclient.parameter_set import ParameterSetStore
 from otaclient_common import _env, replace_root
 from otaclient_common._typing import StrOrPath
 
@@ -106,6 +107,20 @@ def load_image_version_detail(*, root: StrOrPath | None = None) -> VersionDetail
     return VersionDetail(image_id=_image_id)
 
 
+def _release_of_the_applied_parameter_set(
+    recorded: VersionDetail, running_image_id: str
+) -> bool:
+    """Whether `recorded` is the release of the parameter set applied on this slot,
+    over the running image: a parameter image has its own image ID, and the running
+    image's version file does not change with it."""
+    _applied = ParameterSetStore().applied_record()
+    return (
+        _applied is not None
+        and _applied.image_id == recorded.image_id
+        and _applied.base_image_id == running_image_id
+    )
+
+
 def resolve_active_slot_version_detail(
     ota_status_control: OTAStatusFilesControl,
 ) -> VersionDetail | None:
@@ -116,6 +131,9 @@ def resolve_active_slot_version_detail(
       of another image (the slot was written by someone else since, or is not the one
       otaclient installed into) would pin the release to an image that does not run.
     - It has none, or one that is not read (see the module): otaclient's record.
+    - The record is the release of a parameter set applied over the running image:
+      the record, with the parameter image's ID the release named. The set changes
+      the slots, not the image, so the version file still names the base.
 
     The version (`firmware_version`) is not resolved here and stays the recorded one,
     as the file carries none. A record of another image therefore still shows its
@@ -133,6 +151,12 @@ def resolve_active_slot_version_detail(
         )
         return _from_image
     if _recorded.image_id == _from_image.image_id:
+        return _recorded
+    if _release_of_the_applied_parameter_set(_recorded, _from_image.image_id):
+        logger.info(
+            f"release {_recorded.release_name} is a parameter set (image "
+            f"{_recorded.image_id}) over the running image {_from_image.image_id}"
+        )
         return _recorded
 
     logger.warning(

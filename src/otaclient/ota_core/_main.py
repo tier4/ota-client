@@ -36,7 +36,10 @@ from ota_metadata.utils.cert_store import (
     load_ca_cert_chains,
     load_ca_store,
 )
-from ota_metadata.utils.detect_ota_image_ver import check_if_ota_image_v1
+from ota_metadata.utils.detect_ota_image_ver import (
+    check_if_ota_image_v1,
+    has_parameter_set_for,
+)
 from otaclient import errors as ota_errors
 from otaclient._status_monitor import (
     OTAClientStatusCollector,
@@ -61,19 +64,26 @@ from otaclient._utils import (
     SharedOTAClientMetricsReader,
     SharedOTAClientStatusWriter,
     get_traceback,
+    wait_and_log,
 )
 from otaclient.boot_control import get_boot_controller
-from otaclient.boot_control.protocol import PartitionLayoutBootControllerProtocol
+from otaclient.boot_control._image_version_file import load_image_version_detail
+from otaclient.boot_control.protocol import (
+    ParameterSetBootControllerProtocol,
+    PartitionLayoutBootControllerProtocol,
+)
 from otaclient.configs._cfg_consts import StorageDeviceType
 from otaclient.configs.cfg import cfg, ecu_info, proxy_info
 from otaclient.metrics import OTAImageFormat, OTAMetricsData
 from otaclient.ota_core._common import create_downloader_pool
+from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
 from otaclient.ota_core._partition_image import OTAUpdaterForPartitionImage
 from otaclient.ota_core._updater import (
     OTAUpdaterForLegacyOTAImage,
     OTAUpdaterForOTAImageV1,
 )
 from otaclient.ota_core._updater_base import OTAUpdateInterfaceArgs
+from otaclient.parameter_set import ParameterSetStore
 from otaclient_common import _env
 from otaclient_common._shm import RWBusy
 from otaclient_common.cmdhelper import (
@@ -233,17 +243,11 @@ class OTAClient:
                 "previous OTA was aborted, report ABORTED for "
                 f"{ABORTED_STATUS_REPORT_DURATION}s before reporting INITIALIZED"
             )
-        self.current_version = self.boot_controller.load_version()
-        self.current_version_detail = self.boot_controller.load_version_detail()
-
-        status_report_queue.put_nowait(
-            StatusReport(
-                payload=SetOTAClientMetaReport(
-                    firmware_version=self.current_version,
-                    version_detail=self.current_version_detail,
-                ),
-            )
-        )
+        # a parameter set was mounted at boot by its fstab entries: it is checked
+        #   here, and dropped (the slot reports its base again) if it does not hold
+        if isinstance(self.boot_controller, ParameterSetBootControllerProtocol):
+            _check_parameter_set_at_startup(self.boot_controller)
+        self._reload_and_report_current_version()
         # NOTE: restore the failure info of the previous failed OTA, as otaclient
         #       might be restarted or the ECU might be rebooted after the OTA failure.
         _failure_type, _failure_reason = FailureType.NO_FAILURE, ""
@@ -380,6 +384,39 @@ class OTAClient:
         """Submit a status report to the status report queue."""
         self._status_report_queue.put_nowait(report)
 
+    def _reload_and_report_current_version(self) -> None:
+        """Load the current slot's version and version detail, and report them."""
+        self.current_version = self.boot_controller.load_version()
+        self.current_version_detail = self.boot_controller.load_version_detail()
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=SetOTAClientMetaReport(
+                    firmware_version=self.current_version,
+                    version_detail=self.current_version_detail,
+                ),
+            )
+        )
+
+    def _on_parameter_set_applied(
+        self, request: UpdateRequestV2, *, session_id: str
+    ) -> None:
+        """A parameter set is in place: the update ends here at SUCCESS (and the ECU
+        reboots after this when a changed slot's apply is `reboot`), and the slot now
+        reports the set's release."""
+        self._reload_and_report_current_version()
+        self._metrics.current_firmware_version = self.current_version
+        self._live_ota_status = OTAStatus.SUCCESS
+        self._status_report_queue.put_nowait(
+            StatusReport(
+                payload=OTAStatusChangeReport(new_ota_status=OTAStatus.SUCCESS),
+                session_id=session_id,
+            )
+        )
+        logger.info(
+            f"parameter set of release {request.release_name or request.version} "
+            "is in place"
+        )
+
     def update(self, request: UpdateRequestV2) -> None:
         """
         NOTE that update API will not raise any exceptions. The failure information
@@ -413,6 +450,7 @@ class OTAClient:
         self._metrics.request_id = request_id
         self._metrics.session_id = new_session_id
         url_base = request.url_base
+        _set_in_place = False
 
         try:
             if self.proxy:
@@ -457,7 +495,39 @@ class OTAClient:
                 )
                 logger.info(f"selecting image payload {image_id} from OTA image")
 
-                if isinstance(
+                _kind = has_parameter_set_for(
+                    url_base, image_id, downloader_pool=download_pool
+                )
+                if _kind is None:
+                    raise ota_errors.OTAMetaDownloadFailed(
+                        "the image index could not be read to tell the payload's kind",
+                        module=__name__,
+                    )
+                if _kind:
+                    # a parameter image: the payload is laid over the running base,
+                    #   the standby slot is not touched and, unless a changed slot's
+                    #   apply is `reboot`, nothing reboots
+                    if not isinstance(
+                        self.boot_controller, ParameterSetBootControllerProtocol
+                    ):
+                        raise ota_errors.ParameterSetNotApplicable(
+                            "the payload is a parameter set, which this layout does "
+                            "not take",
+                            module=__name__,
+                        )
+                    _updater = OTAUpdaterForParameterSet(
+                        ca_store=self.ca_store,
+                        abort_handler=self._abort_handler,
+                        boot_controller=self.boot_controller,
+                        image_identifier=image_id,
+                        **_common_args,
+                    )
+                    _reboot = _updater.execute()
+                    self._on_parameter_set_applied(request, session_id=new_session_id)
+                    _set_in_place = True
+                    if _reboot:
+                        _updater.reboot_for_apply()
+                elif isinstance(
                     self.boot_controller, PartitionLayoutBootControllerProtocol
                 ):
                     # The slots of this layout are read-only dm-verity images, written
@@ -572,7 +642,26 @@ class OTAClient:
                 logger.warning(f"failed to merge metrics: {e!r}")
             self._metrics.publish()
 
-            self._exit_from_dynamic_client()
+            if _set_in_place and not _env.is_running_as_downloaded_dynamic_app():
+                # a set in place ends the update at SUCCESS without a reboot: the app
+                #   image goes on serving the status API and its otaproxy, which the
+                #   sub ECUs may be downloading through
+                logger.info("parameter set in place: otaclient keeps running")
+            else:
+                if _set_in_place:
+                    # the downloaded client steps back for the installed one: not
+                    #   before the sub ECUs, which may use this ECU's otaproxy
+                    self._wait_for_sub_ecus()
+                self._exit_from_dynamic_client()
+
+    def _wait_for_sub_ecus(self) -> None:
+        if proxy_info.enable_local_ota_proxy:
+            wait_and_log(
+                check_flag=self.ecu_status_flags.any_child_ecu_in_update.is_set,
+                check_for=False,
+                message="permit exit flag",
+                log_func=logger.info,
+            )
 
     def client_update(self, request: ClientUpdateRequestV2) -> None:
         """
@@ -802,3 +891,24 @@ def ota_core_process(
         req_queue=op_queue,
         resp_queue=resp_queue,
     )
+
+
+def _check_parameter_set_at_startup(
+    boot_controller: ParameterSetBootControllerProtocol,
+) -> None:
+    """Check the applied parameter set, if any; a dropped one gives the slot its
+    base's version records back. Never raises: otaclient starts either way."""
+    try:
+        _store = ParameterSetStore()
+        if not any(
+            _d.exists()
+            for _d in (_store.applied_dir, _store.previous_dir, _store.discard_dir)
+        ):
+            return
+        _running = load_image_version_detail()
+        _store.check_at_startup(
+            _running.image_id if _running else "",
+            slot_records=boot_controller,
+        )
+    except Exception as e:
+        logger.warning(f"failed to check the parameter set: {e!r}")
