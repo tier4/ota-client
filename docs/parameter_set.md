@@ -24,6 +24,8 @@ Under `/opt/ota/parameter-set/` (`0700`, root only), in the running slot:
 The mounts are also written into a managed block of `/etc/fstab` (`bind,ro,nosuid,nodev,nofail,x-systemd.before=local-fs.target`), so that a reboot lays the set again before anything reads the slots; a slot that cannot be mounted does not stop the boot, and otaclient mounts it again when it starts.
 A full OTA writes a new slot from its image: the set is not carried over, only the history is.
 
+A slot is never over what otaclient uses for itself: besides what every consumer reads (`/boot`, `/etc/fstab`, `/opt/ota`, `/usr/share/ota`), `/proc`, `/sys`, `/dev`, `/run`, `/host_root`, `/ota-cache` and otaclient's stores at `/.ota-*`; such a set is refused with `E463`.
+
 A slot's `apply` runs as root, in the host's root. An `apply` that users other than root can change (the file, or a directory on its way, writable by them) is logged and recorded as `apply_not_root_only`, but not refused.
 
 ## The Record

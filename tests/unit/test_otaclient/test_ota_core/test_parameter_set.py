@@ -85,7 +85,7 @@ def parameter_image(
     root: Path,
     *,
     tree: Path | None,
-    files: list | None = None,
+    files: list | None | str = "the layer's",
     ecu: str = "autoware",
 ) -> tuple[Path, ImageIndex]:
     """The blobs of a parameter image with one set for THIS_ECU, and its index."""
@@ -106,7 +106,7 @@ def parameter_image(
             version="2026.10.29-1",
             slots=_slots,
             diff_ids=[_info.diff_id],
-            files=_info.files if files is None else files,
+            files=_info.files if files == "the layer's" else files,
         )
     _manifest = ParameterSetManifest(
         config=ParameterSetConfig.Descriptor.export_metafile_to_resource_dir(
@@ -495,6 +495,36 @@ class TestParameterSetUpdate:
             ).execute()
         boot_controller.store_failure_info.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "path", ("/run/otaclient/x", "/ota-cache", "/proc/x", "/.ota-resources/x")
+    )
+    def test_a_slot_over_what_otaclient_uses_for_itself_is_refused(
+        self, tmp_path: Path, store, host_root, boot_controller, path: str
+    ):
+        _updater = make_updater(
+            tmp_path,
+            blobs=tmp_path,
+            index=ImageIndex(
+                manifests=[],
+                annotations=ImageIndex.Annotations.model_validate(
+                    {BUILD_TOOL_VERSION: "t"}
+                ),
+            ),
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        )
+        _updater.config = ParameterSetConfig(
+            name="p",
+            version="1",
+            slots=[ParameterSlot(name="s", path=path, apply="reboot")],
+            diff_ids=[Sha256Digest("1" * 64)],
+        )
+        with pytest.raises(
+            ota_errors.ParameterSetNotApplicable, match="reads for itself"
+        ):
+            _updater._check_fits_the_running_base()
+
     def test_an_apply_others_can_change_is_recorded_not_refused(
         self, tmp_path: Path, store, host_root, boot_controller
     ):
@@ -650,7 +680,7 @@ class TestParameterSetUpdate:
     ):
         """`files` is optional: what is checked later is what was unpacked."""
         _blobs, _index = parameter_image(
-            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n"), files=[]
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n"), files=None
         )
         make_updater(
             tmp_path,

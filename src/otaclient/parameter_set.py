@@ -352,7 +352,7 @@ def _fstab_unescape(field: str) -> str:
     return field.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
 
 
-def file_key(entry: ParameterSetFileEntry) -> tuple[str, int, str]:
+def _file_key(entry: ParameterSetFileEntry) -> tuple[str, int, str]:
     """What tells two files of a set apart: path, size and digest."""
     return (entry.path, entry.size, str(entry.digest))
 
@@ -361,7 +361,7 @@ def _slot_files(
     files: Iterable[ParameterSetFileEntry], slot: RecordedSlot
 ) -> frozenset[tuple[str, int, str]]:
     return frozenset(
-        file_key(_f) for _f in files if _f.path.startswith(slot.relpath + "/")
+        _file_key(_f) for _f in files if _f.path.startswith(slot.relpath + "/")
     )
 
 

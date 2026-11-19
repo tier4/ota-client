@@ -66,7 +66,6 @@ from otaclient.parameter_set import (
     ParameterSetFailed,
     ParameterSetStore,
     RecordedSlot,
-    file_key,
 )
 from otaclient_common import _env, cmdhelper
 from otaclient_common.download_info import DownloadInfo
@@ -74,6 +73,25 @@ from otaclient_common.download_info import DownloadInfo
 logger = logging.getLogger(__name__)
 
 LAYER_FNAME = "layer.tar.zst"
+
+
+def reserved_paths() -> tuple[str, ...]:
+    """What otaclient reads or writes for itself, besides what every consumer does
+    (the image library's RESERVED_PATHS: /boot, /etc/fstab, /opt/ota,
+    /usr/share/ota): never a slot's, nor inside one."""
+    return (
+        "/proc",
+        "/sys",
+        "/dev",
+        "/run",
+        cfg.DYNAMIC_CLIENT_MNT_HOST_ROOT,
+        cfg.DYNAMIC_CLIENT_SQUASHFS_FILE,
+        cfg.OTAPROXY_CACHE_DIR,
+        cfg.OTA_TMP_STORE,
+        cfg.OTA_RESOURCES_STORE,
+        cfg.OTA_META_STORE,
+        cfg.OTA_DOWNLOAD_DIR,
+    )
 
 
 class OTAUpdaterForParameterSet(OTAUpdateInitializer):
@@ -188,7 +206,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         """
         assert self.config is not None
         try:
-            check_slots_in_tree(self._host_root, self.config.slots)
+            check_slots_in_tree(
+                self._host_root, self.config.slots, reserved=reserved_paths()
+            )
         except ValueError as e:
             raise ota_errors.ParameterSetNotApplicable(
                 f"the running image has no room for the parameter set: {e}",
@@ -270,13 +290,13 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             raise ota_errors.OTAImageInvalid(
                 f"the parameter set's layer is invalid: {e}", module=__name__
             ) from e
-        if self.config.files and sorted(map(file_key, self.config.files)) != sorted(
-            map(file_key, _info.files)
-        ):
+        try:
+            self.config.check_files(_info.files)
+        except ValueError as e:
             raise ota_errors.OTAImageInvalid(
-                "the parameter set's config lists other files than its layer holds",
+                f"the parameter set's config does not agree with its layer: {e}",
                 module=__name__,
-            )
+            ) from e
         return _info
 
     def _record(self) -> AppliedRecord:
