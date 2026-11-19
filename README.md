@@ -10,6 +10,7 @@ It is designed to work with web.auto FMS OTA component.
 ## Features
 
 - A/B partition update with support for generic x86_64 device, NVIDIA Jetson series based devices and Raspberry Pi
+- Parameter sets: a few directories of the running rootfs replaced without writing the standby slot or rebooting (file-based layouts, see [docs/parameter_set.md](docs/parameter_set.md))
 - A/B update of the partition contract layouts (`bootloader: grub-verity` on x86_64, `jetson-dpi` on NVIDIA Jetson, `driveos-dpi` on NVIDIA DRIVE), where the platform's DPI writes the slots as partition images (on DriveOS, hands NVIDIA DRIVE Update the package that does) and otaclient drives it
 - Full Rootfs update, with delta update support.
 - Local delta calculation, allowing update to any version of OTA image without the need of a pre-generated delta OTA

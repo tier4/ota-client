@@ -58,16 +58,18 @@ def check_if_ota_image_v1(base_url: str, *, downloader_pool: DownloaderPool) -> 
 
 def has_parameter_set_for(
     base_url: str, image_id: ImageIdentifier, *, downloader_pool: DownloaderPool
-) -> bool:
+) -> bool | None:
     """Whether the OTA image v1 at <base_url> carries a parameter set as the payload
-    of <image_id>, from its `index.json`.
+    of <image_id>, from its `index.json`; None when that could not be told.
 
     NOTE: the index is not verified here: this only picks the updater, and the
         parameter set updater verifies it, as every v1 updater does, before it
-        believes anything in it. Any failure here is a False, leaving the image to
-        the updater it would have gone to anyway, which reports it. Only a failure
-        that may pass (the link, a 5xx) is retried; an index larger than
-        INDEX_MAX_SIZE is not read.
+        believes anything in it. An answer from the server that is not an index this
+        client reads (a 4xx, a body that does not parse, an index larger than
+        INDEX_MAX_SIZE) is a False, leaving the image to the updater it would have
+        gone to anyway, which reports it. A failure that may pass (the link, a 5xx)
+        is retried, and once the retries are spent the answer is None: the caller
+        reports a failed download rather than guessing the payload's kind.
     """
     _downloader = downloader_pool.get_instance()
     try:
@@ -104,12 +106,11 @@ def has_parameter_set_for(
                 _last = repr(e)
             time.sleep(RETRY_INTERVAL)
         logger.warning(
-            f"could not read {_index_url} to tell its payload kind ({_last}): "
-            "taking it for a base payload"
+            f"could not read {_index_url} to tell its payload kind ({_last})"
         )
-        return False
+        return None
     except Exception as e:
         logger.warning(f"unexpected failure when reading the payload kind: {e}")
-        return False
+        return None
     finally:
         downloader_pool.release_instance()

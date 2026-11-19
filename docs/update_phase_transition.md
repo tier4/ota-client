@@ -8,5 +8,5 @@ stateDiagram-v2
     DOWNLOADING_OTA_FILES --> APPLYING_UPDATE : update applying is started
     APPLYING_UPDATE --> PROCESSING_POSTUPDATE : post update processing is started
     PROCESSING_POSTUPDATE --> FINALIZING_UPDATE : finalizing update is started
-    PROCESSING_POSTUPDATE --> [*] : parameter set: SUCCESS in the same session, no reboot
+    PROCESSING_POSTUPDATE --> [*] : parameter set: SUCCESS in the same session, no reboot (or a reboot of the same slot after SUCCESS, when a changed slot's apply is reboot)
     PROCESSING_METADATA --> DOWNLOADING_OTA_CLIENT : client downloading is started

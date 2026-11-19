@@ -17,7 +17,9 @@ reboot (unless a slot's `apply` asks for one). See `otaclient.parameter_set`."""
 from __future__ import annotations
 
 import logging
+import os
 import shutil
+import stat
 import threading
 import time
 from collections.abc import Generator
@@ -35,15 +37,15 @@ from ota_image_libs.v1.parameter_set.schema import (
     ParameterSetConfig,
     ParameterSetManifest,
 )
-from ota_image_libs.v1.parameter_set.slots import check_slots_in_tree
+from ota_image_libs.v1.parameter_set.slots import APPLY_REBOOT, check_slots_in_tree
 from typing_extensions import Unpack
 
 from ota_metadata.errors import ImageMetadataInvalid
 from ota_metadata.utils.cert_store import CAStoreMap
 from otaclient import errors as ota_errors
 from otaclient._types import UpdatePhase, VersionDetail
-from otaclient.boot_control._base import BootControllerBase
 from otaclient.boot_control._image_version_file import load_image_version_detail
+from otaclient.boot_control.protocol import ParameterSetBootControllerProtocol
 from otaclient.configs.cfg import cfg
 from otaclient.ota_core._abort_handler import AbortHandler
 from otaclient.ota_core._common import download_exception_handler
@@ -63,6 +65,8 @@ from otaclient.parameter_set import (
     AppliedRecord,
     ParameterSetFailed,
     ParameterSetStore,
+    RecordedSlot,
+    file_key,
 )
 from otaclient_common import _env, cmdhelper
 from otaclient_common.download_info import DownloadInfo
@@ -92,7 +96,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         self,
         *,
         ca_store: CAStoreMap,
-        boot_controller: BootControllerBase,
+        boot_controller: ParameterSetBootControllerProtocol,
         abort_handler: AbortHandler,
         image_identifier: ImageIdentifier,
         store: ParameterSetStore | None = None,
@@ -115,7 +119,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
         self.config: ParameterSetConfig | None = None
         self._set_digest: Sha256Digest | None = None
 
-    def _download(self, batches: Generator[list[DownloadInfo]], cond) -> None:
+    def _download(
+        self, batches: Generator[list[DownloadInfo]], cond: threading.Condition
+    ) -> None:
         for _fut in self._download_helper.download_meta_files(batches, condition=cond):
             download_exception_handler(_fut)
 
@@ -174,7 +180,12 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
     def _check_fits_the_running_base(self) -> None:
         """The running image has each slot's directory and each `apply`, and nothing
         but otaclient's own set is mounted on a slot: a set the image has no room
-        for is refused before anything changes."""
+        for is refused before anything changes.
+
+        What the applied set covers is not the base's: a slot or an `apply` of the new
+        set inside a slot of the applied one (and not that slot itself) would be
+        checked against the set before, and is refused too.
+        """
         assert self.config is not None
         try:
             check_slots_in_tree(self._host_root, self.config.slots)
@@ -184,12 +195,57 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 module=__name__,
             ) from e
         _applied = self._store.applied_record()
-        _ours = {_s.path for _s in _applied.slots} if _applied else set()
+        _covered = [_s.path for _s in _applied.slots] if _applied else []
         for _slot in self.config.slots:
-            if _slot.path not in _ours and self._store.is_mounted(_slot.path):
+            for _path, _what in ((_slot.path, "path"), (_slot.apply, "apply")):
+                _over = next(
+                    (_c for _c in _covered if _path.startswith(_c + "/")), None
+                )
+                if _over is not None:
+                    raise ota_errors.ParameterSetNotApplicable(
+                        f"slot {_slot.name!r}: its {_what} {_path} is inside {_over}, "
+                        "a slot of the applied set, which hides the base's own there",
+                        module=__name__,
+                    )
+            if _slot.path not in _covered and self._store.is_mounted(_slot.path):
                 raise ota_errors.ParameterSetNotApplicable(
                     f"slot {_slot.name!r}: something else is mounted at {_slot.path}",
                     module=__name__,
+                )
+        self._note_applies_others_can_change()
+
+    def _note_applies_others_can_change(self) -> None:
+        """An `apply` runs as root: one that users other than root can change (the
+        file or a directory on its way, writable by them) is logged and recorded.
+        Not refused: images in use have such directories (e.g. /opt/autoware owned by
+        the autoware user)."""
+        assert self.config is not None
+        _root = os.path.realpath(self._host_root)
+        for _apply in dict.fromkeys(_s.apply for _s in self.config.slots):
+            if _apply == APPLY_REBOOT:
+                continue
+            _writable: list[str] = []
+            _path = _apply
+            while True:
+                try:
+                    _st = os.lstat(os.path.join(_root, _path.lstrip("/")))
+                except OSError:
+                    break
+                if _st.st_uid != 0 or _st.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+                    _writable.append(_path)
+                if _path == "/":
+                    break
+                _path = os.path.dirname(_path)
+            if _writable:
+                logger.warning(
+                    f"apply {_apply} runs as root, but users other than root can "
+                    f"change it through {_writable}"
+                )
+                self._store.record_event(
+                    "apply_not_root_only",
+                    apply=_apply,
+                    writable=_writable,
+                    session_id=self.session_id,
                 )
 
     def _unpack(self, staging: Path, layer_f: Path) -> ParameterLayerInfo:
@@ -214,9 +270,9 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             raise ota_errors.OTAImageInvalid(
                 f"the parameter set's layer is invalid: {e}", module=__name__
             ) from e
-        if self.config.files and sorted(
-            (_f.path, _f.size, str(_f.digest)) for _f in self.config.files
-        ) != sorted((_f.path, _f.size, str(_f.digest)) for _f in _info.files):
+        if self.config.files and sorted(map(file_key, self.config.files)) != sorted(
+            map(file_key, _info.files)
+        ):
             raise ota_errors.OTAImageInvalid(
                 "the parameter set's config lists other files than its layer holds",
                 module=__name__,
@@ -240,7 +296,7 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             set_manifest_digest=str(self._set_digest),
             set_name=self.config.name,
             set_version=self.config.version,
-            slots=self.config.slots,
+            slots=[RecordedSlot.of(_s) for _s in self.config.slots],
             base_image_id=_from_image.image_id if _from_image else "",
             firmware_version=self.update_version,
             release_name=self.release_name,
@@ -250,6 +306,15 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
             base_version_detail=_base_detail,
             applied_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             session_id=self.session_id,
+        )
+
+    def _mark_in_progress(self) -> None:
+        _err = ota_errors.ParameterSetApplyFailed(
+            "the parameter set update did not finish: otaclient stopped during it",
+            module=__name__,
+        )
+        self._boot_controller.store_failure_info(
+            failure_type=_err.failure_type, failure_reason=_err.get_failure_reason()
         )
 
     @staticmethod
@@ -297,6 +362,10 @@ class OTAUpdaterForParameterSet(OTAUpdateInitializer):
                 f"parameter set {self.config.name} {self.config.version}: slots "
                 f"{[_s.name for _s in self.config.slots]}"
             )
+            # until the set is in place and recorded, the slot reports a failure: an
+            #   update cut short (otaclient stopped, power lost) is not taken for the
+            #   success of the release before
+            self._mark_in_progress()
 
             # ------ downloading ------ #
             _now = self._report_phase(UpdatePhase.DOWNLOADING_OTA_FILES)

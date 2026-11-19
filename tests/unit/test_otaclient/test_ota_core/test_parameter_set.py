@@ -16,9 +16,12 @@
 from __future__ import annotations
 
 import io
+import json
+import os
 import shutil
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from queue import Queue
@@ -58,7 +61,12 @@ from otaclient.boot_control._base import BootControllerBase
 from otaclient.metrics import OTAMetricsData
 from otaclient.ota_core import _parameter_set
 from otaclient.ota_core._parameter_set import OTAUpdaterForParameterSet
-from otaclient.parameter_set import TREE_DNAME, ParameterSetStore
+from otaclient.parameter_set import (
+    TREE_DNAME,
+    AppliedRecord,
+    ParameterSetStore,
+    RecordedSlot,
+)
 
 PARAMS = ParameterSlot(
     name="individual_params",
@@ -335,6 +343,29 @@ class TestParameterSetUpdate:
         assert not (tmp_path / "session").exists()
         assert not store.staging_dir.exists()
 
+        # until the set is in place, the slot reports the update as failed
+        _calls = [_c[0] for _c in boot_controller.mock_calls]
+        assert _calls.index("store_failure_info") < _calls.index(
+            "on_parameter_set_applied"
+        )
+        _marker = boot_controller.store_failure_info.call_args.kwargs
+        assert _marker["failure_reason"].startswith("E544: ")
+        assert "did not finish" in _marker["failure_reason"]
+
+        # what others read of the record, as docs/parameter_set.md says
+        _raw = json.loads((store.applied_dir / "record.json").read_text())
+        assert {
+            _k: _raw[_k]
+            for _k in ("schema_version", "image_id", "set_name", "set_version")
+        } == {
+            "schema_version": 1,
+            "image_id": "parameter-image",
+            "set_name": "p",
+            "set_version": "2026.10.29-1",
+        }
+        assert _raw["base_image_id"] == "base-image"
+        assert datetime.fromisoformat(_raw["applied_at"]).utcoffset() == timedelta(0)
+
     def test_a_second_set_keeps_the_base_records_of_the_first(
         self, tmp_path: Path, store, host_root, boot_controller
     ):
@@ -435,6 +466,57 @@ class TestParameterSetUpdate:
                 boot_controller=boot_controller,
             ).execute()
         assert store._mounter.mounted == {PARAMS.path: Path("/elsewhere")}  # type: ignore[attr-defined]
+
+    def test_a_slot_inside_a_slot_of_the_applied_set_is_refused(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        """The applied set hides the base there: what the base has cannot be told."""
+        _outer = os.path.dirname(PARAMS.path)
+        store.applied_dir.mkdir(parents=True)
+        (store.applied_dir / "record.json").write_text(
+            AppliedRecord(
+                set_manifest_digest="sha256:" + "0" * 64,
+                set_name="before",
+                set_version="1",
+                slots=[RecordedSlot(name="outer", path=_outer, apply="reboot")],
+            ).model_dump_json()
+        )
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        with pytest.raises(ota_errors.ParameterSetNotApplicable, match="inside"):
+            make_updater(
+                tmp_path,
+                blobs=_blobs,
+                index=_index,
+                store=store,
+                host_root=host_root,
+                boot_controller=boot_controller,
+            ).execute()
+        boot_controller.store_failure_info.assert_not_called()
+
+    def test_an_apply_others_can_change_is_recorded_not_refused(
+        self, tmp_path: Path, store, host_root, boot_controller
+    ):
+        (host_root / PARAMS.apply[1:]).chmod(0o775)
+        _blobs, _index = parameter_image(
+            tmp_path / "image", tree=set_tree(tmp_path / "tree", "x\n")
+        )
+        make_updater(
+            tmp_path,
+            blobs=_blobs,
+            index=_index,
+            store=store,
+            host_root=host_root,
+            boot_controller=boot_controller,
+        ).execute()
+        _notes = [
+            json.loads(_l)
+            for _l in store.history_file.read_text().splitlines()
+            if '"apply_not_root_only"' in _l
+        ]
+        assert _notes and PARAMS.apply in _notes[0]["writable"]
+        assert store.applied_record() is not None
 
     def test_a_slot_of_the_applied_set_is_its_own_mount(
         self, tmp_path: Path, store, host_root, boot_controller
@@ -579,6 +661,8 @@ class TestParameterSetUpdate:
             boot_controller=boot_controller,
         ).execute()
         _record = store.applied_record()
+        assert _record is not None
+        assert store.check_tree(_record) is None, "the files unpacked are listed"
         assert (
             store.check_at_startup("base-image", slot_records=boot_controller)
             == _record

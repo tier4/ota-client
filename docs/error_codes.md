@@ -27,7 +27,8 @@ When an OTA update fails, otaclient sets the current slot's `status` to `FAILURE
 and `failure_reason` to `failure_info` in the same OTA status folder.
 After otaclient restarts or the ECU reboots, the saved failure is reported again together with the `FAILURE` status.
 
-- `failure_info` is cleared when the next OTA reaches pre-update(current slot) and post-update(standby slot).
+- `failure_info` is cleared when the next OTA reaches pre-update(current slot) and post-update(standby slot), and when a parameter set is put in place on the current slot(with its `SUCCESS`).
+  A parameter set update records `E544` as the failure from the start of its download until the set is in place, so that an update cut short(otaclient stopped, power lost) is reported as failed.
 - `failure_info` records the inode and mtime of the `status` file written together with it.
   If `status` has been re-written afterwards, for example by an older otaclient which doesn't know `failure_info`,
   the saved failure is regarded as stale and ignored.
@@ -62,7 +63,7 @@ After otaclient restarts or the ECU reboots, the saved failure is reported again
 | E460 | `E_METADATAJWT_CERT_VERIFICATION_FAILED` | unrecoverable | Certificate verification for the OTA image metadata failed. |
 | E461 | `E_METADATAJWT_INVALID` | unrecoverable | metadata.jwt is verified but its content is invalid. |
 | E462 | `E_BOOTCONTROL_BSP_VERSION_COMPATIBILITY_FAILED` | recoverable | OTA image's BSP version doesn't match the ECU's firmware BSP version. |
-| E463 | `E_PARAMETER_SET_NOT_APPLICABLE` | recoverable | The parameter set does not fit the image this ECU runs: a slot directory or `apply` it names is missing there, something else is mounted at a slot, or the ECU's layout takes no parameter set. Nothing is changed. |
+| E463 | `E_PARAMETER_SET_NOT_APPLICABLE` | recoverable | The parameter set does not fit the image this ECU runs: a slot directory or `apply` it names is missing there(or is not an executable file, or is behind a symbolic link), it lies inside a slot of the applied set, something else is mounted at a slot, or the ECU's layout takes no parameter set. Nothing is changed. |
 | E470 | `E_CLIENT_UPDATE_SAME_VERSIONS` | recoverable | Client update skipped as the versions are the same. |
 | E499 | `E_OTA_ABORTED` | recoverable | OTA aborted by the abort request. |
 

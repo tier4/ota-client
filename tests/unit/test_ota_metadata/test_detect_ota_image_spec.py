@@ -228,10 +228,31 @@ def test_has_parameter_set_for_retries_what_may_pass(
 def test_has_parameter_set_for_does_not_read_more_than_an_index(
     mock_downloader_pool, mocker: MockerFixture
 ):
+    """A body past the bound is not taken, even a valid index of a set."""
     pool, downloader = mock_downloader_pool
-    mocker.patch(f"{MODULE}.INDEX_MAX_SIZE", 8)
-    downloader._session.get.return_value = _index_response(mocker, body=b"x" * 9)
+    _body = _index_text("application/vnd.tier4.ota.parameter-set.v1").encode()
+    mocker.patch(f"{MODULE}.INDEX_MAX_SIZE", len(_body) - 1)
+    _resp = _index_response(mocker, body=_body)
+    downloader._session.get.return_value = _resp
     assert (
         has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
         is False
     )
+    _resp.raw.read.assert_called_once_with(len(_body), decode_content=True)
+
+
+def test_has_parameter_set_for_cannot_tell_once_the_retries_are_spent(
+    mock_downloader_pool, mocker: MockerFixture
+):
+    """The caller reports a failed download instead of guessing the kind."""
+    pool, downloader = mock_downloader_pool
+    mocker.patch(f"{MODULE}.time.sleep")
+    downloader._session.get.return_value = _index_response(
+        mocker, status=HTTPStatus.SERVICE_UNAVAILABLE
+    )
+    assert (
+        has_parameter_set_for("https://example.com/ota", THIS_ECU, downloader_pool=pool)
+        is None
+    )
+    assert downloader._session.get.call_count == detect_ota_image_ver.RETRY_TIMES
+    pool.release_instance.assert_called_once()

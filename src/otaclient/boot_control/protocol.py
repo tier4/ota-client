@@ -204,3 +204,35 @@ class PartitionLayoutBootControllerProtocol(Protocol):
             subdirectory of its own (0700), stages every update under it, and removes
             anything else under that subdirectory at the start of an update.
         """
+
+
+@runtime_checkable
+class ParameterSetBootControllerProtocol(Protocol):
+    """What a boot controller provides, beside BootControllerProtocol, for a layout
+        that takes a parameter set: the current slot's version records, rewritten in
+        place, as a set is laid over the running slot without a slot switch.
+
+    A layout whose boot controller does not provide it refuses a parameter set.
+    """
+
+    @abstractmethod
+    def load_recorded_version(self) -> tuple[str, VersionDetail | None]:
+        """The version and version detail the current slot recorded, as recorded."""
+
+    @abstractmethod
+    def restore_recorded_version(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """Record `version` and `version_detail` as the current slot's again."""
+
+    @abstractmethod
+    def on_parameter_set_applied(
+        self, *, version: str, version_detail: VersionDetail | None
+    ) -> None:
+        """A parameter set is in place: its release is the current slot's, SUCCESS."""
+
+    @abstractmethod
+    def store_failure_info(
+        self, *, failure_type: FailureType, failure_reason: str
+    ) -> None:
+        """Persist a failure (and the status FAILURE) to the current slot."""
