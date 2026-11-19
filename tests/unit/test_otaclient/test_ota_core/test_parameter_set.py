@@ -70,8 +70,8 @@ from otaclient.parameter_set import (
 
 PARAMS = ParameterSlot(
     name="individual_params",
-    path="/opt/autoware/vehicle/vehicle.j6_gen2/individual_params",
-    apply="/opt/autoware/vehicle/vehicle.j6_gen2/apply.sh",
+    path="/opt/autoware/vehicle/sample_vehicle/individual_params",
+    apply="/opt/autoware/vehicle/sample_vehicle/apply.sh",
 )
 THIS_ECU = ImageIdentifier("autoware", OTAReleaseKey.dev)
 ANNOTATIONS = {

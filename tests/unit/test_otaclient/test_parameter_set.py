@@ -46,12 +46,12 @@ from otaclient.parameter_set import (
 
 PARAMS = ParameterSlot(
     name="individual_params",
-    path="/opt/autoware/vehicle/vehicle.j6_gen2/individual_params",
+    path="/opt/autoware/vehicle/sample_vehicle/individual_params",
     apply="/opt/autoware/bin/apply-parameter-set",
 )
 LAUNCH = ParameterSlot(
     name="launch",
-    path="/opt/autoware/vehicle/vehicle.j6_gen2/launch",
+    path="/opt/autoware/vehicle/sample_vehicle/launch",
     apply="/opt/autoware/bin/apply-launch",
 )
 REBOOT = ParameterSlot(name="kernel", path="/opt/kernel-params", apply="reboot")
