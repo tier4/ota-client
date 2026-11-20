@@ -18,7 +18,7 @@ Under `/opt/ota/parameter-set/` (`0700`, root only), in the running slot:
 | `previous/` | The set before, only while a switch is in progress. |
 | `discard/` | The set before, only while it is being deleted after a switch. |
 | `staging/` | A set being prepared. |
-| `history.jsonl` (`.1`) | One JSON object per line per event (`applied`, `running`, `dropped`, `tree_mismatch`, `apply_failed`, `apply_not_root_only`, …), rotated at 1 MiB. |
+| `history.jsonl` (`.1`) | One JSON object per line per event (`applied`, `running`, `dropped`, `tree_mismatch`, `apply_failed`, `apply_not_root_only`, `mount_point_made`, …), rotated at 1 MiB. |
 | `last-running-boot` | What was last recorded as `running`, so that it is recorded once per boot. |
 
 The mounts are also written into a managed block of `/etc/fstab` (`bind,ro,nosuid,nodev,nofail,x-systemd.before=local-fs.target`), so that a reboot lays the set again before anything reads the slots; a slot that cannot be mounted does not stop the boot, and otaclient mounts it again when it starts.
@@ -26,7 +26,12 @@ A full OTA writes a new slot from its image: the set is not carried over, only t
 
 A slot is never over what otaclient uses for itself: besides what every consumer reads (`/boot`, `/etc/fstab`, `/opt/ota`, `/usr/share/ota`), `/proc`, `/sys`, `/dev`, `/run`, `/host_root`, `/ota-cache` and otaclient's stores at `/.ota-*`; such a set is refused with `E463`.
 
-A slot's `apply` runs as root, in the host's root. An `apply` that users other than root can change (the file, or a directory on its way, writable by them) is logged and recorded as `apply_not_root_only`, but not refused.
+A slot directory the running image does not have is made (empty, root's, with its missing parents) as the mount point, recorded as `mount_point_made`, and left in place when the slot is taken away; one the image has as a file, or behind a file or a symbolic link, refuses the set with `E463`.
+A slot's mount is taken away lazily: a program that runs from the slot's files keeps them until it exits.
+
+A slot's `apply` runs as root, in the host's root, once the slot holds the set's new contents: it is the file at its path then, the set's own when the path is inside one of the set's slots (the set must carry it, executable), the running image's otherwise (which must have it, or the set is refused with `E463`).
+Nothing runs when a slot is taken away (an empty set, a set without that slot, a set dropped at startup): that takes effect when what reads the slot restarts. When a switch fails, the set before is put back and the `apply` of its slots runs again; with no set before, nothing runs.
+An `apply` of the running image that users other than root can change (the file, or a directory on its way, writable by them) is logged and recorded as `apply_not_root_only`, but not refused.
 
 ## The Record
 

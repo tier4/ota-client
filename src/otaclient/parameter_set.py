@@ -19,8 +19,15 @@ without a standby slot and without a reboot (unless a changed slot's `apply` is
 the set fills is bound read-only over the base's directory: now, by a mount, and at
 every boot, by an entry in /etc/fstab ordered before local-fs.target, so that the slot
 holds the set before anything that reads it starts. The base's own files are never
-written, only hidden. A set names no base: it is applied on whatever base the ECU
-runs, as long as that base has the set's slot directories and applies.
+written, only hidden; a slot directory the base does not have is made (empty) as the
+mount point. A set names no base: it is applied on whatever base the ECU runs, as long
+as that base has room for its slots and the applies it does not carry itself (an
+`apply` inside the set's slots is the set's own file).
+
+A slot's mount is taken away lazily, so that a program running from the slot's files
+keeps them until it exits. The `apply` of a slot runs once the slot holds a set's new
+contents; nothing runs when a slot is taken away (an empty set, a set without that
+slot, a set dropped): that takes effect when what reads the slot restarts.
 
 The store, under PARAMETER_SET_DPATH::
 
@@ -255,6 +262,7 @@ class AppliedRecord(BaseModel):
 
 class ParameterSlotMounter(Protocol):
     def is_mounted(self, mount_point: str) -> bool: ...
+    def make_mount_point(self, mount_point: str) -> bool: ...
     def bind_ro(self, source: Path, mount_point: str) -> None: ...
     def umount(self, mount_point: str) -> None: ...
 
@@ -302,12 +310,27 @@ class HostParameterSlotMounter:
         except Exception:
             return False
 
-    def bind_ro(self, source: Path, mount_point: str) -> None:
-        # the slot's path as declared, on the host, not a link someone put there
+    def _on_host(self, mount_point: str) -> str:
+        """The slot's path as declared, on the host, not a link someone put there."""
         _root = os.path.realpath(self._host_root)
         _on_host = os.path.join(_root, mount_point.lstrip("/"))
         if os.path.realpath(_on_host) != _on_host:
             raise OSError(f"{mount_point} is behind a symbolic link")
+        return _on_host
+
+    def make_mount_point(self, mount_point: str) -> bool:
+        """Make the slot's directory when the host does not have it (a slot the base
+        has no directory for), with its missing parents, as root's; True when it was
+        made. Left in place when the slot is taken away: an empty directory.
+        Raises OSError for a path behind a link, or with a file in the way."""
+        _on_host = self._on_host(mount_point)
+        if os.path.isdir(_on_host):
+            return False
+        os.makedirs(_on_host, mode=0o755)
+        return True
+
+    def bind_ro(self, source: Path, mount_point: str) -> None:
+        self._on_host(mount_point)
         run_command(
             ["mount", "--bind", str(source), mount_point],
             what=f"binding {mount_point}",
@@ -326,20 +349,25 @@ class HostParameterSlotMounter:
             raise
 
     def umount(self, mount_point: str) -> None:
+        # lazy: a program that runs from the slot's files (what an overlay holds)
+        #   keeps them until it exits, rather than the slot staying as it was
         run_command(
-            ["umount", mount_point],
+            ["umount", "--lazy", mount_point],
             what=f"unmounting {mount_point}",
             set_host_mnt_ns=self._host_mnt_ns(),
         )
 
 
 def run_apply(command: str) -> None:
-    """Run a slot's `apply`, an executable of the base, in the host's root."""
+    """Run a slot's `apply` in the host's root and mount namespace: what it runs and
+    reads is what the device's processes see, the slots' mounts included (an `apply`
+    the set carries is a file on one of them), also from an app image."""
     logger.info(f"running {command} ...")
     run_command(
         [command],
         what=f"apply {command}",
         chroot=_env.get_dynamic_client_chroot_path(),
+        set_host_mnt_ns=_env.is_dynamic_client_running(),
         timeout=cfg.PARAMETER_SET_APPLY_TIMEOUT,
     )
 
@@ -544,6 +572,13 @@ class ParameterSetStore:
             return
         for _slot in record.slots:
             if not self._mounter.is_mounted(_slot.path):
+                if self._mounter.make_mount_point(_slot.path):
+                    logger.info(
+                        f"made {_slot.path}, the mount point of slot {_slot.name}"
+                    )
+                    self.record_event(
+                        "mount_point_made", slot=_slot.name, path=_slot.path
+                    )
                 self._mounter.bind_ro(self.tree_of(_slot), _slot.path)
 
     def _run_applies(self, slots: Iterable[RecordedSlot]) -> bool:
@@ -572,23 +607,26 @@ class ParameterSetStore:
         new: AppliedRecord,
         new_files: list[ParameterSetFileEntry],
     ) -> list[RecordedSlot]:
-        """The slots whose contents change from `old` to `new`, with the `apply` that
-        makes each change take effect: filled by `new` only, or by both with other
-        files (by path, size and digest) or another `apply`, `new`'s; filled by `old`
-        only, `old`'s. A slot is the same in both by its name and path: one that
-        moved is taken away at the old path and filled at the new one."""
+        """The slots `new` fills whose contents change from `old`, with the `apply`
+        that makes each change take effect (`new`'s, the file at its path once `new`
+        is in place): filled by `new` only, or by both with other files (by path,
+        size and digest) or another `apply`. A slot `new` takes away (filled by `old`
+        only) is not among them: nothing runs for it, it takes effect when what reads
+        it restarts. A slot is the same in both by its name and path: one that moved
+        is taken away at the old path and filled at the new one."""
         _old_slots = {_slot_key(_s): _s for _s in (old.slots if old else [])}
         _new_slots = {_slot_key(_s): _s for _s in new.slots}
         _changed: list[RecordedSlot] = []
         for _key in dict.fromkeys([*_old_slots, *_new_slots]):
             _o, _n = _old_slots.get(_key), _new_slots.get(_key)
+            if _n is None:
+                continue
             if (
                 _o is None
-                or _n is None
                 or _o.apply != _n.apply
                 or _slot_files(old_files, _o) != _slot_files(new_files, _n)
             ):
-                _changed.append(_n or _o)  # type: ignore[arg-type]
+                _changed.append(_n)
         return _changed
 
     def _slots_to_apply(
@@ -598,22 +636,21 @@ class ParameterSetStore:
         new: AppliedRecord,
         new_files: list[ParameterSetFileEntry],
     ) -> list[RecordedSlot]:
-        """The slots whose contents change from the set in `old_dir` to `new`: by
+        """The slots `new` fills whose contents change from the set in `old_dir`: by
         their file lists, unless the files in `old_dir` are not its set's own, when
-        every slot of either changes (`new`'s apply where both fill it)."""
+        every slot `new` fills changes."""
         if old is not None and (_why := self.check_tree(old, old_dir)) is not None:
             logger.warning(
                 f"the files of {old.describe()} are not the set's ({_why}): "
                 "every slot is applied"
             )
-            return list({_slot_key(_s): _s for _s in [*old.slots, *new.slots]}.values())
+            return list(new.slots)
         return self.changed_slots(old, self._read_files(old_dir), new, new_files)
 
     def switch(self) -> bool:
         """Put the staged set in place of the applied one, keeping that one as
-        `previous/` until `commit`, and run the `apply` of every slot whose contents
-        change: the new set's `apply` for a slot it fills, the old set's for a slot
-        it takes away.
+        `previous/` until `commit`, and run the `apply` of every slot the new set
+        fills whose contents change; nothing runs for a slot it takes away.
 
         On failure the applied set is put back, its `apply`s run again, and
         ParameterSetFailed raised, saying whether that worked. Returns True when a
@@ -678,9 +715,9 @@ class ParameterSetStore:
 
     def roll_back(self, *, cause: Exception) -> bool:
         """Put `previous/` (or no set, when there was none) back in place of the
-        applied set, and run the `apply` of the slots that change back: the set put
-        back's for a slot it fills, the applied set's for one it takes away. Never
-        raises: returns whether the slots are back, a failure is recorded."""
+        applied set, and run the `apply` of the slots the set put back fills that
+        change back; nothing runs for a slot it does not fill. Never raises: returns
+        whether the slots are back, a failure is recorded."""
         try:
             _failed = self.applied_record()
             _back = self._read_record(self.previous_dir)
@@ -693,8 +730,8 @@ class ParameterSetStore:
                 )
             else:
                 # one side is not there (crashed between the two renames of a switch,
-                #   or no set before): every slot of the other changes
-                _changed = list((_back or _failed).slots) if (_back or _failed) else []
+                #   or no set before): every slot the set put back fills changes
+                _changed = list(_back.slots) if _back else []
             self._unmount([*self._paths(_failed, _back), *self._fstab_mount_points()])
             shutil.rmtree(self.applied_dir, ignore_errors=True)
             if self.previous_dir.exists():
@@ -921,12 +958,13 @@ class ParameterSetStore:
     ) -> None:
         """Drop the applied set: the slot reports the base again (when its records
         are still this set's release), the mounts and the fstab entries go, then the
-        unpacked files, then the slots that changed back are applied.
+        unpacked files. No `apply` runs: the slots go back to the base's when what
+        reads them restarts.
 
-        Without a `record` to go by (unreadable, or not this slot's), no `apply` is
-        run and the slot's records are left as they are; what is unmounted is
-        `mount_points` and what otaclient's fstab block mounts, and what the history
-        says of the set is `evidence`."""
+        Without a `record` to go by (unreadable, or not this slot's), the slot's
+        records are left as they are; what is unmounted is `mount_points` and what
+        otaclient's fstab block mounts, and what the history says of the set is
+        `evidence`."""
         _what = record.describe() if record else "the applied set"
         logger.error(f"{_what} does not hold ({why}): dropping it")
         _evidence = record.evidence() if record else (evidence or {})
@@ -954,17 +992,6 @@ class ParameterSetStore:
             self.record_event("drop_failed", reason=why, error=str(e), **_evidence)
             return
         self.record_event("dropped", reason=why, **_evidence)
-        if record is None:
-            return
-        try:
-            self._reboot_required(self._run_applies(record.slots), "dropped")
-        except Exception as e:
-            # dropped all the same: what reads the slots runs with the base's defaults
-            #   from its next start
-            logger.error(f"the apply of the dropped set's slots failed: {e}")
-            self.record_event(
-                "apply_failed", set=record.set_manifest_digest, error=str(e)
-            )
 
     def carry_history_to(self, standby_root: Path, *, reason: str) -> None:
         """Copy the history into the slot a full OTA wrote, saying that the applied
